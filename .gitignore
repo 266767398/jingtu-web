@@ -1,0 +1,37 @@
+# 环境配置
+.env
+
+# 依赖
+node_modules/
+
+# 运行时数据
+server/session.json
+*.json.bak
+
+# 备份
+backup/
+*.sql
+
+# 日志
+*.log
+npm-debug.log*
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 敏感凭证文件
+server/cookie*.txt
+server/tc*.txt
+
+# Windows 误重定向产物
+nul
+
+# 测试工具
+tools/
+
+# 上传目录（保留目录结构）
+uploads/profile/photos/*
+uploads/profile/videos/*
+!uploads/profile/photos/.gitkeep
+!uploads/profile/videos/.gitkeep

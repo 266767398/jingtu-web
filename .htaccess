@@ -1,0 +1,26 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+</IfModule>
+
+# 禁止访问敏感文件
+<FilesMatch "^\.">
+  Require all denied
+</FilesMatch>
+<FilesMatch "\.(env|sql|log|txt|md|yml|yaml|bak|json)$">
+  Require all denied
+</FilesMatch>
+
+# 禁止访问 Node.js 相关目录
+RedirectMatch 403 ^/server/
+RedirectMatch 403 ^/node_modules/
+RedirectMatch 403 ^/docs/
+
+# 禁止目录列表
+Options -Indexes
+
+# 安全头
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>

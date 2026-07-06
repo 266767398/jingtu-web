@@ -1,0 +1,754 @@
+/* ====================================================
+   境途同游 — UI 增强 & 动画系统 V1.0
+   本文件覆盖 style.css 的部分样式，增强交互体验
+   ==================================================== */
+
+/* ========== 1. 页面过渡动画 ========== */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px var(--accent); }
+  50%      { box-shadow: 0 0 20px var(--accent), 0 0 40px rgba(124,92,252,.2); }
+}
+@keyframes toastSlideIn {
+  from { transform: translateX(120%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+@keyframes toastSlideOut {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(120%); opacity: 0; }
+}
+
+/* ========== 2. 标签页切换动画 ========== */
+.tab-content {
+  animation: fadeInUp .35s cubic-bezier(.4,0,.2,1);
+}
+
+.tab-content.d-none {
+  display: none !important;
+}
+
+/* ========== 3. 弹窗动画增强 ========== */
+.modal {
+  transition: opacity .25s cubic-bezier(.4,0,.2,1);
+}
+.modal.show .confirm-dialog,
+.modal.show > div[class*="modal"] {
+  animation: scaleIn .25s cubic-bezier(.34,1.56,.64,1);
+}
+.modal:not(.show) .confirm-dialog,
+.modal:not(.show) > div[class*="modal"] {
+  animation: fadeIn .15s ease reverse;
+}
+
+/* ========== 4. Toast 动画增强 ========== */
+.toast {
+  animation: toastSlideIn .3s cubic-bezier(.34,1.56,.64,1) forwards;
+}
+.toast.removing {
+  animation: toastSlideOut .25s ease forwards;
+}
+
+/* ========== 5. 骨架屏加载 ========== */
+.skeleton-card-grid {
+  background: linear-gradient(90deg, var(--card2) 25%, var(--card-hover, var(--card)) 50%, var(--card2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease infinite;
+  border-radius: var(--radius);
+  min-height: 180px;
+}
+.skeleton-card {
+  background: linear-gradient(90deg, var(--card2) 25%, var(--card-hover, var(--card)) 50%, var(--card2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease infinite;
+  border-radius: var(--radius);
+  min-height: 80px;
+  margin-bottom: 12px;
+}
+.skeleton-text {
+  display: inline-block;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--card2) 25%, var(--card-hover, var(--card)) 50%, var(--card2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease infinite;
+}
+.skeleton-stat {
+  background: linear-gradient(90deg, var(--card2) 25%, var(--card-hover, var(--card)) 50%, var(--card2) 75%) !important;
+  background-size: 200% 100% !important;
+  animation: shimmer 1.5s ease infinite !important;
+  border-radius: 4px;
+  min-width: 40px;
+  min-height: 26px;
+  display: inline-block;
+}
+.skeleton-circle {
+  border-radius: 50%;
+  background: linear-gradient(90deg, var(--card2) 25%, var(--card-hover, var(--card)) 50%, var(--card2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease infinite;
+}
+
+/* ========== 6. 卡片微交互 ========== */
+.card, .member-card, .event-card {
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1),
+              box-shadow .25s ease,
+              border-color .2s ease;
+}
+.card:hover, .member-card:hover, .event-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+}
+.card:active, .member-card:active {
+  transform: translateY(-1px) scale(.99);
+}
+
+/* ========== 7. 按钮加强 ========== */
+.btn {
+  position: relative;
+  overflow: hidden;
+}
+.btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--mx,50%) var(--my,50%), rgba(255,255,255,.15), transparent 70%);
+  opacity: 0;
+  transition: opacity .2s ease;
+  pointer-events: none;
+}
+.btn:hover::after { opacity: 1; }
+.btn:active { transform: scale(.96); }
+
+/* ========== 8. 元素入场序列 ========== */
+.stagger-enter > * {
+  opacity: 0;
+  animation: fadeInUp .4s cubic-bezier(.4,0,.2,1) forwards;
+}
+.stagger-enter > *:nth-child(1) { animation-delay: 0s; }
+.stagger-enter > *:nth-child(2) { animation-delay: .05s; }
+.stagger-enter > *:nth-child(3) { animation-delay: .1s; }
+.stagger-enter > *:nth-child(4) { animation-delay: .15s; }
+.stagger-enter > *:nth-child(5) { animation-delay: .2s; }
+.stagger-enter > *:nth-child(6) { animation-delay: .25s; }
+.stagger-enter > *:nth-child(7) { animation-delay: .3s; }
+.stagger-enter > *:nth-child(8) { animation-delay: .35s; }
+.stagger-enter > *:nth-child(9) { animation-delay: .4s; }
+.stagger-enter > *:nth-child(10) { animation-delay: .45s; }
+
+/* ========== 9. 全局加载动画 ========== */
+.global-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s ease;
+}
+.global-loading.show {
+  opacity: 1;
+  pointer-events: all;
+}
+.global-loading .spinner {
+  width: 40px; height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+
+/* ========== 10. 空状态美化 ========== */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  text-align: center;
+  animation: fadeIn .4s ease;
+}
+.empty-state .empty-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: .5;
+}
+.empty-state div:last-child {
+  color: var(--text3);
+  font-size: 14px;
+}
+
+/* ========== 11. 徽章 & 标签动画 ========== */
+.tag, .badge {
+  transition: all .2s ease;
+}
+.tag:hover {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+
+/* ========== 12. 通知面板改进 ========== */
+.notification-item {
+  transition: background .2s ease, transform .15s ease;
+}
+.notification-item:hover {
+  transform: translateX(3px);
+}
+
+/* ========== 13. 页脚改进 ========== */
+footer {
+  transition: opacity .3s ease;
+}
+footer .social-link {
+  transition: all .2s ease;
+}
+footer .social-link:hover {
+  color: var(--accent2);
+  transform: translateY(-2px);
+}
+
+/* ========== 14. 搜索框焦点动画 ========== */
+input:focus, select:focus, textarea:focus {
+  box-shadow: 0 0 0 3px var(--hover);
+  transition: box-shadow .2s ease, border-color .2s ease;
+}
+
+/* ========== 15. 进度条动画 ========== */
+.progress-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-bar .progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  border-radius: 2px;
+  transition: width .4s cubic-bezier(.4,0,.2,1);
+}
+
+/* ========== 16. 通知标记脉冲 ========== */
+.notification-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  display: inline-block;
+  animation: pulse-glow 2s infinite;
+}
+
+/* ========== 17. 标签页底栏指示器动画 ========== */
+.tab.active::after {
+  animation: fadeIn .25s ease;
+}
+
+/* ========== 18. 滚动条美化（覆盖 style.css） ========== */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { 
+  background: var(--scrollbar-thumb); 
+  border-radius: 10px; 
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+
+/* ========== 19. 模态框背景效果 ========== */
+.modal.show {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* ========== 20. 成员在线状态指示器 ========== */
+.online-dot {
+  transition: all .3s ease;
+}
+.online-dot.on {
+  animation: pulse-glow 2s infinite;
+}
+
+/* ========== 21. 消息气泡动画 ========== */
+.message-bubble {
+  animation: fadeInUp .3s ease;
+}
+
+/* ========== 22. Avatar 悬停效果 ========== */
+.member-avatar, .user-avatar, .group-avatar-sm {
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.member-card:hover .member-avatar {
+  transform: scale(1.1) rotate(-3deg);
+  box-shadow: 0 0 16px rgba(124,92,252,.35);
+}
+
+/* ========== 23. 输入框内联状态提示 ========== */
+.input-wrap {
+  position: relative;
+}
+.input-wrap .input-hint {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 4px;
+  transition: color .2s ease;
+}
+.input-wrap .input-hint.error { color: var(--red); }
+.input-wrap .input-hint.success { color: var(--green); }
+
+/* ========== 24. 展开/折叠动画 ========== */
+.collapsible {
+  overflow: hidden;
+  transition: max-height .3s cubic-bezier(.4,0,.2,1), opacity .25s ease;
+  max-height: 0;
+  opacity: 0;
+}
+.collapsible.open {
+  max-height: 500px;
+  opacity: 1;
+}
+
+/* ========== 25. 下拉菜单改进 ========== */
+.dropdown-menu {
+  opacity: 0;
+  transform: translateY(-8px) scale(.95);
+  transition: opacity .2s ease, transform .2s cubic-bezier(.34,1.56,.64,1);
+  pointer-events: none;
+}
+.dropdown-menu.show {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: all;
+}
+
+/* ========== 26. 头像上传悬停遮罩 ========== */
+.avatar-upload-wrap {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+}
+.avatar-upload-wrap .avatar-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(0,0,0,.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity .2s ease;
+  color: #fff;
+  font-size: 14px;
+}
+.avatar-upload-wrap:hover .avatar-overlay {
+  opacity: 1;
+}
+
+/* ========== 27. 消息已读指示器 ========== */
+.read-indicator {
+  transition: color .2s ease;
+}
+.read-indicator.read { color: var(--green); }
+.read-indicator.unread { color: var(--text3); }
+
+/* ========== 28. 列表项点击反馈 ========== */
+.clickable-item {
+  cursor: pointer;
+  transition: background .15s ease, transform .15s ease;
+}
+.clickable-item:active {
+  transform: scale(.98);
+}
+
+/* ========== 29. 分类标签选中态 ========== */
+.filter-chip {
+  transition: all .2s ease;
+  cursor: pointer;
+}
+.filter-chip.active {
+  transform: translateY(-1px);
+}
+
+/* ========== 30. 分隔线渐变 ========== */
+.divider-gradient {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+  border: none;
+  margin: 16px 0;
+}
+
+/* ========== 31. 语言切换按钮 & 弹窗 ========== */
+.lang-switcher-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: all .2s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.lang-switcher-btn:hover {
+  border-color: var(--accent);
+  background: rgba(124,92,252,.08);
+}
+
+.lang-switcher-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+}
+.lang-switcher-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all .2s ease;
+  font-size: 14px;
+  color: var(--text);
+  width: 100%;
+  text-align: left;
+}
+.lang-switcher-item:hover {
+  background: var(--hover-bg, rgba(124,92,252,.06));
+  border-color: var(--border);
+}
+.lang-switcher-item.active {
+  border-color: var(--accent);
+  background: rgba(124,92,252,.1);
+  font-weight: 600;
+}
+.lang-emoji {
+  font-size: 20px;
+  width: 30px;
+  text-align: center;
+}
+.lang-name {
+  flex: 1;
+}
+.lang-check {
+  margin-left: auto;
+  font-size: 14px;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .lang-switcher-btn {
+    font-size: 0;
+    padding: 4px 6px;
+  }
+  .lang-switcher-btn::before {
+    content: '🌐';
+    font-size: 16px;
+  }
+}
+
+/* Tab 按钮中 emoji 与文字分开以便 i18n 只替换文字 */
+.tab-emoji {
+  margin-right: 2px;
+}
+
+/* ========== 31. 移动端视图高度修复 ========== */
+@supports (-webkit-touch-callout: none) {
+  body, .login-overlay {
+    min-height: -webkit-fill-available;
+  }
+}
+
+/* ========== 32. 页面加载进度条 ========== */
+#globalLoadBar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2), var(--sky));
+  background-size: 200% 100%;
+  z-index: 10000;
+  transition: width .3s cubic-bezier(.4,0,.2,1), opacity .3s ease;
+  opacity: 0;
+  animation: none;
+}
+#globalLoadBar.active {
+  opacity: 1;
+  animation: shimmer 1s ease infinite;
+}
+
+/* ========== 33. 卡片悬停边框光效 ========== */
+@keyframes borderGlow {
+  0%, 100% { border-color: var(--border); box-shadow: 0 0 0 transparent; }
+  50% { border-color: var(--accent); box-shadow: 0 0 12px rgba(124,92,252,.15); }
+}
+.card-glow:hover {
+  animation: borderGlow 2s ease infinite;
+}
+
+/* ========== 34. 通知计数气泡弹出动画 ========== */
+@keyframes badgePop {
+  0% { transform: scale(0); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+.tab-badge {
+  animation: badgePop .3s cubic-bezier(.34,1.56,.64,1);
+}
+
+/* ========== 35. 消息发送动画 ========== */
+@keyframes messageSend {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.chat-message {
+  animation: messageSend .25s ease;
+}
+
+/* ========== 36. 倒影/毛玻璃效果选项 ========== */
+.glass-effect {
+  background: rgba(255,255,255,.05);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255,255,255,.1);
+}
+
+/* ========== 37. 响应式微调 ========== */
+@media (max-width: 768px) {
+  .tab-content {
+    animation-duration: .25s;
+  }
+  .hero-overlay h1 { font-size: 28px; }
+  .hero { height: 240px; }
+  .container { padding: 12px; }
+  .card { padding: 14px; }
+  .member-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+}
+@media (max-width: 480px) {
+  .member-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .header-inner { padding: 8px 12px; }
+  .hero-overlay h1 { font-size: 22px; }
+  .hero-description { font-size: 13px; }
+}
+
+/* ========== 38. 管理面板 UI 增强 ========== */
+.admin-dashboard { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.stat-card { position: relative; overflow: hidden; cursor: default; }
+.stat-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--accent), transparent 60%);
+  opacity: 0;
+  transition: opacity .3s ease;
+  pointer-events: none;
+}
+.stat-card:hover { transform: translateY(-3px); border-color: var(--accent); box-shadow: 0 6px 24px rgba(124,92,252,.18); }
+.stat-card:hover::before { opacity: .05; }
+.stat-card .stat-value { font-size: 28px; font-weight: 800; position: relative; z-index: 1; }
+.stat-card .stat-label { position: relative; z-index: 1; }
+
+/* 管理面板卡片头部增强 */
+.admin-card-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px; margin: -16px -16px 12px -16px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, var(--card2) 0%, rgba(124,92,252,.04) 100%);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.admin-card-header h3 { font-size: 15px; font-weight: 700; margin: 0; flex: 1; }
+
+/* 管理表单分组 */
+.admin-form-section {
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+}
+.admin-form-section h4 {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+
+/* ========== 39. 首页成员卡片增强 ========== */
+.member-grid { animation: gridFadeIn .4s ease-out; }
+@keyframes gridFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.member-card {
+  position: relative;
+  overflow: hidden;
+}
+.member-card::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 80px; height: 80px;
+  background: radial-gradient(circle, rgba(124,92,252,.06), transparent 70%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.member-card:hover::after { opacity: 1; }
+
+/* ========== 40. 空状态 & 欢迎提示增强 ========== */
+.welcome-card {
+  background: linear-gradient(135deg, var(--card2) 0%, rgba(124,92,252,.06) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+.welcome-card h2 { font-size: 18px; font-weight: 700; margin: 0 0 6px; }
+.welcome-card p { font-size: 14px; color: var(--text2); margin: 0; line-height: 1.6; }
+
+/* ========== 41. 表单 & 按钮响应式改进 ========== */
+@media (max-width: 768px) {
+  .admin-dashboard { grid-template-columns: repeat(2, 1fr); }
+  .stat-card { padding: 10px; }
+  .stat-card .stat-value { font-size: 22px; }
+}
+
+/* ========== 42. 管理用户列表卡片 ========== */
+.admin-user-card {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  transition: all .2s ease;
+  margin-bottom: 6px;
+}
+.admin-user-card:hover {
+  border-color: var(--accent);
+  transform: translateX(2px);
+}
+.admin-user-avatar {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid transparent;
+  flex-shrink: 0;
+}
+.admin-user-card:hover .admin-user-avatar {
+  border-color: var(--accent);
+}
+.admin-user-info { flex: 1; min-width: 0; }
+.admin-user-info .admin-user-name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.admin-user-info .admin-user-meta { font-size: 11px; color: var(--text2); }
+.admin-user-actions { display: flex; gap: 4px; flex-shrink: 0; flex-wrap: wrap; }
+
+/* ========== 43. 首页 Home Tab 样式 ========== */
+.home-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.home-quick-card {
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: all .25s cubic-bezier(.34,1.56,.64,1);
+  position: relative;
+  overflow: hidden;
+}
+.home-quick-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--accent) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.home-quick-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px rgba(124,92,252,.2);
+}
+.home-quick-card:hover::before { opacity: .06; }
+.home-quick-card:active { transform: translateY(-1px); }
+.home-quick-icon { font-size: 28px; margin-bottom: 6px; position: relative; z-index: 1; }
+.home-quick-label { font-weight: 700; font-size: 14px; position: relative; z-index: 1; }
+.home-quick-tip { font-size: 11px; color: var(--text2); margin-top: 4px; position: relative; z-index: 1; }
+
+.section-title { font-size: 16px; font-weight: 700; margin: 0; }
+.section-title-icon { font-size: 20px; }
+
+/* 首页最新动态迷你列表 */
+.posts-mini-list { display: flex; flex-direction: column; gap: 8px; }
+.post-mini-item {
+  display: flex; gap: 10px; align-items: center;
+  padding: 10px 12px;
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.post-mini-item:hover {
+  border-color: var(--accent);
+  transform: translateX(3px);
+}
+.post-mini-avatar {
+  width: 40px; height: 40px;
+  border-radius: 50%; object-fit: cover;
+  flex-shrink: 0;
+}
+.post-mini-body { flex: 1; min-width: 0; }
+.post-mini-author { font-weight: 600; font-size: 13px; }
+.post-mini-content { font-size: 13px; color: var(--text2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.post-mini-time { font-size: 11px; color: var(--text3, var(--text2)); margin-top: 2px; }
+@media (max-width: 480px) {
+  .home-quick-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .home-quick-card { padding: 12px 8px; }
+  .home-quick-icon { font-size: 22px; }
+  .home-quick-tip { display: none; }
+}
+
+/* ========== 44. 通用增强 ========== */
+.text-13 { font-size: 13px; }
+.flex-row { display: flex; flex-direction: row; }
+.items-center { align-items: center; }
+.gap-8 { gap: 8px; }
+.mt-16 { margin-top: 16px; }
+.mb-8 { margin-bottom: 8px; }

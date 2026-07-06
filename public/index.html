@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#7c5cfc">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/assets/group-avatar.svg" type="image/svg+xml">
+<title>境途同游 - VRChat Group</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/ui-enhance.css">
+</head>
+<body>
+
+<!-- Toast 容器 -->
+<div class="toast-container" id="toastContainer" role="alert" aria-live="polite"></div>
+
+<!-- 动态粒子背景 -->
+<canvas id="loginParticles" class="login-particles-canvas"></canvas>
+
+<!-- ===== 登录界面 ===== -->
+<div id="loginOverlay" class="login-overlay">
+  <div class="login-box">
+    <div class="login-box-glow"></div>
+    <div id="loginLoading" class="login-loading-box">
+      <div class="login-spinner"></div>
+      <p class="login-loading-text">正在检查登录状态...</p>
+    </div>
+    <div class="login-logo">
+      <div class="login-logo-icon">
+        <div class="login-logo-ring"></div>
+        <img id="loginLogoImg" class="login-logo-img" src="/assets/group-avatar.png?v=20260617" alt="境途同游" onerror="this.style.display='none'">
+      </div>
+      <h2 class="login-title" data-i18n="app.title">境途同游</h2>
+      <p class="login-subtitle" id="loginSubtitle" data-i18n="app.subtitle">VRChat · 同游 · 同行</p>
+    </div>
+    <div id="loginError" class="login-error-wrap">
+      <div class="login-error-inner" id="loginErrorInner"></div>
+    </div>
+    <div class="login-tab-bar">
+      <button onclick="switchLoginMode('password')" class="login-tab-btn active" id="loginModePassword">
+        <span class="login-tab-icon">🔑</span><span data-i18n="login.password_tab">账号</span>
+      </button>
+      <button onclick="switchLoginMode('vrchat')" class="login-tab-btn" id="loginModeVrc">
+        <span class="login-tab-icon">🎮</span><span data-i18n="login.vrchat_tab">VRChat</span>
+      </button>
+      <button onclick="switchLoginMode('init')" class="login-tab-btn" id="loginModeInit">
+        <span class="login-tab-icon">⚙️</span><span data-i18n="login.init_tab">初始化</span>
+      </button>
+      <div class="login-tab-slider" id="loginTabSlider"></div>
+    </div>
+    <!-- 密码登录 -->
+    <div class="form-group" id="loginPasswordFields">
+      <div class="login-input-group">
+        <input type="text" id="loginId" placeholder="请输入账号" class="login-input" autocomplete="username" required data-i18n-placeholder="login.id_placeholder">
+        <label for="loginId" class="login-input-label">登录ID</label>
+        <div class="login-input-underline"></div>
+      </div>
+      <div class="login-input-group mt-16">
+        <div class="pwd-wrap">
+          <input type="password" id="loginPassword" placeholder="请输入密码" class="login-input" autocomplete="current-password" oninput="updatePwdMeter('loginPassword','loginPwdMeter','loginPwdStrength')" required data-i18n-placeholder="login.pwd_placeholder">
+          <button type="button" class="pwd-toggle" onclick="togglePwd('loginPassword','pwdToggle')" title="显示/隐藏密码" aria-label="切换密码可见性" id="pwdToggle">👁️</button>
+          <label for="loginPassword" class="login-input-label">密码</label>
+          <div class="login-input-underline"></div>
+        </div>
+      </div>
+      <div class="pwd-strength" id="loginPwdMeter"><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div></div>
+      <div class="pwd-strength-text" id="loginPwdStrength"></div>
+      <div class="login-options">
+        <label class="login-checkbox-wrap">
+          <input type="checkbox" id="rememberLogin" class="login-checkbox">
+          <span class="login-checkbox-mark"></span>
+          <span class="login-checkbox-label">记住账号</span>
+        </label>
+      </div>
+      <button onclick="doPasswordLogin()" class="login-btn" id="loginPwdBtn">
+        <span class="login-btn-text">登录</span>
+        <span class="login-btn-shimmer"></span>
+      </button>
+    </div>
+    <!-- VRChat 登录 -->
+    <div class="form-group d-none" id="loginVrcFields">
+      <div class="login-input-group">
+        <input type="text" id="loginVrcUser" placeholder="VRChat 用户名 / 邮箱" class="login-input" autocomplete="username" required data-i18n-placeholder="login.vrc_user_placeholder">
+        <label for="loginVrcUser" class="login-input-label">VRChat 用户名</label>
+      </div>
+      <div class="login-input-group mt-16">
+        <div class="pwd-wrap">
+          <input type="password" id="loginVrcPass" placeholder="VRChat 密码" class="login-input" autocomplete="current-password" required data-i18n-placeholder="login.vrc_pwd_placeholder">
+          <button type="button" class="pwd-toggle" onclick="togglePwdVrc()" title="显示/隐藏密码" aria-label="切换密码可见性" id="pwdToggleVrc">👁️</button>
+          <label for="loginVrcPass" class="login-input-label">密码</label>
+        </div>
+      </div>
+      <div class="login-options">
+        <label class="login-checkbox-wrap">
+          <input type="checkbox" id="rememberVrcLogin" class="login-checkbox">
+          <span class="login-checkbox-mark"></span>
+          <span class="login-checkbox-label">记住账号 1 周</span>
+        </label>
+      </div>
+      <button onclick="sendVrcLoginCode()" class="login-btn" id="sendVrcCodeBtn">
+        <span class="login-btn-text">发送验证码</span>
+        <span class="login-btn-shimmer"></span>
+      </button>
+      <div class="d-none" id="vrcLoginCodeArea">
+        <div id="vrcLoginCodeInputWrap">
+          <div class="login-input-group mt-12">
+            <input type="text" id="loginVrcCode" placeholder="输入验证码" class="login-input" autocomplete="off" required data-i18n-placeholder="login.vrc_code_placeholder">
+          </div>
+        </div>
+        <div id="vrcLoginNo2faMsg" class="d-none">
+          <div class="login-vrc-2fa-ready" id="loginVrc2faReady">
+            <span>✅ 无需验证码，点击下方"登录"按钮即可</span>
+          </div>
+        </div>
+        <button onclick="doVrcLoginConfirm()" class="login-btn mt-12" id="loginVrcConfirmBtn">
+          <span class="login-btn-text">登录</span>
+          <span class="login-btn-shimmer"></span>
+        </button>
+      </div>
+      <p class="login-hint-text mt-12">需要首次通过 VRChat 官方网站登录一次后才能使用直连登录</p>
+    </div>
+    <!-- 初始化 -->
+    <div class="form-group d-none" id="loginInitFields">
+      <div class="login-input-group">
+        <input type="text" id="initLoginId" placeholder="设置登录ID（仅用于登录）" class="login-input" autocomplete="off" required>
+        <label class="login-input-label">登录ID</label>
+        <div id="initIdHint" class="login-error-msg"></div>
+      </div>
+      <div class="login-input-group mt-16">
+        <input type="text" id="initDisplayName" placeholder="设置显示名称（对外展示）" class="login-input" autocomplete="off" required>
+        <label class="login-input-label">显示名称</label>
+        <div id="initNameHint" class="login-error-msg"></div>
+      </div>
+      <div class="login-input-group mt-16">
+        <div class="pwd-wrap">
+          <input type="password" id="initPassword" placeholder="大小写字母+数字+符号" class="login-input" oninput="updatePwdMeter('initPassword','initPwdMeter','initPwdStrength')" required>
+          <label class="login-input-label">设置密码</label>
+          <button class="pwd-toggle" id="pwdToggleInit" type="button" tabindex="-1" onclick="togglePwdInit()">👁️</button>
+        </div>
+      </div>
+      <div class="pwd-strength" id="initPwdMeter"><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div></div>
+      <div class="pwd-strength-text" id="initPwdStrength"></div>
+      <div class="login-input-group mt-16">
+        <div class="pwd-wrap">
+          <input type="password" id="initPassword2" placeholder="再次输入密码" class="login-input" oninput="checkPwdMatch('initPassword','initPassword2','initPwdMatch')" required>
+          <label class="login-input-label">确认密码</label>
+          <div id="initPwdMatch" class="login-error-msg"></div>
+        </div>
+      </div>
+      <button onclick="doInit()" class="login-btn mt-20">创建超级管理员</button>
+    </div>
+    <div class="login-footer">境途同游 v6.0</div>
+  </div>
+</div>
+
+<!-- ===== Header ===== -->
+<header class="d-none" id="appHeader">
+  <div class="header-inner">
+    <div class="header-left">
+      <img id="headerAvatar" class="group-avatar-sm" src="/assets/group-avatar.svg" alt="Logo" loading="lazy">
+      <div class="header-info">
+        <span id="headerName" class="header-name">境途同游</span>
+        <span id="headerOnline" class="online" style="cursor:pointer" onclick="showOnlineUsers()">
+          在线 <span id="heroOnline" class="skeleton-stat">0</span>
+        </span>
+        <span id="headerOnlineWS" class="header-ws-badge"></span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="header-search pos-relative">
+        <input type="text" id="globalSearch" placeholder="🔍 搜索成员、活动、公告..." class="global-search-input" onfocus="this.style.width='220px'" onblur="setTimeout(()=>{if(!searchBlurBlocked){this.style.width='160px';hideSearchResults()}},200)" oninput="globalSearch(this.value)" onkeydown="if(event.key==='Enter')globalSearchEnter(this.value)">
+        <div id="globalSearchResults" class="search-results-dropdown"></div>
+      </div>
+      <div class="notification-wrap">
+        <button id="bellBtn" class="bell-btn" onclick="toggleNotificationPanel()">🔔<span id="bellBadge" class="bell-badge d-none"></span></button>
+        <div id="notificationPanel" class="notification-panel d-none">
+          <div class="notification-header"><span data-i18n="notifications.title">🔔 通知</span><div><span class="notif-action" onclick="markAllNotificationsRead()" data-i18n="notifications.mark_read">全部已读</span><span class="notif-action ml-8" onclick="clearAllNotifications()" data-i18n="notifications.clear">清空</span></div></div>
+          <div id="notificationList" class="notification-list"></div>
+        </div>
+      </div>
+      <button id="themeBtn" class="theme-btn" onclick="toggleThemePanel(event)">🌙</button>
+      <button id="langSwitcherBtn" class="lang-switcher-btn" onclick="showLangSwitcher()" data-i18n="lang.switch_to">🇨🇳 简体中文</button>
+      <div id="themePanel" class="theme-panel d-none">
+        <div class="theme-section">
+          <div class="theme-section-title">🎨 主题设置</div>
+          <div class="theme-row"><span>切换模式</span><div class="theme-btns"><button onclick="setThemeMode('manual')" class="theme-mode-btn active" data-mode="manual">👆 手动</button><button onclick="setThemeMode('system')" class="theme-mode-btn" data-mode="system">🖥️ 跟随系统</button><button onclick="setThemeMode('time')" class="theme-mode-btn" data-mode="time">⏰ 定时</button></div></div>
+          <div class="theme-row"><span>亮度方案</span><div class="theme-btns"><button onclick="setBrightness('dark')" class="theme-brightness-btn active" data-bright="dark">🌙 暗色</button><button onclick="setBrightness('light')" class="theme-brightness-btn" data-bright="light">☀️ 亮色</button></div></div>
+          <div class="theme-row"><span>主题色</span><div class="theme-colors"><button onclick="setAccentColor('#7c5cfc')" class="theme-color-btn active" data-color="#7c5cfc" style="background:#7c5cfc" title="紫色"></button><button onclick="setAccentColor('#3b82f6')" class="theme-color-btn" data-color="#3b82f6" style="background:#3b82f6" title="蓝色"></button><button onclick="setAccentColor('#ec4899')" class="theme-color-btn" data-color="#ec4899" style="background:#ec4899" title="粉色"></button><button onclick="setAccentColor('#10b981')" class="theme-color-btn" data-color="#10b981" style="background:#10b981" title="绿色"></button><button onclick="setAccentColor('#f59e0b')" class="theme-color-btn" data-color="#f59e0b" style="background:#f59e0b" title="金色"></button><input type="color" id="themeColorPicker" value="#7c5cfc" oninput="setAccentColor(this.value)" title="自定义颜色"></div></div>
+        </div>
+        <div class="theme-panel-footer"><button onclick="resetTheme()" class="btn btn-sm btn-outline">🔄 重置默认</button><button onclick="closeThemePanel()" class="btn btn-sm btn-outline">✕ 关闭</button></div>
+      </div>
+      <span id="adminBadge" class="admin-badge d-none">管理员</span>
+      <div id="userMenuContainer" class="user-menu">
+        <div id="userMenuTrigger" class="user-info" onclick="toggleUserMenu(event)">
+          <img id="headerUserAvatar" class="user-avatar-sm" src="/api/avatar/default" alt="头像" loading="lazy">
+          <span id="headerUserName" class="user-name">未登录</span>
+          <span class="user-arrow">▾</span>
+        </div>
+        <div id="userDropdown" class="user-dropdown d-none">
+          <div class="user-dropdown-item" onclick="switchTab('me');toggleUserMenu()" data-i18n="nav.me">👤 个人中心</div>
+          <div class="user-dropdown-item" onclick="showEditProfileModal()" data-i18n="nav.edit_profile">📋 我的资料</div>
+          <div class="user-dropdown-item" onclick="showNameChangeModal()" data-i18n="nav.rename">✏️ 申请改名</div>
+          <div class="user-dropdown-divider"></div>
+          <div class="user-dropdown-item" onclick="doLogout()" data-i18n="logout">🚪 退出登录</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ===== Hero 封面 ===== -->
+<section id="heroSection" class="hero d-none">
+  <img id="heroImg" class="hero-bg-img" src="/assets/group-hero.png" alt="背景" loading="lazy">
+  <div id="heroGradientOverlay" class="hero-gradient-overlay"></div>
+  <canvas id="heroParticles" class="hero-particles"></canvas>
+  <div class="hero-overlay">
+    <div class="hero-content">
+      <div class="hero-badge" id="heroBadge">🌐 VRChat Group</div>
+      <h1 id="heroTitle">境途同游</h1>
+      <p id="heroSubtitle" class="hero-subtitle">JingTu Travel · VRChat Group</p>
+      <p id="heroDescription" class="hero-description">在虚拟世界相遇，在现实世界同行</p>
+      <div class="hero-stats">
+        <div class="hero-stat" onclick="showOnlineUsers()" style="cursor:pointer">
+          <span id="heroOnlineStat" class="hero-stat-value skeleton-stat">0</span>
+          <span class="hero-stat-label" data-i18n="members.online_label">🟢 在线</span>
+        </div>
+        <div class="hero-stat">
+          <span id="heroMembers" class="hero-stat-value skeleton-stat">0</span>
+          <span class="hero-stat-label" data-i18n="members.title">👥 成员</span>
+        </div>
+        <div class="hero-stat">
+          <span id="heroPhotos" class="hero-stat-value skeleton-stat">0</span>
+          <span class="hero-stat-label" data-i18n="members.photos_label">🖼️ 照片</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="hero-wave" aria-hidden="true">
+    <svg viewBox="0 0 1440 100" preserveAspectRatio="none"><path d="M0,50 C360,100 720,0 1080,50 C1260,75 1350,60 1440,50 L1440,100 L0,100 Z" fill="var(--bg)"/></svg>
+  </div>
+</section>
+
+<!-- ===== Main Container ===== -->
+<div class="container d-none" id="mainContainer">
+
+  <!-- Tab Bar -->
+  <div class="tabs" role="tablist">
+    <button id="tab-btn-home" class="tab active" role="tab" aria-selected="true" onclick="switchTab('home')"><span class="tab-emoji">🏠</span><span data-i18n="nav.home">首页</span></button>
+    <button id="tab-btn-members" class="tab" role="tab" aria-selected="false" onclick="switchTab('members')"><span class="tab-emoji">👥</span><span data-i18n="nav.members">成员</span></button>
+    <button id="tab-btn-group" class="tab" role="tab" aria-selected="false" onclick="switchTab('group')"><span class="tab-emoji">🎮</span><span data-i18n="nav.group">群组</span><span id="groupBadge" class="tab-badge d-none"></span></button>
+    <button id="tab-btn-announcements" class="tab" role="tab" aria-selected="false" onclick="switchTab('announcements')"><span class="tab-emoji">📢</span><span data-i18n="nav.announcements">公告</span> <span id="annoBadge" class="tab-badge d-none"></span></button>
+    <button id="tab-btn-events" class="tab" role="tab" aria-selected="false" onclick="switchTab('events')"><span class="tab-emoji">📅</span><span data-i18n="nav.events">活动</span> <span id="evtBadge" class="tab-badge d-none"></span></button>
+    <button id="tab-btn-birthday" class="tab" role="tab" aria-selected="false" onclick="switchTab('birthday')"><span class="tab-emoji">🎂</span><span data-i18n="nav.birthday">生日</span></button>
+    <button id="tab-btn-album" class="tab" role="tab" aria-selected="false" onclick="switchTab('album')"><span class="tab-emoji">🖼️</span><span data-i18n="nav.album">相册</span></button>
+    <button id="tab-btn-posts" class="tab" role="tab" aria-selected="false" onclick="switchTab('posts')"><span class="tab-emoji">📝</span><span data-i18n="nav.posts">动态</span></button>
+    <button id="tab-btn-map" class="tab" role="tab" aria-selected="false" onclick="switchTab('map')"><span class="tab-emoji">🗺️</span><span data-i18n="nav.map">地图</span></button>
+    <button id="tab-btn-chat" class="tab" role="tab" aria-selected="false" onclick="switchTab('chat')"><span class="tab-emoji">💬</span><span data-i18n="nav.chat">聊天</span> <span id="chatUnreadBadge" class="tab-badge" style="display:none"></span></button>
+    <button id="tab-btn-admin" class="tab admin-only" role="tab" aria-selected="false" onclick="switchTab('admin')"><span class="tab-emoji">⚙️</span><span data-i18n="nav.admin">管理</span></button>
+  </div>
+
+  <!-- Tab: 首页 -->
+  <div id="tab-home" class="tab-content">
+    <div class="welcome-card">
+      <h2 data-i18n="home.welcome_title">欢迎回来！</h2>
+      <p id="homeGreeting" data-i18n="home.welcome_desc">今天也是探索虚拟世界的好日子 🚀</p>
+    </div>
+
+    <!-- 快捷入口 -->
+    <div class="home-quick-grid">
+      <div class="home-quick-card" onclick="switchTab('events')" data-i18n-tip="events.title">
+        <div class="home-quick-icon">📅</div>
+        <div class="home-quick-label" data-i18n="nav.events">活动</div>
+        <div class="home-quick-tip" data-i18n="home.quick_events_tip">查看即将开始的活动</div>
+      </div>
+      <div class="home-quick-card" onclick="switchTab('posts')">
+        <div class="home-quick-icon">📝</div>
+        <div class="home-quick-label" data-i18n="nav.posts">动态</div>
+        <div class="home-quick-tip" data-i18n="home.quick_posts_tip">看看大家的近况</div>
+      </div>
+      <div class="home-quick-card" onclick="switchTab('chat')">
+        <div class="home-quick-icon">💬</div>
+        <div class="home-quick-label" data-i18n="nav.chat">聊天</div>
+        <div class="home-quick-tip" data-i18n="home.quick_chat_tip">与群友私信畅聊</div>
+      </div>
+      <div class="home-quick-card" onclick="switchTab('album')">
+        <div class="home-quick-icon">🖼️</div>
+        <div class="home-quick-label" data-i18n="nav.album">相册</div>
+        <div class="home-quick-tip" data-i18n="home.quick_album_tip">浏览群组照片</div>
+      </div>
+      <div class="home-quick-card" onclick="switchTab('announcements')">
+        <div class="home-quick-icon">📢</div>
+        <div class="home-quick-label" data-i18n="nav.announcements">公告</div>
+        <div class="home-quick-tip" data-i18n="home.quick_announce_tip">查看最新群组公告</div>
+      </div>
+      <div class="home-quick-card" onclick="switchTab('map')">
+        <div class="home-quick-icon">🗺️</div>
+        <div class="home-quick-label" data-i18n="nav.map">地图</div>
+        <div class="home-quick-tip" data-i18n="home.quick_map_tip">看看谁在线下同游</div>
+      </div>
+    </div>
+
+    <!-- 最近活动 -->
+    <div class="mt-16 mb-8 flex-row items-center gap-8">
+      <span class="section-title-icon">🔥</span>
+      <h3 class="section-title" data-i18n="home.upcoming_events">即将开始的活动</h3>
+    </div>
+    <div id="homeUpcomingEvents" class="events-grid">
+      <div class="skeleton-card"></div><div class="skeleton-card"></div>
+    </div>
+
+    <!-- 最新动态 -->
+    <div class="mt-16 mb-8 flex-row items-center gap-8">
+      <span class="section-title-icon">💬</span>
+      <h3 class="section-title" data-i18n="home.latest_posts">最新动态</h3>
+    </div>
+    <div id="homeLatestPosts" class="posts-mini-list"></div>
+  </div>
+
+  <!-- Tab: 地图 -->
+  <div id="tab-map" class="tab-content d-none">
+    <div class="map-legend"><span class="map-tab-btn active" onclick="switchMapView('members')" data-i18n="map.members_view">📍 成员位置</span><span class="map-tab-btn" onclick="switchMapView('worlds')" data-i18n="map.worlds_view">🌐 活动世界</span></div>
+    <div id="mapMembersView">
+      <div id="mapEmpty" class="empty-state d-none"><div class="empty-icon">🗺️</div><p data-i18n="map.no_data">暂无位置数据</p></div>
+      <div class="map-legend-sub flex-row gap-8 flex-wrap items-center">
+        <span><span class="legend-dot" style="background:#7c5cfc"></span> <span data-i18n="map.my_pos">我的位置</span></span>
+        <span><span class="legend-dot" style="background:#3b82f6"></span> <span data-i18n="map.other_pos">其他成员</span></span>
+        <span class="text-muted2 text-12 ml-auto"><span id="mapCount">0</span> <span data-i18n="members.visible_positions">个可见位置</span></span>
+        <button id="locationToggleBtn" class="btn btn-sm" onclick="toggleLocationTracking()" data-i18n="map.my_location">📍 共享我的位置</button>
+        <span id="locationStatus" class="text-12" style="display:none"></span>
+      </div>
+      <div id="memberMap" class="map-container"><div class="skeleton-card-grid"></div></div>
+      <p class="text-muted2 text-13 mt-8">位置共享使用浏览器 GPS 定位，精度约 5-50 米。共享范围仅限网站成员可见。</p>
+    </div>
+    <div id="mapWorldsView" class="d-none">
+      <div id="eventWorldsGrid" class="worlds-grid"></div>
+    </div>
+  </div>
+
+  <!-- Tab: 聊天 -->
+  <div id="tab-chat" class="tab-content d-none">
+    <div id="chatPanel">
+      <!-- 会话列表 -->
+      <div id="chatConversationView">
+        <div class="chat-header" data-i18n="chat.title">💬 私信</div>
+        <div id="chatConversationList" class="chat-conv-list">
+          <div class="chat-empty" data-i18n="chat.no_conversations">暂无聊天记录</div>
+        </div>
+      </div>
+      <!-- 聊天详情 -->
+      <div id="chatDetailView" class="d-none">
+        <div id="chatDetailHeader" class="chat-detail-header"></div>
+        <div id="groupLocationBar" class="group-location-bar"></div>
+        <div id="chatBox" class="chat-box"></div>
+        <div id="chatInputArea" class="chat-input-area d-none">
+          <textarea id="chatInput" class="chat-input" placeholder="输入消息…" data-i18n-placeholder="chat.input_placeholder" rows="2"></textarea>
+          <button class="btn btn-sm" onclick="sendChatMessage()" data-i18n="chat.send">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab: 成员 -->
+  <div id="tab-members" class="tab-content">
+    <div class="flex-row gap-8 mb-12 flex-wrap">
+      <input type="text" class="search-box m-0 flex-1" placeholder="🔍 搜索成员名称或登录ID..." data-i18n-placeholder="members.search_placeholder" oninput="filterMembers(this.value)">
+      <select id="memberRoleFilter" class="search-box w-auto" onchange="filterMembers()">
+        <option value="">全部身份</option>
+        <option value="super_admin">超级管理员</option>
+        <option value="admin">管理员</option>
+        <option value="member">成员</option>
+      </select>
+    </div>
+    <div id="memberCount" class="text-13 text-muted2 mb-8"></div>
+    <div id="membersList" class="member-grid">
+      <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
+    </div>
+  </div>
+
+  <!-- Tab: 群组 -->
+  <div id="tab-group" class="tab-content d-none">
+    <div id="groupOverview" class="group-overview">
+      <span class="group-stat-badge" id="groupTotalMembers">0</span> <span data-i18n="members.total">名成员</span>
+      <span class="group-stat-badge online" id="groupOnlineCount">0</span> <span data-i18n="members.online_label">在线</span>
+      <span class="group-stat-badge joined" id="groupJoinedToday">0</span> <span data-i18n="group.joined_today">今日加入</span>
+      <span class="text-muted2 text-12" id="groupSyncTime"></span>
+    </div>
+    <div class="flex-row gap-6 mb-12">
+      <button onclick="filterGroupMembers('all')" class="group-filter-btn active" data-filter="all" id="groupFilterAll">全部</button>
+      <button onclick="filterGroupMembers('online')" class="group-filter-btn" data-filter="online" id="groupFilterOnline">🟢 在线</button>
+      <button onclick="filterGroupMembers('offline')" class="group-filter-btn" data-filter="offline" id="groupFilterOffline">⚫ 离线</button>
+      <div class="flex-1"></div>
+      <button onclick="loadGroupMembers()" class="btn btn-sm btn-outline">🔄 刷新</button>
+      <button onclick="syncGroupMembers()" class="btn btn-sm btn-outline" id="syncGroupBtn">🌐 同步 VRChat</button>
+      <button onclick="refreshGroupStatus()" class="btn btn-sm btn-outline admin-only" id="refreshGroupBtn">📥 同步在线状态</button>
+    </div>
+    <div id="groupMemberGrid" class="group-member-grid">
+      <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
+      <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
+    </div>
+    <details id="groupChangesSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">成员变动记录 <span id="groupChangesCount" class="text-muted2 text-12"></span></summary><div id="groupChangesList" class="group-changes-list"></div></details>
+  </div>
+
+  <!-- Tab: 公告 -->
+  <div id="tab-announcements" class="tab-content d-none">
+    <div id="annoAdminBar" class="card-header d-none"><button onclick="showAnnounceModal()" class="btn btn-accent btn-sm">+ 发布公告</button></div>
+    <div id="announcementsList"></div>
+  </div>
+
+  <!-- Tab: 活动 -->
+  <div id="tab-events" class="tab-content d-none">
+    <div id="evtAdminBar" class="card-header d-none"><button onclick="showEventModal()" class="btn btn-accent btn-sm">+ 创建活动</button></div>
+    <div class="evt-filter-bar">
+      <button onclick="switchEvtStatus('ongoing')" class="evt-status-btn active" data-status="ongoing">🔴 进行中</button>
+      <button onclick="switchEvtStatus('upcoming')" class="evt-status-btn" data-status="upcoming">🟢 即将</button>
+      <button onclick="switchEvtStatus('past')" class="evt-status-btn" data-status="past">⚪ 往期</button>
+      <div class="flex-1"></div>
+      <span id="evtCount" class="text-muted2 text-13"></span>
+      <button onclick="switchEvtView('list')" class="evt-view-btn active" data-view="list">📋 列表</button>
+      <button onclick="switchEvtView('calendar')" class="evt-view-btn" data-view="calendar">📅 日历</button>
+      <button onclick="showArchiveList()" class="btn btn-sm btn-outline">📦 历史</button>
+      <button onclick="syncVRChatEvents()" class="btn btn-sm btn-outline admin-only">🔄 VRC 同步</button>
+    </div>
+    <div id="eventsListView"><div id="eventsList" class="events-grid"><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div></div></div>
+    <div id="eventsCalendarView" class="d-none"></div>
+  </div>
+
+  <!-- Tab: 生日 -->
+  <div id="tab-birthday" class="tab-content d-none">
+    <div class="card p-16"><h3 class="mb-8">🎂 本月寿星</h3><div id="birthdaysList"><div class="skeleton-card-list"></div><div class="skeleton-card-list"></div></div></div>
+    <div class="card p-16 mt-12"><h3 class="mb-8">🎉 生日派对</h3><div class="flex gap-8"><button onclick="showBirthdayEventModal()" class="btn btn-accent btn-sm admin-only">+ 新建生日派对</button></div><div id="birthdayPartiesList" class="mt-8"><div class="skeleton-card-list"></div><div class="skeleton-card-list"></div></div></div>
+  </div>
+
+  <!-- Tab: 动态 -->
+  <div id="tab-posts" class="tab-content d-none">
+    <div class="post-toolbar">
+      <div class="flex-row gap-8 flex-wrap">
+        <button class="btn btn-accent btn-sm" onclick="showCreatePostModal()">✏️ 发动态</button>
+        <div class="flex-1"></div>
+        <button class="post-filter-btn" onclick="filterPostsByType('')">全部</button>
+        <button class="post-filter-btn" onclick="filterPostsByType('image')">📷 图片</button>
+        <button class="post-filter-btn" onclick="filterPostsByType('video')">🎬 视频</button>
+        <button class="post-filter-btn" onclick="filterPostsByType('text')">📝 文字</button>
+      </div>
+    </div>
+    <div id="postsList" class="posts-list"><div class="loading">加载中...</div></div>
+    <div id="postsPagination" class="text-center mt-8"><button id="postsLoadMoreBtn" class="btn btn-sm btn-outline" onclick="loadMorePosts()" style="display:none">📦 加载更多</button></div>
+  </div>
+
+  <!-- Tab: 相册 -->
+  <div id="tab-album" class="tab-content d-none">
+    <div class="album-toolbar">
+      <select id="albumCate" class="search-box w-auto" onchange="loadAlbum(1)"><option value="">全部分类</option></select>
+      <button onclick="showCreateAlbumCate()" class="btn btn-sm btn-outline admin-only">+ 分类</button>
+      <button onclick="showDelAlbumCate()" class="btn btn-sm btn-outline admin-only">- 分类</button>
+      <div class="flex-1"></div>
+      <button onclick="document.getElementById('albumUpload').click()" class="btn btn-sm btn-outline">📤 上传</button>
+      <input type="file" id="albumUpload" accept="image/*,video/*" multiple class="d-none">
+      <button id="albumSelectBtn" onclick="toggleAlbumSelect()" class="btn btn-sm btn-outline">☑️ 选择</button>
+      <button id="albumBatchDelBtn" onclick="batchDeletePhotos()" class="btn btn-sm btn-danger d-none">🗑️ 批量删除</button>
+      <button onclick="showRecycle()" class="btn btn-sm btn-outline">🗑️ 回收站</button>
+    </div>
+    <div id="uploadProgress" class="upload-progress-wrap d-none">
+      <div class="upload-progress-label"><span id="uploadProgressText">上传中...</span><span id="uploadProgressPercent">0%</span></div>
+      <div class="upload-progress-track"><div id="uploadProgressFill" class="upload-progress-fill" style="width:0%"></div></div>
+      <div id="uploadProgressFile" class="upload-progress-file"></div>
+    </div>
+    <div id="albumDropzone" class="album-dropzone">
+      <div class="album-dropzone-text" id="albumDropzoneText">📤 拖拽图片到此处上传</div>
+      <div id="albumGrid" class="album-grid">
+        <div class="skeleton-card-grid"></div><div class="skeleton-card-grid"></div><div class="skeleton-card-grid"></div>
+      </div>
+    </div>
+    <button id="albumPager" class="btn btn-sm btn-outline mt-8" onclick="loadMoreAlbum()">📦 加载更多</button>
+  </div>
+
+  <!-- Tab: 管理 -->
+  <div id="tab-admin" class="tab-content d-none">
+    <div class="admin-dashboard">
+      <div class="stat-card"><div class="stat-value skeleton-stat" id="statTotalUsers">-</div><div class="stat-label" data-i18n="admin.users">👥 用户管理</div></div>
+      <div class="stat-card"><div class="stat-value skeleton-stat" id="statBannedUsers">-</div><div class="stat-label" data-i18n="members.role_guest">🚫 封禁用户</div></div>
+      <div class="stat-card"><div class="stat-value skeleton-stat" id="statPendingReviews">-</div><div class="stat-label" data-i18n="name_change.review">⏳ 待审核</div></div>
+      <div class="stat-card"><div class="stat-value skeleton-stat" id="statLiveEvents">-</div><div class="stat-label" data-i18n="events.ongoing">📅 活跃活动</div></div>
+      <div class="stat-card"><div class="stat-value skeleton-stat" id="statTotalPhotos">-</div><div class="stat-label" data-i18n="album.title">🖼️ 照片总数</div></div>
+      <div class="stat-card"><div class="stat-value skeleton-stat" id="statTotalAnnouncements">-</div><div class="stat-label" data-i18n="nav.announcements">📢 公告总数</div></div>
+    </div>
+
+    <!-- 用户管理 -->
+    <div class="card p-16 mt-16"><div class="admin-card-header"><span class="admin-section-icon">👥</span><h3 data-i18n="admin.users">用户管理</h3></div>
+      <div class="flex-row gap-8 mb-8 flex-wrap">
+        <input type="text" id="adminUserSearch" class="search-box m-0 flex-1" placeholder="搜索用户（登录名/显示名）..." oninput="onAdminUserSearch(this.value)">
+        <select id="adminUserRoleFilter" class="search-box m-0" onchange="onAdminUserFilter()" style="max-width:130px">
+          <option value="">全部角色</option>
+          <option value="super_admin">超级管理员</option>
+          <option value="admin">管理员</option>
+          <option value="member">成员</option>
+        </select>
+        <select id="adminUserStatusFilter" class="search-box m-0" onchange="onAdminUserFilter()" style="max-width:130px">
+          <option value="">全部状态</option>
+          <option value="approved">已批准</option>
+          <option value="pending">待审核</option>
+          <option value="banned">已封禁</option>
+        </select>
+        <button onclick="showAddUserModal()" class="btn btn-accent btn-sm">+ 创建用户</button>
+        <button onclick="loadUsersAdmin()" class="btn btn-sm btn-outline">🔄 刷新</button>
+      </div>
+      <div id="adminUsersList"></div>
+      <div id="adminUserPagination" class="pagination-bar mt-8 flex-row gap-4 justify-center flex-wrap"></div>
+    </div>
+
+    <!-- 系统 VRChat 账号 -->
+    <div class="card p-16 mt-16"><div class="admin-card-header"><span class="admin-section-icon">🎮</span><h3 data-i18n="admin.vrc">系统 VRChat 账号</h3></div>
+      <div id="systemVrcStatus"><p>检查中...</p></div>
+      <div id="systemVrcActions"></div>
+      <div id="systemVrcLoginForm" class="d-none"><input type="text" id="sysVrcUser" placeholder="VRChat 用户名" class="search-box"><input type="password" id="sysVrcPass" placeholder="密码" class="search-box mt-4"><button onclick="doSystemVrcLogin()" class="btn btn-accent btn-sm mt-4">登录</button></div>
+      <div id="systemVrc2faForm" class="d-none">
+        <div id="sysVrc2faHint" class="text-13 text-muted mb-4"></div>
+        <input type="text" id="sysVrc2faCode" placeholder="两步验证码" class="search-box">
+        <button onclick="doSystemVrc2FA()" class="btn btn-accent btn-sm mt-4">验证</button>
+        <button onclick="cancelSystemVrc2FA()" class="btn btn-outline btn-sm mt-4">取消</button>
+        <div id="systemVrc2faError" class="text-13 text-red d-none mt-4"></div>
+      </div>
+      <div id="systemVrcError" class="text-13 text-red d-none mt-4"></div>
+      <div class="mt-12"><button id="btnSyncGroup" onclick="adminSyncGroupMembers()" class="btn btn-sm btn-outline">🔄 同步群组成员</button><button onclick="showAdminOperLog()" class="btn btn-sm btn-outline ml-4">📋 操作日志</button></div>
+    </div>
+
+    <!-- 群组图片管理 -->
+    <div class="card p-16 mt-16"><div class="admin-card-header"><span class="admin-section-icon">🖼️</span><h3 data-i18n="admin.group_images">群组图片管理</h3></div>
+      <div class="flex-row gap-8 flex-wrap">
+        <div><span class="text-13 text-muted2">群组头像</span><input type="file" id="avatarInput" accept="image/*"><img id="adminAvatar" class="admin-preview-img" style="display:none;width:64px;height:64px;border-radius:50%;object-fit:cover;margin-top:4px"></div>
+        <div><span class="text-13 text-muted2">群组横幅</span><input type="file" id="bannerInput" accept="image/*"><img id="adminBanner" class="admin-preview-img" style="display:none;width:200px;height:60px;object-fit:cover;border-radius:6px;margin-top:4px"></div>
+        <div><span class="text-13 text-muted2">群组封面</span><input type="file" id="heroInput" accept="image/*"><img id="adminHero" class="admin-preview-img" style="display:none;width:200px;height:100px;object-fit:cover;border-radius:6px;margin-top:4px"></div>
+      </div>
+    </div>
+
+    <!-- 改名审核 -->
+    <div class="card p-16 mt-16"><div class="admin-card-header"><span class="admin-section-icon">✏️</span><h3 data-i18n="name_change.title">改名审核</h3></div><div id="nameChangeList"><p class="text-muted2" data-i18n="no_data">暂无待审核申请</p></div></div>
+
+    <!-- 权限管理 -->
+    <div class="card p-16 mt-16" id="adminPermissionSection"><div class="admin-card-header"><span class="admin-section-icon">🔐</span><h3 data-i18n="admin.permissions">权限管理</h3></div><div id="permissionList"></div></div>
+
+    <!-- 权限组管理 -->
+    <div class="card p-16 mt-16" id="adminPermGroupSection"><div class="admin-card-header"><span class="admin-section-icon">👥</span><h3 data-i18n="admin.perm_groups">权限组管理</h3></div>
+      <div class="flex mb-8 gap-8">
+        <button onclick="showCreatePermGroupModal()" class="btn btn-accent btn-sm admin-only">+ 新建权限组</button>
+        <button onclick="switchPermGroupTab('groups')" class="btn btn-sm btn-outline" data-pgtab="groups">权限组列表</button>
+        <button onclick="switchPermGroupTab('users')" class="btn btn-sm btn-outline" data-pgtab="users">用户归属</button>
+      </div>
+      <div id="permGroupList" class="perm-group-list"></div>
+      <div id="permGroupUserMgmt" class="d-none perm-group-user-mgmt">
+        <input type="text" id="pgUserSearch" class="search-box" placeholder="搜索用户..." oninput="filterPermGroupUsers()">
+        <div id="permGroupUserList" class="admin-user-list mt-8"></div>
+      </div>
+    </div>
+
+    <!-- ⚙️ 系统设置 -->
+    <div class="card p-16 mt-16" id="adminSettingsSection"><div class="admin-card-header"><span class="admin-section-icon">⚙️</span><h3 data-i18n="admin.settings">系统设置</h3></div>
+      <div id="adminSettingsContent">
+        <div class="flex-row gap-8 mb-8 flex-wrap">
+          <div style="min-width:200px;flex:1">
+            <label class="text-13 text-muted2 block mb-2">站点名称</label>
+            <input type="text" id="cfgSiteName" class="search-box" placeholder="境途同游">
+          </div>
+        </div>
+        <div class="flex-row gap-8 mb-8 flex-wrap">
+          <label class="me-toggle">
+            <span>允许注册</span>
+            <input type="checkbox" id="cfgAllowRegister">
+          </label>
+          <label class="me-toggle">
+            <span>需要审核</span>
+            <input type="checkbox" id="cfgRequireApproval">
+          </label>
+        </div>
+        <div class="mb-8">
+          <label class="text-13 text-muted2 block mb-2">站点公告</label>
+          <textarea id="cfgSiteNotice" class="search-box" rows="3" placeholder="显示在首页的站点公告（留空不显示）" style="resize:vertical;width:100%;max-width:500px"></textarea>
+        </div>
+        <div class="flex-row gap-8 mb-8 flex-wrap">
+          <div style="min-width:200px;flex:1">
+            <label class="text-13 text-muted2 block mb-2">联系邮箱</label>
+            <input type="email" id="cfgContactEmail" class="search-box" placeholder="admin@example.com">
+          </div>
+          <div style="min-width:100px">
+            <label class="text-13 text-muted2 block mb-2">单次上传上限</label>
+            <input type="number" id="cfgMaxPhotoUpload" class="search-box" min="1" max="50" value="10">
+          </div>
+          <div style="min-width:100px">
+            <label class="text-13 text-muted2 block mb-2">视频大小(MB)</label>
+            <input type="number" id="cfgMaxVideoSize" class="search-box" min="10" max="500" value="200">
+          </div>
+        </div>
+        <div class="card p-16 mt-16" style="background:var(--card2);border:1px dashed var(--border)">
+          <h4 class="mb-8" style="font-size:14px">🎨 Hero 封面装修</h4>
+          <div class="flex-row gap-8 mb-8 flex-wrap">
+            <div style="min-width:200px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">标题</label>
+              <input type="text" id="cfgHeroTitle" class="search-box" placeholder="境途同游">
+            </div>
+            <div style="min-width:200px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">副标题</label>
+              <input type="text" id="cfgHeroSubtitle" class="search-box" placeholder="JingTu Travel · VRChat Group">
+            </div>
+          </div>
+          <div class="mb-8">
+            <label class="text-13 text-muted2 block mb-2">描述文字</label>
+            <input type="text" id="cfgHeroDescription" class="search-box" placeholder="在虚拟世界相遇，在现实世界同行" style="max-width:500px">
+          </div>
+          <div class="flex-row gap-8 mb-8 flex-wrap">
+            <div style="min-width:300px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">背景图片 URL</label>
+              <input type="url" id="cfgHeroBgUrl" class="search-box" placeholder="/assets/group-hero.png">
+            </div>
+            <div style="min-width:150px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">背景颜色</label>
+              <input type="text" id="cfgHeroBgColor" class="search-box" placeholder="#0a0a1a">
+            </div>
+            <div style="min-width:100px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">遮罩透明度</label>
+              <input type="text" id="cfgHeroOverlayOpacity" class="search-box" placeholder="0.6">
+            </div>
+            <div style="min-width:120px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">强调色</label>
+              <input type="text" id="cfgHeroAccentColor" class="search-box" placeholder="#7c5cfc">
+            </div>
+          </div>
+          <div class="flex-row gap-8 mb-8 flex-wrap">
+            <div style="min-width:150px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">徽标文字</label>
+              <input type="text" id="cfgHeroBadgeText" class="search-box" placeholder="🌐 VRChat Group">
+            </div>
+            <div style="min-width:100px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">显示统计</label>
+              <select id="cfgHeroShowStats" class="search-box">
+                <option value="1">显示</option>
+                <option value="0">隐藏</option>
+              </select>
+            </div>
+            <div style="min-width:100px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">显示徽标</label>
+              <select id="cfgHeroShowBadge" class="search-box">
+                <option value="1">显示</option>
+                <option value="0">隐藏</option>
+              </select>
+            </div>
+            <div style="min-width:120px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">动画效果</label>
+              <select id="cfgHeroAnimation" class="search-box">
+                <option value="fade-in">淡入</option>
+                <option value="slide-up">上滑</option>
+                <option value="none">无</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex-row gap-8 mb-8 flex-wrap">
+            <div style="min-width:120px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">每页动态数</label>
+              <input type="number" id="cfgPostsPerPage" class="search-box" placeholder="20" style="max-width:100px">
+            </div>
+            <div style="min-width:120px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">动态最多图片</label>
+              <input type="number" id="cfgPostMaxImages" class="search-box" placeholder="9" style="max-width:100px">
+            </div>
+            <div style="min-width:120px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">动态最多视频</label>
+              <input type="number" id="cfgPostMaxVideos" class="search-box" placeholder="3" style="max-width:100px">
+            </div>
+            <div style="min-width:120px;flex:1">
+              <label class="text-13 text-muted2 block mb-2">动态视频上限MB</label>
+              <input type="number" id="cfgPostVideoMaxSize" class="search-box" placeholder="200" style="max-width:100px">
+            </div>
+          </div>
+          <div class="flex-row gap-8 flex-wrap items-center">
+            <div id="heroPreview" style="width:100%;max-width:300px;height:100px;border-radius:8px;overflow:hidden;background:var(--bg2);position:relative">
+              <img id="heroPreviewImg" src="/assets/group-hero.png" style="width:100%;height:100%;object-fit:cover" alt="预览" loading="lazy">
+              <div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,.6),transparent);display:flex;align-items:flex-end;padding:6px 10px">
+                <span id="heroPreviewTitle" style="color:#fff;font-size:13px;font-weight:700">境途同游</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button onclick="saveSystemConfig()" class="btn btn-accent btn-sm mt-4">💾 保存设置</button>
+      </div>
+    </div>
+
+    <!-- 操作日志 -->
+    <div class="card p-16 mt-16"><div class="admin-card-header"><span class="admin-section-icon">📋</span><h3 data-i18n="admin.log">操作日志</h3></div>
+      <div class="flex-row gap-8 mb-8 flex-wrap" id="operLogFilters">
+        <input type="text" id="operLogUserSearch" class="search-box m-0 flex-1" placeholder="按操作者搜索..." oninput="onOperLogSearch(this.value)" style="max-width:200px">
+        <select id="operLogTypeFilter" class="search-box m-0" onchange="onOperLogFilter()" style="max-width:150px">
+          <option value="">全部类型</option>
+          <option value="创建用户">创建用户</option>
+          <option value="批准用户">批准用户</option>
+          <option value="封禁用户">封禁用户</option>
+          <option value="解封用户">解封用户</option>
+          <option value="删除用户">删除用户</option>
+          <option value="重置密码">重置密码</option>
+          <option value="创建公告">创建公告</option>
+          <option value="编辑公告">编辑公告</option>
+          <option value="删除公告">删除公告</option>
+          <option value="创建活动">创建活动</option>
+          <option value="编辑活动">编辑活动</option>
+          <option value="删除活动">删除活动</option>
+          <option value="VRChat登录">VRChat登录</option>
+        </select>
+        <button onclick="loadOperLog(1)" class="btn btn-sm btn-outline">🔄 刷新</button>
+      </div>
+      <div id="operLog"></div>
+      <div id="operLogPagination" class="pagination-bar mt-8 flex-row gap-4 justify-center flex-wrap"></div>
+    </div>
+  </div>
+
+  <!-- Tab: 我的（个人中心） -->
+  <div id="tab-me" class="tab-content d-none">
+    <div class="me-hero">
+      <div class="me-avatar-wrap">
+        <img id="meAvatar" class="me-avatar" src="/api/avatar/default" alt="头像" loading="lazy">
+        <div class="me-avatar-actions">
+          <button onclick="document.getElementById('meAvatarUpload').click()" class="btn btn-sm btn-accent">📷 更换</button>
+          <form id="meAvatarForm" style="display:none"><input type="file" id="meAvatarUpload" accept="image/*" onchange="uploadAvatar(this.files[0])"></form>
+          <button onclick="switchToVRchatAvatar()" class="btn btn-sm btn-outline">🎮 VRChat头像</button>
+          <button onclick="removeAvatar()" class="btn btn-sm btn-outline">✕ 移除</button>
+        </div>
+      </div>
+      <div class="me-info">
+        <div id="meName" class="me-name"></div>
+        <div id="meRole" class="me-role"></div>
+      </div>
+    </div>
+
+    <div class="card p-16 mt-12">
+      <h3>📋 个人资料</h3>
+      <div class="form-group"><label>显示名称</label><input type="text" id="meDisplayName" class="form-input"></div>
+      <div class="form-group"><label>登录ID</label><input type="text" id="meLoginId" class="form-input" disabled></div>
+      <div class="form-group"><label>QQ</label><input type="text" id="meQQ" class="form-input" placeholder="选填"></div>
+      <div class="form-group"><label>生日</label><input type="date" id="meBirthday" class="form-input"></div>
+      <div class="form-group"><label>所在地</label><input type="text" id="meLocation" class="form-input" placeholder="选填"></div>
+      <div class="form-group">
+        <label><input type="checkbox" id="meLocationVisible" onchange="toggleLocationVisible()"> 在地图公开我的位置</label>
+        <div class="text-muted2 text-12">关闭开关会删除服务器上的位置数据；开启后需点击下方按钮手动更新位置</div>
+      </div>
+      <div class="form-group flex-row gap-8">
+        <button onclick="updateMyLocation()" class="btn btn-sm">📍 更新我的位置</button>
+        <span id="profileLocationStatus" class="text-12 text-muted2" style="display:none"></span>
+      </div>
+      <button onclick="saveProfile()" class="btn btn-accent">💾 保存</button>
+    </div>
+
+    <div class="card p-16 mt-12">
+      <h3>✏️ 个性签名</h3>
+      <input type="text" id="meMotto" class="form-input" placeholder="一句话描述自己..." maxlength="100">
+      <button onclick="saveMotto()" class="btn btn-accent btn-sm mt-4">保存</button>
+    </div>
+
+    <div class="card p-16 mt-12">
+      <h3>📝 个人简介</h3>
+      <textarea id="meBio" class="form-input" rows="4" maxlength="2000" placeholder="介绍一下自己..." oninput="document.getElementById('meBioCount').textContent=this.value.length"></textarea>
+      <div class="text-right text-12 text-muted2"><span id="meBioCount">0</span>/2000</div>
+      <button onclick="saveBio()" class="btn btn-accent btn-sm mt-4">保存</button>
+    </div>
+
+    <div class="card p-16 mt-12">
+      <h3 data-i18n="profile.my_events">📅 我的活动 <span id="meEventsCount" class="text-muted2 text-12"></span></h3>
+      <div id="meEventsList"><p class="text-muted2" data-i18n="loading_ellipsis">正在加载...</p></div>
+    </div>
+
+    <div class="card p-16 mt-12">
+      <h3 data-i18n="profile.vrc_bind">🎮 VRChat 账号</h3>
+      <div id="vrchatStatus"><p>检查中...</p></div>
+      <div id="vrchatBindForm" class="d-none mt-8">
+        <input type="text" id="vrchatInputId" class="form-input" placeholder="VRChat 用户名" data-i18n-placeholder="login.vrc_user_placeholder">
+        <input type="password" id="vrchatBindPwd" class="form-input mt-4" placeholder="密码" data-i18n-placeholder="login.vrc_pwd_placeholder">
+        <button id="vrcBindBtn" onclick="bindVRChatWithPassword()" class="btn btn-accent btn-sm mt-4" data-i18n="login.vrc_send_code">📧 发送验证码</button>
+        <div id="vrcLookupResult" class="mt-4" style="display:none"></div>
+      </div>
+      <div id="vrcBind2fa" class="d-none mt-4">
+        <input type="text" id="vrcBind2faCode" class="form-input" placeholder="两步验证码" data-i18n-placeholder="login.vrc_code_placeholder">
+        <button onclick="confirmVrcBind2fa()" class="btn btn-accent btn-sm mt-4" data-i18n="login.vrc_confirm">确认</button>
+      </div>
+      <div id="vrchatBoundStatus" class="d-none mt-8">
+        <div class="d-flex items-center gap-8">
+          <img id="vrchatBoundAvatar" src="/assets/group-avatar.svg" class="vrc-bound-avatar" alt="VRChat头像" loading="lazy" style="width:48px;height:48px;border-radius:50%;object-fit:cover">
+          <div>
+            <div><span id="vrchatBoundName"></span> <span id="vrchatBoundVerified" class="d-none text-green text-12">✅ 已验证</span></div>
+            <div class="text-12 text-muted2">ID: <span id="vrchatBoundId"></span></div>
+            <a id="vrchatBoundProfileLink" href="#" target="_blank" rel="noopener" class="text-12">🎮 VRChat 主页</a>
+          </div>
+        </div>
+        <button onclick="unbindVRChat()" class="btn btn-outline btn-sm mt-8">解绑</button>
+      </div>
+    </div>
+
+    <div class="card p-16 mt-12">
+      <h3 data-i18n="profile.password_change">🔒 修改密码</h3>
+      <div class="form-group"><label>当前密码</label><input type="password" id="meCurPwd" class="form-input" autocomplete="current-password"></div>
+      <div class="form-group"><label>新密码</label>
+        <input type="password" id="meNewPwd" placeholder="输入新密码" oninput="updatePwdMeter('meNewPwd','meNewPwdMeter','meNewPwdStrength')" class="flex-1" autocomplete="new-password">
+        <div class="pwd-strength" id="meNewPwdMeter"><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div></div>
+        <div class="pwd-strength-text" id="meNewPwdStrength"></div>
+      </div>
+      <div class="form-group"><label>确认新密码</label>
+        <input type="password" id="meNewPwd2" placeholder="再次输入新密码" oninput="checkPwdMatch('meNewPwd','meNewPwd2','meNewPwdMatch')" class="flex-1" autocomplete="new-password">
+        <div id="meNewPwdMatch" class="login-error-msg"></div>
+      </div>
+      <button onclick="changePassword()" class="btn btn-accent btn-sm">修改密码</button>
+    </div>
+
+    <div class="card p-16 mt-12">
+      <h3>🎨 主题与外观</h3>
+      <div class="theme-row"><span>亮度方案</span><div class="theme-btns"><button onclick="setBrightness('dark')" class="theme-bright-btn active me-theme-btn" data-bright="dark" data-context="me">🌙 暗色</button><button onclick="setBrightness('light')" class="theme-bright-btn me-theme-btn" data-bright="light" data-context="me">☀️ 亮色</button></div></div>
+      <div class="theme-row mt-8"><span>主题色</span><div class="theme-colors"><input type="color" id="meAccentColor" value="#7c5cfc" oninput="setAccentColor(this.value)" title="自定义颜色"></div></div>
+    </div>
+  </div>
+
+  <!-- Tab: 用户资料页 -->
+  <div id="tab-profile-user" class="tab-content d-none">
+    <div id="profileCover" class="profile-cover">
+      <div id="profileCoverBg" class="profile-cover-bg"></div>
+      <img id="profileAvatar" class="profile-avatar" src="/api/avatar/default" alt="头像" loading="lazy">
+      <h2 id="profileName" class="profile-name">用户</h2>
+      <div id="profileRole" class="profile-role-badge">成员</div>
+      <div id="profileStats" class="profile-stats-extra"></div>
+      <div id="profileActions" class="profile-actions mt-8"></div>
+      <div id="profileMotto" class="profile-motto"></div>
+      <div class="profile-stats"><span>📷 <span id="profilePhotoCount">0</span> 照片</span><span>🎬 <span id="profileVideoCount">0</span> 视频</span></div>
+    </div>
+    <div id="profileBio" class="card p-16 mt-8 d-none"><h4>📝 个人简介</h4><div id="profileBioContent"></div></div>
+    <div class="card p-16 mt-8"><h4>📷 相册</h4><div id="albumActions"></div><div id="profileAlbums" class="profile-albums-grid"></div></div>
+    <div class="card p-16 mt-8"><h4>🎬 视频</h4><div id="videoActions"></div><div id="profileVideos" class="profile-videos-grid"></div></div>
+    <div id="albumDetail" class="d-none mt-8">
+      <button onclick="backToAlbums()" class="btn btn-sm btn-outline mb-8">← 返回相册</button>
+      <h3 id="albumDetailName"></h3>
+      <div id="albumDetailGrid" class="album-grid"></div>
+    </div>
+    <input type="file" id="profileVideoUpload" accept="video/*" class="d-none" onchange="uploadProfileVideo(this.files[0])">
+  </div>
+</div>
+
+<!-- ===== Footer ===== -->
+<!-- TODO: 替换占位链接为实际群组链接 -->
+<footer class="d-none" id="appFooter">
+  <div class="links">
+    <a id="footerVrcGroupLink" href="https://vrchat.com/home/group/grp_00000000-0000-0000-0000-000000000000" target="_blank" rel="noopener" class="social-link" data-i18n="footer.vrc_group">🌐 VRChat 群组</a>
+    <a id="footerKookLink" href="#" class="social-link" onclick="event.preventDefault();toast('请管理员在 .env 中配置群组社交链接', 'info')" data-i18n="footer.kook">💬 KOOK</a>
+    <a id="footerOopzLink" href="#" class="social-link" onclick="event.preventDefault();toast('请管理员在 .env 中配置群组社交链接', 'info')" data-i18n="footer.oopz">🔗 Oopz</a>
+    <span id="vrcStatus" class="social-link" style="cursor:default" data-i18n="footer.vrc_status">📊 VRC 状态</span>
+  </div>
+  <div id="refreshTime" class="refresh-time"><span data-i18n="footer.refresh">最后刷新</span>: --</div>
+</footer>
+
+<!-- ===== Modals ===== -->
+
+<!-- 公告编辑 -->
+<div id="announceModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header"><h3 id="annModalTitle">📢 发布公告</h3><button class="modal-close" onclick="closeModal('announceModal')" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label>标题</label><input type="text" id="annTitle" class="form-input" placeholder="公告标题"></div>
+    <div class="form-group"><label>内容</label><textarea id="annContent" class="form-input" rows="6" placeholder="公告内容..."></textarea></div>
+    <div class="form-group"><label><input type="checkbox" id="annPinned"> 置顶公告</label></div>
+    <div class="form-group"><label>可见性</label><select id="annVisibility" class="form-input"><option value="members_only">🔒 成员专属</option><option value="public">🌐 公开</option></select></div>
+    <div class="form-actions"><button onclick="closeModal('announceModal')" class="btn btn-outline">取消</button><button id="annSaveBtn" onclick="saveAnnounce()" class="btn btn-accent">发布</button></div>
+    <input type="hidden" id="annEditId" value="">
+  </div>
+</div>
+
+<!-- 创建活动 -->
+<div id="eventModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header"><h3>📅 创建活动</h3><button class="modal-close" onclick="closeEventModal()" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label>活动名称</label><input type="text" id="evtTitle" class="form-input" placeholder="活动名称"></div>
+    <div class="form-group"><label>关联 World</label><div class="flex gap-4"><input type="text" id="evtWorld" class="form-input flex-1" placeholder="World 名称" readonly><button onclick="openWorldSearch('evt')" class="btn btn-sm btn-outline">🌐 搜索</button><button onclick="clearWorld('evt')" class="btn btn-sm btn-outline">✕ 清除</button></div><input type="hidden" id="evtWorldId"><input type="hidden" id="evtWorldImage"><input type="hidden" id="evtWorldName"><input type="hidden" id="evtWorldImageUrl"><div id="evtWorldPreview" class="evt-det-world-info mt-8" style="display:none"><div class="evt-det-world-thumb-wrap"><img id="evtWorldThumb" class="evt-det-world-thumb" alt="World" onerror="this.style.display='none'"></div><div><span id="evtWorldNameDisplay"></span></div></div></div>
+    <div class="form-group"><label>活动时间</label><input type="datetime-local" id="evtTime" class="form-input"></div>
+    <div class="form-group"><label>结束时间（选填）</label><input type="datetime-local" id="evtEndsAt" class="form-input"></div>
+    <div class="form-group"><label>地点（选填）</label><input type="text" id="evtPlace" class="form-input" placeholder="活动地点"></div>
+    <div class="form-group"><label>描述</label><textarea id="evtDesc" class="form-input" rows="4" placeholder="活动描述..."></textarea></div>
+    <div class="form-group"><label>人数上限</label><input type="number" id="evtMax" class="form-input" placeholder="0 = 不限" min="0"></div>
+    <div class="form-group"><label>可见性</label><select id="evtVisibility" class="form-input"><option value="members_only">🔒 成员专属</option><option value="public">🌐 公开</option></select></div>
+    <div class="form-actions"><button onclick="closeEventModal()" class="btn btn-outline">取消</button><button onclick="saveEvent()" class="btn btn-accent">创建</button></div>
+    <input type="hidden" id="evtEditId" value="">
+  </div>
+</div>
+
+<!-- World 搜索 -->
+<div id="worldSearchModal" class="modal">
+  <div class="modal-content modal-sm">
+    <div class="modal-header"><h3>🌐 搜索 VRChat World</h3><button class="modal-close" onclick="closeModal('worldSearchModal')" aria-label="关闭">&times;</button></div>
+    <div class="form-group"><input type="text" id="worldSearchInput" class="form-input" placeholder="输入关键词搜索..." oninput="searchWorlds(this.value)" onkeydown="if(event.key==='Enter')searchWorlds(this.value)"></div>
+    <div id="worldSearchResults" class="world-search-results"></div>
+  </div>
+</div>
+
+<!-- 回收站 -->
+<div id="recycleModal" class="modal">
+  <div class="modal-content modal-sm">
+    <div class="modal-header"><h3>🗑️ 回收站</h3><button class="modal-close" onclick="closeModal('recycleModal')" aria-label="关闭">✕</button></div>
+    <p class="text-12 text-muted2 mb-8">照片删除后进入回收站，7天后自动永久删除</p>
+    <div id="recycleList"></div>
+  </div>
+</div>
+
+<!-- 成员名片 -->
+<div id="memberModal" class="modal">
+  <div class="modal-content modal-sm modal-nopad">
+    <div class="member-card-header">
+      <button onclick="closeModal('memberModal')" class="modal-close-circle" aria-label="关闭">✕</button>
+      <div id="ucAvatarWrap" class="member-avatar-wrap"><img id="ucAvatar" src="/assets/group-avatar.svg" class="object-cover" alt="头像" loading="lazy"></div>
+      <div id="ucName" class="member-card-name"></div>
+      <div id="ucRole" class="member-card-role"></div>
+      <div id="ucMotto" class="member-card-motto"></div>
+    </div>
+    <div class="member-card-body">
+      <div id="ucLocation" class="d-none"></div>
+      <div id="ucBirthday" class="d-none"></div>
+      <div id="ucVrcName" class="d-none"></div>
+      <div id="ucJoined" class="d-none"></div>
+      <div id="ucBio" class="d-none"></div>
+      <div id="memberCardLinks" class="flex-row gap-4 mt-8 flex-wrap"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 两步验证 -->
+<div id="vrc2faModal" class="modal">
+  <div class="modal-content modal-sm">
+    <div class="modal-header"><h3>🔐 两步验证</h3><button class="modal-close" onclick="closeVrc2faModal()" aria-label="关闭">&times;</button></div>
+    <p class="mb-8">请输入 VRChat 两步验证码</p>
+    <div id="vrc2faHint" class="text-13 text-muted mb-4"></div>
+    <div id="vrc2faError" class="text-13 text-red d-none mb-4"></div>
+    <input type="text" id="vrc2faCode" class="form-input" placeholder="验证码" onkeydown="if(event.key==='Enter')submitVrc2fa()">
+    <div class="form-actions mt-8"><button onclick="closeVrc2faModal()" class="btn btn-outline">取消</button><button onclick="submitVrc2fa()" class="btn btn-accent">验证</button></div>
+  </div>
+</div>
+
+<!-- 创建用户 -->
+<div id="addUserModal" class="modal">
+  <div class="modal-content modal-sm">
+    <div class="modal-header"><h3>+ 创建用户</h3><button class="modal-close" onclick="closeModal('addUserModal')" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label>登录ID</label><input type="text" id="newUserLoginId" class="form-input" placeholder="用于登录"></div>
+    <div class="form-group"><label>显示名称</label><input type="text" id="newUserDisplayName" class="form-input" placeholder="对外显示的名称"></div>
+    <div class="form-group"><label>密码</label><input type="password" id="newUserPassword" placeholder="至少8位，含大小写+数字" class="flex-1" oninput="updatePwdMeter('newUserPassword','newUserPwdMeter','newUserPwdStrength')"><div class="pwd-strength" id="newUserPwdMeter"><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div></div><div class="pwd-strength-text" id="newUserPwdStrength"></div></div>
+    <div class="form-group"><label>角色</label><select id="newUserRole" class="form-input"><option value="member">成员</option><option value="admin">管理员</option><option value="super_admin">超级管理员</option></select></div>
+    <div id="addUserError" class="text-13 text-red d-none"></div>
+    <div class="form-actions"><button onclick="closeModal('addUserModal')" class="btn btn-outline">取消</button><button onclick="createUser()" class="btn btn-accent">创建</button></div>
+  </div>
+</div>
+
+<!-- 编辑用户 -->
+<div id="editUserModal" class="modal">
+  <div class="modal-content modal-sm">
+    <div class="modal-header"><h3>✏️ 编辑用户</h3><button class="modal-close" onclick="closeModal('editUserModal')" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label>显示名称</label><input type="text" id="editUserDisplayName" class="form-input"></div>
+    <div class="form-group"><label>角色</label><select id="editUserRole" class="form-input"><option value="member">成员</option><option value="admin">管理员</option><option value="super_admin">超级管理员</option></select></div>
+    <div class="form-actions"><button onclick="closeModal('editUserModal')" class="btn btn-outline">取消</button><button onclick="updateUser()" class="btn btn-accent">保存</button></div>
+    <input type="hidden" id="editUserId">
+  </div>
+</div>
+
+<!-- 重置密码 -->
+<div id="resetPwdModal" class="modal">
+  <div class="modal-content modal-sm">
+    <div class="modal-header"><h3>🔑 重置密码</h3><button class="modal-close" onclick="closeModal('resetPwdModal')" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label>新密码</label><input type="password" id="resetPwdNew" class="form-input" placeholder="新密码"></div>
+    <div id="resetPwdError" class="text-13 text-red d-none"></div>
+    <div class="form-actions"><button onclick="closeModal('resetPwdModal')" class="btn btn-outline">取消</button><button onclick="resetUserPassword()" class="btn btn-accent">重置</button></div>
+    <input type="hidden" id="resetPwdUserId">
+  </div>
+</div>
+
+<!-- 生日派对 -->
+<div id="birthdayEventModal" class="modal">
+  <div class="modal-content modal-sm">
+    <div class="modal-header"><h3 id="bdayModalTitle">🎂 创建生日派对</h3><button class="modal-close" onclick="closeModal('birthdayEventModal')" aria-label="关闭">✕</button></div>
+    <input type="hidden" id="bdayEditId">
+    <div class="form-group"><label>派对名称</label><input type="text" id="bdayTitle" class="form-input" placeholder="派对名称"></div>
+    <div class="form-row gap-8">
+      <div class="form-group flex-1"><label>开始时间</label><input type="datetime-local" id="bdayTime" class="form-input"></div>
+      <div class="form-group flex-1"><label>结束时间</label><input type="datetime-local" id="bdayEndsAt" class="form-input"></div>
+    </div>
+    <div class="form-group"><label>描述（选填）</label><textarea id="bdayDesc" class="form-input" rows="3" placeholder="派对描述..."></textarea></div>
+    <div class="form-row gap-8">
+      <div class="form-group flex-1"><label>最大参与人数</label><input type="number" id="bdayMax" class="form-input" value="30" min="0"></div>
+      <div class="form-group flex-1">
+        <label>可见性</label>
+        <select id="bdayVisibility" class="form-input">
+          <option value="members_only">仅成员</option>
+          <option value="public">公开</option>
+          <option value="private">私密</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-actions"><button onclick="closeModal('birthdayEventModal')" class="btn btn-outline">取消</button><button id="bdaySaveBtn" onclick="saveBirthdayEvent()" class="btn btn-accent">创建</button></div>
+  </div>
+</div>
+
+<!-- 申请改名 -->
+<div id="nameChangeModal" class="modal">
+  <div class="modal-content modal-sm">
+    <div class="modal-header"><h3>✏️ 申请改名</h3><button class="modal-close" onclick="closeModal('nameChangeModal')" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label>当前名称</label><input type="text" id="ncCurrentName" class="form-input" disabled></div>
+    <div class="form-group"><label>新名称</label><input type="text" id="ncNewName" class="form-input" placeholder="你想改成什么名字？"></div>
+    <div class="form-group"><label>改名原因</label><textarea id="ncReason" class="form-input" rows="3" placeholder="请简单说明改名原因（选填）"></textarea></div>
+    <div class="form-actions"><button onclick="closeModal('nameChangeModal')" class="btn btn-outline">取消</button><button onclick="submitNameChange()" class="btn btn-accent">提交申请</button></div>
+  </div>
+</div>
+
+<!-- 改名审核 -->
+<div id="nameReviewModal" class="modal">
+  <div class="modal-content modal-sm">
+    <div class="modal-header"><h3>📋 改名审核</h3><button class="modal-close" onclick="closeModal('nameReviewModal')" aria-label="关闭">&times;</button></div>
+    <div id="nameReviewList"><div class="skeleton-card-list"></div><div class="skeleton-card-list"></div></div>
+  </div>
+</div>
+
+<!-- 活动详情 -->
+<div id="eventDetailModal" class="modal">
+  <div class="modal-content" style="max-width:600px">
+    <div id="evtDetHeader" class="evt-det-header">
+      <button onclick="closeModal('eventDetailModal')" class="modal-close-circle-lg close-top-right" aria-label="关闭">✕</button>
+      <div id="evtDetVisBadge" class="mb-8"></div>
+      <h2 id="evtDetTitle" class="evt-det-title"></h2>
+    </div>
+    <div id="evtDetMeta" class="evt-det-meta"></div>
+    <div id="evtDetAdminActions" class="evt-det-admin-actions"></div>
+    <div id="evtDetSignBar" class="evt-det-sign-bar">
+      <div id="evtDetSignBtn" class="mb-8"></div>
+      <div class="det-sign-counts">
+        <span id="evtDetSignCount">0 人已报名</span>
+        <span id="evtDetMaxSign"></span>
+      </div>
+      <div id="evtDetSignList" class="det-sign-list mt-8"></div>
+      <div class="mt-8">
+        <span id="evtDetCheckinCount"></span>
+        <div id="evtDetCheckinList" class="det-checkin-list mt-4"></div>
+      </div>
+    </div>
+    <div id="evtDetCheckinBar" class="evt-det-checkin-bar d-none">
+      <button onclick="showCheckinQR()" class="btn btn-sm btn-outline">✅ 生成签到码</button>
+      <div id="evtDetCheckinArea"></div>
+    </div>
+    <div id="evtDetDesc" class="evt-det-desc"></div>
+    <div id="evtDetUploadBtn" class="d-none mt-8">
+      <input type="file" id="evtPhotoUpload" accept="image/*,video/*" multiple class="d-none">
+      <button onclick="document.getElementById('evtPhotoUpload').click()" class="btn btn-sm btn-outline">📷 上传活动照片</button>
+    </div>
+    <div id="evtDetPhotos" class="evt-det-photos mt-8"></div>
+    <div id="evtDetComments" class="evt-det-comments mt-12">
+      <h4>💬 评论</h4>
+      <div id="evtDetCommentList"></div>
+      <div class="evt-det-comment-input"><textarea id="evtDetCommentInput" class="form-input" rows="2" placeholder="写下你的评论..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();postEventComment()}"></textarea><button onclick="postEventComment()" class="btn btn-accent btn-sm mt-4">发送</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑活动 -->
+<div id="editEventModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header"><h3>✏️ 编辑活动</h3><button class="modal-close" onclick="closeModal('editEventModal')" aria-label="关闭">&times;</button></div>
+    <div class="form-group"><label>标题</label><input type="text" id="eeTitle" class="form-input"></div>
+    <div class="form-group"><label>时间</label><input type="datetime-local" id="eeTime" class="form-input"></div>
+    <div class="form-group"><label>结束时间</label><input type="datetime-local" id="eeEndsAt" class="form-input"></div>
+    <div class="form-group"><label>地点</label><input type="text" id="eePlace" class="form-input"></div>
+    <div class="form-group"><label>描述</label><textarea id="eeDesc" class="form-input" rows="4"></textarea></div>
+    <div class="form-group"><label>人数上限</label><input type="number" id="eeMaxSign" class="form-input" min="0"></div>
+    <div class="form-group"><label>可见性</label><select id="eeVisibility" class="form-input"><option value="members_only">🔒 成员专属</option><option value="public">🌐 公开</option></select></div>
+    <div class="form-group"><label><input type="checkbox" id="eeIsArchive"> 标记为归档活动</label></div>
+    <div id="eeWorldPreview" class="evt-det-world-info mt-8" style="display:none">
+      <div class="evt-det-world-thumb-wrap"><img id="eeWorldThumb" class="evt-det-world-thumb" alt="World" onerror="this.style.display='none'"></div>
+      <div><span id="eeWorldNameDisplay"></span></div>
+      <input type="hidden" id="eeWorldId">
+      <input type="hidden" id="eeWorldName">
+      <input type="hidden" id="eeWorldImageUrl">
+    </div>
+    <div class="form-actions"><button onclick="closeModal('editEventModal')" class="btn btn-outline">取消</button><button onclick="saveEditEvent()" class="btn btn-accent">保存</button></div>
+  </div>
+</div>
+
+<!-- 归档 -->
+<div id="archiveModal" class="modal">
+  <div class="modal-content modal-xl">
+    <div class="modal-header"><h3>📦 历史活动</h3><button class="modal-close" onclick="closeModal('archiveModal')" aria-label="关闭">✕</button></div>
+    <div id="archiveList"><div class="skeleton-card"></div><div class="skeleton-card"></div></div>
+  </div>
+</div>
+
+<!-- 确认弹窗 -->
+<div id="confirmModal" class="modal">
+  <div class="confirm-dialog">
+    <div class="confirm-msg" id="confirmMsg"></div>
+    <div class="confirm-actions"><button id="confirmCancelBtn" class="btn btn-outline" onclick="closeModal('confirmModal')">取消</button><button id="confirmOkBtn" class="btn btn-accent">确定</button></div>
+  </div>
+</div>
+
+<!-- 权限组 -->
+<div id="createPermGroupModal" class="modal"><div class="modal-content modal-sm"><div class="modal-header"><h3>+ 新建权限组</h3><button class="modal-close" onclick="closeModal('createPermGroupModal')" aria-label="关闭">✕</button></div><div class="form-group"><label>名称</label><input type="text" id="cpgName" class="form-input"></div><div class="form-group"><label>描述</label><textarea id="cpgDesc" class="form-input" rows="2"></textarea></div><div class="form-group"><label>父权限组</label><select id="cpgParentId" class="form-input"><option value="">无</option></select></div><div id="cpgError" class="text-13 text-red d-none"></div><div class="form-actions"><button onclick="closeModal('createPermGroupModal')" class="btn btn-outline">取消</button><button onclick="createPermGroup()" class="btn btn-accent">创建</button></div></div></div>
+<div id="editPermGroupModal" class="modal"><div class="modal-content modal-sm"><div class="modal-header"><h3>✏️ 编辑权限组</h3><button class="modal-close" onclick="closeModal('editPermGroupModal')" aria-label="关闭">✕</button></div><div class="form-group"><label>名称</label><input type="text" id="epgName" class="form-input"></div><div class="form-group"><label>描述</label><textarea id="epgDesc" class="form-input" rows="2"></textarea></div><div class="form-group"><label>父权限组</label><select id="epgParentId" class="form-input"><option value="">无</option></select></div><div id="epgError" class="text-13 text-red d-none"></div><div class="form-actions"><button onclick="closeModal('editPermGroupModal')" class="btn btn-outline">取消</button><button onclick="savePermGroup()" class="btn btn-accent">保存</button></div><input type="hidden" id="epgId"></div></div>
+<div id="permGroupEditPermsModal" class="modal"><div class="modal-content modal-sm"><div class="modal-header"><h3>🔐 编辑权限 <span id="pgPermGroupName"></span></h3><button class="modal-close" onclick="closeModal('permGroupEditPermsModal')" aria-label="关闭">&times;</button></div><div id="pgPermList"></div><div class="form-actions mt-8"><button onclick="closeModal('permGroupEditPermsModal')" class="btn btn-outline">关闭</button></div><input type="hidden" id="pgEditPermsGroupId"></div></div>
+<div id="pgUserGroupModal" class="modal"><div class="modal-content modal-sm"><div class="modal-header"><h3>管理用户权限组</h3><button class="modal-close" onclick="closeModal('pgUserGroupModal')" aria-label="关闭">✕</button></div><div id="pgUserGroupUserName" class="text-13 font-600 mb-4"></div><div id="pgUserCurrentGroups" class="mb-4"></div><div class="text-12 text-muted mb-2">可添加的权限组：</div><div id="pgUserAvailableGroups"></div><div id="pgUserGroupError" class="text-13 text-red d-none"></div><input type="hidden" id="pgUserGroupUserId"></div></div>
+
+<!-- 编辑个人资料弹窗 -->
+<div id="editProfileModal" class="modal">
+  <div class="modal-content modal-sm">
+    <div class="modal-header"><h3>✏️ 编辑个人资料</h3><button class="modal-close" onclick="closeModal('editProfileModal')" aria-label="关闭">×</button></div>
+    <div class="form-group">
+      <label>头像</label>
+      <div style="display:flex;align-items:center;gap:12px">
+        <img id="editAvatarPreview" src="/api/avatar/default" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--border)" alt="" loading="lazy">
+        <button class="btn btn-sm btn-accent" onclick="document.getElementById('editAvatarInput').click()">📷 上传头像</button>
+        <input type="file" id="editAvatarInput" accept="image/*" class="d-none" onchange="uploadProfileAvatar(this.files[0])">
+      </div>
+    </div>
+    <div class="form-group"><label>个性签名</label><input type="text" id="editMotto" class="form-input" maxlength="100"></div>
+    <div class="form-group"><label>个人简介</label><textarea id="editBio" class="form-input" rows="4" maxlength="2000"></textarea></div>
+    <div class="form-group"><label>生日</label><input type="date" id="editBirthday" class="form-input"></div>
+    <div class="form-group"><label>所在地</label><input type="text" id="editLocation" class="form-input"></div>
+    <div class="form-group"><label>个人网站</label><input type="text" id="editWebsite" class="form-input" placeholder="https://"></div>
+    <div class="form-group"><label>B站主页</label><input type="text" id="editSocialBilibili" class="form-input" placeholder="https://space.bilibili.com/xxxxxxxx"></div>
+    <div class="form-group"><label>微博主页</label><input type="text" id="editSocialWeibo" class="form-input" placeholder="https://weibo.com/xxxxxxxx"></div>
+    <div class="form-group"><label>GitHub</label><input type="text" id="editSocialGithub" class="form-input" placeholder="https://github.com/xxxxxxxx"></div>
+    <div class="form-group"><label>封面图片 URL</label><input type="text" id="editCoverImage" class="form-input" placeholder="https://"></div>
+    <div class="form-actions"><button onclick="closeModal('editProfileModal')" class="btn btn-outline">取消</button><button onclick="saveEditProfile()" class="btn btn-accent">保存</button></div>
+  </div>
+</div>
+
+<!-- 相册 Modal -->
+<div id="albumModal" class="modal">
+  <div class="modal-content modal-sm">
+    <div class="modal-header"><h3 id="albumModalTitle">📷 新建相册</h3><button class="modal-close" onclick="closeModal('albumModal')" aria-label="关闭">×</button></div>
+    <div class="form-group"><label>相册名称</label><input type="text" id="albumName" class="form-input" placeholder="相册名称"></div>
+    <div class="form-group"><label>相册描述</label><textarea id="albumDesc" class="form-input" rows="2" placeholder="相册描述（选填）"></textarea></div>
+    <div class="form-group"><label>隐私设置</label><select id="albumPrivacy" class="form-input"><option value="public">🌍 公开</option><option value="members_only">👥 成员</option><option value="private">🔒 私密</option></select></div>
+    <div id="albumFileArea" class="form-group"><label>上传照片/视频</label><input type="file" id="albumPhotoInput" accept="image/*,video/*" multiple class="form-input"><div class="text-12 text-muted2 mt-4">支持图片和视频混合上传，最多 200MB/个</div></div>
+    <div class="form-actions"><button onclick="closeModal('albumModal')" class="btn btn-outline">取消</button><button onclick="saveAlbum()" class="btn btn-accent">保存</button></div>
+    <input type="hidden" id="albumEditId">
+  </div>
+</div>
+
+<!-- 相册分类管理 -->
+<div id="albumCategoryModal" class="modal">
+  <div class="modal-content modal-sm">
+    <div class="modal-header"><h3>📂 管理分类</h3><button class="modal-close" onclick="closeModal('albumCategoryModal')" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label>分类名称</label><input type="text" id="newCategoryName" class="form-input" placeholder="输入新分类名称"><button onclick="showCreateAlbumCate()" class="btn btn-accent btn-sm mt-4">+ 添加</button></div>
+    <div id="categoryList"></div>
+  </div>
+</div>
+
+<!-- ===== Lightbox ===== -->
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" onclick="closeLightbox()" aria-label="关闭图片">✕</button>
+  <div class="lightbox-img-area">
+    <div id="lightboxImgContainer">
+      <img id="lightboxImg" src="" alt="">
+    </div>
+    <div id="lbCounter" class="lightbox-counter">1/1</div>
+    <div id="lbDesc" class="lightbox-desc"></div>
+    <button id="lbSlideBtn" class="lightbox-slide-btn" onclick="toggleSlideshow()">▶ 幻灯片</button>
+    <button class="lightbox-nav lightbox-prev" onclick="lightboxPrev()" aria-label="上一张">‹</button>
+    <button class="lightbox-nav lightbox-next" onclick="lightboxNext()" aria-label="下一张">›</button>
+    <div id="lbThumbs" class="lightbox-thumbs"></div>
+  </div>
+  <div class="lightbox-actions">
+    <button class="like-btn" id="likeBtn" onclick="toggleLike()">❤️ <span id="likeCount">0</span></button>
+    <button id="lbEditDescBtn" class="btn btn-sm d-none">✏️ 编辑描述</button>
+    <button onclick="deletePhoto()" class="btn btn-sm">🗑 删除</button>
+    <button onclick="sharePhoto()" class="btn btn-sm">🔗 分享</button>
+  </div>
+  <div class="lightbox-comments">
+    <div id="lbComments" class="lightbox-comments-list"></div>
+    <div class="lightbox-comment-input"><textarea id="commentInput" placeholder="写下评论..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();postComment()}"></textarea><button onclick="postComment()" class="btn btn-accent btn-sm">发送</button></div>
+  </div>
+</div>
+
+<!-- 返回顶部 -->
+<button id="backToTopBtn" class="back-to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" aria-label="返回顶部">⬆️</button>
+
+<!-- ===== Scripts ===== -->
+<script defer src="/js/core.js"></script>
+<script defer src="/js/i18n.js"></script>
+<script defer src="/js/theme.js"></script>
+<script defer src="/js/auth.js"></script>
+<script defer src="/js/ui.js"></script>
+<script defer src="/js/members.js"></script>
+<script defer src="/js/home.js"></script>
+<script defer src="/js/group.js"></script>
+<script defer src="/js/announcements.js"></script>
+<script defer src="/js/events.js"></script>
+<script defer src="/js/vrc.js"></script>
+<script defer src="/js/map.js"></script>
+<script defer src="/js/chat.js"></script>
+<script defer src="/js/album.js"></script>
+<script defer src="/js/admin-users.js"></script>
+<script defer src="/js/admin-perms.js"></script>
+<script defer src="/js/admin-vrc.js"></script>
+<script defer src="/js/posts.js"></script>
+<script defer src="/js/birthday.js"></script>
+<script defer src="/js/profile.js"></script>
+<script defer src="/js/profile-page.js"></script>
+<script defer src="/js/init.js"></script>
+<script defer src="/js/main.js"></script>
+
+</body>
+</html>
