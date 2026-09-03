@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -16,37 +16,37 @@
 <link rel="dns-prefetch" href="https://assets.amlcdn.com">
 <link rel="dns-prefetch" href="https://assets.vrchat.com">
 <!-- 首屏关键 CSS：阻塞渲染（页面骨架 / 设计令牌 / 基础 UI / 导航 / 首页内容） -->
-<link rel="stylesheet" href="/css/style.css?v=20260902c">
-<link rel="stylesheet" href="/css/99-design-system.css?v=20260902c">
-<link rel="stylesheet" href="/css/ui-components.css?v=20260902c">
-<link rel="stylesheet" href="/css/ui-enhance.css?v=20260902c">
-<link rel="stylesheet" href="/css/nav-scroller.css?v=20260902c">
-<link rel="stylesheet" href="/css/home-featured.css?v=20260902c">
-<link rel="stylesheet" href="/css/home-enhance.css?v=20260902c">
-<link rel="stylesheet" href="/css/animations.css?v=20260902c">
+<link rel="stylesheet" href="/css/style.css?v=20260903a">
+<link rel="stylesheet" href="/css/99-design-system.css?v=20260903a">
+<link rel="stylesheet" href="/css/ui-components.css?v=20260903a">
+<link rel="stylesheet" href="/css/ui-enhance.css?v=20260903a">
+<link rel="stylesheet" href="/css/nav-scroller.css?v=20260903a">
+<link rel="stylesheet" href="/css/home-featured.css?v=20260903a">
+<link rel="stylesheet" href="/css/home-enhance.css?v=20260903a">
+<link rel="stylesheet" href="/css/animations.css?v=20260903a">
 <!-- 点赞动效（like-burst）：给 post/album 等点赞按钮加心爆裂动画 + 无障碍兜底 -->
-<link rel="stylesheet" href="/css/likes-anim.css?v=20260902c">
+<link rel="stylesheet" href="/css/likes-anim.css?v=20260903a">
 <!-- 功能隐藏：直播入口 #tab-btn-live / 管理侧栏 live / #tab-live 面板统一不显示。
      兜底性兜底：即使 JS 误把 #tab-live 设为 active，也会被 CSS 强制隐藏。 -->
-<link rel="stylesheet" href="/css/feature-disabled.css?v=20260902c">
+<link rel="stylesheet" href="/css/feature-disabled.css?v=20260903a">
 <!-- 非首屏 CSS：改为非阻塞异步加载（media=print 命中后切回 all），避免拖慢 LCP；
      首屏默认落在 home Tab，members/collections/social/地图/“更多”菜单等样式多为
      第二屏或弹层，异步加载后由浏览器空闲补全，导航到对应 Tab 时已就绪（P2-21） -->
-<link rel="stylesheet" href="/css/06b-presence.css?v=20260902c" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/06-members.css?v=20260902c" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/collections.css?v=20260902c" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/10-social.css?v=20260902c" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/baidu-modern.css?v=20260902c" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/06b-presence.css?v=20260903a" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/06-members.css?v=20260903a" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/collections.css?v=20260903a" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/10-social.css?v=20260903a" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/baidu-modern.css?v=20260903a" media="print" onload="this.media='all'">
 <!-- V9.4 地图 VRChat 世界面板样式（异步加载） -->
-<link rel="stylesheet" href="/css/worlds-panel.css?v=20260902c" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20260902c"></noscript>
+<link rel="stylesheet" href="/css/worlds-panel.css?v=20260903a" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20260903a"></noscript>
 <!-- 无 JS 兜底：保证禁用 JS 时样式仍加载 -->
 <noscript>
-  <link rel="stylesheet" href="/css/06b-presence.css?v=20260902c">
-  <link rel="stylesheet" href="/css/06-members.css?v=20260902c">
-  <link rel="stylesheet" href="/css/collections.css?v=20260902c">
-  <link rel="stylesheet" href="/css/10-social.css?v=20260902c">
-  <link rel="stylesheet" href="/css/baidu-modern.css?v=20260902c">
+  <link rel="stylesheet" href="/css/06b-presence.css?v=20260903a">
+  <link rel="stylesheet" href="/css/06-members.css?v=20260903a">
+  <link rel="stylesheet" href="/css/collections.css?v=20260903a">
+  <link rel="stylesheet" href="/css/10-social.css?v=20260903a">
+  <link rel="stylesheet" href="/css/baidu-modern.css?v=20260903a">
 </noscript>
   <meta name="description" content="境途同游是一个面向 VRChat 玩家的社群平台，提供群组相册、活动报名、动态分享、成员地图与实时聊天，记录你在虚拟世界里的每一次同游。">
   <meta property="og:type" content="website">
@@ -78,12 +78,12 @@
         return 'zh';
       }
       // 解析期 document.write 外部脚本为阻塞式，保证在 i18n.js 之前就绪
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260902c"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260903a"><\/script>');
     })();
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
        必须在 i18n 之后（依赖 window.__）、在 loader.js / ui.js 之前（确保 og:url 尽早被爬虫读取）。 -->
-  <script src="/js/seo.js?v=20260902c"></script>
+  <script src="/js/seo.js?v=20260903a"></script>
   <!-- 首屏性能量化（P2-21）：?perf=1 时上报 LCP/FCP 到 console，便于回归比对；
        生产默认关闭，零副作用。仅观测，不改写任何渲染行为。 -->
   <script>
@@ -429,7 +429,7 @@
   <div class="tabs" role="tablist">
     <button id="tab-btn-home" class="tab active" role="tab" aria-selected="true"><span class="tab-emoji">🏠</span><span data-i18n="nav.home">首页</span></button>
     <button id="tab-btn-members" class="tab" role="tab" aria-selected="false"><span class="tab-emoji">👥</span><span data-i18n="nav.members">成员</span></button>
-    <button id="tab-btn-group" class="tab" role="tab" aria-selected="false"><span class="tab-emoji">🎮</span><span data-i18n="nav.group">群组</span><span id="groupBadge" class="tab-badge d-none"></span></button>
+    <button id="tab-btn-vrc" class="tab" role="tab" aria-selected="false"><span class="tab-emoji">🎮</span><span data-i18n="nav.vrc">VRC</span><span id="groupBadge" class="tab-badge d-none"></span></button>
     <button id="tab-btn-announcements" class="tab" role="tab" aria-selected="false"><span class="tab-emoji">📢</span><span data-i18n="nav.announcements">公告</span> <span id="annoBadge" class="tab-badge d-none"></span></button>
     <button id="tab-btn-events" class="tab" role="tab" aria-selected="false"><span class="tab-emoji">📅</span><span data-i18n="nav.events">活动</span> <span id="evtBadge" class="tab-badge d-none"></span></button>
     <button id="tab-btn-birthday" class="tab" role="tab" aria-selected="false"><span class="tab-emoji">🎂</span><span data-i18n="nav.birthday">生日</span></button>
@@ -535,12 +535,8 @@
     </section>
   </div>
 
-  <!-- Tab: 地图 -->
+  <!-- Tab: 地图（仅成员位置；VRChat 世界已并入 VRC 页签） -->
   <div id="tab-map" class="tab-content d-none" role="tabpanel" aria-labelledby="tab-btn-map">
-    <div class="map-legend">
-      <span class="map-tab-btn active" data-view="members" role="button" tabindex="0" onclick="switchMapView('members')" onkeydown="if(event.key==='Enter'||event.key===' ')switchMapView('members')" data-i18n="map.members_view">📍 成员位置</span>
-      <span class="map-tab-btn" data-view="worlds" role="button" tabindex="0" onclick="switchMapView('worlds')" onkeydown="if(event.key==='Enter'||event.key===' ')switchMapView('worlds')" data-i18n="map.worlds_view">🌐 VRChat 世界</span>
-    </div>
     <div id="mapMembersView">
       <div id="mapEmpty" class="d-none"></div>
       <div class="map-legend-sub flex-row gap-8 flex-wrap items-center">
@@ -552,49 +548,6 @@
       </div>
       <div id="memberMap" class="map-container"><div class="skeleton-card-grid"></div></div>
       <p class="text-muted2 text-13 mt-8">位置共享使用浏览器 GPS 定位，精度约 5-50 米。共享范围仅限网站成员可见。</p>
-    </div>
-    <div id="mapWorldsView" class="d-none">
-      <section class="worlds-panel mt-8" aria-label="VRChat 世界分布">
-        <header class="worlds-panel-header">
-          <h2 class="worlds-panel-title">🌐 <span data-i18n="map.worlds_view">VRChat 世界</span></h2>
-          <div class="worlds-panel-toolbar">
-            <button type="button" class="btn btn-sm btn-outline" id="mapWorldsRefreshBtn" data-i18n="map.refresh">🔄 刷新</button>
-            <span class="text-muted2 text-12" id="mapWorldsUpdatedAt"></span>
-          </div>
-        </header>
-        <dl id="mapWorldsKpiBar" class="worlds-kpi-bar">
-          <div class="worlds-kpi">
-            <dt class="worlds-kpi-k" data-i18n="map.kpi_worlds">在线世界</dt>
-            <dd class="worlds-kpi-v" id="mapKpiWorlds">-</dd>
-          </div>
-          <div class="worlds-kpi">
-            <dt class="worlds-kpi-k" data-i18n="map.kpi_members">在线成员</dt>
-            <dd class="worlds-kpi-v" id="mapKpiMembers">-</dd>
-          </div>
-          <div class="worlds-kpi">
-            <dt class="worlds-kpi-k" data-i18n="map.kpi_friends">好友在线</dt>
-            <dd class="worlds-kpi-v" id="mapKpiFriends">-</dd>
-          </div>
-          <div class="worlds-kpi">
-            <dt class="worlds-kpi-k" data-i18n="map.kpi_instances">覆盖实例</dt>
-            <dd class="worlds-kpi-v" id="mapKpiInstances">-</dd>
-          </div>
-        </dl>
-        <div class="worlds-region-strip">
-          <h3 class="worlds-sub-title" data-i18n="map.region_title">区域聚集</h3>
-          <div id="mapWorldsRegionList" class="worlds-region-list">
-            <div class="worlds-region-empty text-muted2 text-13" data-i18n="common.loading">加载中…</div>
-          </div>
-        </div>
-        <div class="worlds-top-strip">
-          <h3 class="worlds-sub-title" data-i18n="map.top_title">热门实例 Top 5</h3>
-          <div id="mapWorldsTopList" class="worlds-top-list">
-            <div class="worlds-top-empty text-muted2 text-13" data-i18n="common.loading">加载中…</div>
-          </div>
-        </div>
-        <h3 class="worlds-sub-title" data-i18n="map.kpi_worlds" style="margin-top:14px">世界分布</h3>
-        <div id="eventWorldsGrid" class="worlds-grid"></div>
-      </section>
     </div>
   </div>
 
@@ -638,8 +591,13 @@
     </div>
   </div>
 
-  <!-- Tab: 群组 -->
-  <div id="tab-group" class="tab-content d-none" role="tabpanel" aria-labelledby="tab-btn-group">
+  <!-- Tab: VRC（群组 + VRChat 世界 子选项） -->
+  <div id="tab-vrc" class="tab-content d-none" role="tabpanel" aria-labelledby="tab-btn-vrc">
+    <div class="map-legend">
+      <span class="map-tab-btn active" data-view="group" role="button" tabindex="0" onclick="switchVrcView('group')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVrcView('group')">👥 <span data-i18n="nav.group">群组</span></span>
+      <span class="map-tab-btn" data-view="worlds" role="button" tabindex="0" onclick="switchVrcView('worlds')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVrcView('worlds')">🌐 <span data-i18n="map.worlds_view">VRChat 世界</span></span>
+    </div>
+    <div id="vrcGroupView">
     <div id="groupOverview" class="group-overview">
       <span class="group-stat-badge" id="groupTotalMembers">0</span> <span data-i18n="members.total">名成员</span>
       <span class="group-stat-badge online" id="groupOnlineCount">0</span> <span data-i18n="members.online_label">在线</span>
@@ -673,6 +631,50 @@
       <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
     </div>
     <details id="groupChangesSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">成员变动记录 <span id="groupChangesCount" class="text-muted2 text-12"></span></summary><div id="groupChangesList" class="group-changes-list"></div></details>
+    </div>
+    <div id="vrcWorldsView" class="d-none">
+      <section class="worlds-panel mt-8" aria-label="VRChat 世界分布">
+        <header class="worlds-panel-header">
+          <h2 class="worlds-panel-title">🌐 <span data-i18n="map.worlds_view">VRChat 世界</span></h2>
+          <div class="worlds-panel-toolbar">
+            <button type="button" class="btn btn-sm btn-outline" id="mapWorldsRefreshBtn" data-i18n="map.refresh">🔄 刷新</button>
+            <span class="text-muted2 text-12" id="mapWorldsUpdatedAt"></span>
+          </div>
+        </header>
+        <dl id="mapWorldsKpiBar" class="worlds-kpi-bar">
+          <div class="worlds-kpi">
+            <dt class="worlds-kpi-k" data-i18n="map.kpi_worlds">在线世界</dt>
+            <dd class="worlds-kpi-v" id="mapKpiWorlds">-</dd>
+          </div>
+          <div class="worlds-kpi">
+            <dt class="worlds-kpi-k" data-i18n="map.kpi_members">在线成员</dt>
+            <dd class="worlds-kpi-v" id="mapKpiMembers">-</dd>
+          </div>
+          <div class="worlds-kpi">
+            <dt class="worlds-kpi-k" data-i18n="map.kpi_friends">好友在线</dt>
+            <dd class="worlds-kpi-v" id="mapKpiFriends">-</dd>
+          </div>
+          <div class="worlds-kpi">
+            <dt class="worlds-kpi-k" data-i18n="map.kpi_instances">覆盖实例</dt>
+            <dd class="worlds-kpi-v" id="mapKpiInstances">-</dd>
+          </div>
+        </dl>
+        <div class="worlds-region-strip">
+          <h3 class="worlds-sub-title" data-i18n="map.region_title">区域聚集</h3>
+          <div id="mapWorldsRegionList" class="worlds-region-list">
+            <div class="worlds-region-empty text-muted2 text-13" data-i18n="common.loading">加载中…</div>
+          </div>
+        </div>
+        <div class="worlds-top-strip">
+          <h3 class="worlds-sub-title" data-i18n="map.top_title">热门实例 Top 5</h3>
+          <div id="mapWorldsTopList" class="worlds-top-list">
+            <div class="worlds-top-empty text-muted2 text-13" data-i18n="common.loading">加载中…</div>
+          </div>
+        </div>
+        <h3 class="worlds-sub-title" data-i18n="map.kpi_worlds" style="margin-top:14px">世界分布</h3>
+        <div id="eventWorldsGrid" class="worlds-grid"></div>
+      </section>
+    </div>
   </div>
 
   <!-- Tab: 公告 -->
@@ -2133,25 +2135,25 @@
 <!-- ===== Scripts ===== -->
 <!-- 核心基础设施：defer 后与其余模块同批次按文档顺序执行（core 仍在最前），
      移出解析阻塞路径，首屏可先完成首次绘制（P2-21） -->
-<script defer src="/js/core.js?v=20260902c"></script>
+<script defer src="/js/core.js?v=20260903a"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
-<script defer src="/js/i18n.js?v=20260902c"></script>
-<script defer src="/js/ui.js?v=20260902c"></script>
-<script defer src="/vendor/gsap/gsap.min.js?v=20260902c"></script>
-<script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260902c"></script>
-<script defer src="/js/motion.js?v=20260902c"></script>
-<script defer src="/js/reveal.js?v=20260902c"></script>
-<script defer src="/js/nav-scroller.js?v=20260902c"></script>
-<script defer src="/js/theme.js?v=20260902c"></script>
-<script defer src="/js/auth.js?v=20260902c"></script>
+<script defer src="/js/i18n.js?v=20260903a"></script>
+<script defer src="/js/ui.js?v=20260903a"></script>
+<script defer src="/vendor/gsap/gsap.min.js?v=20260903a"></script>
+<script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260903a"></script>
+<script defer src="/js/motion.js?v=20260903a"></script>
+<script defer src="/js/reveal.js?v=20260903a"></script>
+<script defer src="/js/nav-scroller.js?v=20260903a"></script>
+<script defer src="/js/theme.js?v=20260903a"></script>
+<script defer src="/js/auth.js?v=20260903a"></script>
 <!-- 路由模块懒加载器：包裹 switchTab，按需 / 空闲预载（见 loader.js）。
      当前语言包由 <head> 内联引导按偏好注入，其余语言包在切换时按需加载。 -->
-<script defer src="/js/loader.js?v=20260902c"></script>
+<script defer src="/js/loader.js?v=20260903a"></script>
 <!-- 全局命令面板（VN-9，VRCNext SmartSearch 借鉴）：依赖 core.js 的 api/esc 等 -->
-<script defer src="/js/smartsearch.js?v=20260902c"></script>
+<script defer src="/js/smartsearch.js?v=20260903a"></script>
 <!-- 引导启动：调用 initI18n / switchTab，必须在 loader.js 之后 -->
-<script defer src="/js/init.js?v=20260902c"></script>
-<script defer src="/js/main.js?v=20260902c"></script>
+<script defer src="/js/init.js?v=20260903a"></script>
+<script defer src="/js/main.js?v=20260903a"></script>
 
 <!-- ===== Event Bindings (migrated from inline handlers) ===== -->
 <script>
@@ -2367,13 +2369,8 @@ document.addEventListener('DOMContentLoaded', function() {
   // 这里原本对 .home-quick-card 又绑了一次直接监听，与委托重复，
   // 点一下会触发两次 switchTab；那块九宫格已被移除，绑定一并删除。
 
-  // ===== Map Section =====
-  document.querySelectorAll('.map-tab-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      var view = btn.dataset.view;
-      if (view) switchMapView(view);
-    });
-  });
+  // ===== Map / VRC Section =====
+  // .map-tab-btn（VRC 子页签）已使用内联 onclick/onkeydown 调用 switchVrcView，无需重复绑定。
   bindClick('locationToggleBtn', function() { toggleLocationTracking(); });
 
   // ===== Chat =====
@@ -2402,7 +2399,7 @@ document.addEventListener('DOMContentLoaded', function() {
   bindClick('refreshGroupBtn', function() { refreshGroupStatus(); });
 
   // Group filter buttons (for dynamically created ones)
-  document.querySelectorAll('#tab-group .group-filter-btn').forEach(function(btn) {
+  document.querySelectorAll('#tab-vrc .group-filter-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var filter = btn.dataset.filter;
       if (filter) filterGroupMembers(filter);

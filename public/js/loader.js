@@ -52,7 +52,7 @@ var TAB_MODULES = {
   home: ['home.js'],
   members: ['members.js'],
   me: ['admin-users.js', 'profile.js', 'profile-page.js'],
-  group: ['group.js', 'members.js'],
+  vrc: ['group.js', 'members.js', 'map.js', 'vrc.js'],
   announcements: ['announcements.js'],
   events: ['events.js'],
   album: ['album.js'],
@@ -76,7 +76,7 @@ function _loadScriptOnce(src) {
   if (_loadingMods[src]) return _loadingMods[src];
   var p = new Promise(function (resolve, reject) {
     var s = document.createElement('script');
-    s.src = '/js/' + src + '?v=20260902c';
+    s.src = '/js/' + src + '?v=20260903a';
     s.async = false; // 同批脚本保持插入顺序，保证模块间相对依赖
     s.onload = function () { _loadedMods[src] = true; resolve(); };
     s.onerror = function () { reject(new Error('Failed to load ' + src)); };
@@ -111,7 +111,7 @@ function _preloadRemaining() {
   var TAB_SEO_MAP = {
     'home':           { title: '境途同游首页',         path: '/',       description: '面向 VRChat 玩家的社群平台：群组相册、活动报名、动态分享、成员地图与实时聊天。' },
     'members':        { title: '成员总览',              path: '/members',description: '查看境途同游全部成员的活跃度、所在地与在线状态。' },
-    'group':          { title: '群组相册',              path: '/group',  description: '群组专属相册：随时上传精彩瞬间，沉淀 VRChat 同游回忆。' },
+    'vrc':            { title: 'VRC 社群',              path: '/vrc',    description: 'VRC 社群中心：群组在线成员一览与 VRChat 世界分布聚合。' },
     'announcements':  { title: '群组公告',              path: '/announcements', description: '管理员发布的最新公告、活动通知与平台变动说明。' },
     'events':         { title: '活动报名',              path: '/events', description: '即将到来的 VRChat 主题活动：在线报名、签到、回顾。' },
     'birthday':       { title: '成员生日墙',            path: '/birthday',description: '境途同游成员生日日历：今天有谁过生日？' },

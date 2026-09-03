@@ -870,26 +870,30 @@ function _renderMapGrid(worlds) {
 }
 
 // ==================== 视图切换 ====================
-// 同时兼容 .map-tab-btn（index.html 实际使用的类名）与 .map-view-btn（旧类名）。
-function switchMapView(view) {
-  const btns = document.querySelectorAll('.map-tab-btn, .map-view-btn');
-  btns.forEach(b => b.classList.remove('active'));
-  var activeBtn = document.querySelector('.map-tab-btn[data-view="' + view + '"], .map-view-btn[data-view="' + view + '"]');
-  if (activeBtn) activeBtn.classList.add('active');
-  const membersView = document.getElementById('mapMembersView');
-  const worldsView = document.getElementById('mapWorldsView');
-  if (membersView) membersView.classList.toggle('d-none', view !== 'members');
+// VRC 页签子视图切换：群组视图 / VRChat 世界视图。
+// 地图页已简化为仅成员位置（原 .map-tab-btn 子页签并入 VRC 页签）。
+function switchVrcView(view) {
+  const btns = document.querySelectorAll('#tab-vrc .map-tab-btn');
+  btns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  const groupView = document.getElementById('vrcGroupView');
+  const worldsView = document.getElementById('vrcWorldsView');
+  if (groupView) groupView.classList.toggle('d-none', view !== 'group');
   if (worldsView) worldsView.classList.toggle('d-none', view !== 'worlds');
-  if (view === 'members') {
+  if (view === 'worlds') {
+    bindMapWorldsControls();
+    updateWorldMapMarkers();
+  }
+}
+
+// 兼容旧调用点：地图页不再有成员/世界子视图，仅保留成员地图逻辑
+function switchMapView(view) {
+  if (view === 'members' || !view) {
     if (mapInstance) {
       setTimeout(() => mapInstance.invalidateSize(), 100);
       updateMapMarkers();
     } else {
       initMap();
     }
-  } else {
-    bindMapWorldsControls();
-    updateWorldMapMarkers();
   }
 }
 

@@ -158,7 +158,7 @@
   var NAV_ITEMS = [
     { tab: 'home',         icon: '🏠', key: 'nav.home', fallback: __('auto_smartsearch_2') },
     { tab: 'members',      icon: '👥', key: 'nav.members', fallback: __('auto_smartsearch_3') },
-    { tab: 'group',        icon: '🎮', key: 'nav.group', fallback: __('auto_smartsearch_4') },
+    { tab: 'vrc',          icon: '🎮', key: 'nav.vrc', fallback: __('auto_smartsearch_4') },
     { tab: 'announcements',icon: '📢', key: 'nav.announcements', fallback: __('auto_smartsearch_5') },
     { tab: 'events',       icon: '📅', key: 'nav.events', fallback: __('auto_smartsearch_6') },
     { tab: 'birthday',     icon: '🎂', key: 'nav.birthday', fallback: __('auto_smartsearch_7') },
@@ -353,7 +353,7 @@
 
   function openGroupMember(vrchatId) {
     if (!vrchatId) return;
-    switchToTab('group');
+    switchToTab('vrc');
     setTimeout(function() {
       if (typeof window.openVrcMemberCard === 'function') {
         window.openVrcMemberCard(vrchatId);

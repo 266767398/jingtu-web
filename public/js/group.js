@@ -653,7 +653,7 @@ const GROUP_POLL_MAX = 300000;
 function startGroupPolling() {
   if (groupPollTimer) return;
   const tick = () => {
-    const tab = document.getElementById('tab-group');
+    const tab = document.getElementById('tab-vrc');
     if (tab && !tab.classList.contains('d-none')) {
       // 限流感知：若处于 VRChat 限流窗口内，跳过本轮请求并把间隔翻倍，避免越刷越糟（雪崩）
       const limitedUntil = window._vrcRateLimitedUntil || 0;

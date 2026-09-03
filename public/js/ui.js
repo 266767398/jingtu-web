@@ -227,7 +227,7 @@ function switchTab(tab, force) {
   });
   updateTabIndicator();
   // 页面标题随 Tab 切换（国际化）
-  const tabTitleKeys = { 'home': 'nav.home', 'members': 'nav.members', 'group': 'nav.group', 'announcements': 'nav.announcements', 'events': 'nav.events', 'album': 'nav.album', 'map': 'nav.map', 'chat': 'nav.chat', 'birthday': 'nav.birthday', 'admin': 'nav.admin', 'me': 'nav.me', 'profile-user': 'nav.profile', 'posts': 'nav.posts', 'collections': 'nav.collections', 'live': 'nav.live', 'friends': 'friends.title', 'follows': 'follows.title' };
+  const tabTitleKeys = { 'home': 'nav.home', 'members': 'nav.members', 'vrc': 'nav.vrc', 'announcements': 'nav.announcements', 'events': 'nav.events', 'album': 'nav.album', 'map': 'nav.map', 'chat': 'nav.chat', 'birthday': 'nav.birthday', 'admin': 'nav.admin', 'me': 'nav.me', 'profile-user': 'nav.profile', 'posts': 'nav.posts', 'collections': 'nav.collections', 'live': 'nav.live', 'friends': 'friends.title', 'follows': 'follows.title' };
   document.title = `${__('page_title_prefix')} - ${__(tabTitleKeys[tab] || 'nav.home')}`;
   // Tab 内容入场动画：先重置动画再触发
   const contentEl = document.getElementById('tab-' + tab);
@@ -237,7 +237,7 @@ function switchTab(tab, force) {
   }
   if (tab === 'home') loadHome();
   else if (tab === 'members') loadMembers();
-  else if (tab === 'group') { if (typeof clearGroupBadge === 'function') clearGroupBadge(); loadGroupMembers(); if (typeof startGroupPolling === 'function') startGroupPolling(); }
+  else if (tab === 'vrc') { if (typeof clearGroupBadge === 'function') clearGroupBadge(); loadGroupMembers(); if (typeof startGroupPolling === 'function') startGroupPolling(); if (typeof switchVrcView === 'function') switchVrcView('group'); }
   else if (tab === 'announcements') { loadAnnouncements(); markAnnoSeen(); }
   else if (tab === 'events') { loadEvents(currentEvtStatus); markEvtSeen(); }
   else if (tab === 'album') loadAlbum();
@@ -255,12 +255,12 @@ function switchTab(tab, force) {
 
   // 离开群组页时立即按「已读基线」重新评估角标：若在线人数已回落则清除，
   // 有新上线则显示，避免红点常驻或切换后状态不同步。
-  if (tab !== 'group' && typeof updateGroupBadge === 'function') {
+  if (tab !== 'vrc' && typeof updateGroupBadge === 'function') {
     const oc = document.getElementById('groupOnlineCount');
     if (oc) updateGroupBadge(oc.textContent);
   }
   // P2-16 离开资源密集页时停掉对应定时器，避免隐藏页面空转
-  if (tab !== 'group' && typeof stopGroupPolling === 'function') stopGroupPolling();
+  if (tab !== 'vrc' && typeof stopGroupPolling === 'function') stopGroupPolling();
   if (tab !== 'map' && typeof window.__mapTeardown === 'function') window.__mapTeardown();
 }
 
@@ -655,7 +655,7 @@ function unlockBodyScroll(owner) {
 const TAB_ITEMS = [
   { id: 'home',          emoji: '🏠', i18n: 'nav.home' },
   { id: 'members',       emoji: '👥', i18n: 'nav.members' },
-  { id: 'group',         emoji: '🎮', i18n: 'nav.group' },
+  { id: 'vrc',           emoji: '🎮', i18n: 'nav.vrc' },
   { id: 'announcements', emoji: '📢', i18n: 'nav.announcements' },
   { id: 'events',        emoji: '📅', i18n: 'nav.events' },
   { id: 'birthday',      emoji: '🎂', i18n: 'nav.birthday' },

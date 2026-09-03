@@ -42,7 +42,7 @@ document.addEventListener('click', function(e) {
 const FEATURE_GROUPS = [
   { cat: 'community', items: [
     { tab: 'members', icon: '👥' },
-    { tab: 'group', icon: '🎮' },
+    { tab: 'vrc', icon: '🎮' },
     { tab: 'chat', icon: '💬' },
     { tab: 'friends', icon: '🤝' },
     { tab: 'follows', icon: '➕' },
