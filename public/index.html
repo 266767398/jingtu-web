@@ -16,37 +16,37 @@
 <link rel="dns-prefetch" href="https://assets.amlcdn.com">
 <link rel="dns-prefetch" href="https://assets.vrchat.com">
 <!-- 首屏关键 CSS：阻塞渲染（页面骨架 / 设计令牌 / 基础 UI / 导航 / 首页内容） -->
-<link rel="stylesheet" href="/css/style.css?v=20260902b">
-<link rel="stylesheet" href="/css/99-design-system.css?v=20260902b">
-<link rel="stylesheet" href="/css/ui-components.css?v=20260902b">
-<link rel="stylesheet" href="/css/ui-enhance.css?v=20260902b">
-<link rel="stylesheet" href="/css/nav-scroller.css?v=20260902b">
-<link rel="stylesheet" href="/css/home-featured.css?v=20260902b">
-<link rel="stylesheet" href="/css/home-enhance.css?v=20260902b">
-<link rel="stylesheet" href="/css/animations.css?v=20260902b">
+<link rel="stylesheet" href="/css/style.css?v=20260902c">
+<link rel="stylesheet" href="/css/99-design-system.css?v=20260902c">
+<link rel="stylesheet" href="/css/ui-components.css?v=20260902c">
+<link rel="stylesheet" href="/css/ui-enhance.css?v=20260902c">
+<link rel="stylesheet" href="/css/nav-scroller.css?v=20260902c">
+<link rel="stylesheet" href="/css/home-featured.css?v=20260902c">
+<link rel="stylesheet" href="/css/home-enhance.css?v=20260902c">
+<link rel="stylesheet" href="/css/animations.css?v=20260902c">
 <!-- 点赞动效（like-burst）：给 post/album 等点赞按钮加心爆裂动画 + 无障碍兜底 -->
-<link rel="stylesheet" href="/css/likes-anim.css?v=20260902b">
+<link rel="stylesheet" href="/css/likes-anim.css?v=20260902c">
 <!-- 功能隐藏：直播入口 #tab-btn-live / 管理侧栏 live / #tab-live 面板统一不显示。
      兜底性兜底：即使 JS 误把 #tab-live 设为 active，也会被 CSS 强制隐藏。 -->
-<link rel="stylesheet" href="/css/feature-disabled.css?v=20260902b">
+<link rel="stylesheet" href="/css/feature-disabled.css?v=20260902c">
 <!-- 非首屏 CSS：改为非阻塞异步加载（media=print 命中后切回 all），避免拖慢 LCP；
      首屏默认落在 home Tab，members/collections/social/地图/“更多”菜单等样式多为
      第二屏或弹层，异步加载后由浏览器空闲补全，导航到对应 Tab 时已就绪（P2-21） -->
-<link rel="stylesheet" href="/css/06b-presence.css?v=20260902b" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/06-members.css?v=20260902b" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/collections.css?v=20260902b" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/10-social.css?v=20260902b" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/baidu-modern.css?v=20260902b" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/06b-presence.css?v=20260902c" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/06-members.css?v=20260902c" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/collections.css?v=20260902c" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/10-social.css?v=20260902c" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/baidu-modern.css?v=20260902c" media="print" onload="this.media='all'">
 <!-- V9.4 地图 VRChat 世界面板样式（异步加载） -->
-<link rel="stylesheet" href="/css/worlds-panel.css?v=20260902b" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20260902b"></noscript>
+<link rel="stylesheet" href="/css/worlds-panel.css?v=20260902c" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20260902c"></noscript>
 <!-- 无 JS 兜底：保证禁用 JS 时样式仍加载 -->
 <noscript>
-  <link rel="stylesheet" href="/css/06b-presence.css?v=20260902b">
-  <link rel="stylesheet" href="/css/06-members.css?v=20260902b">
-  <link rel="stylesheet" href="/css/collections.css?v=20260902b">
-  <link rel="stylesheet" href="/css/10-social.css?v=20260902b">
-  <link rel="stylesheet" href="/css/baidu-modern.css?v=20260902b">
+  <link rel="stylesheet" href="/css/06b-presence.css?v=20260902c">
+  <link rel="stylesheet" href="/css/06-members.css?v=20260902c">
+  <link rel="stylesheet" href="/css/collections.css?v=20260902c">
+  <link rel="stylesheet" href="/css/10-social.css?v=20260902c">
+  <link rel="stylesheet" href="/css/baidu-modern.css?v=20260902c">
 </noscript>
   <meta name="description" content="境途同游是一个面向 VRChat 玩家的社群平台，提供群组相册、活动报名、动态分享、成员地图与实时聊天，记录你在虚拟世界里的每一次同游。">
   <meta property="og:type" content="website">
@@ -78,12 +78,12 @@
         return 'zh';
       }
       // 解析期 document.write 外部脚本为阻塞式，保证在 i18n.js 之前就绪
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260902b"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260902c"><\/script>');
     })();
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
        必须在 i18n 之后（依赖 window.__）、在 loader.js / ui.js 之前（确保 og:url 尽早被爬虫读取）。 -->
-  <script src="/js/seo.js?v=20260902b"></script>
+  <script src="/js/seo.js?v=20260902c"></script>
   <!-- 首屏性能量化（P2-21）：?perf=1 时上报 LCP/FCP 到 console，便于回归比对；
        生产默认关闭，零副作用。仅观测，不改写任何渲染行为。 -->
   <script>
@@ -2129,25 +2129,25 @@
 <!-- ===== Scripts ===== -->
 <!-- 核心基础设施：defer 后与其余模块同批次按文档顺序执行（core 仍在最前），
      移出解析阻塞路径，首屏可先完成首次绘制（P2-21） -->
-<script defer src="/js/core.js?v=20260902b"></script>
+<script defer src="/js/core.js?v=20260902c"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
-<script defer src="/js/i18n.js?v=20260902b"></script>
-<script defer src="/js/ui.js?v=20260902b"></script>
-<script defer src="/vendor/gsap/gsap.min.js?v=20260902b"></script>
-<script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260902b"></script>
-<script defer src="/js/motion.js?v=20260902b"></script>
-<script defer src="/js/reveal.js?v=20260902b"></script>
-<script defer src="/js/nav-scroller.js?v=20260902b"></script>
-<script defer src="/js/theme.js?v=20260902b"></script>
-<script defer src="/js/auth.js?v=20260902b"></script>
+<script defer src="/js/i18n.js?v=20260902c"></script>
+<script defer src="/js/ui.js?v=20260902c"></script>
+<script defer src="/vendor/gsap/gsap.min.js?v=20260902c"></script>
+<script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260902c"></script>
+<script defer src="/js/motion.js?v=20260902c"></script>
+<script defer src="/js/reveal.js?v=20260902c"></script>
+<script defer src="/js/nav-scroller.js?v=20260902c"></script>
+<script defer src="/js/theme.js?v=20260902c"></script>
+<script defer src="/js/auth.js?v=20260902c"></script>
 <!-- 路由模块懒加载器：包裹 switchTab，按需 / 空闲预载（见 loader.js）。
      当前语言包由 <head> 内联引导按偏好注入，其余语言包在切换时按需加载。 -->
-<script defer src="/js/loader.js?v=20260902b"></script>
+<script defer src="/js/loader.js?v=20260902c"></script>
 <!-- 全局命令面板（VN-9，VRCNext SmartSearch 借鉴）：依赖 core.js 的 api/esc 等 -->
-<script defer src="/js/smartsearch.js?v=20260902b"></script>
+<script defer src="/js/smartsearch.js?v=20260902c"></script>
 <!-- 引导启动：调用 initI18n / switchTab，必须在 loader.js 之后 -->
-<script defer src="/js/init.js?v=20260902b"></script>
-<script defer src="/js/main.js?v=20260902b"></script>
+<script defer src="/js/init.js?v=20260902c"></script>
+<script defer src="/js/main.js?v=20260902c"></script>
 
 <!-- ===== Event Bindings (migrated from inline handlers) ===== -->
 <script>
