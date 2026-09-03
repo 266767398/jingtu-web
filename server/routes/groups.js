@@ -81,7 +81,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   // 全量同步的互斥标志：同一时刻只允许一次，避免并发同步互相看到对方的中间态
   // 而写出成片的假"已离开群组"变更记录。
   let syncInFlight = false;
-  // 全量同步 / 在线状态刷新已对全体登录用户开放，用内存全局冷却（重启即清零）
+  // 全量同步 / 在线状态刷新已对全体登录用户开放，用内存冷却（按用户隔离，重启即清零）
   // 防止频繁触发打爆 VRChat 限流（429）。
   const SYNC_COOLDOWN_MS = 5 * 60 * 1000;   // 全量同步：5 分钟一次
   const REFRESH_COOLDOWN_MS = 30 * 1000;    // 在线状态刷新：30 秒一次
@@ -457,8 +457,8 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
   // ==================== 刷新在线状态 ====================
   router.get('/group/members/refresh', requireAuth, async (req, res) => {
-    // 在线状态刷新已对全体登录用户开放，同样走全局冷却（30 秒一次），
-    // 防止多人同时点刷新把 VRChat 好友接口打到限流（429）。
+    // 在线状态刷新已对全体登录用户开放，走按用户冷却（每人 30 秒一次），
+    // 防止同一人频繁点刷新把 VRChat 好友接口打到限流（429），且不误伤其他用户。
     const nowMs = Date.now();
     const refreshUserKey = String((req.user && (req.user.id || req.user.login_id)) || 'unknown');
     const lastUserRefresh = lastRefreshByUser.get(refreshUserKey) || 0;

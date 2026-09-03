@@ -133,19 +133,23 @@ function vrcAcquire() {
   if (vrcTokens >= 1) { vrcTokens -= 1; return Promise.resolve(); }
   return new Promise((resolve, reject) => {
     let settled = false;
+    // 持有排队项引用：超时清理需按引用移除（vrcQueue 存的是 wrapper 而非 resolve，
+    // 用 indexOf(resolve) 永远找不到，超时项会残留队列，之后 vrcDrip 出队时白耗 1 个令牌）。
+    let queueEntry = null;
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      const idx = vrcQueue.indexOf(resolve);
+      const idx = vrcQueue.indexOf(queueEntry);
       if (idx >= 0) vrcQueue.splice(idx, 1);
       reject(Object.assign(new Error('VRChat 限流排队超时'), { code: 'VRC_RATE_TIMEOUT' }));
     }, 12000);
-    vrcQueue.push(() => {
+    queueEntry = () => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       resolve();
-    });
+    };
+    vrcQueue.push(queueEntry);
     if (!vrcDripTimer) vrcDripTimer = setTimeout(vrcDrip, 200);
   });
 }

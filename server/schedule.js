@@ -295,6 +295,9 @@ function startSchedule() {
             location: s.location || '',
             worldId: s.world_name || '',
             isOnline: !!s.is_online,
+            // 从群友共享态推算：在线且 location 非网页端（非 'web'/空）即视为游戏内。
+            // 与 groups.js 手动刷新的共享态分支保持一致，否则定时任务会把共享态成员强制写回 is_in_game=0。
+            isInGame: !!(s.is_online && s.location && s.location !== 'web'),
             isFriend: true,
             source: 'shared',
             last_login: s.last_login || null,

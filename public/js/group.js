@@ -516,7 +516,7 @@ async function refreshGroupStatus() {
   if (btn) { btn.disabled = true; btn.textContent = __('group.refreshing'); }
 
   try {
-    // 刷新在线状态要并发拉 VRChat 好友状态（最多 100 人 / 5 并发 / 20 页），
+    // 刷新在线状态：服务端走 /auth/user/friends 全量解析（好友不截断，非好友回退≤25 人），
     // 服务端跑 20~60s 是常态。默认 10s 超时会在服务端还在跑时 abort，
     // 用户看到__('auto_group_17')以为失败反复点，反而加重 VRChat 限流。与 sync 对齐为 3 分钟。
     const res = await api('/api/group/members/refresh', { timeout: 180000 });
