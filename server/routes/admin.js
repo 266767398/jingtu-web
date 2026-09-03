@@ -174,7 +174,7 @@ module.exports = function (groupId, vrcCookieCfg) {
   router.get('/social-links', async (req, res) => {
     try {
       const [rows] = await getPool().query(
-        `SELECT config_key, config_value FROM system_config WHERE config_key IN ('vrcGroupUrl', 'kookUrl', 'oopzUrl')`
+        `SELECT config_key, config_value FROM system_config WHERE config_key IN ('vrcGroupUrl', 'kookUrl', 'oopzUrl', 'hide_forgot_password')`
       );
       const links = {};
       for (const row of rows) {
@@ -183,9 +183,10 @@ module.exports = function (groupId, vrcCookieCfg) {
       res.json({
         vrcGroupUrl: links.vrcGroupUrl || '',
         kookUrl: links.kookUrl || '',
-        oopzUrl: links.oopzUrl || ''
+        oopzUrl: links.oopzUrl || '',
+        hideForgotPassword: links.hide_forgot_password || '0'
       });
-    } catch (e) { logger.error('admin', '[social-links]', e); res.json({ vrcGroupUrl: '', kookUrl: '', oopzUrl: '' }); }
+    } catch (e) { logger.error('admin', '[social-links]', e); res.json({ vrcGroupUrl: '', kookUrl: '', oopzUrl: '', hideForgotPassword: '0' }); }
   });
 
   // ==================== 系统配置 ====================
@@ -203,7 +204,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       // 前端 saveSystemConfig 发送的是 { config: {...} }，兼容顶层直传两种形态，
       // 否则历史上会静默变成 no-op（改了不入库）。
       const incoming = (req.body && req.body.config && typeof req.body.config === 'object') ? req.body.config : req.body;
-      const allowedKeys = ['site_name', 'hero_title', 'hero_subtitle', 'hero_description', 'hero_bg_url', 'hero_bg_color', 'hero_bg_overlay_opacity', 'hero_accent_color', 'hero_badge_text', 'hero_show_stats', 'hero_show_badge', 'hero_animation', 'posts_per_page', 'post_max_images', 'post_max_videos', 'post_video_max_size_mb', 'vrcGroupUrl', 'kookUrl', 'oopzUrl', 'req_max_upload_mb', 'req_max_body_mb', 'req_max_other_mb'];
+      const allowedKeys = ['site_name', 'hero_title', 'hero_subtitle', 'hero_description', 'hero_bg_url', 'hero_bg_color', 'hero_bg_overlay_opacity', 'hero_accent_color', 'hero_badge_text', 'hero_show_stats', 'hero_show_badge', 'hero_animation', 'posts_per_page', 'post_max_images', 'post_max_videos', 'post_video_max_size_mb', 'vrcGroupUrl', 'kookUrl', 'oopzUrl', 'req_max_upload_mb', 'req_max_body_mb', 'req_max_other_mb', 'hide_forgot_password'];
       for (const key of allowedKeys) {
         if (incoming[key] !== undefined) {
           const val = typeof incoming[key] === 'string' ? incoming[key] : String(incoming[key]);

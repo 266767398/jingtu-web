@@ -1120,6 +1120,7 @@ window._LANG_FR = {
   "admin.perm_vrc_sync": "Synchroniser avec VRChat",
   "admin.reject": "Rejeter",
   "admin.settings_saved": "Paramètres enregistrés",
+  "admin.hide_forgot_pwd": "Masquer le mot de passe oublié",
   "admin.unban_confirm": "Êtes-vous sûr de vouloir débannir cet utilisateur ?",
   "admin.user_delete_confirm": "Êtes-vous sûr de vouloir supprimer cet utilisateur ? Cette action n'est pas réversible.",
   "admin.vrc_syncing": "<b>En cours de synchronisation des données VRChat...</b>",

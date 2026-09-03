@@ -110,6 +110,8 @@ function showLogin() {
   document.getElementById('loginModeInit')?.classList.add('d-none');
   updateLoginTabsVisibility();
   switchLoginMode('password');
+  // 读取公开配置，按需隐藏「找回密码」入口（未登录也能生效）
+  loadSocialLinks();
 }
 
 // V6.15: 两个登录标签始终可见（本地账号 + VRChat），初始化标签默认隐藏
@@ -191,6 +193,8 @@ async function loadSocialLinks() {
         oopzLink.target = '_blank';
         oopzLink.rel = 'noopener';
       }
+      const forgotLink = document.getElementById('forgotPwdLink');
+      if (forgotLink) forgotLink.style.display = (links.hideForgotPassword === '1') ? 'none' : '';
     }
   } catch (e) { }
 }

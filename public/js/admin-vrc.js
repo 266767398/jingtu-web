@@ -445,6 +445,7 @@ async function loadSystemConfig() {
       setVal('cfgSiteName', cfg.site_name);
       setVal('cfgAllowRegister', cfg.allow_register);
       setVal('cfgRequireApproval', cfg.require_approval);
+      setVal('cfgHideForgot', cfg.hide_forgot_password);
       setVal('cfgSiteNotice', cfg.site_notice);
       setVal('cfgContactEmail', cfg.contact_email);
       setVal('cfgMaxPhotoUpload', cfg.max_photo_upload);
@@ -515,6 +516,7 @@ async function saveSystemConfig() {
     site_name: getVal('cfgSiteName'),
     allow_register: getVal('cfgAllowRegister'),
     require_approval: getVal('cfgRequireApproval'),
+    hide_forgot_password: getVal('cfgHideForgot'),
     site_notice: getVal('cfgSiteNotice'),
     contact_email: getVal('cfgContactEmail'),
     max_photo_upload: getVal('cfgMaxPhotoUpload'),

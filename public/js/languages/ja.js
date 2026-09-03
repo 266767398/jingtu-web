@@ -1120,6 +1120,7 @@ window._LANG_JA = {
   "admin.perm_vrc_sync": "VRChat の同期",
   "admin.reject": "拒否",
   "admin.settings_saved": "設定が保存されました",
+  "admin.hide_forgot_pwd": "パスワード再発行を隠す",
   "admin.unban_confirm": "このユーザーのブロックを解除しますか？",
   "admin.user_delete_confirm": "このユーザーを削除しますか？この操作は元に戻せません。",
   "admin.vrc_syncing": "VRChat データ同期中…",

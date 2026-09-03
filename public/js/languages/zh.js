@@ -1125,6 +1125,7 @@ window._LANG_ZH = {
   "admin.perm_vrc_sync": "同步 VRChat",
   "admin.reject": "驳回",
   "admin.settings_saved": "设置已保存",
+  "admin.hide_forgot_pwd": "隐藏找回密码",
   "admin.unban_confirm": "确定解除该用户的封禁吗？",
   "admin.user_delete_confirm": "确定删除该用户吗？此操作不可恢复。",
   "admin.vrc_syncing": "正在同步 VRChat 数据…",

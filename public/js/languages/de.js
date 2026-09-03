@@ -1120,6 +1120,7 @@ window._LANG_DE = {
   "admin.perm_vrc_sync": "VRChat-Synchronisierung",
   "admin.reject": "Abbrechen",
   "admin.settings_saved": "Einstellungen gespeichert",
+  "admin.hide_forgot_pwd": "Passwort-Wiederherstellung ausblenden",
   "admin.unban_confirm": "Bestätigen Sie, dass Sie diesen Benutzer von der Sperre befreien möchten?",
   "admin.user_delete_confirm": "Sind Sie sicher, dass Sie diesen Benutzer löschen möchten? Diese Aktion ist nicht mehr rückgängig zu machen.",
   "admin.vrc_syncing": "VRChat-Daten werden synchronisiert…",

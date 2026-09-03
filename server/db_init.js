@@ -1481,6 +1481,7 @@ async function initDatabase() {
       ['post_max_images', '9'],
       ['post_max_videos', '3'],
       ['post_video_max_size_mb', '200'],
+      ['hide_forgot_password', '0'],
     ];
     for (const [key, val] of defaultConfigs) {
       await holder.pool.query(
