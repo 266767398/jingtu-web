@@ -215,7 +215,16 @@ function renderThumbnails() {
 }
 function lightboxPrev() { if (currentPhotoIdx > 0) { currentPhotoIdx--; updateLightbox(); } }
 function lightboxNext() { if (currentPhotoIdx < albumPhotoList.length - 1) { currentPhotoIdx++; updateLightbox(); } }
+function stopSlideshow() {
+  if (!slideTimer) return;
+  clearInterval(slideTimer); slideTimer = null;
+  const btn = document.getElementById('lbSlideBtn');
+  if (btn) { btn.textContent = __('album.slideshow'); btn.classList.remove('playing'); }
+  const lightbox = document.getElementById('lightbox');
+  if (lightbox && slideshowNavHandler) { lightbox.removeEventListener('click', slideshowNavHandler); slideshowNavHandler = null; }
+}
 function closeLightbox() {
+  stopSlideshow();
   const lightbox = document.getElementById('lightbox');
   if (lightbox) {
     lightbox.classList.remove('show');
@@ -223,13 +232,10 @@ function closeLightbox() {
   }
 }
 let slideTimer = null;
+let slideshowNavHandler = null;
 function toggleSlideshow() {
   const btn = document.getElementById('lbSlideBtn');
-  if (slideTimer) {
-    clearInterval(slideTimer); slideTimer = null;
-    if (btn) { btn.textContent = __('album.slideshow'); btn.classList.remove('playing'); }
-    return;
-  }
+  if (slideTimer) { stopSlideshow(); return; }
   if (!albumPhotoList || albumPhotoList.length < 2) { toast(__('album.need_2_photos'), 'info'); return; }
   if (btn) { btn.textContent = __('album.slideshow_stop'); btn.classList.add('playing'); }
   slideTimer = setInterval(() => {
@@ -237,8 +243,11 @@ function toggleSlideshow() {
     updateLightbox();
   }, 3000);
   // 手动翻页时自动停止
-  const stopOnNav = () => { if (slideTimer) { clearInterval(slideTimer); slideTimer = null; if (btn) { btn.textContent = __('album.slideshow'); btn.classList.remove('playing'); } } };
-  document.getElementById('lightbox')?.addEventListener('click', stopOnNav, { once: true });
+  const lightbox = document.getElementById('lightbox');
+  if (lightbox) {
+    slideshowNavHandler = () => { stopSlideshow(); };
+    lightbox.addEventListener('click', slideshowNavHandler, { once: true });
+  }
 }
 function lightboxNav(dir) { if (dir === -1) lightboxPrev(); else lightboxNext(); }
 

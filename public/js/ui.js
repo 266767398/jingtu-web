@@ -1,4 +1,4 @@
-﻿// ==================== UI 更新 ====================
+// ==================== UI 更新 ====================
 // VRChat 头像代理：把带签名、会过期的 VRChat CDN 链接改写为后端代理地址，
 // 由后端缓存到本地，避免前端裂图 / 签名过期。非 VRChat 域名原样返回。
 function proxyAvatar(url) {
@@ -237,7 +237,7 @@ function switchTab(tab, force) {
   }
   if (tab === 'home') loadHome();
   else if (tab === 'members') loadMembers();
-  else if (tab === 'group') { if (typeof clearGroupBadge === 'function') clearGroupBadge(); loadGroupMembers(); }
+  else if (tab === 'group') { if (typeof clearGroupBadge === 'function') clearGroupBadge(); loadGroupMembers(); if (typeof startGroupPolling === 'function') startGroupPolling(); }
   else if (tab === 'announcements') { loadAnnouncements(); markAnnoSeen(); }
   else if (tab === 'events') { loadEvents(currentEvtStatus); markEvtSeen(); }
   else if (tab === 'album') loadAlbum();
@@ -259,6 +259,9 @@ function switchTab(tab, force) {
     const oc = document.getElementById('groupOnlineCount');
     if (oc) updateGroupBadge(oc.textContent);
   }
+  // P2-16 离开资源密集页时停掉对应定时器，避免隐藏页面空转
+  if (tab !== 'group' && typeof stopGroupPolling === 'function') stopGroupPolling();
+  if (tab !== 'map' && typeof window.__mapTeardown === 'function') window.__mapTeardown();
 }
 
 // 底部功能栏：点击后高亮当前项（被 index.html 内联脚本调用）

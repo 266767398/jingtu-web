@@ -159,6 +159,8 @@
 
   function bindCardEvents() {
     qsa('.coll-card', $('collList')).forEach(card => {
+      if (card.dataset.bound) return;
+      card.dataset.bound = '1';
       const id = card.getAttribute('data-id');
       qsa('[data-act]', card).forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -733,6 +735,8 @@
 
   // ============ 事件绑定 ============
   function bindStatic() {
+    if (window.__collStaticBound) return;
+    window.__collStaticBound = true;
     qsa('.coll-kind', $('collKindBar')).forEach(b => b.addEventListener('click', () => {
       qsa('.coll-kind', $('collKindBar')).forEach(x => x.classList.remove('active'));
       b.classList.add('active');

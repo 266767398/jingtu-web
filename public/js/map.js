@@ -38,12 +38,23 @@ const LOCATION_STALE_TIMEOUT = 120000;
 
 // ==================== 地图初始化 ====================
 
+function ensureStaleSweep() {
+  if (staleSweepTimer) clearInterval(staleSweepTimer);
+  staleSweepTimer = setInterval(sweepStaleMarkers, 30000);
+}
+
+// P2-16 离开地图 tab 时由 switchTab 调用，停止隐藏页面残留标记清扫空转
+window.__mapTeardown = function () {
+  if (staleSweepTimer) { clearInterval(staleSweepTimer); staleSweepTimer = null; }
+};
+
 async function initMap() {
   const mapContainer = document.getElementById('memberMap');
   if (!mapContainer) return;
 
   if (mapInstance) {
     setTimeout(() => mapInstance.invalidateSize(), 100);
+    ensureStaleSweep();
     return;
   }
 
@@ -289,8 +300,7 @@ async function initMap() {
     fetchRealtimeLocations();
 
     // 定期清理离线用户的残留标记（用户直接关闭浏览器时不会有 location:stop）
-    if (staleSweepTimer) clearInterval(staleSweepTimer);
-    staleSweepTimer = setInterval(sweepStaleMarkers, 30000);
+    ensureStaleSweep();
 
   } catch (e) {
     console.error(__('auto_map_16'), e);

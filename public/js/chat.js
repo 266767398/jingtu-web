@@ -458,6 +458,7 @@ function stopGroupLocation(groupId) {
 
   // 没有任何群在共享时释放唯一 watch，避免空转耗电
   stopGlobalWatchIfIdle();
+  if (glGroups.size === 0) stopGroupLocSweep();
   updateGroupLocBtn(groupId, false);
   toast(__('chat.location_stopped_icon'), 'info');
 }
@@ -529,6 +530,10 @@ function startGroupLocSweep() {
       }
     }
   }, 10000);
+}
+
+function stopGroupLocSweep() {
+  if (glSweepTimer) { clearInterval(glSweepTimer); glSweepTimer = null; }
 }
 
 // 位置开关信令（开始/停止共享），走独立信令不进消息表、不计未读
