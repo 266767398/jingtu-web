@@ -1,0 +1,92 @@
+/* ====================================================
+   境途同游 — 点赞动效（like burst）
+   2026-08-31 新增
+
+   作用：为 .post-action-btn / .like-btn / .album-like-btn 等
+   点赞按钮加上「心形爆裂」动画，作为切换 like 状态的视觉反馈。
+
+   触发方式：JS 在点击时给按钮加 .like-burst 类；
+   600ms 后 JS 移除该类，CSS 用 animation 控制时序。
+   尊重 prefers-reduced-motion（V1 强制开关见 loader.js force-anim）。
+   ==================================================== */
+
+/* 基础：按钮缩放回弹，避免与现有 .active 红心状态冲突 */
+.like-burst {
+  animation: likeBurst 600ms cubic-bezier(.2, .8, .4, 1);
+  transform-origin: center;
+}
+
+/* 取消时的小回弹 */
+.like-burst-cancel {
+  animation: likeBurstCancel 260ms cubic-bezier(.4, 0, .6, 1);
+  transform-origin: center;
+}
+
+/* 心形关键帧：从按钮中心爆出一圈小爱心 */
+.like-burst::before,
+.like-burst::after {
+  content: '❤';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1em;
+  color: var(--red, #ff5577);
+  opacity: 0;
+  pointer-events: none;
+  animation: likeSparkle 600ms cubic-bezier(.2, .8, .4, 1) forwards;
+}
+
+.like-burst::before { transform: translate(-12px, 0) scale(0.6); --tx: -12px; }
+.like-burst::after  { transform: translate( 12px, 0) scale(0.6); --tx:  12px; }
+
+@keyframes likeBurst {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.32); }
+  60%  { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+
+@keyframes likeBurstCancel {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(0.85); }
+  100% { transform: scale(1); }
+}
+
+@keyframes likeSparkle {
+  0%   { opacity: 0; transform: translate(var(--tx, 0px), 0) scale(0.4); }
+  30%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--tx, 0px), -22px) scale(1.1); }
+}
+
+/* 让按钮在动画期间作为定位上下文 */
+.post-action-btn,
+.like-btn,
+.album-like-btn,
+#likeBtn {
+  position: relative;
+  overflow: visible;
+}
+
+/* 无障碍：尊重减少动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .like-burst,
+  .like-burst-cancel {
+    animation: none;
+  }
+  .like-burst::before,
+  .like-burst::after {
+    display: none;
+  }
+}
+
+/* 强制开启动画（force-anim 逃生舱） */
+.force-anim .like-burst,
+.force-anim .like-burst-cancel {
+  animation-duration: 600ms;
+}
+.force-anim .like-burst::before,
+.force-anim .like-burst::after {
+  display: flex;
+}

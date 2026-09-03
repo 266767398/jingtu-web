@@ -1,0 +1,421 @@
+/* 境途同游 — Baidu 现代化设计层
+ * 叠加在 01-variables.css 之上，遵循百度设计规范的核心原则：
+ *   清晰视觉层级 · 克制圆角与间距 · 统一主色 · 轻量动效。
+ * 全部使用 01-variables 的设计令牌（--accent / --shadow-* / --radius-* / --transition-*），
+ * 自动跟随明暗主题与用户自定义主色；并尊重 prefers-reduced-motion。 */
+
+/* ---------- 1. 淡入上移（fade-in-up） ---------- */
+@keyframes ml-fade-up {
+  from { opacity: 0; transform: translate3d(0, 16px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.ml-rise {
+  opacity: 0;
+  animation: ml-fade-up .5s cubic-bezier(.16, 1, .3, 1) both;
+  animation-delay: var(--ml-delay, 0s);
+  will-change: opacity, transform;
+}
+
+/* ---------- 2. 点击涟漪（ripple-click，由 motion-lab.js 注入 .ripple 元素） ---------- */
+.ripple {
+  position: absolute;
+  border-radius: 50%;
+  transform: scale(0);
+  background: currentColor;
+  opacity: .28;
+  pointer-events: none;
+  animation: ml-ripple .6s linear;
+}
+@keyframes ml-ripple {
+  to { transform: scale(2.6); opacity: 0; }
+}
+
+/* ---------- 3. 统一键盘焦点环（无障碍可达性） ---------- */
+.btn:focus-visible,
+.form-input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- 4. 减少动态效果偏好：关闭入场动画与涟漪 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  :root:not(.force-anim) .ml-rise {
+    opacity: 1 !important;
+    animation: none !important;
+    transform: none !important;
+  }
+  :root:not(.force-anim) .ripple { display: none !important; }
+  :root:not(.force-anim) .home-feature-card:hover { transform: none !important; }
+}
+
+/* ---------- 5. 区块标题层级（清晰视觉层级 · 百度风格主色竖条） ---------- */
+/* 首页区块标题：图标 + 标题 旁加一道主色竖条，强化层级与识别度 */
+.section-title {
+  position: relative;
+  padding-left: 10px;
+  margin-left: 2px;
+  letter-spacing: .2px;
+  color: var(--text);
+}
+.section-title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 70%;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+
+/* 页面级标题（各 Tab / 弹窗首行 h2）：统一主色竖条 + 间距节奏，
+   让"直播 / 收藏夹 / 模型收藏馆 / 欢迎回来"等页面标题层级一致 */
+.tab-content > h2:first-child,
+.modal-body > h2:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 var(--spacing-md);
+  padding-left: 12px;
+  border-left: 4px solid var(--accent);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: .2px;
+  color: var(--text);
+}
+
+/* 管理面板卡片头部：左侧主色竖条，与页面标题语言统一 */
+.admin-card-header {
+  border-left: 3px solid var(--accent);
+}
+
+/* ---------- 6. 表格精致化（克制、清爽 · 主题感知） ---------- */
+.data-table th,
+table.admin-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-secondary);
+  color: var(--text2);
+  border-bottom: 2px solid var(--accent);
+  white-space: nowrap;
+}
+.data-table tbody tr:hover td,
+table.admin-table tbody tr:hover td {
+  background: var(--accent-light);
+}
+
+/* ---------- 活动管理筛选栏 / 状态标签 ---------- */
+.admin-evt-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.admin-evt-filter label {
+  font-size: 13px;
+  color: var(--text2);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.admin-evt-filter select {
+  min-width: 110px;
+}
+.admin-evt-table .evt-title {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text);
+}
+.evt-status {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.evt-status.ongoing {
+  background: var(--accent-light, rgba(76, 175, 80, 0.14));
+  color: var(--accent, #2e9e5b);
+}
+.evt-status.ended {
+  background: rgba(130, 130, 130, 0.16);
+  color: #8a8a8a;
+}
+.evt-status.archived {
+  background: rgba(180, 140, 60, 0.16);
+  color: #b08c3c;
+}
+.evt-actions {
+  white-space: nowrap;
+}
+.evt-actions .btn {
+  margin: 2px;
+}
+
+/* ---------- 7. 输入框聚焦（主题感知、统一主色，替换硬编码 rgba） ---------- */
+.form-input {
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+}
+.form-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+/* ---------- 8. 动态视图标题统一层级（让 JS 注入的标题也复用 .section-title 语义类） ---------- */
+/* 组件化：卡片内区段标题（achievements/checkin/vrc-bind-guide）现已在 public/js 中
+   统一追加 `section-title` 类（替换原先散乱的 *-title 专属竖条），主色竖条由第 5 节
+   的 .section-title 通用规则统一提供；此处不再为这三个类重复定义，消除冗余。
+   弹窗内裸 <h3>（chat 创建群/群设置、main 在线用户）也已补 section-title，
+   一并获得统一竖条。 */
+
+/* 弹窗标题：给标准 .modal-header 内的 h3 加左侧主色竖条 + 间距，
+   沿用 header 的 flex 布局（h3 居左 / 关闭按钮居右），不影响盒模型、
+   不挤占右侧按钮空间。覆盖 core.js ensureModal() 通用弹窗、posts/chat/i18n/
+   members/events 等所有 innerHTML 注入的 .modal-header > h3。 */
+.modal-header h3 {
+  padding-left: 12px;
+  border-left: 4px solid var(--accent);
+}
+
+/* ---------- 9. 首页功能导航网格（模块展示入口 · 百度风格卡片） ---------- */
+/* 让用户在首页一眼浏览、一键进入各功能；分类聚合 + 图标卡片 + 响应式自适应。 */
+.home-feature-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+.home-feature-cat {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 2px 0 10px;
+  letter-spacing: .4px;
+}
+.home-feature-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--spacing-sm);
+}
+.home-feature-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg2);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
+}
+.home-feature-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent-light);
+  background: var(--bg3);
+}
+.home-feature-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.home-feature-icon {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--accent-light), var(--accent));
+  color: #fff;
+  box-shadow: 0 2px 8px var(--accent-shadow, rgba(0, 0, 0, .15));
+}
+.home-feature-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.home-feature-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-feature-desc {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-feature-arrow {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  transition: transform .18s ease, color .18s ease;
+}
+.home-feature-card:hover .home-feature-arrow {
+  transform: translateX(3px);
+  color: var(--accent);
+}
+
+/* 欢迎卡增强：头像 + 文本 + 品牌标识 的横排布局 */
+.home-welcome {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.home-welcome-avatar {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--accent-light), var(--accent));
+  color: #fff;
+}
+.home-welcome-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.home-welcome-text {
+  flex: 1;
+  min-width: 0;
+}
+.home-welcome-brand {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--accent-light);
+  white-space: nowrap;
+}
+
+/* 移动端：功能网格收为 2 列，隐藏欢迎卡品牌标识，图标略缩 */
+@media (max-width: 640px) {
+  .home-feature-cards {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .home-feature-card {
+    padding: 12px;
+    gap: 10px;
+  }
+  .home-feature-icon {
+    width: 38px;
+    height: 38px;
+    font-size: 18px;
+  }
+  .home-welcome-brand {
+    display: none;
+  }
+}
+
+/* ============================================================
+   第十七轮 · 遗留按钮统一（延续 UI 现代化）
+   目标：消除 .btn 体系之外的遗留控件与统一按钮语言的视觉割裂 ——
+   补齐键盘焦点环（可达性）、补缺失 hover 反馈、修复"默认隐藏、
+   仅靠 hover 显形"导致的键盘不可达，并把未定义令牌的硬编码兜底
+   （#888 / #333）改为标准设计令牌以修复浅色主题错位。
+   本文件最后加载，规则优先级覆盖 04-components / achievements /
+   03-layout 等历史定义。
+   ============================================================ */
+
+/* --- 1. 键盘焦点环统一（凡缺 focus-visible 的遗留交互按钮，统一补环） --- */
+.pwd-toggle:focus-visible,
+.favorites-tab:focus-visible,
+.ach-tab:focus-visible,
+.post-comment-submit:focus-visible,
+.media-viewer-close:focus-visible,
+.modal-close:focus-visible,
+.modal-close-circle:focus-visible,
+.lightbox-close:focus-visible,
+.lightbox-prev:focus-visible,
+.lightbox-next:focus-visible,
+.lightbox-nav:focus-visible,
+.lightbox-viewer .lightbox-close:focus-visible,
+.lightbox-viewer .lightbox-prev:focus-visible,
+.lightbox-viewer .lightbox-next:focus-visible,
+.lang-switcher-item:focus-visible,
+.group-tag-remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- 2. 密码显隐按钮：原为纯图标、无悬停态，补 hover 反馈 --- */
+.pwd-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* --- 3. 媒体查看器关闭按钮：原为纯 ×、无 hover/过渡，补反馈 --- */
+.media-viewer-close {
+  transition: opacity .18s ease, transform .18s ease;
+}
+.media-viewer-close:hover {
+  opacity: .75;
+}
+.media-viewer-close:active {
+  transform: scale(.92);
+}
+
+/* --- 4. 成就页分段标签：原用未定义令牌兜底（--text-secondary/#888、
+      --border-color/#333），浅色主题下边框/文字错位；统一为标准令牌
+      + 补 hover 背景。active 已用 --accent，保留。 --- */
+.ach-tab {
+  color: var(--text2);
+  border-color: var(--border);
+}
+.ach-tab:not(.active):hover {
+  background: var(--hover);
+  border-color: var(--accent);
+  color: var(--accent2);
+}
+/* :focus-visible 已在第 1 节统一补齐 */
+
+/* --- 5. 动态评论发送按钮：补按下反馈（焦点环见第 1 节） --- */
+.post-comment-submit:active {
+  transform: scale(.97);
+}
+
+/* --- 6. 通知删除按钮：原 opacity:0 仅在 :hover 显形，键盘聚焦时
+      不可见（可达性缺陷）；聚焦时强制显形 + 焦点环 --- */
+.ni-del:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- 7. 标签内删除按钮：位于强调色底上，焦点环改用白色更易辨识 --- */
+.group-tag-remove:focus-visible {
+  outline-color: #fff;
+}
+

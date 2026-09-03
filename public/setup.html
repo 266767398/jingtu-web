@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title data-i18n="setup.page_title">境途同游 - 配置向导</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(135deg,#0f0f1a 0%,#1a1a2e 100%);min-height:100vh;color:#e4e4f0}
+.container{max-width:600px;margin:0 auto;padding:20px}
+.header{text-align:center;padding:40px 0 30px}
+.header h1{font-size:28px;color:#fff;margin-bottom:8px}
+.header p{color:#9898b0;font-size:14px}
+.steps{display:flex;justify-content:center;margin-bottom:30px;flex-wrap:wrap}
+.step{display:flex;flex-direction:column;align-items:center;margin:0 12px}
+.step .num{width:36px;height:36px;border-radius:50%;background:#2a2a3e;color:#9898b0;display:flex;align-items:center;justify-content:center;font-weight:600;margin-bottom:8px;font-size:14px;transition:all .3s}
+.step .num.active{background:#7c5cfc;color:#fff}
+.step .num.done{background:#10b981;color:#fff}
+.step .text{font-size:12px;color:#9898b0}
+.step .text.active{color:#fff}
+.form-box{background:#141420;border-radius:16px;border:1px solid #2a2a3e;padding:30px;box-shadow:0 4px 32px rgba(0,0,0,.3)}
+.tab{display:none}
+.tab.active{display:block}
+.tab-title{font-size:18px;color:#fff;margin-bottom:8px;font-weight:600}
+.tab-desc{font-size:13px;color:#6a6a80;margin-bottom:24px}
+.form-group{margin-bottom:20px}
+.form-group label{display:block;font-size:14px;color:#c4c4d4;margin-bottom:8px}
+.form-group label span{color:#f87171;margin-left:4px}
+.form-group input{width:100%;padding:12px 16px;background:#0a0a15;border:1px solid #2a2a3e;border-radius:10px;color:#fff;font-size:14px;transition:border-color .3s;outline:none}
+.form-group input:focus{border-color:#7c5cfc}
+.form-group input::placeholder{color:#8a8aa0}
+.form-group select{width:100%;padding:12px 16px;background:#0a0a15;border:1px solid #2a2a3e;border-radius:10px;color:#fff;font-size:14px;transition:border-color .3s;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%239898b0' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+.form-row{display:flex;gap:12px}
+.form-row .form-group{flex:1}
+.form-group .hint{font-size:12px;color:#6a6a80;margin-top:6px}
+.form-group .hint a{color:#7c5cfc;text-decoration:none}
+.btn-group{display:flex;gap:12px;margin-top:30px}
+.btn{flex:1;padding:14px;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;transition:all .3s}
+.btn-primary{background:#7c5cfc;color:#fff}
+.btn-primary:hover{background:#6a4cf0}
+.btn-primary:disabled{background:#4a3a8c;cursor:not-allowed}
+.btn-secondary{background:#2a2a3e;color:#c4c4d4}
+.btn-secondary:hover{background:#3a3a4e}
+.btn-skip{background:transparent;color:#6a6a80;border:1px solid #2a2a3e;flex:0 0 auto;padding:14px 20px}
+.btn-skip:hover{color:#c4c4d4;border-color:#3a3a4e}
+.btn-wide{width:100%}
+.test-result{margin-top:12px;padding:12px;border-radius:8px;font-size:13px;display:none}
+.test-result.success{background:#0d2e23;color:#34d399;border:1px solid #10b981}
+.test-result.error{background:#2e0d0d;color:#f87171;border:1px solid #ef4444}
+.progress{height:4px;background:#2a2a3e;border-radius:2px;margin-top:20px;overflow:hidden}
+.progress-bar{height:100%;background:#7c5cfc;border-radius:2px;width:0;transition:width .3s}
+.success-box{text-align:center;padding:40px 0}
+.success-box .icon{width:80px;height:80px;border-radius:50%;background:#10b981;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:40px}
+.success-box h2{color:#fff;font-size:24px;margin-bottom:12px}
+.success-box p{color:#9898b0;margin-bottom:12px}
+.success-box .admin-info{background:#0a0a15;border:1px solid #2a2a3e;border-radius:10px;padding:16px;margin:20px 0;text-align:left;font-size:13px;color:#c4c4d4}
+.success-box .admin-info strong{color:#7c5cfc}
+.loading{display:inline-block;width:20px;height:20px;border:2px solid #7c5cfc;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width: 640px) {
+  .container{padding:12px}
+  .header{padding:20px 0 15px}
+  .header h1{font-size:22px}
+  .header p{font-size:12px}
+  .steps{flex-wrap:nowrap;justify-content:center;gap:6px;margin-bottom:15px;overflow:visible;padding-bottom:0}
+  .step{margin:0;flex-shrink:0}
+  .step .num{width:28px;height:28px;font-size:12px}
+  .step .text{display:none}
+  .step .text.active{display:block;font-size:11px;white-space:nowrap;color:#e4e4f0;margin-top:4px}
+  .form-box{padding:20px;border-radius:12px}
+  .tab-title{font-size:16px;margin-bottom:16px}
+  .form-group{margin-bottom:14px}
+  .form-group label{font-size:13px;margin-bottom:6px}
+  .form-group input,.form-group select{padding:10px 12px;font-size:13px}
+  .form-row{flex-direction:column;gap:14px}
+  .form-row .form-group{flex:none}
+  .btn-group{gap:8px;margin-top:20px}
+  .btn{padding:12px;font-size:14px}
+  .btn-skip{padding:12px 16px}
+  .btn-wide{width:100%}
+  .form-group .hint{font-size:11px}
+}
+@media (max-width: 480px) {
+  .steps{flex-wrap:nowrap;justify-content:center;gap:8px;overflow:visible;padding-bottom:0}
+  .step{margin:0;flex-shrink:0}
+  .step .num{width:28px;height:28px;font-size:13px}
+  .step .text{display:none}
+  .step .text.active{display:block;font-size:11px;white-space:nowrap;color:#e4e4f0}
+  .header h1{font-size:20px}
+  .tab-desc{font-size:12px}
+}
+
+.form-group input.error{border-color:#ef4444;background:#2e0d0d}
+.form-group input.error:focus{border-color:#f87171}
+.form-group .error-msg{color:#f87171;font-size:12px;margin-top:6px;display:none}
+.form-group .error-msg.show{display:block}
+.password-strength{display:flex;gap:4px;margin-top:8px}
+.password-strength .bar{flex:1;height:4px;border-radius:2px;background:#2a2a3e;transition:background .3s}
+.password-strength .bar.weak{background:#ef4444}
+.password-strength .bar.medium{background:#f59e0b}
+.password-strength .bar.strong{background:#10b981}
+.strength-text{font-size:12px;color:#9898b0;margin-top:4px}
+.strength-text.weak{color:#ef4444}
+.strength-text.medium{color:#f59e0b}
+.strength-text.strong{color:#10b981}
+
+/* 顶部错误汇总（替代 alert，明确提示可修改项） */
+.error-summary{display:none;background:#2e0d0d;border:1px solid #ef4444;color:#f87171;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:13px}
+.error-summary ul{margin:6px 0 0 18px}
+.error-summary li{margin:2px 0}
+/* 步骤指示器可点击回退重编辑 */
+.step{cursor:pointer}
+.step:hover .num:not(.active){border-color:#7c5cfc}
+.step .num.disabled{pointer-events:none;opacity:.5}
+
+.lang-switch{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px}
+.lang-switch .lang-label{font-size:13px;color:#9898b0}
+.lang-switch select{background:#0a0a15;border:1px solid #2a2a3e;color:#c4c4d4;border-radius:8px;padding:6px 10px;font-size:13px;outline:none}
+
+</style>
+<script>
+  (function () {
+    var ORDER = ['zh', 'en', 'ja', 'fr', 'de', 'ru'];
+    function detectLang() {
+      try { var p = new URLSearchParams(location.search).get('lang'); if (p && ORDER.indexOf(p) >= 0) return p; } catch (e) {}
+      try { var s = localStorage.getItem('preferredLang'); if (s && ORDER.indexOf(s) >= 0) return s; } catch (e) {}
+      var b = (navigator.language || '').slice(0, 2);
+      if (ORDER.indexOf(b) >= 0) return b;
+      return 'zh';
+    }
+    // 解析期 document.write 为阻塞式，保证当前语言包在 i18n.js 之前就绪（与 index.html 一致）
+    document.write('<script src="/js/languages/' + detectLang() + '.js"><\/script>');
+  })();
+</script>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1 data-i18n="setup.header_title">⚙️ 境途同游 配置向导</h1>
+    <p data-i18n="setup.header_subtitle">首次部署配置，只需几步即可完成</p>
+    <a href="/" style="display:inline-block;margin-top:12px;padding:8px 12px;color:#9898b0;font-size:13px;text-decoration:underline;border-radius:8px;transition:all .2s" onmouseover="this.style.color='#7c5cfc'" onmouseout="this.style.color='#9898b0'" data-i18n="setup.back_home">← 返回首页</a>
+    <div class="lang-switch">
+      <span class="lang-label" data-i18n="setup.lang_label">🌐 语言</span>
+      <select id="langSelect" onchange="setLanguage(this.value)"></select>
+    </div>
+  </div>
+
+  <div class="steps">
+    <div class="step" data-step="1">
+      <div class="num active" id="step1-num">1</div>
+      <div class="text active" id="step1-text" data-i18n="setup.step_db">数据库</div>
+    </div>
+    <div class="step" data-step="2">
+      <div class="num" id="step2-num">2</div>
+      <div class="text" id="step2-text" data-i18n="setup.step_security">安全配置</div>
+    </div>
+    <div class="step" data-step="3">
+      <div class="num" id="step3-num">3</div>
+      <div class="text" id="step3-text" data-i18n="setup.step_admin">管理员</div>
+    </div>
+    <div class="step" data-step="4">
+      <div class="num" id="step4-num">4</div>
+      <div class="text" id="step4-text" data-i18n="setup.step_vrchat">VRChat</div>
+    </div>
+    <div class="step" data-step="5">
+      <div class="num" id="step5-num">5</div>
+      <div class="text" id="step5-text" data-i18n="setup.step_email">邮件</div>
+    </div>
+    <div class="step" data-step="6">
+      <div class="num" id="step6-num">6</div>
+      <div class="text" id="step6-text" data-i18n="setup.step_done">完成</div>
+    </div>
+  </div>
+
+  <div class="progress">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <div class="form-box">
+    <div id="errorSummary" class="error-summary"></div>
+    <!-- Step 1: 数据库 -->
+    <div class="tab active" id="tab1">
+      <div class="tab-title" data-i18n="setup.db_title">📦 数据库配置</div>
+      <div class="tab-desc" data-i18n="setup.db_desc">填写 MySQL 数据库连接信息，所有数据将存储于此。</div>
+      <div class="form-group">
+        <label><span data-i18n="setup.db_host_label">数据库地址</span> <span aria-label="必填" role="img">*</span></label>
+        <input type="text" id="dbHost" value="127.0.0.1" data-i18n-placeholder="setup.db_host_ph">
+        <div class="error-msg" id="err_dbHost"></div>
+        <div class="hint" data-i18n="setup.db_host_hint">本机部署通常为 127.0.0.1</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label><span data-i18n="setup.db_port_label">端口</span> <span aria-label="必填" role="img">*</span></label>
+          <input type="number" id="dbPort" value="3306" data-i18n-placeholder="setup.db_port_ph">
+          <div class="error-msg" id="err_dbPort"></div>
+        </div>
+        <div class="form-group">
+          <label><span data-i18n="setup.db_name_label">数据库名</span> <span aria-label="必填" role="img">*</span></label>
+          <input type="text" id="dbName" value="jingtu_group" data-i18n-placeholder="setup.db_name_ph">
+          <div class="error-msg" id="err_dbName"></div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label><span data-i18n="setup.db_user_label">用户名</span> <span aria-label="必填" role="img">*</span></label>
+          <input type="text" id="dbUser" value="jingtu_user" data-i18n-placeholder="setup.db_user_ph">
+          <div class="error-msg" id="err_dbUser"></div>
+        </div>
+        <div class="form-group">
+          <label><span data-i18n="setup.db_pass_label">密码</span> <span aria-label="必填" role="img">*</span></label>
+          <input type="password" id="dbPass" data-i18n-placeholder="setup.db_pass_ph">
+          <div class="error-msg" id="err_dbPass"></div>
+        </div>
+      </div>
+      <button class="btn btn-wide btn-secondary" data-setup-action="test-database" data-i18n="setup.test_conn">🔍 测试连接</button>
+      <div class="test-result" id="dbTestResult"></div>
+      <div class="btn-group">
+        <button class="btn btn-secondary" data-setup-action="prev-step" disabled data-i18n="setup.prev">上一步</button>
+        <button class="btn btn-primary" data-setup-action="next-step" data-step="1" data-i18n="setup.next">下一步 →</button>
+      </div>
+    </div>
+
+    <!-- Step 2: 安全配置 -->
+    <div class="tab" id="tab2">
+      <div class="tab-title" data-i18n="setup.sec_title">🔐 安全配置</div>
+      <div class="tab-desc" data-i18n="setup.sec_desc">密钥用于加密 Session 与敏感数据，请妥善保管。点击“生成密钥”自动生成 64 位安全密钥。</div>
+      <div class="form-group">
+        <label><span data-i18n="setup.site_port_label">站点端口</span> <span aria-label="必填" role="img">*</span></label>
+        <input type="number" id="sitePort" value="3456" data-i18n-placeholder="setup.site_port_ph">
+        <div class="error-msg" id="err_sitePort"></div>
+        <div class="hint" data-i18n="setup.site_port_hint">Nginx 反向代理目标端口，保持默认即可</div>
+      </div>
+      <div class="form-group">
+        <label><span data-i18n="setup.session_secret_label">SESSION 密钥</span> <span aria-label="必填" role="img">*</span></label>
+        <input type="text" id="sessionSecret" data-i18n-placeholder="setup.secret_ph">
+        <div class="error-msg" id="err_sessionSecret"></div>
+        <button class="btn btn-wide btn-secondary" data-setup-action="generate-secret" data-field="sessionSecret" data-i18n="setup.gen_secret">🎲 生成密钥</button>
+      </div>
+      <div class="form-group">
+        <label><span data-i18n="setup.encrypt_key_label">加密密钥 (ENCRYPT_KEY)</span> <span aria-label="必填" role="img">*</span></label>
+        <input type="text" id="encryptKey" data-i18n-placeholder="setup.secret_ph">
+        <div class="error-msg" id="err_encryptKey"></div>
+        <button class="btn btn-wide btn-secondary" data-setup-action="generate-secret" data-field="encryptKey" data-i18n="setup.gen_secret">🎲 生成密钥</button>
+      </div>
+      <div class="form-group">
+        <label data-i18n="setup.node_env_label">运行环境</label>
+        <select id="nodeEnv">
+          <option value="production" data-i18n="setup.env_prod">生产环境 (production)</option>
+          <option value="development" data-i18n="setup.env_dev">开发环境 (development)</option>
+        </select>
+        <div class="hint" data-i18n="setup.env_hint">生产环境会启用安全 Cookie、严格 CSP 等保护</div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-secondary" data-setup-action="prev-step" data-i18n="setup.prev">← 上一步</button>
+        <button class="btn btn-primary" data-setup-action="next-step" data-step="2" data-i18n="setup.next">下一步 →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: 管理员账号 (新建) -->
+    <div class="tab" id="tab3">
+      <div class="tab-title" data-i18n="setup.admin_title">👤 管理员账号</div>
+      <div class="tab-desc" data-i18n="setup.admin_desc">创建超级管理员账号，安装完成后使用此账号登录系统后台。请使用强密码。</div>
+      <div class="form-group">
+        <label><span data-i18n="setup.admin_user_label">登录用户名</span> <span aria-label="必填" role="img">*</span></label>
+        <input type="text" id="adminUser" data-i18n-placeholder="setup.admin_user_ph" autocomplete="username">
+        <div class="error-msg" id="err_adminUser"></div>
+        <div class="hint" data-i18n="setup.admin_user_hint">登录时使用，安装后不可更改</div>
+      </div>
+      <div class="form-group">
+        <label><span data-i18n="setup.admin_display_label">显示名称</span> <span aria-label="必填" role="img">*</span></label>
+        <input type="text" id="adminDisplayName" data-i18n-placeholder="setup.admin_display_ph">
+        <div class="error-msg" id="err_adminDisplayName"></div>
+      </div>
+      <div class="form-group">
+        <label><span data-i18n="setup.admin_pass_label">登录密码</span> <span aria-label="必填" role="img">*</span></label>
+        <input type="password" id="adminPass" data-i18n-placeholder="setup.admin_pass_ph" autocomplete="new-password">
+        <div class="error-msg" id="err_adminPass"></div>
+        <div class="password-strength" id="adminPassStrength">
+          <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+        </div>
+        <div class="strength-text" id="adminPassStrengthText"></div>
+      </div>
+      <div class="form-group">
+        <label><span data-i18n="setup.admin_confirm_label">确认密码</span> <span aria-label="必填" role="img">*</span></label>
+        <input type="password" id="adminPassConfirm" data-i18n-placeholder="setup.admin_confirm_ph" autocomplete="new-password">
+        <div class="error-msg" id="err_adminPassConfirm"></div>
+      </div>
+      <div class="form-group">
+        <label data-i18n="setup.admin_email_label">邮箱（可选）</label>
+        <input type="email" id="adminEmail" data-i18n-placeholder="setup.admin_email_ph" autocomplete="email">
+        <div class="hint" data-i18n="setup.admin_email_hint">用于接收密码重置邮件与系统告警</div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-secondary" data-setup-action="prev-step" data-i18n="setup.prev">← 上一步</button>
+        <button class="btn btn-primary" data-setup-action="next-step" data-step="3" data-i18n="setup.next">下一步 →</button>
+      </div>
+    </div>
+
+    <!-- Step 4: VRChat 群组 (可选) -->
+    <div class="tab" id="tab4">
+      <div class="tab-title" data-i18n="setup.vrc_title">🔗 VRChat 群组（可选）</div>
+      <div class="tab-desc" data-i18n="setup.vrc_desc">绑定 VRChat 群组后，用户可通过 VRChat 账号登录并自动加入本站。可跳过，安装后在后台配置。</div>
+      <div class="form-group">
+        <label data-i18n="setup.vrc_group_id_label">VRChat 群组 ID</label>
+        <input type="text" id="groupId" value="grp_7a45b436-159c-4d9c-8303-e186ec25fc35" data-i18n-placeholder="setup.vrc_group_id_ph">
+        <div class="hint" data-i18n="setup.vrc_group_id_hint">在 VRChat 群组页面 URL 中获取，格式为 grp_ 开头的 UUID</div>
+      </div>
+      <div class="form-group">
+        <label data-i18n="setup.vrc_group_url_label">VRChat 群组链接</label>
+        <input type="text" id="groupUrl" value="https://vrchat.com/home/group/grp_7a45b436-159c-4d9c-8303-e186ec25fc35" data-i18n-placeholder="setup.vrc_group_url_ph">
+      </div>
+      <div class="form-group">
+        <label data-i18n="setup.vrc_api_key_label">VRChat API Key（可选 · 非登录凭证）</label>
+        <input type="text" id="vrcApiKey" data-i18n-placeholder="setup.vrc_api_key_ph">
+        <div class="hint" data-i18n="setup.vrc_api_key_hint">实时同步依赖的是「系统账号登录 Cookie」或「用户各自绑定的 VRChat 账号」，而非此值。留空亦可正常运行，重走引导时不填则沿用当前 .env 中的值。</div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-secondary" data-setup-action="prev-step" data-i18n="setup.prev">← 上一步</button>
+        <button class="btn btn-skip" data-setup-action="skip-step" data-step="4" data-i18n="setup.skip">跳过</button>
+        <button class="btn btn-primary" data-setup-action="next-step" data-step="4" data-i18n="setup.next">下一步 →</button>
+      </div>
+    </div>
+
+    <!-- Step 5: 邮件通知 (可选) -->
+    <div class="tab" id="tab5">
+      <div class="tab-title" data-i18n="setup.email_title">📧 邮件通知（可选）</div>
+      <div class="tab-desc" data-i18n="setup.email_desc">配置 SMTP 后系统可发送密码重置、活动通知等邮件。可跳过，安装后在后台配置。</div>
+      <div class="form-group">
+        <label data-i18n="setup.smtp_host_label">SMTP 服务器地址</label>
+        <input type="text" id="smtpHost" data-i18n-placeholder="setup.smtp_host_ph">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label data-i18n="setup.smtp_port_label">SMTP 端口</label>
+          <input type="number" id="smtpPort" value="587" data-i18n-placeholder="setup.smtp_port_ph">
+        </div>
+        <div class="form-group">
+          <label data-i18n="setup.smtp_user_label">SMTP 用户名</label>
+          <input type="text" id="smtpUser" data-i18n-placeholder="setup.smtp_user_ph">
+        </div>
+      </div>
+      <div class="form-group">
+        <label data-i18n="setup.smtp_pass_label">SMTP 密码</label>
+        <input type="password" id="smtpPass" data-i18n-placeholder="setup.smtp_pass_ph">
+        <div class="hint" data-i18n="setup.smtp_pass_hint">QQ 邮箱使用授权码，在邮箱设置中获取</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label data-i18n="setup.smtp_from_label">发件人地址</label>
+          <input type="text" id="smtpFrom" data-i18n-placeholder="setup.smtp_from_ph">
+        </div>
+        <div class="form-group">
+          <label data-i18n="setup.smtp_secure_label">加密方式</label>
+          <select id="smtpSecure">
+            <option value="false" data-i18n="setup.smtp_starttls">STARTTLS (587端口)</option>
+            <option value="true" data-i18n="setup.smtp_ssl">SSL (465端口)</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-wide btn-secondary" data-setup-action="test-email" data-i18n="setup.test_email">📤 测试邮件</button>
+      <div class="test-result" id="emailTestResult"></div>
+      <div class="btn-group">
+        <button class="btn btn-secondary" data-setup-action="prev-step" data-i18n="setup.prev">← 上一步</button>
+        <button class="btn btn-skip" data-setup-action="skip-step" data-step="5" data-i18n="setup.skip">跳过</button>
+        <button class="btn btn-primary" data-setup-action="next-step" data-step="5" data-i18n="setup.next">下一步 →</button>
+      </div>
+    </div>
+
+    <!-- Step 6: 完成 -->
+    <div class="tab" id="tab6">
+      <div class="success-box">
+        <div class="icon">✓</div>
+        <h2 data-i18n="setup.ready_title">配置就绪</h2>
+        <p data-i18n="setup.ready_desc">点击下方按钮保存配置并初始化数据库，系统将自动创建管理员账号并启动服务。</p>
+        <div class="admin-info" id="adminInfoSummary"></div>
+        <button class="btn btn-wide btn-primary" data-setup-action="save-and-start" id="saveBtn" data-i18n="setup.save_start">🚀 保存并启动</button>
+        <div class="test-result" id="saveResult"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/i18n.js"></script>
+<script src="/js/setup.js"></script>
+<script>
+  (function () {
+    initI18n();
+    var sel = document.getElementById('langSelect');
+    if (sel && typeof LANG_ORDER !== 'undefined' && typeof LANG !== 'undefined') {
+      LANG_ORDER.forEach(function (c) {
+        var o = document.createElement('option');
+        o.value = c; o.textContent = (LANG[c] && (LANG[c].emoji + ' ' + LANG[c].native)) || c;
+        sel.appendChild(o);
+      });
+      if (typeof getCurrentLang === 'function') sel.value = getCurrentLang();
+    }
+    if (typeof applyStaticI18n === 'function') applyStaticI18n();
+  })();
+</script>
+</body>
+</html>

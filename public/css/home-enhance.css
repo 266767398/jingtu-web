@@ -1,0 +1,105 @@
+/* home-enhance.css — 首页背景补全与「加入社群」CTA（需求④）
+   消除首页下半部分纯色留白，使整体风格协调统一。 */
+
+/* 全局氛围光：极低存在感，为大屏提供层次，避免任何页面出现死板纯色留白 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(55vw 55vw at 10% 6%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 60%),
+    radial-gradient(48vw 48vw at 90% 94%, color-mix(in srgb, var(--accent2) 9%, transparent), transparent 60%),
+    radial-gradient(38vw 38vw at 64% 30%, color-mix(in srgb, var(--accent-light) 7%, transparent), transparent 60%);
+}
+
+/* 首页专属背景装饰：让首屏下半区域不再空白 */
+.tab-home {
+  position: relative;
+}
+.tab-home::before {
+  content: "";
+  position: absolute;
+  inset: -40px -24px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(42rem 42rem at 88% 108%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
+    radial-gradient(34rem 34rem at 4% 58%, color-mix(in srgb, var(--accent2) 7%, transparent), transparent 60%);
+}
+
+/* 加入社群 CTA */
+.home-cta {
+  position: relative;
+  margin-top: 36px;
+  padding: 40px 28px;
+  border-radius: 20px;
+  overflow: hidden;
+  text-align: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  background:
+    radial-gradient(120% 140% at 50% -20%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, var(--card)), var(--card));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .18);
+}
+.home-cta-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(40% 60% at 15% 20%, color-mix(in srgb, var(--accent2) 30%, transparent), transparent 70%),
+    radial-gradient(40% 60% at 85% 80%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 70%);
+  opacity: .5;
+}
+.home-cta-inner {
+  position: relative;
+  z-index: 1;
+  max-width: 720px;
+  margin: 0 auto;
+}
+.home-cta-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.home-cta-title {
+  font-size: 22px;
+  font-weight: 800;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+.home-cta-desc {
+  font-size: 14px;
+  color: var(--text2);
+  margin: 0 0 20px;
+}
+.home-cta-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.home-cta-actions .btn-lg {
+  padding: 12px 26px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 12px;
+}
+
+@media (max-width: 640px) {
+  .home-cta {
+    padding: 28px 18px;
+    border-radius: 16px;
+  }
+  .home-cta-title {
+    font-size: 18px;
+  }
+}

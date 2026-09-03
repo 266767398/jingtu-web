@@ -1,0 +1,70 @@
+/* ============ 群组在线状态可信度区分（V9.5 统一打磨）============
+   全部硬编码颜色替换为设计 token；状态色保持语义对应：
+   unknown=灰、online=绿、web=蓝、joined=橙 */
+.group-member-card.unknown-status {
+  border-style: dashed;
+  opacity: .85;
+}
+.group-member-card.unknown-status .gm-avatar {
+  filter: grayscale(.35);
+}
+
+/* 状态未知的小圆点：透明底 + 虚线灰边 + 问号 */
+.gm-status-dot.unknown {
+  background: transparent !important;
+  border: 2px dashed var(--text3);
+  box-shadow: none;
+}
+.gm-status-dot.unknown::after {
+  content: '?';
+  color: var(--text3);
+  font-size: var(--font-size-10);
+  font-weight: 700;
+  line-height: 1;
+}
+.group-member-card.unknown-status .gm-status-text {
+  color: var(--text3);
+}
+
+/* 概览卡统计数字：统一为圆角 pill */
+#groupOverview .group-stat-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  margin-right: 4px;
+  font-size: var(--font-size-16);
+  font-weight: 800;
+  line-height: 1;
+  background: var(--accent-light);
+  color: var(--accent);
+  vertical-align: middle;
+}
+#groupOverview .group-stat-badge.online,
+#groupOverview .group-stat-badge.ingame {
+  background: rgba(34, 197, 94, .18);
+  color: var(--green);
+}
+#groupOverview .group-stat-badge.web {
+  background: rgba(47, 111, 224, .18);
+  color: var(--sky);
+}
+#groupOverview .group-stat-badge.unknown {
+  background: rgba(138, 143, 152, .18);
+  color: var(--text3);
+}
+#groupOverview .group-stat-badge.joined {
+  background: rgba(245, 158, 11, .18);
+  color: var(--amber);
+}
+@media (max-width: 768px) {
+  #groupOverview .group-stat-badge { font-size: var(--font-size-14); padding: 2px 5px; min-width: 18px; }
+}
+
+/* 网页端在线圆点：蓝色，区别于游戏内绿点、离线灰点 */
+.gm-status-dot.web {
+  background: radial-gradient(circle at 35% 30%, var(--sky), #2f6fe0);
+  box-shadow: 0 0 0 3px rgba(47, 111, 224, .15);
+}

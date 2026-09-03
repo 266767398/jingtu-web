@@ -1,5 +1,13 @@
 # 环境配置
 .env
+# 含真实密钥的临时 env 备份（切勿提交，提交即泄露）
+.env.e2e-bak
+.env.*.bak
+.env.local
+.env.*.local
+
+# 建站引导隔离状态（仅存引导进度/非敏感草稿，非站点配置）
+setup-wizard.json
 
 # 依赖
 node_modules/
@@ -29,6 +37,13 @@ nul
 
 # 测试工具
 tools/
+
+# AI 一次性辅助脚本（已从 server/ 迁出，非项目运行所需，不纳入版本控制）
+ai-scratch/
+
+# 运行时日志与备份目录
+logs/
+backups/
 
 # 上传目录（保留目录结构）
 uploads/profile/photos/*

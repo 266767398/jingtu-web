@@ -1,0 +1,87 @@
+.social-page {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.social-toolbar,
+.social-section {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+}
+
+.social-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.social-toolbar .search-box {
+  flex: 1;
+  margin: 0;
+}
+
+.social-section + .social-section {
+  margin-top: 16px;
+}
+
+.social-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.social-row:last-child {
+  border-bottom: 0;
+}
+
+.social-avatar {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.social-meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.social-name {
+  font-weight: 700;
+}
+
+.social-sub {
+  color: var(--text2);
+  font-size: 13px;
+}
+
+.social-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.social-empty {
+  padding: 20px;
+  color: var(--text2);
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .social-toolbar,
+  .social-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .social-actions {
+    justify-content: flex-start;
+  }
+}

@@ -1,13 +1,27 @@
 // ==================== 公告系统 ====================
 let announcementsCache = [];
+let announcementsLoading = false;
+let announcementSaving = false;
 
 async function loadAnnouncements() {
   const container = document.getElementById('announcementsList');
   if (container) container.innerHTML = Array(4).fill('<div class="skeleton-card-list"></div>').join('');
+  if (announcementsLoading) return;
+  announcementsLoading = true;
   try {
     const res = await api('/api/announcements', { method: 'GET' });
-    if (res.ok) { const data = await res.json(); announcementsCache = data.announcements || []; renderAnnouncements(announcementsCache); if (typeof checkTabBadges === 'function') checkTabBadges(); }
-  } catch (err) { if (isApiHandledError(err)) return; toast(__('announcements.load_failed'), 'error'); }
+    if (res.ok) {
+      const data = await res.json();
+      announcementsCache = data.announcements || [];
+      renderAnnouncements(announcementsCache);
+      if (typeof checkTabBadges === 'function') checkTabBadges();
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('announcements.load_failed'), 'error');
+  } finally {
+    announcementsLoading = false;
+  }
 }
 
 function renderAnnouncements(list) {
@@ -15,16 +29,21 @@ function renderAnnouncements(list) {
   if (!container) return;
   if (!list || list.length === 0) {
     const canCreate = currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin');
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📢</div><div>${__('announcements.no_announcements')}</div>${canCreate ? '<p class="empty-sub mt-8"><button class="btn btn-accent btn-sm" onclick="showAnnounceModal()">${__('announcements.create_first')}</button></p>' : '<p class="empty-sub">${__('announcements.stay_tuned')}</p>'}</div>`;
+    renderEmpty(container, {
+      icon: '📢',
+      text: __('announcements.no_announcements'),
+      actions: canCreate ? [{ label: __('announcements.create_first'), onClick: showAnnounceModal }] : []
+    });
     return;
   }
   container.innerHTML = list.map(a => `
     <div class="anno-card ${a.pinned ? 'pinned' : ''}" onclick="showAnnouncementDetail('${escJsStr(String(a.id))}')">
-      ${a.pinned ? '<div class="anno-pin-badge">${__('announcements.pin')}</div>' : ''}
+      ${a.pinned ? '<div class="anno-pin-badge">' + __('announcements.pin') + '</div>' : ''}
       <div class="anno-title">${esc(a.title)}</div>
       <div class="anno-meta">
         <span>📅 ${fmtDate(a.createdAt)}</span>
-        ${a.visibility ? `<span>${a.visibility === 'public' ? '${__('announcements.public')}' : '${__('announcements.member_only')}'}</span>` : ''}
+        ${a.updatedAt && a.updatedAt !== a.createdAt ? `<span class="anno-edited">${__('announcements.edited')}</span>` : ''}
+        ${a.visibility ? '<span>' + (a.visibility === 'public' ? __('announcements.public') : __('announcements.member_only')) + '</span>' : ''}
       </div>
       <div class="anno-summary">${esc(a.content ? a.content.substring(0, 100) : '')}${a.content && a.content.length > 100 ? '...' : ''}</div>
     </div>
@@ -40,16 +59,22 @@ async function showAnnouncementDetail(id) {
       if (!modal) { toast(__('announcements.modal_not_found'), 'error'); return; }
       document.getElementById('evtDetTitle').textContent = a.title || __('announcements.announcement');
       document.getElementById('evtDetMeta').innerHTML = `<span>${__('announcements.published_at')} ${fmtDate(a.createdAt)}</span>${a.updatedAt ? `<span>${__('announcements.edited_at')} ${fmtDate(a.updatedAt)}</span>` : ''}`;
-      document.getElementById('evtDetVisBadge').innerHTML = a.visibility === 'public' ? '<span class="visibility-badge public">${__('announcements.public')}</span>' : '<span class="visibility-badge members">${__('announcements.member_only')}</span>';
+      document.getElementById('evtDetVisBadge').innerHTML = a.visibility === 'public' ? '<span class="visibility-badge public">' + __('announcements.public') + '</span>' : '<span class="visibility-badge members">' + __('announcements.member_only') + '</span>';
       document.getElementById('evtDetDesc').innerHTML = escapeNewlines(a.content || '');
       // 管理员显示编辑/删除按钮
       const isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin');
-      document.getElementById('evtDetAdminActions').style.display = isAdmin ? 'flex' : 'none';
-      document.getElementById('evtDetAdminActions').innerHTML = isAdmin ? `
+      const adminActions = document.getElementById('evtDetAdminActions');
+      adminActions.style.display = isAdmin ? 'flex' : 'none';
+      adminActions.innerHTML = isAdmin ? `
         <button class="btn btn-sm btn-white-glass" onclick="editAnnouncement('${escJsStr(String(a.id))}')">${__('announcements.edit')}</button>
         <button class="btn btn-sm btn-danger ml-6" onclick="deleteAnnouncement('${escJsStr(String(a.id))}')">${__('announcements.delete')}</button>
       ` : '';
-      document.getElementById('evtDetSignBar').style.display = 'none';
+      hideEl('evtDetSignBar');
+      hideEl('evtDetCheckinBar');
+      hideEl('evtDetUploadBtn');
+      hideEl('evtDetPhotos');
+      hideEl('evtDetComments');
+      hideEl('evtDetTeamsSection');
       showModal('eventDetailModal');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('announcements.load_detail_failed'), 'error'); }
@@ -66,7 +91,6 @@ async function editAnnouncement(id) {
   document.getElementById('annVisibility').value = a.visibility || 'members_only';
   document.getElementById('annModalTitle').textContent = __('announcements.edit_title_suffix');
   document.getElementById('annSaveBtn').textContent = __('save');
-  document.getElementById('annSaveBtn').onclick = () => saveAnnounceEdit(a.id);
   closeModal('eventDetailModal');
   showModal('announceModal');
 }
@@ -106,9 +130,24 @@ function showAnnounceModal() {
   document.getElementById('annVisibility').value = 'members_only';
   document.getElementById('annModalTitle').textContent = __('announcements.publish_title_suffix');
   document.getElementById('annSaveBtn').textContent = __('announcements.publish_btn');
-  document.getElementById('annSaveBtn').onclick = saveAnnounce;
   showModal('announceModal'); 
 }
+
+async function saveAnnouncementForm() {
+  if (announcementSaving) return;
+  announcementSaving = true;
+  const saveButton = document.getElementById('annSaveBtn');
+  if (saveButton) saveButton.disabled = true;
+  try {
+    const editId = document.getElementById('annEditId')?.value;
+    if (editId) await saveAnnounceEdit(editId);
+    else await saveAnnounce();
+  } finally {
+    announcementSaving = false;
+    if (saveButton) saveButton.disabled = false;
+  }
+}
+
 async function saveAnnounce() {
   const title = document.getElementById('annTitle')?.value; const content = document.getElementById('annContent')?.value;
   const pinned = document.getElementById('annPinned')?.checked || false; const visibility = document.getElementById('annVisibility')?.value || 'members_only';

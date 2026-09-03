@@ -1,0 +1,52 @@
+﻿{
+    "businessService":  "NodeServer",
+    "dataDir":  "uploads",
+    "configItems":  [
+                        ".env",
+                        "server",
+                        "tools"
+                    ],
+    "backupRetention":  10,
+    "configBackupRetention":  5,
+    "diskWarnGB":  1,
+    "logMaxMB":  5,
+    "auditLogMaxKB":  100,
+    "logSearchKeywords":  [
+                              "ERROR",
+                              "FATAL",
+                              "Exception",
+                              "失败"
+                          ],
+    "highRiskConfirm":  "CONFIRM-DELETE-ALL-DATA",
+    "restoreConfirm":  "CONFIRM-RESTORE-FROM-BACKUP",
+    "stopServicesOnExit":  true,
+    "services":  [
+                     {
+                         "name":  "MySQL",
+                         "port":  3306,
+                         "start":  {
+                                       "exe":  "D:\\phpstudy_pro\\Extensions\\MySQL5.7.26\\bin\\mysqld.exe",
+                                       "args":  "--defaults-file=D:\\phpstudy_pro\\Extensions\\MySQL5.7.26\\my.ini",
+                                       "cwd":  "D:\\phpstudy_pro\\Extensions\\MySQL5.7.26"
+                                   }
+                     },
+                     {
+                         "name":  "Nginx",
+                         "port":  80,
+                         "start":  {
+                                       "exe":  "D:\\phpstudy_pro\\Extensions\\Nginx1.15.11\\nginx.exe",
+                                       "args":  "-c \"D:\\phpstudy_pro\\Extensions\\Nginx1.15.11\\conf\\nginx.conf\"",
+                                       "cwd":  "D:\\phpstudy_pro\\Extensions\\Nginx1.15.11"
+                                   }
+                     },
+                     {
+                         "name":  "NodeServer",
+                         "port":  3456,
+                         "start":  {
+                                       "exe":  "node",
+                                       "args":  "server.js",
+                                       "cwd":  "server"
+                                   }
+                     }
+                 ]
+}

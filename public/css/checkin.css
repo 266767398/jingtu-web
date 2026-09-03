@@ -1,0 +1,188 @@
+.checkin-card {
+  background: var(--card-bg, #1a1a2e);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+  border: 1px solid var(--border-color, #333);
+}
+
+.checkin-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--border-color, #333);
+}
+
+.checkin-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+  margin: 0;
+}
+
+.checkin-points {
+  font-size: 0.9rem;
+  color: var(--accent, #7c5cfc);
+  font-weight: 500;
+}
+
+#checkin-points-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.checkin-body {
+  text-align: center;
+}
+
+.checkin-status {
+  display: flex;
+  justify-content: center;
+  gap: 30px;
+  margin-bottom: 20px;
+}
+
+.streak-info, .total-info {
+  text-align: center;
+}
+
+.streak-label, .total-label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-secondary, #888);
+  margin-bottom: 5px;
+}
+
+.streak-value, .total-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--accent, #7c5cfc);
+  display: block;
+}
+
+.streak-unit {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #888);
+}
+
+.checkin-button {
+  background: linear-gradient(135deg, var(--accent, #7c5cfc) 0%, #5a3fc5 100%);
+  color: white;
+  border: none;
+  border-radius: 50px;
+  padding: 12px 30px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(124, 92, 252, 0.4);
+}
+
+.checkin-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(124, 92, 252, 0.6);
+}
+
+.checkin-button:disabled {
+  background: #444;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.checkin-button.checked-in {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+}
+
+.checkin-icon {
+  font-size: 1.2rem;
+}
+
+.checkin-message {
+  margin-top: 15px;
+  font-size: 0.9rem;
+  min-height: 24px;
+}
+
+.checkin-message.success {
+  color: #10b981;
+}
+
+.checkin-message.error {
+  color: #ef4444;
+}
+
+.checkin-rewards {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color, #333);
+}
+
+.checkin-rewards h4 {
+  font-size: 1rem;
+  color: var(--text-primary, #fff);
+  margin: 0 0 15px 0;
+}
+
+.rewards-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.reward-item {
+  background: var(--card-bg-hover, #252540);
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+  border: 1px solid var(--border-color, #333);
+  transition: all 0.3s ease;
+}
+
+.reward-item.achieved {
+  background: linear-gradient(135deg, rgba(124, 92, 252, 0.2) 0%, rgba(90, 63, 197, 0.2) 100%);
+  border-color: var(--accent, #7c5cfc);
+}
+
+.reward-streak {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-primary, #fff);
+  font-weight: 500;
+}
+
+.reward-points {
+  display: block;
+  font-size: 0.75rem;
+  color: #fbbf24;
+  margin: 5px 0;
+}
+
+.reward-badge {
+  font-size: 1.2rem;
+}
+
+@media (max-width: 768px) {
+  .checkin-status {
+    gap: 20px;
+  }
+  
+  .streak-value, .total-value {
+    font-size: 1.5rem;
+  }
+  
+  .checkin-button {
+    padding: 10px 20px;
+    font-size: 0.9rem;
+  }
+  
+  .rewards-list {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

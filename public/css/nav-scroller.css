@@ -1,0 +1,83 @@
+/* nav-scroller.css — 桌面端顶部标签栏：单行溢出隐藏 + 边缘滑动（需求③）
+   覆盖 03-layout.css 中「桌面换行」的旧规则，改为单行溢出隐藏，
+   由 nav-scroller.js 驱动鼠标靠边自动滑动，并提供与实际边缘对齐的翻页按钮。 */
+
+/* 首页：隐藏顶部选项栏（首页使用自身内容与底部功能栏导航，避免选项栏遮挡“欢迎回来”等内容）
+   注意：nav-scroller.js 会把 .tabs 包进 .nav-scroller 包裹层，
+   因此这里必须用后代选择器（而非直接子元素选择器）才能命中。 */
+body.home-active #mainContainer .tabs {
+  display: none !important;
+}
+/* nav-scroller 包裹层（.nav-scroller）在首页也应一并隐藏，避免残留空白条 */
+body.home-active #mainContainer .nav-scroller {
+  display: none !important;
+}
+/* 移动端（≤768px）：底部功能栏接管导航，顶部选项栏隐藏；
+   包裹层本身不得残留占位，否则会在页面顶部留下一条空白导航条 */
+@media (max-width: 768px) {
+  #mainContainer .nav-scroller {
+    display: none !important;
+  }
+}
+@media (min-width: 769px) {
+  #mainContainer > .nav-scroller > .tabs,
+  #mainContainer > .tabs {
+    flex-wrap: nowrap;
+    overflow: hidden;
+    white-space: nowrap;
+    scrollbar-width: none;
+  }
+  #mainContainer > .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  #mainContainer > .tabs > .tab {
+    flex: 0 0 auto;
+  }
+}
+
+/* 顶部标签栏左右翻页按钮：固定定位，贴合标签栏真实左/右边缘 */
+.tab-scroll-btn {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text2);
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s ease, background .15s ease, color .15s ease, transform .1s ease;
+  z-index: 90;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tab-scroll-btn.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+.tab-scroll-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.tab-scroll-btn:active {
+  transform: translate(-50%, -50%) scale(.9);
+}
+
+/* 包裹层：JS 注入后由本类控制布局。
+   margin-bottom 归零：内部 .tabs 自身已有 20px 下边距，
+   包裹层不再额外留白，避免群组等内容被向下推挤。 */
+.nav-scroller {
+  position: relative;
+  margin-bottom: 0;
+}
+

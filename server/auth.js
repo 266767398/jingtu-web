@@ -5,8 +5,8 @@
  */
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+const { getAvatarUrl } = require('./utils');
+const { getPool } = require('./db');
 
 // ==================== 权限定义 ====================
 const ROLE_LEVEL = {
@@ -27,10 +27,8 @@ const ROLE_LABELS = {
 const AES_KEY = (() => {
   const envKey = process.env.ENCRYPT_KEY;
   if (!envKey || envKey.length !== 64) {
-    console.error('❌ FATAL: ENCRYPT_KEY (64-hex) 未在 .env 中设置！');
-    console.error('   生成方法: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
-    console.error('   然后添加到 .env: ENCRYPT_KEY=<生成的密钥>');
-    process.exit(1);
+    console.warn('⚠ WARNING: ENCRYPT_KEY 未设置，使用临时密钥（仅适用于 setup 初始化）');
+    return require('crypto').randomBytes(32);
   }
   return Buffer.from(envKey, 'hex');
 })();
@@ -87,13 +85,35 @@ function requireAuth(req, res, next) {
   next();
 }
 
+// 权限不足时实时回查数据库角色（运维面板/后台改角色后立即生效，无需重新登录）
+async function refreshRoleFromDb(session) {
+  if (!session || session.userId === undefined) return null;
+  try {
+    const [rows] = await getPool().query(
+      'SELECT role FROM users WHERE id = ? AND deleted_at IS NULL',
+      [session.userId]
+    );
+    if (rows.length) {
+      session.role = rows[0].role;
+      return rows[0].role;
+    }
+  } catch (e) {
+    // 数据库异常时忽略，沿用 session 中的原角色判断
+  }
+  return null;
+}
+
 function requireRole(...roles) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.session || req.session.userId === undefined) {
       return res.status(401).json({ error: '请先登录' });
     }
-    const userLevel = ROLE_LEVEL[req.session.role] || 0;
     const requiredLevel = Math.max(...roles.map(r => ROLE_LEVEL[r] || 0));
+    let userLevel = ROLE_LEVEL[req.session.role] || 0;
+    if (userLevel < requiredLevel) {
+      const freshRole = await refreshRoleFromDb(req.session);
+      if (freshRole) userLevel = ROLE_LEVEL[freshRole] || 0;
+    }
     if (userLevel < requiredLevel) {
       return res.status(403).json({ error: '权限不足' });
     }
@@ -112,21 +132,31 @@ async function requireAdminCompat(req, res, next) {
   if (!req.session || req.session.userId === undefined) {
     return res.status(401).json({ error: '请先登录' });
   }
-  const level = ROLE_LEVEL[req.session.role] || 0;
+  let level = ROLE_LEVEL[req.session.role] || 0;
+  if (level < ROLE_LEVEL.admin) {
+    const freshRole = await refreshRoleFromDb(req.session);
+    if (freshRole) level = ROLE_LEVEL[freshRole] || 0;
+  }
   if (level < ROLE_LEVEL.admin) {
     return res.status(403).json({ error: '需要管理员权限' });
   }
   next();
 }
 
-/**
- * 统一获取用户头像URL（消除10+处重复模式）
- * @param {object} u 数据库用户行（含 avatar_type, custom_avatar_path, vrchat_avatar_url）
- * @returns {string|null}
- */
-function getAvatarUrl(u) {
-  if (!u) return null;
-  return u.avatar_type === 'custom' ? u.custom_avatar_path : (u.vrchat_avatar_url || null);
+// 仅超级管理员可访问（roleLevel >= super_admin）
+async function requireSuperAdmin(req, res, next) {
+  if (!req.session || req.session.userId === undefined) {
+    return res.status(401).json({ error: '请先登录' });
+  }
+  let level = ROLE_LEVEL[req.session.role] || 0;
+  if (level < ROLE_LEVEL.super_admin) {
+    const freshRole = await refreshRoleFromDb(req.session);
+    if (freshRole) level = ROLE_LEVEL[freshRole] || 0;
+  }
+  if (level < ROLE_LEVEL.super_admin) {
+    return res.status(403).json({ error: '需要超级管理员权限' });
+  }
+  next();
 }
 
 module.exports = {
@@ -140,5 +170,6 @@ module.exports = {
   requireAuth,
   requireRole,
   requireAdminCompat,
+  requireSuperAdmin,
   getAvatarUrl
 };

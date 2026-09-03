@@ -1,0 +1,4 @@
+# jingtu-web 本地 Nginx 规则占位（由 vhost 通过 include 引入）
+# 当前站点为前端 SPA + Node API，无需额外重写；保留此文件以满足 include 指令。
+# 如需禁止访问隐藏文件，可取消下行注释（注意：location 不能嵌套在 location 内，故此处仅作说明）：
+#   # 在 vhost 顶层使用： location ~ /\. { deny all; }

@@ -1,0 +1,53 @@
+# ==================== .dockerignore ====================
+# 避免把无关/敏感/体积大的内容送进构建上下文
+
+# 依赖与构建产物
+node_modules
+server/node_modules
+**/node_modules
+
+# 版本控制
+.git
+.gitignore
+
+# 本地环境 / 密钥（容器运行时通过 env 或挂载注入，不要打包）
+.env
+.env.*
+!.env.example
+*.local
+
+# 日志与运行产物
+logs
+*.log
+err.log
+out.log
+local-server.log
+mariadb-local.log
+_srv3*.log
+
+# 上传与备份（运行时用卷挂载）
+uploads
+backups
+backup
+__pycache__
+*.pyc
+
+# 文档与辅助脚本（不影响运行）
+docs
+tools
+ai-scratch
+*.md
+!README.md
+
+# 测试与 CI
+coverage
+junit.xml
+*.test.js
+test_*.js
+
+# 操作系统 / 编辑器
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+.workbuddy

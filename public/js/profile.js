@@ -1,7 +1,9 @@
 // ==================== 个人中心模块 ====================
+let profileLoading = false;
 
 async function showProfile() {
-  if (!currentUser) return;
+  if (!currentUser || profileLoading) return;
+  profileLoading = true;
   try {
     const res = await api('/api/users/me/profile', { method: 'GET' });
     if (res.ok) {
@@ -10,12 +12,17 @@ async function showProfile() {
       Object.assign(currentUser, {
         loginId: data.loginId,
         displayName: data.displayName,
+        email: data.email,
+        createTime: data.createTime || data.createdAt,
+        lastLoginTime: data.lastLoginTime,
         vrchatId: data.vrchatId,
         vrchatName: data.vrchatName,
         vrchatAvatarUrl: data.vrchatAvatarUrl,
         vrchatVerified: data.vrchatVerified,
         role: data.role,
         avatarType: data.avatarType,
+        avatarVisible: data.avatarVisible !== false,
+        customAvatarPath: data.customAvatarPath || null,
         avatarUrl: data.avatarUrl,
         qq: data.qq,
         birthday: data.birthday,
@@ -37,18 +44,30 @@ async function showProfile() {
       if (currentUser.motto) document.getElementById('meMotto').textContent = currentUser.motto;
       // 渲染 VRChat 绑定状态
       renderVRChatBindStatus();
+      // 渲染头像显示设置（§11.8.8）
+      renderAvatarPref();
+      // 填充「账号信息」概览卡片（邮箱 / 注册时间 / 最后登录 / VRChat 名称 ID / 安全评分）
+      if (typeof loadMePage === 'function') loadMePage();
     }
     loadMyEvents();
-  } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.load_failed'), 'error'); }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('profile.load_failed'), 'error');
+  } finally {
+    profileLoading = false;
+  }
 }
 
+let profileUpdating = false;
+
 async function updateProfile() {
+  if (profileUpdating) return;
+  profileUpdating = true;
   const displayName = document.getElementById('meDisplayName')?.value?.trim();
   const bio = document.getElementById('meBio')?.value?.trim();
   const qq = document.getElementById('meQQ')?.value?.trim();
   const birthday = document.getElementById('meBirthday')?.value || null;
   const location = document.getElementById('meLocation')?.value?.trim();
-  const preferences = currentUser.preferences || {};
 
   const body = {};
   if (displayName) body.displayName = displayName;
@@ -56,7 +75,11 @@ async function updateProfile() {
   if (qq !== undefined) body.qq = qq;
   if (birthday !== undefined) body.birthday = birthday;
   if (location !== undefined) body.location = location;
-  if (Object.keys(body).length === 0) { toast(__('profile.no_changes'), 'info'); return; }
+  if (Object.keys(body).length === 0) {
+    toast(__('profile.no_changes'), 'info');
+    profileUpdating = false;
+    return;
+  }
 
   try {
     const res = await api('/api/users/me/profile', {
@@ -70,6 +93,8 @@ async function updateProfile() {
   } catch (err) {
     if (isApiHandledError(err)) return;
     toast(__('profile.update_failed') + ': ' + err.message, 'error');
+  } finally {
+    profileUpdating = false;
   }
 }
 
@@ -114,7 +139,7 @@ async function loadMyEvents() {
   const container = document.getElementById('meEventsList');
   const countEl = document.getElementById('meEventsCount');
   if (!container) return;
-  container.innerHTML = '<div class="text-muted text-13">${__('profile.loading')}</div>';
+  container.innerHTML = '<div class="text-muted text-13">' + __('profile.loading') + '</div>';
   try {
     const res = await api('/api/users/me/events', { method: 'GET' });
     if (res.ok) {
@@ -122,7 +147,7 @@ async function loadMyEvents() {
       const events = data.events || [];
       if (countEl) countEl.textContent = `(${events.length})`;
       if (events.length === 0) {
-        container.innerHTML = '<div class="text-muted text-13">${__('profile.no_events')}</div>';
+        container.innerHTML = '<div class="text-muted text-13">' + __('profile.no_events') + '</div>';
         return;
       }
       const now = new Date();
@@ -137,7 +162,7 @@ async function loadMyEvents() {
         </div>`;
       }).join('');
     }
-  } catch (err) { container.innerHTML = '<div class="text-13 text-red">${__('profile.load_failed')}</div>'; }
+  } catch (err) { container.innerHTML = '<div class="text-13 text-red">' + __('profile.load_failed') + '</div>'; }
 }
 
 // ==================== 头像上传/移除/切换 ====================
@@ -151,7 +176,10 @@ async function uploadAvatar(file) {
       const data = await res.json();
       currentUser.avatarUrl = data.avatarUrl;
       currentUser.avatarType = 'custom';
+      currentUser.customAvatarPath = data.avatarUrl;
+      currentUser.avatarVisible = true; // 上传即默认启用显示
       updateUserUI();
+      renderAvatarPref();
       toast(__('profile.avatar_updated'), 'success');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.upload_failed') + ': ' + err.message, 'error'); }
@@ -164,7 +192,9 @@ async function removeAvatar() {
       if (res.ok) {
         currentUser.avatarUrl = null;
         currentUser.avatarType = 'none';
+        currentUser.customAvatarPath = null;
         updateUserUI();
+        renderAvatarPref();
         toast(__('profile.avatar_removed'), 'info');
       }
     } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.op_failed') + ': ' + err.message, 'error'); }
@@ -179,23 +209,120 @@ async function switchToVRchatAvatar() {
       const data = await res.json();
       currentUser.avatarUrl = data.avatarUrl;
       currentUser.avatarType = 'vrchat';
+      currentUser.avatarVisible = true; // 切换到 VRChat 头像即默认启用显示
       updateUserUI();
+      renderAvatarPref();
       toast(__('profile.avatar_switched_vrc'), 'success');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.switch_failed') + ': ' + err.message, 'error'); }
 }
 
+// ==================== 头像显示设置（是否显示 + 显示哪种） §11.8.8 ====================
+// 与上传/切换头像解耦：本组函数只改「显示开关」与「选用哪种头像」。
+
+function renderAvatarPref() {
+  const vis = document.getElementById('meAvatarVisible');
+  if (vis) vis.checked = !!currentUser.avatarVisible;
+
+  const custImg = document.getElementById('prefCustomImg');
+  const vrcImg = document.getElementById('prefVrcImg');
+  if (custImg) custImg.src = currentUser.customAvatarPath || '/api/avatar/default';
+  if (vrcImg) vrcImg.src = currentUser.vrchatAvatarUrl || '/api/avatar/default';
+
+  // 状态文案：是否已设置该种头像
+  const custStatus = document.getElementById('prefCustomStatus');
+  const vrcStatus = document.getElementById('prefVrcStatus');
+  if (custStatus) custStatus.textContent = currentUser.customAvatarPath ? __('profile.avatar_opt_available') : __('profile.avatar_opt_unset');
+  if (vrcStatus) vrcStatus.textContent = currentUser.vrchatAvatarUrl ? __('profile.avatar_opt_available') : __('profile.avatar_opt_unbound');
+
+  // 选中态高亮（按当前 avatarType）
+  const type = currentUser.avatarType || 'none';
+  const prefCustom = document.getElementById('prefCustom');
+  const prefVrc = document.getElementById('prefVrc');
+  if (prefCustom) prefCustom.classList.toggle('active', type === 'custom');
+  if (prefVrc) prefVrc.classList.toggle('active', type === 'vrchat');
+  // 未设置的种类置灰不可选
+  if (prefCustom) prefCustom.classList.toggle('disabled', !currentUser.customAvatarPath);
+  if (prefVrc) prefVrc.classList.toggle('disabled', !currentUser.vrchatAvatarUrl);
+}
+
+function selectAvatarPref(type) {
+  if (type === 'custom' && !currentUser.customAvatarPath) { toast(__('profile.avatar_opt_unset'), 'error'); return; }
+  if (type === 'vrchat' && !currentUser.vrchatAvatarUrl) { toast(__('profile.avatar_opt_unbound'), 'error'); return; }
+  saveAvatarPref({ avatarType: type });
+}
+
+function onAvatarVisibleToggle() {
+  const vis = document.getElementById('meAvatarVisible');
+  if (!vis) return;
+  saveAvatarPref({ avatarVisible: vis.checked ? 1 : 0 });
+}
+
+let _avatarPrefSaving = false;
+async function saveAvatarPref(patch) {
+  if (_avatarPrefSaving) return;
+  _avatarPrefSaving = true;
+  try {
+    const res = await api('/api/users/me/avatar-pref', {
+      method: 'POST',
+      body: JSON.stringify(patch)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      currentUser.avatarType = data.avatarType;
+      currentUser.avatarVisible = data.avatarVisible !== false;
+      currentUser.avatarUrl = data.avatarUrl;
+      updateUserUI();
+      renderAvatarPref();
+      toast(__('profile.avatar_pref_saved'), 'success');
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('profile.op_failed') + ': ' + err.message, 'error');
+    renderAvatarPref(); // 还原 UI（如开关回弹）
+  } finally {
+    _avatarPrefSaving = false;
+  }
+}
+
 // ==================== VRChat 绑定（密码验证） ====================
 let _vrcBindTemp = null; // 存储2FA临时状态
+
+/**
+ * 从服务器回拉一次权威的 VRChat 绑定字段，覆盖到 currentUser。
+ *
+ * 为什么不能只信绑定接口返回的 user：那份数据是 session 快照，
+ * 任何一条路径漏写 session（或上游没返回用户 ID）都会让前端以为绑定成功，
+ * 而库里其实是 vrchat_id=NULL —— 表现就是__('auto_profile_1')。
+ * 两条绑定路径（有无 2FA）都必须走这里，否则又会出现只修一半的不对称。
+ */
+async function refreshVrcBindState() {
+  try {
+    const meRes = await api('/api/users/me/profile', { method: 'GET' });
+    if (!meRes.ok) return false;
+    const meData = await meRes.json();
+    Object.assign(currentUser, {
+      vrchatId: meData.vrchatId,
+      vrchatName: meData.vrchatName,
+      vrchatVerified: meData.vrchatVerified,
+      vrchatAvatarUrl: meData.vrchatAvatarUrl,
+      avatarType: meData.avatarType,
+      avatarUrl: meData.avatarUrl
+    });
+    return !!meData.vrchatId;
+  } catch (e) {
+    return false;
+  }
+}
 
 async function bindVRChatWithPassword() {
   const username = document.getElementById('vrchatInputId')?.value?.trim();
   const password = document.getElementById('vrchatBindPwd')?.value;
-  if (!username) { toast('${__('profile.enter_vrc_username')}', 'error'); return; }
-  if (!password) { toast('${__('profile.enter_vrc_password')}', 'error'); return; }
+  if (!username) { toast(__('profile.enter_vrc_username'), 'error'); return; }
+  if (!password) { toast(__('profile.enter_vrc_password'), 'error'); return; }
   
   const btn = document.getElementById('vrcBindBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '${__('profile.verifying')}'; }
+  if (btn) { btn.disabled = true; btn.textContent = __('profile.verifying'); }
   
   try {
     const res = await api('/api/auth/vrchat-bind-verify', {
@@ -209,12 +336,21 @@ async function bindVRChatWithPassword() {
         _vrcBindTemp = { bindToken: data.bindToken, ...data };
         document.getElementById('vrcBind2fa').classList.remove('d-none');
         document.getElementById('vrcLookupResult').innerHTML = `<div class="text-13 text-muted">${esc(data.message)}</div>`;
-        document.getElementById('vrcLookupResult').style.display = 'block';
+        showEl('vrcLookupResult');
         document.getElementById('vrcBind2faCode').value = '';
         document.getElementById('vrcBind2faCode').focus();
       } else if (data.success) {
         // 绑定成功（无需2FA）
         if (data.user) Object.assign(currentUser, data.user);
+        // 和 2FA 路径保持一致：从服务器回拉一次权威资料。
+        // 只信接口返回的 data.user 是不够的 —— 它来自 session 快照，
+        // 万一某条路径漏写 session，前端就会以为绑好了、刷新后又提示要绑定。
+        await refreshVrcBindState();
+        if (!currentUser.vrchatId) {
+          toast(__('profile.bind_failed'), 'error');
+          renderVRChatBindStatus();
+          return;
+        }
         // V6.12: 缓存绑定状态，保留登录
         const bindUsername2 = document.getElementById('vrchatInputId')?.value?.trim();
         if (bindUsername2) localStorage.setItem('jingtu_vrc_user', bindUsername2);
@@ -223,8 +359,8 @@ async function bindVRChatWithPassword() {
         renderVRChatBindStatus();
         toast(__('profile.bind_success'), 'success');
         document.getElementById('vrcLookupResult').innerHTML = `<div class="text-green text-13">✅ ${__('profile.bind_success')}</div>`;
-        document.getElementById('vrcLookupResult').style.display = 'block';
-        setTimeout(() => { document.getElementById('vrcLookupResult').style.display = 'none'; }, 3000);
+        showEl('vrcLookupResult');
+        setTimeout(() => { hideEl('vrcLookupResult'); }, 3000);
       }
     } else {
       const err = await res.json();
@@ -241,33 +377,30 @@ async function confirmVrcBind2fa() {
   if (!code) { toast(__('profile.enter_code'), 'error'); return; }
   
   const btn = document.getElementById('vrcBindBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '${__('profile.verifying')}'; }
+  if (btn) { btn.disabled = true; btn.textContent = __('profile.verifying'); }
   
   try {
     const res = await api('/api/auth/vrchat-bind-verify', {
       method: 'POST',
-      body: { code, bindToken: _vrcBindTemp?.bindToken }
+      body: {
+        code,
+        method: _vrcBindTemp?.methods?.includes('emailOtp')
+          ? 'emailOtp'
+          : (_vrcBindTemp?.methods?.includes('totp') ? 'totp' : 'otp'),
+        bindToken: _vrcBindTemp?.bindToken
+      }
     });
     if (res.ok) {
       const data = await res.json();
       if (data.success) {
         // 绑定成功：合并用户数据，然后重新从服务器获取完整资料（确保数据一致）
         if (data.user) Object.assign(currentUser, data.user);
-        // 重新从服务器加载最新资料（确保 vrchatId 等字段正确同步）
-        try {
-          const meRes = await api('/api/users/me/profile', { method: 'GET' });
-          if (meRes.ok) {
-            const meData = await meRes.json();
-            Object.assign(currentUser, {
-              vrchatId: meData.vrchatId,
-              vrchatName: meData.vrchatName,
-              vrchatVerified: meData.vrchatVerified,
-              vrchatAvatarUrl: meData.vrchatAvatarUrl,
-              avatarType: meData.avatarType,
-              avatarUrl: meData.avatarUrl
-            });
-          }
-        } catch(e) { console.warn('刷新用户资料失败:', e); }
+        await refreshVrcBindState();
+        if (!currentUser.vrchatId) {
+          toast(__('profile.bind_failed'), 'error');
+          renderVRChatBindStatus();
+          return;
+        }
         // V6.12: 缓存绑定状态，保留登录
         const bindUsername = document.getElementById('vrchatInputId')?.value?.trim();
         if (bindUsername) localStorage.setItem('jingtu_vrc_user', bindUsername);
@@ -279,8 +412,8 @@ async function confirmVrcBind2fa() {
         renderVRChatBindStatus();
         toast(__('profile.bind_success'), 'success');
         document.getElementById('vrcLookupResult').innerHTML = `<div class="text-green text-13">✅ ${__('profile.bind_success')}</div>`;
-        document.getElementById('vrcLookupResult').style.display = 'block';
-        setTimeout(() => { document.getElementById('vrcLookupResult').style.display = 'none'; }, 3000);
+        showEl('vrcLookupResult');
+        setTimeout(() => { hideEl('vrcLookupResult'); }, 3000);
       }
     } else {
       const err = await res.json();
@@ -321,14 +454,14 @@ function renderVRChatBindStatus() {
 
   if (currentUser.vrchatId) {
     // 已绑定
-    statusEl.innerHTML = '<span class="text-13 text-green">✅ ${__(\'profile.bound\')}</span>';
+    statusEl.innerHTML = '<span class="text-13 text-green">✅ ' + __('profile.bound') + '</span>';
     bindForm.classList.add('d-none');
     boundStatus.classList.remove('d-none');
 
     // 填充绑定账号信息
     document.getElementById('vrchatBoundName').textContent = currentUser.vrchatName || currentUser.vrchatId;
     document.getElementById('vrchatBoundId').textContent = currentUser.vrchatId;
-    document.getElementById('vrchatBoundAvatar').src = currentUser.vrchatAvatarUrl || '/assets/group-avatar.svg';
+    document.getElementById('vrchatBoundAvatar').src = proxyAvatar(currentUser.vrchatAvatarUrl) || '/assets/group-avatar.svg';
     document.getElementById('vrchatBoundProfileLink').href = `https://vrchat.com/home/user/${currentUser.vrchatId}`;
 
     if (currentUser.vrchatVerified) {
@@ -338,7 +471,7 @@ function renderVRChatBindStatus() {
     }
   } else {
     // 未绑定
-    statusEl.innerHTML = '<span class="text-13 text-muted2">${__(\'profile.not_bound\')}</span>';
+    statusEl.innerHTML = '<span class="text-13 text-muted2">' + __('profile.not_bound') + '</span>';
     bindForm.classList.remove('d-none');
     boundStatus.classList.add('d-none');
   }
@@ -365,12 +498,15 @@ async function toggleLocationVisible() {
 
 // V6.13: 手动更新 GPS 位置到服务器
 async function updateMyLocation() {
-  if (!currentUser) { toast('${__('profile.login_first')}', 'error'); return; }
-  if (!navigator.geolocation) { toast('${__('profile.gps_not_supported')}', 'error'); return; }
-  const btn = document.querySelector('[onclick="updateMyLocation()"]');
+  if (!currentUser) { toast(__('profile.login_first'), 'error'); return; }
+  if (!ensureGeolocation()) return;
+  // 按钮在 HTML 里是 <button id="updateMyLocationBtn">，并没有 onclick 属性，
+  // 原先按 [onclick="updateMyLocation()"] 找永远是 null —— 点击后既不禁用也不
+  // 显示__('auto_profile_2')，用户完全没有反馈。
+  const btn = document.getElementById('updateMyLocationBtn');
   const status = document.getElementById('profileLocationStatus');
   if (btn) { btn.disabled = true; btn.textContent = __('profile.gps_getting'); }
-  if (status) { status.style.display = 'inline'; status.textContent = '${__('profile.gps_getting')}'; }
+  if (status) { showEl(status, 'inline'); status.textContent = __('profile.gps_getting'); }
   try {
     const pos = await new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -390,15 +526,20 @@ async function updateMyLocation() {
       currentUser.lng = lng;
       currentUser.locationVisible = true;
       document.getElementById('meLocationVisible').checked = true;
-      if (status) status.textContent = `✅ ${__('profile.gps_updated')}（${__('profile.gps_accuracy', {n: Math.round(accuracy)})}）`;
-      setTimeout(() => { if (status) status.style.display = 'none'; }, 5000);
+      if (status) { status.textContent = `✅ ${__('profile.gps_updated')}（${__('profile.gps_accuracy', {n: Math.round(accuracy)})}）`; showEl(status, 'inline'); }
+      setTimeout(() => { hideEl(status); }, 5000);
       toast(__('profile.gps_updated'), 'success');
     }
   } catch (err) {
-    if (err.code === 1) toast(__('profile.enable_gps'), 'error');
-    else if (err.code === 2) toast(__('profile.gps_check_failed'), 'error');
-    else if (err.code === 3) toast(__('profile.gps_timeout'), 'error');
-    else toast(__('profile.gps_failed') + ': ' + err.message, 'error');
+    // err 可能是 GeolocationPositionError，也可能是 api() 抛出的网络/业务错误。
+    // 只有前者才有 code 字段，后者交给通用处理，不要误报成定位失败。
+    if (err && typeof err.code === 'number' && err.code >= 1 && err.code <= 3) {
+      toastGeoError(err);
+    } else if (typeof isApiHandledError === 'function' && isApiHandledError(err)) {
+      return;
+    } else {
+      toast(__('profile.gps_failed') + ': ' + (err?.message || ''), 'error');
+    }
     if (status) status.textContent = __('profile.gps_failed_status');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = __('profile.gps_update_btn'); }
@@ -410,8 +551,8 @@ async function changePassword() {
   const oldPwd = document.getElementById('meCurPwd')?.value;
   const newPwd = document.getElementById('meNewPwd')?.value;
   const newPwd2 = document.getElementById('meNewPwd2')?.value;
-  if (!oldPwd || !newPwd) { toast('${__('profile.enter_passwords')}', 'error'); return; }
-  if (newPwd !== newPwd2) { toast('${__('profile.passwords_not_match')}', 'error'); return; }
+  if (!oldPwd || !newPwd) { toast(__('profile.enter_passwords'), 'error'); return; }
+  if (newPwd !== newPwd2) { toast(__('profile.passwords_not_match'), 'error'); return; }
   try {
     const res = await api('/api/auth/change-password', {
       method: 'POST',
@@ -421,7 +562,7 @@ async function changePassword() {
       toast(__('profile.pwd_changed'), 'success');
       setTimeout(() => logout(), 2000);
     }
-  } catch (err) { if (isApiHandledError(err)) return; toast('${__('profile.change_failed')}：' + err.message, 'error'); }
+  } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.change_failed') + '：' + err.message, 'error'); }
 }
 
 // ==================== 改名申请 ====================

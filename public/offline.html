@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>离线 · 境途同游</title>
+  <style>
+    :root {
+      --bg: #121218;
+      --card: #1e1e2a;
+      --text: #e8e8f0;
+      --muted: #9a9ab0;
+      --accent: #7c5cfc;
+      --border: rgba(255, 255, 255, 0.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: radial-gradient(1200px 600px at 50% -10%, rgba(124, 92, 252, 0.18), transparent 60%), var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .card {
+      width: min(440px, 100%);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 36px 32px;
+      text-align: center;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+    }
+    .logo {
+      width: 64px; height: 64px;
+      margin: 0 auto 18px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, var(--accent), #b08bff);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 30px; font-weight: 800; color: #fff;
+      box-shadow: 0 8px 24px rgba(124, 92, 252, 0.45);
+    }
+    h1 { font-size: 22px; margin-bottom: 10px; letter-spacing: 0.5px; }
+    p { color: var(--muted); font-size: 14px; line-height: 1.7; margin-bottom: 8px; }
+    .actions { margin-top: 22px; display: flex; gap: 12px; justify-content: center; }
+    button, a.btn {
+      appearance: none; border: 0; cursor: pointer;
+      background: var(--accent); color: #fff;
+      font-size: 14px; font-weight: 600;
+      padding: 11px 18px; border-radius: 12px;
+      text-decoration: none; transition: transform .12s ease, filter .12s ease;
+    }
+    button:hover, a.btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
+    button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ffb020; margin-right: 6px; vertical-align: middle; }
+  </style>
+</head>
+<body>
+  <main class="card" role="alert" aria-live="assertive">
+    <div class="logo">境</div>
+    <h1><span class="dot"></span>您当前处于离线状态</h1>
+    <p>页面已缓存的内容仍可正常浏览。需要联网的功能（如动态、相册、聊天）暂不可用。</p>
+    <p>请检查网络连接，恢复后点击下方按钮重试。</p>
+    <div class="actions">
+      <button onclick="location.reload()">重新加载</button>
+      <a class="btn ghost" href="/">返回首页</a>
+    </div>
+  </main>
+</body>
+</html>

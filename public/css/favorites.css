@@ -1,0 +1,163 @@
+.favorites-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.favorites-tab {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: var(--text2);
+}
+
+.favorites-tab:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.favorites-tab.active {
+  background: var(--accent);
+  color: white;
+}
+
+.favorites-content {
+  min-height: 300px;
+}
+
+.favorites-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.favorite-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s, box-shadow 0.2s;
+  position: relative;
+}
+
+.favorite-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-md);
+}
+
+.favorite-card-img {
+  position: relative;
+  height: 120px;
+  overflow: hidden;
+}
+
+.favorite-card-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.recommend-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(251, 191, 36, 0.9);
+  color: #1a1a1a;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.favorite-card-info {
+  padding: 12px;
+}
+
+.favorite-card-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.favorite-card-id {
+  font-size: 12px;
+  color: var(--text3);
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.favorite-card-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.favorite-card-actions .btn-icon {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--border);
+  background: var(--card2);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+}
+
+.favorite-card-actions .btn-icon:hover {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.favorite-card-actions .btn-icon.btn-danger:hover {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.page-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.page-actions {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .favorites-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+  
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .page-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}

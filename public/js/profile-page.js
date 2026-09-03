@@ -19,8 +19,8 @@ async function loadUserProfile(userId) {
   profileUser = null;
 
   // 显示加载状态
-  document.getElementById('profileAlbums').innerHTML = '<div class="text-muted text-center-sm p-16">${__('profile_page.loading')}</div>';
-  document.getElementById('profileVideos').innerHTML = '<div class="text-muted text-center-sm p-16">${__('profile_page.loading')}</div>';
+  document.getElementById('profileAlbums').innerHTML = '<div class="text-muted text-center-sm p-16">' + __('profile_page.loading') + '</div>';
+  document.getElementById('profileVideos').innerHTML = '<div class="text-muted text-center-sm p-16">' + __('profile_page.loading') + '</div>';
 
   try {
     const res = await api(`/api/profile/${userId}`, { method: 'GET' });
@@ -35,13 +35,15 @@ async function loadUserProfile(userId) {
 
     const isOwner = currentUser && currentUser.id === userId;
     renderProfileHeader(profileUser, isOwner);
+    const profileUserIdEl = document.getElementById('profileUserId');
+    if (profileUserIdEl) profileUserIdEl.value = userId;
     renderAlbums(profileAlbums, isOwner);
     renderVideos(profileVideos, isOwner);
   } catch (err) {
     if (isApiHandledError(err)) return;
     toast(__('profile.load_failed'), 'error');
-    document.getElementById('profileAlbums').innerHTML = '<div class="text-muted text-center-sm p-16">${__('profile_page.load_failed')}</div>';
-    document.getElementById('profileVideos').innerHTML = '<div class="text-muted text-center-sm p-16">${__('profile_page.load_failed')}</div>';
+    document.getElementById('profileAlbums').innerHTML = '<div class="text-muted text-center-sm p-16">' + __('profile_page.load_failed') + '</div>';
+    document.getElementById('profileVideos').innerHTML = '<div class="text-muted text-center-sm p-16">' + __('profile_page.load_failed') + '</div>';
   }
 }
 
@@ -70,17 +72,19 @@ function renderProfileHeader(user, isOwner) {
   const avatar = document.getElementById('profileAvatar');
   if (avatar) {
     avatar.src = user.avatarUrl || user.vrchatAvatarUrl || '/api/avatar/default';
-    avatar.alt = esc(user.displayName || user.loginId || '');
+    avatar.alt = user.displayName || user.loginId || '';
   }
 
   // 显示名
   const nameEl = document.getElementById('profileName');
   if (nameEl) {
-    let name = esc(user.displayName || user.loginId || '${__('profile_page.unknown_user')}');
+    nameEl.textContent = user.displayName || user.loginId || __('profile_page.unknown_user');
     if (user.vrchatName) {
-      name += ` <span style="font-size:14px;opacity:.75">(VRC: ${esc(user.vrchatName)})</span>`;
+      const vrcName = document.createElement('span');
+      vrcName.className = 'profile-vrc-name';
+      vrcName.textContent = __('profile_page.vrc_name', { name: user.vrchatName });
+      nameEl.appendChild(vrcName);
     }
-    nameEl.innerHTML = name;
   }
 
   // 个性签名
@@ -107,14 +111,24 @@ function renderProfileHeader(user, isOwner) {
   if (actionsEl) {
     let html = '';
     if (isOwner) {
-      html += '<button class="btn btn-sm btn-accent" onclick="showEditProfileModal()">${__('profile_page.edit_profile')}</button>';
-      html += '<button class="btn btn-sm btn-outline" onclick="showAlbumModal()">${__('profile_page.new_album')}</button>';
-      html += '<button class="btn btn-sm btn-outline" onclick="document.getElementById(\'profileVideoUpload\').click()">${__('profile_page.upload_video')}</button>';
+      html += '<button class="btn btn-sm btn-accent" onclick="showEditProfileModal()">' + __('profile_page.edit_profile') + '</button>';
+      html += '<button class="btn btn-sm btn-outline" onclick="showAlbumModal()">' + __('profile_page.new_album') + '</button>';
+      html += '<button class="btn btn-sm btn-outline" onclick="document.getElementById(\'profileVideoUpload\').click()">' + __('profile_page.upload_video') + '</button>';
+      html += '<button class="btn btn-sm btn-outline" onclick="openDataExportModal()">💾 ' + __('profile_page.data_export') + '</button>';
+    }
+    if (!isOwner && currentUser) {
+      html += '<button class="btn btn-sm btn-accent" id="profileLikeBtn" onclick="profileLikeUser()">❤️ <span id="profileLikeCount">0</span></button>';
+      html += '<span id="profileLikeStatus" class="text-13 text-muted ml-2"></span>';
     }
     if (user.vrchatId) {
       html += `<a class="btn btn-sm btn-outline" href="https://vrchat.com/home/user/${esc(user.vrchatId)}" target="_blank" rel="noopener">${__('profile_page.vrc_home')}</a>`;
     }
     actionsEl.innerHTML = html;
+  }
+
+  // 加载点赞状态
+  if (!isOwner && currentUser) {
+    loadProfileLikeStats(user.id);
   }
 
   // 个人简介
@@ -126,7 +140,7 @@ function renderProfileHeader(user, isOwner) {
       bioContent.textContent = user.bio;
     } else if (isOwner) {
       bioCard.classList.remove('d-none');
-      bioContent.innerHTML = '<span class="text-muted2">${__('profile_page.bio_empty')}</span>';
+      bioContent.innerHTML = '<span class="text-muted2">' + __('profile_page.bio_empty') + '</span>';
     } else {
       bioCard.classList.add('d-none');
     }
@@ -140,15 +154,15 @@ function renderAlbums(albums, isOwner) {
   if (!container) return;
 
   if (actionsEl) {
-    actionsEl.innerHTML = isOwner ? '<button class="btn btn-accent btn-sm" onclick="showAlbumModal()">${__('profile_page.new_album_btn')}</button>' : '';
+    actionsEl.innerHTML = isOwner ? '<button class="btn btn-accent btn-sm" onclick="showAlbumModal()">' + __('profile_page.new_album_btn') + '</button>' : '';
   }
 
   if (!albums || albums.length === 0) {
-    container.innerHTML = `<div class="empty-state p-16">
-      <div class="empty-icon">📷</div>
-      <p>${isOwner ? __('profile_page.no_album') : __('profile_page.no_public_album')}</p>
-      ${isOwner ? '<button class="btn btn-accent btn-sm mt-8" onclick="showAlbumModal()">${__('profile_page.create_first_album')}</button>' : ''}
-    </div>`;
+    renderEmpty(container, {
+      icon: '📷',
+      text: isOwner ? __('profile_page.no_album') : __('profile_page.no_public_album'),
+      actions: isOwner ? [{ label: __('profile_page.create_first_album'), onClick: showAlbumModal }] : []
+    });
     return;
   }
 
@@ -157,7 +171,7 @@ function renderAlbums(albums, isOwner) {
     const name = esc(album.name || __('profile_page.unnamed_album'));
     const photoCount = album.photoCount || album.photos?.length || 0;
     const privacy = album.privacy || 'public';
-    const privacyLabels = { 'public': '${__('profile_page.public')}', 'members_only': '${__('profile_page.member')}', 'private': '${__('profile_page.private')}' };
+    const privacyLabels = { 'public': __('profile_page.public'), 'members_only': __('profile_page.member'), 'private': __('profile_page.private') };
 
     return `
     <div class="profile-album-card" onclick="openAlbum(${album.id})">
@@ -180,24 +194,24 @@ function renderVideos(videos, isOwner) {
   if (!container) return;
 
   if (actionsEl) {
-    actionsEl.innerHTML = isOwner ? '<button class="btn btn-accent btn-sm" onclick="document.getElementById(\'profileVideoUpload\').click()">${__('profile_page.upload_video')}</button>' : '';
+    actionsEl.innerHTML = isOwner ? '<button class="btn btn-accent btn-sm" onclick="document.getElementById(\'profileVideoUpload\').click()">' + __('profile_page.upload_video') + '</button>' : '';
   }
 
   if (!videos || videos.length === 0) {
-    container.innerHTML = `<div class="empty-state p-16">
-      <div class="empty-icon">🎬</div>
-      <p>${isOwner ? __('profile_page.no_video') : __('profile_page.no_public_video')}</p>
-    </div>`;
+    renderEmpty(container, {
+      icon: '🎬',
+      text: isOwner ? __('profile_page.no_video') : __('profile_page.no_public_video')
+    });
     return;
   }
 
   container.innerHTML = videos.map(video => {
     const thumb = video.thumbnailUrl || '';
-    const title = esc(video.title || '${__('profile_page.unnamed_video')}');
+    const title = esc(video.title || __('profile_page.unnamed_video'));
     const duration = video.duration ? formatDuration(video.duration) : '';
     const date = video.createdAt ? fmtDate(video.createdAt) : '';
     const privacy = video.privacy || 'public';
-    const privacyLabels = { 'public': '${__('profile_page.public')}', 'members_only': '${__('profile_page.member')}', 'private': '${__('profile_page.private')}' };
+    const privacyLabels = { 'public': __('profile_page.public'), 'members_only': __('profile_page.member'), 'private': __('profile_page.private') };
 
     return `
     <div class="profile-video-card" onclick="openVideo(${video.id})">
@@ -247,7 +261,7 @@ async function openAlbum(albumId) {
   const album = profileAlbums.find(a => a.id == albumId);
   if (albumNameEl && album) albumNameEl.textContent = album.name || __('profile_page.album');
 
-  photosGrid.innerHTML = '<div class="text-muted text-center-sm p-16">${__('profile_page.loading')}</div>';
+  photosGrid.innerHTML = '<div class="text-muted text-center-sm p-16">' + __('profile_page.loading') + '</div>';
 
   try {
     const res = await api(`/api/profile/albums/${albumId}/photos`, { method: 'GET' });
@@ -258,7 +272,7 @@ async function openAlbum(albumId) {
     profileCurrentPhotos = photos;
 
     if (photos.length === 0) {
-      photosGrid.innerHTML = '<div class="empty-state"><div class="empty-icon">📷</div><p>${__('profile_page.no_content')}</p></div>';
+      renderEmpty(photosGrid, { icon: '📷', text: __('profile_page.no_content') });
     } else {
       photosGrid.innerHTML = photos.map(photo => {
         const url = photo.photoPath || photo.imageUrl || '';
@@ -267,7 +281,7 @@ async function openAlbum(albumId) {
         const isVideo = photo.mediaType === 'video';
         const vidHtml = isVideo
           ? '<div class="profile-photo-video-thumb"><span style="font-size:32px">🎬</span></div>'
-          : '<img src="' + escAttr(thumb) + '" alt="' + esc(desc) + '" loading="lazy" onerror="this.style.display=\'none\'">';
+          : '<img src="' + escAttr(thumb) + '" alt="' + esc(desc) + '" loading="lazy">';
         return '<div class="profile-photo-card" onclick="profileViewMedia(' + photo.id + ')">'
           + vidHtml
           + (isVideo ? '<span class="album-media-badge" style="position:absolute;top:4px;right:4px;font-size:16px">🎬</span>' : '')
@@ -277,7 +291,7 @@ async function openAlbum(albumId) {
   } catch (err) {
     if (isApiHandledError(err)) return;
     toast(__('profile_page.load_albums_failed'), 'error');
-    photosGrid.innerHTML = '<div class="text-muted text-center-sm p-16">${__('profile_page.load_failed')}</div>';
+    photosGrid.innerHTML = '<div class="text-muted text-center-sm p-16">' + __('profile_page.load_failed') + '</div>';
   }
 }
 
@@ -327,9 +341,8 @@ function profileViewMedia(photoId) {
 
 function showProfileVideoModal(videoPath) {
   var overlay = document.createElement('div');
-  overlay.className = 'photo-modal-overlay';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:2000;display:flex;align-items:center;justify-content:center;cursor:pointer';
-  overlay.innerHTML = '<video src="' + escAttr(videoPath) + '" controls autoplay style="max-width:90vw;max-height:80vh;border-radius:8px"></video><button class="modal-close" style="position:absolute;top:20px;right:20px;background:rgba(255,255,255,.1);border:none;color:#fff;font-size:24px;width:40px;height:40px;border-radius:50%;cursor:pointer" onclick="this.parentElement.remove()">✕</button>';
+  overlay.className = 'video-overlay';
+  overlay.innerHTML = '<video src="' + escAttr(videoPath) + '" controls autoplay></video><button class="modal-close" onclick="this.parentElement.remove()">✕</button>';
   overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
   document.body.appendChild(overlay);
 }
@@ -483,7 +496,7 @@ function showAlbumModal(albumId) {
     if (fileArea) fileArea.classList.add('d-none');
   } else {
     // 新建模式
-    if (titleEl) titleEl.textContent = '${__('profile_page.new_album')}';
+    if (titleEl) titleEl.textContent = __('profile_page.new_album');
     if (nameEl) { nameEl.value = ''; nameEl.removeAttribute('data-album-id'); }
     if (descEl) descEl.value = '';
     if (privacyEl) privacyEl.value = 'public';
@@ -538,8 +551,23 @@ async function saveAlbum() {
 // ==================== 上传照片/视频到相册 ====================
 async function uploadAlbumPhotos(albumId, files) {
   if (!files || files.length === 0) return;
+  // 上传前体积预校验（与服务端 profile 相册 multer limits 对齐：200MB）
+  const MAX_PROFILE_ALBUM_BYTES = 200 * 1024 * 1024;
+  // 上传前类型预校验（与服务端 multer fileFilter 对齐：图片 / 视频）
+  const ALLOWED_TYPES = /^image\//i;
+  const ALLOWED_VIDEO = /^video\//i;
+  for (const f of files) {
+    if (f.size > MAX_PROFILE_ALBUM_BYTES) {
+      toast(__('profile_page.file_too_large', { name: f.name, size: '200MB' }), 'error');
+      return;
+    }
+    if (!ALLOWED_TYPES.test(f.type) && !ALLOWED_VIDEO.test(f.type)) {
+      toast(__('profile_page.file_type_invalid', { name: f.name }), 'error');
+      return;
+    }
+  }
   const btn = document.querySelector('#albumModal .btn-accent');
-  if (btn) { btn.disabled = true; btn.textContent = '${__('profile_page.uploading')}'; }
+  if (btn) { btn.disabled = true; btn.textContent = __('profile_page.uploading'); }
 
   // 显示进度条
   const progressWrap = document.getElementById('uploadProgress');
@@ -550,7 +578,7 @@ async function uploadAlbumPhotos(albumId, files) {
 
   if (progressWrap) progressWrap.classList.remove('d-none');
   if (progressWrap) progressWrap.classList.add('active');
-  if (progressText) progressText.textContent = '${__('profile_page.uploading_file')}';
+  if (progressText) progressText.textContent = __('profile_page.uploading_file');
   if (progressPercent) progressPercent.textContent = '0%';
   if (progressFill) progressFill.style.width = '0%';
   if (progressFile) progressFile.textContent = __('profile_page.n_files', {n: files.length});
@@ -563,7 +591,7 @@ async function uploadAlbumPhotos(albumId, files) {
     const res = await uploadWithProgress(`/api/profile/albums/${albumId}/photos`, formData, function(percent) {
       if (progressPercent) progressPercent.textContent = percent + '%';
       if (progressFill) progressFill.style.width = percent + '%';
-      if (progressText) progressText.textContent = percent < 100 ? '${__('profile_page.uploading_file')}' : '${__('profile_page.processing')}';
+      if (progressText) progressText.textContent = percent < 100 ? __('profile_page.uploading_file') : __('profile_page.processing');
     });
     if (res.ok) {
       const data = await res.json();
@@ -606,7 +634,7 @@ async function uploadProfileVideo(files) {
     const res = await uploadWithProgress('/api/profile/videos', formData, function(percent) {
       if (progressPercent) progressPercent.textContent = percent + '%';
       if (progressFill) progressFill.style.width = percent + '%';
-      if (progressText) progressText.textContent = percent < 100 ? __('profile_page.uploading_video') : '${__('profile_page.processing')}';
+      if (progressText) progressText.textContent = percent < 100 ? __('profile_page.uploading_video') : __('profile_page.processing');
     });
     if (res.ok) {
       toast(__('profile_page.video_uploaded'), 'success');
@@ -643,7 +671,7 @@ async function updateProfilePrivacy(itemType, itemId, privacy) {
 
 // ==================== 删除相册 ====================
 async function deleteProfileAlbum(albumId) {
-  showConfirm('${__('profile_page.confirm_delete_album')}', async () => {
+  showConfirm(__('profile_page.confirm_delete_album'), async () => {
     try {
       const res = await api(`/api/profile/albums/${albumId}`, { method: 'DELETE' });
       if (res.ok) {
@@ -659,7 +687,7 @@ async function deleteProfileAlbum(albumId) {
 
 // ==================== 删除视频 ====================
 async function deleteProfileVideo(videoId) {
-  showConfirm('${__('profile_page.confirm_delete_video')}', async () => {
+  showConfirm(__('profile_page.confirm_delete_video'), async () => {
     try {
       const res = await api(`/api/profile/videos/${videoId}`, { method: 'DELETE' });
       if (res.ok) {
@@ -677,4 +705,223 @@ async function deleteProfileVideo(videoId) {
 function goToProfile(userId) {
   if (!userId) return;
   loadUserProfile(userId);
+}
+
+
+// ==================== 用户点赞功能 ====================
+async function loadProfileLikeStats(userId) {
+  try {
+    const res = await api(`/api/user-like/${userId}/stats`, { method: 'GET' });
+    if (res.ok) {
+      const stats = await res.json();
+      const likeCount = document.getElementById('profileLikeCount');
+      const likeBtn = document.getElementById('profileLikeBtn');
+      const likeStatus = document.getElementById('profileLikeStatus');
+      
+      if (likeCount) likeCount.textContent = stats.totalLikes || 0;
+      
+      if (stats.likedToday) {
+        if (likeBtn) {
+          likeBtn.disabled = true;
+          likeBtn.className = 'btn btn-sm btn-outline text-muted';
+        }
+        if (likeStatus) likeStatus.textContent = __('likes.today_liked');
+      } else {
+        if (likeBtn) {
+          likeBtn.disabled = false;
+          likeBtn.className = 'btn btn-sm btn-accent';
+        }
+        if (likeStatus) likeStatus.textContent = __('likes.daily_once');
+      }
+    }
+  } catch {}
+}
+
+async function profileLikeUser() {
+  const profileUserId = document.getElementById('profileUserId')?.value;
+  if (!profileUserId || !currentUser) return;
+  
+  const likeBtn = document.getElementById('profileLikeBtn');
+  const likeCount = document.getElementById('profileLikeCount');
+  const likeStatus = document.getElementById('profileLikeStatus');
+  
+  try {
+    const res = await api(`/api/user-like/${profileUserId}/like`, { method: 'POST' });
+    if (res.ok) {
+      const data = await res.json();
+      toast(data.message || __('profile_page.like_success'), 'success');
+      if (likeCount) likeCount.textContent = data.likeCount || 0;
+      if (likeBtn) {
+        likeBtn.disabled = true;
+        likeBtn.className = 'btn btn-sm btn-outline text-muted';
+      }
+      if (likeStatus) likeStatus.textContent = __('likes.today_liked');
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('likes.like_failed'), 'error');
+  }
+}
+
+// ==================== F-4 数据导出/导入 ====================
+let dataExportLastText = '';
+
+function openDataExportModal() {
+  const m = document.getElementById('dataExportModal');
+  if (m) m.classList.add('show');
+  switchDataPane('export');
+  const text = document.getElementById('dataExportText');
+  if (text) text.value = '';
+  hideDataMsg();
+}
+
+function closeDataExportModal() {
+  const m = document.getElementById('dataExportModal');
+  if (m) m.classList.remove('show');
+}
+
+function switchDataPane(pane) {
+  const exportTab = document.getElementById('dataExportTabBtn');
+  const importTab = document.getElementById('dataImportTabBtn');
+  const exportPane = document.getElementById('dataExportPane');
+  const importPane = document.getElementById('dataImportPane');
+  if (pane === 'import') {
+    exportTab.classList.remove('active'); importTab.classList.add('active');
+    exportPane.classList.add('d-none'); importPane.classList.remove('d-none');
+  } else {
+    exportTab.classList.add('active'); importTab.classList.remove('active');
+    exportPane.classList.remove('d-none'); importPane.classList.add('d-none');
+  }
+}
+
+function showDataMsg(msg, type) {
+  const el = document.getElementById('dataExportMsg');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('d-none', 'text-red', 'text-green');
+  el.classList.add(type === 'success' ? 'text-green' : 'text-red');
+}
+
+function hideDataMsg() {
+  const el = document.getElementById('dataExportMsg');
+  if (el) el.classList.add('d-none');
+}
+
+async function exportData(format) {
+  hideDataMsg();
+  try {
+    const res = await api('/api/users/me/export?format=' + format, { method: 'GET' });
+    if (!res.ok) {
+      if (res.status === 401) { toast(__('profile_page.login_required'), 'error'); return; }
+      throw new Error('EXPORT_FAILED');
+    }
+    if (format === 'csv') {
+      const text = await res.text();
+      dataExportLastText = text.replace(/^\uFEFF/, '');
+      const ta = document.getElementById('dataExportText');
+      if (ta) ta.value = dataExportLastText;
+    } else {
+      const data = await res.json();
+      dataExportLastText = JSON.stringify(data, null, 2);
+      const ta = document.getElementById('dataExportText');
+      if (ta) ta.value = dataExportLastText;
+    }
+    showDataMsg(__('profile_page.export_success'), 'success');
+  } catch (err) {
+    showDataMsg(__('profile_page.export_failed'), 'error');
+  }
+}
+
+async function copyDataExport() {
+  const ta = document.getElementById('dataExportText');
+  if (!ta || !ta.value) { toast(__('profile_page.export_empty'), 'error'); return; }
+  try {
+    await navigator.clipboard.writeText(ta.value);
+    toast(__('profile_page.copied'), 'success');
+  } catch (e) {
+    // 降级：手动选中
+    ta.focus(); ta.select();
+    try { document.execCommand('copy'); toast(__('profile_page.copied'), 'success'); }
+    catch (_) { toast(__('profile_page.copy_failed'), 'error'); }
+  }
+}
+
+function downloadDataExport() {
+  const ta = document.getElementById('dataExportText');
+  if (!ta || !ta.value) { toast(__('profile_page.export_empty'), 'error'); return; }
+  const isJson = dataExportLastText && dataExportLastText.trim().startsWith('{');
+  const filename = isJson ? 'jingtu-backup.json' : 'friends.csv';
+  const mime = isJson ? 'application/json' : 'text/csv';
+  const blob = new Blob([ta.value], { type: mime + ';charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function importData() {
+  hideDataMsg();
+  const ta = document.getElementById('dataImportText');
+  if (!ta || !ta.value.trim()) { toast(__('profile_page.import_empty'), 'error'); return; }
+  let body;
+  try { body = JSON.parse(ta.value); }
+  catch (e) { showDataMsg(__('profile_page.import_invalid'), 'error'); return; }
+
+  const btn = document.getElementById('dataImportBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api('/api/users/me/import', { method: 'POST', body });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || 'IMPORT_FAILED');
+    }
+    const data = await res.json();
+    const counts = data.imported || {};
+    const n = Object.values(counts).reduce((a, b) => a + (b || 0), 0);
+    showDataMsg(__('profile_page.import_success', { n }), 'success');
+    toast(__('profile_page.import_success', { n }), 'success');
+  } catch (err) {
+    showDataMsg(err.message === 'IMPORT_FAILED' ? __('profile_page.import_failed') : err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// 绑定数据导出/导入弹窗事件（幂等）
+function bindDataExportEvents() {
+  const closeBtn = document.getElementById('dataExportCloseBtn');
+  const exportTab = document.getElementById('dataExportTabBtn');
+  const importTab = document.getElementById('dataImportTabBtn');
+  const jsonBtn = document.getElementById('exportJsonBtn');
+  const csvBtn = document.getElementById('exportCsvBtn');
+  const copyBtn = document.getElementById('dataExportCopyBtn');
+  const dlBtn = document.getElementById('dataExportDownloadBtn');
+  const importBtn = document.getElementById('dataImportBtn');
+  const modal = document.getElementById('dataExportModal');
+
+  if (modal && !modal.dataset.bound) {
+    modal.dataset.bound = '1';
+    if (closeBtn) closeBtn.addEventListener('click', closeDataExportModal);
+    if (exportTab) exportTab.addEventListener('click', () => switchDataPane('export'));
+    if (importTab) importTab.addEventListener('click', () => switchDataPane('import'));
+    if (jsonBtn) jsonBtn.addEventListener('click', () => exportData('json'));
+    if (csvBtn) csvBtn.addEventListener('click', () => exportData('csv'));
+    if (copyBtn) copyBtn.addEventListener('click', copyDataExport);
+    if (dlBtn) dlBtn.addEventListener('click', downloadDataExport);
+    if (importBtn) importBtn.addEventListener('click', importData);
+    // 点击遮罩关闭
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeDataExportModal(); });
+  }
+}
+
+// 暴露给全局（onclick 调用）
+window.openDataExportModal = openDataExportModal;
+
+// 页面加载时绑定事件
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bindDataExportEvents);
+} else {
+  bindDataExportEvents();
 }

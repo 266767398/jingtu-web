@@ -1,74 +1,98 @@
-// ==================== 管理员 - 权限管理模块 ====================
+// ==================== 管理员 - 用户权限查看器（只读） ====================
 
-// ========== 旧权限管理 ==========
-function loadPermissionMgmt() {
-  const tab = document.getElementById('adminPermissionSection');
-  if (tab) tab.classList.remove('d-none');
-  loadPermissions();
-}
+let permInspectCache = [];
+let permInspectInit = false;
 
+// 旧实现写死到已废弃的 user_permissions 表（且不会被任何业务路由强制），
+// 现改为只读查看器：调用 /api/permissions-view，分别展示「网站用户权限」与「群组用户权限」。
+// ui.js 打开管理面板时会调用本函数。
 async function loadPermissions() {
+  const box = document.getElementById('permInspectResult');
   if (!currentUser || currentUser.role !== 'super_admin') {
-    toast(__('permission_denied'), 'error');
+    if (box) box.innerHTML = '<div class="text-muted2 text-13">' + __('admin_perms.super_admin_only_view') + '</div>';
     return;
   }
+  if (!permInspectInit) {
+    permInspectInit = true;
+    const userSel = document.getElementById('permInspectUser');
+    if (userSel) userSel.addEventListener('change', (e) => inspectUserPermissions(e.target.value));
+    const search = document.getElementById('permInspectSearch');
+    if (search) search.addEventListener('input', (e) => onPermInspectSearch(e.target.value));
+  }
+  if (box) box.innerHTML = '<div class="text-muted2 text-13">' + __('admin_perms.select_user_prompt') + '</div>';
   try {
-    const res = await api('/api/permissions', { method: 'GET' });
+    const res = await api('/api/users/list?pageSize=200', { method: 'GET' });
     if (res.ok) {
       const data = await res.json();
-      renderPermissions(data.userPermissions || []);
+      permInspectCache = data.users || [];
+      const sel = document.getElementById('permInspectUser');
+      if (sel) {
+        sel.innerHTML = '<option value="">' + __('admin_perms.select_user') + '</option>' +
+          permInspectCache.map(u => `<option value="${u.id}">${esc(u.displayName || u.loginId)}</option>`).join('');
+      }
     }
-  } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_perms.load_failed') + ': ' + err.message, 'error'); }
+  } catch {}
 }
 
-function renderPermissions(permissions) {
-  const container = document.getElementById('permissionList');
-  if (!container) return;
-  // 展平 perms 嵌套结构：{ userId, displayName, perms:{...} } → { userId, displayName, can_xxx: bool, ... }
-  const flatPerms = permissions.map(p => ({ ...p, ...(p.perms || {}) }));
-  const permissionLabels = {
-    'can_manage_announcements': __('admin.perm_announce'),
-    'can_manage_events': __('admin.perm_events'),
-    'can_manage_album': __('admin.perm_album'),
-    'can_manage_users': __('admin.perm_users'),
-    'can_sync_vrchat': __('admin.perm_vrc_sync'),
-    'can_manage_group_images': __('admin.perm_group_images'),
-    'can_manage_rosters': __('admin.perm_roster'),
-    'can_view_logs': __('admin.perm_log'),
-    'can_manage_permissions': __('admin.perm_permissions'),
-    'can_review_names': __('admin.perm_name_change'),
-  };
-  container.innerHTML = flatPerms.map(p => `
-    <div class="permission-card">
-      <div class="permission-user">
-        <img src="${escAttr(p.avatar || '/api/avatar/default')}" class="permission-avatar" alt="${esc(p.displayName || p.loginId)}" loading="lazy">
-        <div>
-          <div class="permission-name">${esc(p.displayName || p.loginId)}</div>
-          <div class="permission-role">${(p.role === 'super_admin' ? __('members.role_super_admin') : p.role === 'admin' ? __('members.role_admin') : __('members.role_member'))}</div>
-        </div>
-      </div>
-      <div class="permission-toggles">
-        ${Object.entries(permissionLabels).map(([key, label]) => `
-          <label class="permission-toggle">
-            <input type="checkbox" ${p[key] ? 'checked' : ''} onchange="togglePermission('${escJsStr(p.userId || '')}', '${escJsStr(key)}', this.checked)">
-            <span>${label}</span>
-          </label>
-        `).join('')}
-      </div>
-    </div>
-  `).join('');
+function onPermInspectSearch(value) {
+  const sel = document.getElementById('permInspectUser');
+  if (!sel) return;
+  const v = (value || '').toLowerCase();
+  sel.innerHTML = '<option value="">' + __('admin_perms.select_user') + '</option>' +
+    permInspectCache
+      .filter(u => (u.displayName || u.loginId || '').toLowerCase().includes(v))
+      .map(u => `<option value="${u.id}">${esc(u.displayName || u.loginId)}</option>`).join('');
 }
 
-async function togglePermission(userId, permission, value) {
+async function inspectUserPermissions(userId) {
+  const box = document.getElementById('permInspectResult');
+  if (!box) return;
+  if (!userId) { box.innerHTML = '<div class="text-muted2 text-13">' + __('admin_perms.select_user_prompt') + '</div>'; return; }
+  box.innerHTML = '<div class="skeleton-card skeleton-card-md"></div>';
   try {
-    const res = await api('/api/permissions/set', {
-      method: 'POST',
-      body: { userId, permission, value }
-    });
-    if (res.ok) {
-      toast(value ? __('admin_perms.perm_on') : __('admin_perms.perm_off'), 'success');
-    }
-  } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_perms.op_failed') + ': ' + err.message, 'error'); }
+    const res = await api(`/api/permissions-view/user/${userId}`, { method: 'GET' });
+    if (!res.ok) { box.innerHTML = '<div class="text-red text-13">' + __('admin_perms.load_failed') + '</div>'; return; }
+    const data = await res.json();
+    box.innerHTML = renderPermissionInspect(data.website, data.group);
+  } catch (err) { box.innerHTML = '<div class="text-red text-13">' + __('admin_perms.load_failed') + '：' + esc(err.message) + '</div>'; }
+}
+
+// 渲染只读权限检视卡片（网站 + 群组），被__('auto_admin_perms_1')与__('auto_admin_perms_2')共同复用
+function renderPermissionInspect(w, g) {
+  if (!w) return '<div class="text-red text-13">' + __('admin_perms.user_not_exist') + '</div>';
+  const grp = (w.permissionGroups || []).map(x => esc(x.name) + (x.isSystem ? __('admin_perms.system_marker') : '')).join('、') || __('admin_perms.none');
+  const enabled = Object.keys(w.effectivePermissions || {}).filter(k => w.effectivePermissions[k]);
+  const enabledLabels = enabled.map(k => PERM_LABELS[k] || k);
+  const legacyN = w.legacyPermissions ? Object.keys(w.legacyPermissions).length : 0;
+  let groupHtml;
+  if (g && g.inGroup) {
+    groupHtml =
+      row(__('admin_perms.vrchat_group'), __('admin_perms.in_group') + '（' + esc(g.membershipStatusLabel || '') + '）') +
+      row(__('admin_perms.online_status'), (g.isOnline ? __('admin_perms.online') : __('admin_perms.offline')) + '（' + esc(g.vrchatStatus || '') + '）') +
+      (g.worldName ? row(__('admin_perms.world'), esc(g.worldName)) : '') +
+      (g.roleIds && g.roleIds.length ? row(__('admin_perms.vrchat_role_ids'), esc(g.roleIds.join(', '))) : '');
+  } else {
+    groupHtml = row(__('admin_perms.vrchat_group'), esc((g && g.reason) || __('admin_perms.not_in_group')));
+  }
+  return `
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+      <img src="${escAttr(w.avatarUrl || '/api/avatar/default')}" class="admin-user-avatar" alt="">
+      <div><div class="admin-user-name">${esc(w.displayName || w.loginId)}</div>
+      <div class="text-12 text-muted">${esc(w.loginId)} · ${__('admin_perms.role')}${esc(w.roleLabel)}（L${w.roleLevel}）</div></div>
+    </div>
+    <div style="font-weight:600;margin:8px 0 4px">${__('admin_perms.website_perms_title')}</div>
+    ${row(__('admin_perms.belongs_groups'), grp)}
+    ${row(__('admin_perms.base_group_id'), String(w.baseGroupId))}
+    ${row(__('admin_perms.effective_perms') + ' (' + enabled.length + ')', enabledLabels.length ? enabledLabels.map(esc).join('、') : __('admin_perms.none'))}
+    ${legacyN ? row(__('admin_perms.legacy_perms'), legacyN + __('admin_perms.legacy_perms_note')) : ''}
+    <div style="font-weight:600;margin:8px 0 4px">${__('admin_perms.group_perms_title')}</div>
+    ${groupHtml}
+  `;
+  function row(k, v) {
+    return `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">
+      <span style="flex:0 0 110px;color:var(--muted2);font-size:12px">${esc(k)}</span>
+      <span style="flex:1;font-size:13px">${v}</span></div>`;
+  }
 }
 
 // ========== 权限组管理 V6.2 ==========
@@ -100,7 +124,11 @@ const PERM_LABELS = {
   'can_view_map': __('admin_perms.perm_view_map'),
   'can_view_album': __('admin_perms.perm_view_album'),
   'can_view_events': __('admin_perms.perm_view_events'),
-  'can_create_album_category': __('admin_perms.perm_create_album_category')
+  'can_create_album_category': __('admin_perms.perm_create_album_category'),
+  'can_create_post': __('admin_perms.perm_create_post'),
+  'can_delete_post': __('admin_perms.perm_delete_post'),
+  'can_comment_post': __('admin_perms.perm_comment_post'),
+  'can_like_post': __('admin_perms.perm_like_post')
 };
 
 let permGroupTab = 'groups';
@@ -129,22 +157,22 @@ async function loadPermGroups() {
       pgGroupsCache = data.groups || [];
       renderPermGroups(pgGroupsCache);
     }
-  } catch (err) { container.innerHTML = '<div class="text-13 text-red">${__('admin_perms.load_failed')}</div>'; }
+  } catch (err) { container.innerHTML = '<div class="text-13 text-red">' + __('admin_perms.load_failed') + '</div>'; }
 }
 
 function renderPermGroups(groups) {
   const container = document.getElementById('permGroupList');
   if (!container) return;
   if (!groups || groups.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div>${__('admin_perms.no_groups')}</div></div>';
+    renderEmpty(container, { text: __('admin_perms.no_groups') });
     return;
   }
   container.innerHTML = groups.map(g => {
     const permCount = Object.keys(g.permissions || {}).length;
     const enabledCount = Object.values(g.permissions || {}).filter(v => v).length;
     const badges = [];
-    if (g.isSystem) badges.push('<span class="badge badge-system">${__('admin_perms.system_group')}</span>');
-    if (g.isDefault) badges.push('<span class="badge badge-default">${__('admin_perms.default_group')}</span>');
+    if (g.isSystem) badges.push('<span class="badge badge-system">' + __('admin_perms.system_group') + '</span>');
+    if (g.isDefault) badges.push('<span class="badge badge-default">' + __('admin_perms.default_group') + '</span>');
     const delBtn = g.isSystem ? '' : `<button class="btn btn-sm btn-danger" onclick="deletePermGroup(${g.id})">${__('admin_perms.delete_group')}</button>`;
     return `<div class="perm-group-card">
       <div class="perm-group-header">
@@ -152,7 +180,7 @@ function renderPermGroups(groups) {
         ${badges.join(' ')}
         ${g.parentId ? `<span class="text-muted text-12">→ ${__('admin_perms.inherited_from')} #${g.parentId}</span>` : ''}
       </div>
-      <div class="text-12 text-muted2">${esc(g.description || '${__('admin_perms.no_desc')}')}</div>
+      <div class="text-12 text-muted2">${esc(g.description || __('admin_perms.no_desc'))}</div>
       <div class="text-12 text-muted mt-4">${__('admin_perms.permissions_label')}：${__('admin_perms.perm_enabled_count', {enabled: enabledCount, total: permCount})}</div>
       <div class="perm-group-actions mt-6">
         <button class="btn btn-sm btn-accent" onclick="showEditPermGroupPerms(${g.id}, '${esc(g.name)}')">${__('admin_perms.set_perms')}</button>
@@ -171,7 +199,7 @@ async function showCreatePermGroupModal() {
       const data = await res.json();
       const select = document.getElementById('cpgParentId');
       if (select) {
-        select.innerHTML = '<option value="">${__('admin_perms.no_parent')}</option>' +
+        select.innerHTML = '<option value="">' + __('admin_perms.no_parent') + '</option>' +
           (data.groups || []).map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('');
       }
     }
@@ -218,7 +246,7 @@ async function showEditPermGroup(id) {
       const data = await res.json();
       const select = document.getElementById('epgParentId');
       if (select) {
-        select.innerHTML = '<option value="">${__('admin_perms.no_parent')}</option>' +
+        select.innerHTML = '<option value="">' + __('admin_perms.no_parent') + '</option>' +
           (data.groups || []).filter(x => x.id !== id).map(g2 => `<option value="${g2.id}" ${g.parentId === g2.id ? 'selected' : ''}>${esc(g2.name)}</option>`).join('');
       }
     }
@@ -279,7 +307,7 @@ async function showEditPermGroupPerms(groupId, groupName) {
         </label>
       `).join('') + '</div>';
     }
-  } catch (err) { container.innerHTML = '<div class="text-red">${__('admin_perms.load_failed')}</div>'; }
+  } catch (err) { container.innerHTML = '<div class="text-red">' + __('admin_perms.load_failed') + '</div>'; }
 }
 
 async function toggleGroupPerm(groupId, key, value) {
@@ -324,12 +352,12 @@ function filterPermGroupUsers() {
       <button class="btn btn-sm btn-outline">${__('admin_perms.manage_groups')}</button>
     </div>
   `).join('');
-  if (filtered.length === 0) container.innerHTML = '<div class="text-muted text-13">${__('admin_perms.user_not_found')}</div>';
+  if (filtered.length === 0) container.innerHTML = '<div class="text-muted text-13">' + __('admin_perms.user_not_found') + '</div>';
 }
 
 async function showUserGroupMgmt(userId, userName) {
   document.getElementById('pgUserGroupUserId').value = userId;
-  document.getElementById('pgUserGroupUserName').textContent = `${__('admin_perms.user_prefix')}${userName}`;
+  document.getElementById('pgUserGroupUserName').textContent = __('admin_perms.user_prefix') + userName;
   document.getElementById('pgUserGroupError').classList.add('d-none');
   showModal('pgUserGroupModal');
   try {
@@ -344,12 +372,21 @@ async function showUserGroupMgmt(userId, userName) {
             <span>${esc(g.name)}</span>
             <button class="group-tag-remove" onclick="removeUserFromGroup(${userId}, ${g.id})">✕</button>
           </div>`
-        ).join('') || '<span class="text-muted text-12">${__('admin_perms.not_in_any_group')}</span>';
+        ).join('') || '<span class="text-muted text-12">' + __('admin_perms.not_in_any_group') + '</span>';
       }
       if (availableGroups) {
         availableGroups.innerHTML = (data.available || []).map(g =>
           `<button class="btn btn-sm btn-outline" onclick="addUserToGroup(${userId}, ${g.id})">+ ${esc(g.name)}</button>`
-        ).join('') || '<span class="text-muted text-12">${__('admin_perms.in_all_groups')}</span>';
+        ).join('') || '<span class="text-muted text-12">' + __('admin_perms.in_all_groups') + '</span>';
+      }
+      // 联网站/群组权限检视（调用 /api/permissions-view），与__('auto_admin_perms_3')复用同一渲染
+      const pv = document.getElementById('pgUserPermView');
+      if (pv) {
+        try {
+          const pres = await api(`/api/permissions-view/user/${userId}`, { method: 'GET' });
+          if (pres.ok) { const pd = await pres.json(); pv.innerHTML = renderPermissionInspect(pd.website, pd.group); }
+          else pv.innerHTML = '<div class="text-muted2 text-13">' + __('admin_perms.no_perm_view') + '</div>';
+        } catch { pv.innerHTML = ''; }
       }
     }
   } catch {}
@@ -363,7 +400,7 @@ async function addUserToGroup(userId, groupId) {
     });
     if (res.ok) {
       toast(__('admin_perms.user_joined_group'), 'success');
-      showUserGroupMgmt(userId, document.getElementById('pgUserGroupUserName').textContent.replace('${__('admin_perms.user_prefix')}', ''));
+      showUserGroupMgmt(userId, document.getElementById('pgUserGroupUserName').textContent.replace(__('admin_perms.user_prefix'), ''));
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_perms.op_failed'), 'error'); }
 }
@@ -373,7 +410,7 @@ async function removeUserFromGroup(userId, groupId) {
     const res = await api(`/api/permission-groups/users/${userId}/groups/${groupId}`, { method: 'DELETE' });
     if (res.ok) {
       toast(__('admin_perms.user_left_group'), 'success');
-      showUserGroupMgmt(userId, document.getElementById('pgUserGroupUserName').textContent.replace('${__('admin_perms.user_prefix')}', ''));
+      showUserGroupMgmt(userId, document.getElementById('pgUserGroupUserName').textContent.replace(__('admin_perms.user_prefix'), ''));
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_perms.op_failed'), 'error'); }
 }

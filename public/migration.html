@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>境途同游 - 数据库迁移向导</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(135deg,#0f0f1a 0%,#1a1a2e 100%);min-height:100vh;color:#e4e4f0}
+.container{max-width:900px;margin:0 auto;padding:20px}
+.header{text-align:center;padding:30px 0 20px}
+.header h1{font-size:26px;color:#fff;margin-bottom:8px}
+.header p{color:#9898b0;font-size:14px}
+.steps{display:flex;justify-content:center;margin-bottom:24px}
+.step{display:flex;flex-direction:column;align-items:center;margin:0 15px}
+.step .num{width:32px;height:32px;border-radius:50%;background:#2a2a3e;color:#9898b0;display:flex;align-items:center;justify-content:center;font-weight:600;margin-bottom:6px;font-size:13px;transition:all .3s}
+.step .num.active{background:#7c5cfc;color:#fff}
+.step .num.done{background:#10b981;color:#fff}
+.step .text{font-size:11px;color:#9898b0;text-align:center;max-width:70px}
+.step .text.active{color:#fff}
+.form-box{background:#141420;border-radius:16px;border:1px solid #2a2a3e;padding:30px;box-shadow:0 4px 32px rgba(0,0,0,.3)}
+.tab{display:none}
+.tab.active{display:block}
+.tab-title{font-size:17px;color:#fff;margin-bottom:20px;font-weight:600}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:13px;color:#c4c4d4;margin-bottom:6px}
+.form-group label span{color:#f87171;margin-left:4px}
+.form-group input{width:100%;padding:11px 14px;background:#0a0a15;border:1px solid #2a2a3e;border-radius:10px;color:#fff;font-size:13px;transition:border-color .3s;outline:none}
+.form-group input:focus{border-color:#7c5cfc}
+.form-group input.error{border-color:#ef4444}
+.form-group input::placeholder{color:#4a4a5e}
+.form-group select{width:100%;padding:11px 14px;background:#0a0a15;border:1px solid #2a2a3e;border-radius:10px;color:#fff;font-size:13px;transition:border-color .3s;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%239898b0' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+.form-row{display:flex;gap:10px}
+.form-row .form-group{flex:1}
+.form-group .hint{font-size:11px;color:#6a6a80;margin-top:4px}
+.form-group .hint a{color:#7c5cfc;text-decoration:none}
+.btn-group{display:flex;gap:10px;margin-top:24px}
+.btn{flex:1;padding:12px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;transition:all .3s}
+.btn-primary{background:#7c5cfc;color:#fff}
+.btn-primary:hover{background:#6a4cf0}
+.btn-primary:disabled{background:#4a3a8c;cursor:not-allowed}
+.btn-secondary{background:#2a2a3e;color:#c4c4d4}
+.btn-secondary:hover{background:#3a3a4e}
+.btn-wide{width:100%}
+.btn-small{padding:8px 16px;font-size:12px}
+.test-result{margin-top:10px;padding:10px;border-radius:8px;font-size:12px;display:none}
+.test-result.success{background:#0d2e23;color:#34d399;border:1px solid #10b981}
+.test-result.error{background:#2e0d0d;color:#f87171;border:1px solid #ef4444}
+.progress{height:3px;background:#2a2a3e;border-radius:2px;margin-top:16px;overflow:hidden}
+.progress-bar{height:100%;background:#7c5cfc;border-radius:2px;width:0;transition:width .3s}
+.log-window{background:#0a0a15;border:1px solid #2a2a3e;border-radius:10px;padding:12px;height:200px;overflow-y:auto;margin-top:16px;font-family:Consolas,Monaco,monospace;font-size:12px;line-height:1.5}
+.log-window .log-info{color:#9898b0}
+.log-window .log-success{color:#34d399}
+.log-window .log-error{color:#f87171}
+.log-window .log-warning{color:#fbbf24}
+.scan-files{margin-top:16px}
+.scan-files .file-item{display:flex;align-items:center;justify-content:space-between;padding:10px;background:#0a0a15;border-radius:8px;margin-bottom:8px}
+.scan-files .file-item .file-name{font-size:13px;color:#c4c4d4}
+.scan-files .file-item .file-check{margin-right:10px}
+.scan-files .file-item.has-db{color:#34d399}
+.scan-files .file-item.no-db{color:#6a6a80}
+.detect-btn{margin-bottom:16px}
+.detect-results{margin-top:16px}
+.detect-result{padding:12px;background:#0a0a15;border-radius:8px;margin-bottom:8px;border-left:3px solid #7c5cfc}
+.detect-result.success{border-left-color:#10b981}
+.detect-result.error{border-left-color:#ef4444}
+.detect-result .result-header{display:flex;justify-content:space-between;margin-bottom:6px}
+.detect-result .result-host{font-size:13px;color:#fff}
+.detect-result .result-status{font-size:12px;font-weight:600}
+.detect-result .result-status.success{color:#34d399}
+.detect-result .result-status.error{color:#f87171}
+.detect-result .result-dbs{font-size:12px;color:#9898b0;margin-top:4px}
+.table-list{max-height:200px;overflow-y:auto;margin-top:16px}
+.table-item{display:flex;align-items:center;padding:8px;background:#0a0a15;border-radius:6px;margin-bottom:4px}
+.table-item input{margin-right:10px}
+.table-item .table-name{font-size:13px;color:#c4c4d4}
+.loading{display:inline-block;width:16px;height:16px;border:2px solid #7c5cfc;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.error-hint{font-size:11px;color:#f87171;margin-top:4px;display:none}
+.error-hint.show{display:block}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>🗄️ 数据库迁移向导</h1>
+    <p>跨服务器迁移数据库，支持自动探测与手动配置</p>
+  </div>
+
+  <div class="steps">
+    <div class="step" data-step="1">
+      <div class="num active" id="step1-num">1</div>
+      <div class="text active" id="step1-text">源数据库</div>
+    </div>
+    <div class="step" data-step="2">
+      <div class="num" id="step2-num">2</div>
+      <div class="text" id="step2-text">选择表</div>
+    </div>
+    <div class="step" data-step="3">
+      <div class="num" id="step3-num">3</div>
+      <div class="text" id="step3-text">目标数据库</div>
+    </div>
+    <div class="step" data-step="4">
+      <div class="num" id="step4-num">4</div>
+      <div class="text" id="step4-text">执行迁移</div>
+    </div>
+    <div class="step" data-step="5">
+      <div class="num" id="step5-num">5</div>
+      <div class="text" id="step5-text">配置更新</div>
+    </div>
+  </div>
+
+  <div class="progress">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <div class="form-box">
+    <div class="tab active" id="tab1">
+      <div class="tab-title">📥 源数据库连接信息</div>
+      
+      <div class="form-group">
+        <label>服务器面板</label>
+        <select id="sourcePanel" data-migration-action="update-panel" data-type="source">
+          <option value="standalone">独立MySQL</option>
+          <option value="baota">宝塔面板</option>
+          <option value="onepanel">1Panel</option>
+          <option value="aapanel">aaPanel</option>
+        </select>
+        <div class="hint">选择服务器面板类型，将自动填入默认配置</div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>数据库地址 <span>*</span></label>
+          <input type="text" id="sourceHost" value="127.0.0.1" placeholder="例如: 127.0.0.1" data-i18n-placeholder="migration.source_host_placeholder">
+          <div class="error-hint" id="sourceHostError">请输入有效的IP地址</div>
+        </div>
+        <div class="form-group">
+          <label>端口 <span>*</span></label>
+          <input type="number" id="sourcePort" value="3306" placeholder="3306">
+          <div class="error-hint" id="sourcePortError">端口必须在1-65535之间</div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>数据库名 <span>*</span></label>
+          <input type="text" id="sourceDatabase" placeholder="例如: jingtu_group" data-i18n-placeholder="migration.source_db_placeholder">
+          <div class="error-hint" id="sourceDatabaseError">请输入数据库名</div>
+        </div>
+        <div class="form-group">
+          <label>用户名 <span>*</span></label>
+          <input type="text" id="sourceUser" placeholder="例如: root" data-i18n-placeholder="migration.source_user_placeholder">
+          <div class="error-hint" id="sourceUserError">请输入用户名</div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>密码 <span>*</span></label>
+        <input type="password" id="sourcePassword" placeholder="输入数据库密码" data-i18n-placeholder="migration.source_pass_placeholder">
+        <div class="error-hint" id="sourcePasswordError">请输入密码</div>
+      </div>
+
+      <div class="btn-group detect-btn">
+        <button class="btn btn-secondary btn-wide" data-migration-action="auto-detect">🔍 自动探测</button>
+        <button class="btn btn-primary btn-wide" data-migration-action="test-source">✅ 测试连接</button>
+      </div>
+      <div class="test-result" id="sourceTestResult"></div>
+
+      <div class="detect-results" id="detectResults" style="display:none"></div>
+
+      <div class="btn-group">
+        <button class="btn btn-secondary" data-migration-action="prev-step" disabled>上一步</button>
+        <button class="btn btn-primary" data-migration-action="next-step" data-step="1">下一步 →</button>
+      </div>
+    </div>
+
+    <div class="tab" id="tab2">
+      <div class="tab-title">📋 选择迁移表</div>
+      <p style="color:#9898b0;font-size:13px;margin-bottom:16px">已连接到源数据库，请选择需要迁移的数据表：</p>
+      
+      <div class="table-list" id="tableList"></div>
+      
+      <div class="btn-group" style="margin-top:20px">
+        <button class="btn btn-secondary" data-migration-action="select-all">全选</button>
+        <button class="btn btn-secondary" data-migration-action="deselect-all">取消全选</button>
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-secondary" data-migration-action="prev-step">← 上一步</button>
+        <button class="btn btn-primary" data-migration-action="next-step" data-step="2">下一步 →</button>
+      </div>
+    </div>
+
+    <div class="tab" id="tab3">
+      <div class="tab-title">📤 目标数据库配置</div>
+      
+      <div class="form-group">
+        <label>服务器面板</label>
+        <select id="targetPanel" data-migration-action="update-panel" data-type="target">
+          <option value="standalone">独立MySQL</option>
+          <option value="baota">宝塔面板</option>
+          <option value="onepanel">1Panel</option>
+          <option value="aapanel">aaPanel</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>数据库地址 <span>*</span></label>
+          <input type="text" id="targetHost" value="127.0.0.1" placeholder="例如: 127.0.0.1" data-i18n-placeholder="migration.target_host_placeholder">
+        </div>
+        <div class="form-group">
+          <label>端口 <span>*</span></label>
+          <input type="number" id="targetPort" value="3306" placeholder="3306">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>数据库名 <span>*</span></label>
+          <input type="text" id="targetDatabase" placeholder="例如: jingtu_group_new" data-i18n-placeholder="migration.target_db_placeholder">
+        </div>
+        <div class="form-group">
+          <label>用户名 <span>*</span></label>
+          <input type="text" id="targetUser" placeholder="例如: root" data-i18n-placeholder="migration.target_user_placeholder">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>密码 <span>*</span></label>
+        <input type="password" id="targetPassword" placeholder="输入数据库密码" data-i18n-placeholder="migration.target_pass_placeholder">
+      </div>
+
+      <button class="btn btn-wide btn-secondary" data-migration-action="test-target">✅ 测试连接</button>
+      <div class="test-result" id="targetTestResult"></div>
+
+      <div class="btn-group">
+        <button class="btn btn-secondary" data-migration-action="prev-step">← 上一步</button>
+        <button class="btn btn-primary" data-migration-action="next-step" data-step="3">下一步 →</button>
+      </div>
+    </div>
+
+    <div class="tab" id="tab4">
+      <div class="tab-title">🚀 执行迁移</div>
+      <p style="color:#9898b0;font-size:13px;margin-bottom:16px">即将开始数据库迁移，请确认以下信息：</p>
+      
+      <div style="background:#0a0a15;border-radius:10px;padding:16px;margin-bottom:16px">
+        <div style="margin-bottom:12px">
+          <span style="color:#9898b0">源数据库：</span>
+          <span style="color:#fff" id="summarySource"></span>
+        </div>
+        <div style="margin-bottom:12px">
+          <span style="color:#9898b0">目标数据库：</span>
+          <span style="color:#fff" id="summaryTarget"></span>
+        </div>
+        <div>
+          <span style="color:#9898b0">迁移表数：</span>
+          <span style="color:#fff" id="summaryTables"></span>
+        </div>
+      </div>
+
+      <div class="log-window" id="migrateLog"></div>
+
+      <div class="btn-group">
+        <button class="btn btn-secondary" data-migration-action="prev-step">← 上一步</button>
+        <button class="btn btn-primary" id="migrateBtn" data-migration-action="execute-migration">🚀 开始迁移</button>
+        <button class="btn btn-secondary" id="stopBtn" data-migration-action="stop-migration" disabled>⏹️ 终止</button>
+      </div>
+    </div>
+
+    <div class="tab" id="tab5">
+      <div class="tab-title">⚙️ 配置文件更新</div>
+      <p style="color:#9898b0;font-size:13px;margin-bottom:16px">扫描项目配置文件并更新数据库连接参数：</p>
+      
+      <button class="btn btn-wide btn-secondary" data-migration-action="scan-config">🔍 扫描配置文件</button>
+      
+      <div class="scan-files" id="scanFiles"></div>
+      
+      <div class="btn-group" style="margin-top:20px">
+        <button class="btn btn-primary btn-wide" id="replaceBtn" data-migration-action="replace-config" disabled>✏️ 更新配置</button>
+      </div>
+
+      <div class="test-result" id="replaceResult"></div>
+
+      <div class="btn-group" style="margin-top:20px">
+        <button class="btn btn-secondary" data-migration-action="prev-step">← 上一步</button>
+        <button class="btn btn-primary" data-migration-action="finish">✅ 完成</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentStep = 1;
+let migrateAbort = false;
+const config = {
+  sourceDb: {},
+  targetDb: {},
+  selectedTables: [],
+  panelConfigs: {}
+};
+
+function initMigrationEventDelegates() {
+  const container = document.querySelector('.form-box');
+  if (!container || container._migrationDelegateInit) return;
+  container._migrationDelegateInit = true;
+  
+  container.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-migration-action], [data-action]');
+    if (!el) return;
+    
+    const action = el.dataset.migrationAction || el.dataset.action;
+    const step = parseInt(el.dataset.step) || 0;
+    const type = el.dataset.type;
+    
+    switch (action) {
+      case 'auto-detect': autoDetect(); break;
+      case 'test-source': testSourceConnection(); break;
+      case 'test-target': testTargetConnection(); break;
+      case 'prev-step': prevStep(); break;
+      case 'next-step': nextStep(step); break;
+      case 'select-all': selectAllTables(); break;
+      case 'deselect-all': deselectAllTables(); break;
+      case 'execute-migration': executeMigration(); break;
+      case 'stop-migration': stopMigration(); break;
+      case 'scan-config': scanConfigFiles(); break;
+      case 'replace-config': replaceConfigFiles(); break;
+      case 'finish': finishMigration(); break;
+    }
+  });
+  
+  container.addEventListener('change', (e) => {
+    const el = e.target.closest('[data-migration-action="update-panel"]');
+    if (!el) return;
+    const type = el.dataset.type;
+    updatePanelConfig(type);
+  });
+}
+
+initMigrationEventDelegates();
+
+async function migrationFetch(url, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  const headers = new Headers(options.headers || {});
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    const tokenResponse = await fetch('/api/csrf-token', { credentials: 'include' });
+    if (!tokenResponse.ok) throw new Error('无法获取 CSRF Token');
+    const { csrfToken } = await tokenResponse.json();
+    headers.set('X-CSRF-Token', csrfToken);
+  }
+  return fetch(url, { ...options, headers, credentials: 'include' });
+}
+
+async function loadPanelConfigs() {
+  const response = await migrationFetch('/api/migration/panel-configs');
+  const data = await response.json();
+  if (data.success) {
+    config.panelConfigs = data.panels;
+  }
+}
+
+loadPanelConfigs();
+
+function updatePanelConfig(type) {
+  const panel = document.getElementById(`${type}Panel`).value;
+  const panelConfig = config.panelConfigs[panel];
+  
+  if (panelConfig) {
+    document.getElementById(`${type}Port`).value = panelConfig.defaultPort;
+    if (panelConfig.defaultUser) {
+      document.getElementById(`${type}User`).value = panelConfig.defaultUser;
+    }
+  }
+}
+
+function showStep(step) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(`tab${step}`).classList.add('active');
+  
+  for (let i = 1; i <= 5; i++) {
+    const num = document.getElementById(`step${i}-num`);
+    const text = document.getElementById(`step${i}-text`);
+    if (i < step) {
+      num.classList.remove('active');
+      num.classList.add('done');
+      text.classList.remove('active');
+    } else if (i === step) {
+      num.classList.add('active');
+      num.classList.remove('done');
+      text.classList.add('active');
+    } else {
+      num.classList.remove('active', 'done');
+      text.classList.remove('active');
+    }
+  }
+  
+  document.getElementById('progressBar').style.width = `${((step - 1) / 4) * 100}%`;
+  currentStep = step;
+}
+
+function validateIp(ip) {
+  const regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+  return regex.test(ip);
+}
+
+function validatePort(port) {
+  const p = parseInt(port);
+  return !isNaN(p) && p >= 1 && p <= 65535;
+}
+
+function validateDbInput(type) {
+  let valid = true;
+  
+  const host = document.getElementById(`${type}Host`).value;
+  const port = document.getElementById(`${type}Port`).value;
+  const database = document.getElementById(`${type}Database`).value;
+  const user = document.getElementById(`${type}User`).value;
+  const password = document.getElementById(`${type}Password`).value;
+  
+  if (!validateIp(host)) {
+    document.getElementById(`${type}HostError`).classList.add('show');
+    document.getElementById(`${type}Host`).classList.add('error');
+    valid = false;
+  } else {
+    document.getElementById(`${type}HostError`).classList.remove('show');
+    document.getElementById(`${type}Host`).classList.remove('error');
+  }
+  
+  if (!validatePort(port)) {
+    document.getElementById(`${type}PortError`).classList.add('show');
+    document.getElementById(`${type}Port`).classList.add('error');
+    valid = false;
+  } else {
+    document.getElementById(`${type}PortError`).classList.remove('show');
+    document.getElementById(`${type}Port`).classList.remove('error');
+  }
+  
+  if (!database.trim()) {
+    document.getElementById(`${type}DatabaseError`).classList.add('show');
+    document.getElementById(`${type}Database`).classList.add('error');
+    valid = false;
+  } else {
+    document.getElementById(`${type}DatabaseError`).classList.remove('show');
+    document.getElementById(`${type}Database`).classList.remove('error');
+  }
+  
+  if (!user.trim()) {
+    document.getElementById(`${type}UserError`).classList.add('show');
+    document.getElementById(`${type}User`).classList.add('error');
+    valid = false;
+  } else {
+    document.getElementById(`${type}UserError`).classList.remove('show');
+    document.getElementById(`${type}User`).classList.remove('error');
+  }
+  
+  if (!password.trim()) {
+    document.getElementById(`${type}PasswordError`).classList.add('show');
+    document.getElementById(`${type}Password`).classList.add('error');
+    valid = false;
+  } else {
+    document.getElementById(`${type}PasswordError`).classList.remove('show');
+    document.getElementById(`${type}Password`).classList.remove('error');
+  }
+  
+  return valid;
+}
+
+async function autoDetect() {
+  const resultDiv = document.getElementById('detectResults');
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<div style="text-align:center;padding:20px"><span class="loading"></span> 正在探测本地MySQL服务...</div>';
+  
+  const response = await migrationFetch('/api/migration/detect');
+  const data = await response.json();
+  
+  if (data.success) {
+    let html = '';
+    data.results.forEach(r => {
+      html += `<div class="detect-result ${r.success ? 'success' : 'error'}">
+        <div class="result-header">
+          <span class="result-host">${r.host}:${r.port}</span>
+          <span class="result-status ${r.success ? 'success' : 'error'}">${r.success ? '✓ 连接成功' : '✗ 连接失败'}</span>
+        </div>
+        <div>${r.message}</div>
+        ${r.success && r.databases.length > 0 ? `<div class="result-dbs">发现数据库：${r.databases.join(', ')}</div>` : ''}
+      </div>`;
+    });
+    resultDiv.innerHTML = html;
+  } else {
+    resultDiv.innerHTML = `<div class="detect-result error"><div class="result-status error">✗ 探测失败</div><div>${data.error}</div></div>`;
+  }
+}
+
+async function testSourceConnection() {
+  if (!validateDbInput('source')) return;
+  
+  const resultDiv = document.getElementById('sourceTestResult');
+  resultDiv.style.display = 'block';
+  resultDiv.className = 'test-result';
+  resultDiv.innerHTML = '<span class="loading"></span> 正在测试连接...';
+  
+  const response = await migrationFetch('/api/migration/test-connection', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      host: document.getElementById('sourceHost').value,
+      port: parseInt(document.getElementById('sourcePort').value),
+      database: document.getElementById('sourceDatabase').value,
+      user: document.getElementById('sourceUser').value,
+      password: document.getElementById('sourcePassword').value
+    })
+  });
+  
+  const data = await response.json();
+  if (data.success) {
+    resultDiv.className = 'test-result success';
+    resultDiv.innerHTML = '✓ 数据库连接成功！';
+  } else {
+    resultDiv.className = 'test-result error';
+    resultDiv.innerHTML = `✗ ${data.error}`;
+  }
+}
+
+async function testTargetConnection() {
+  const resultDiv = document.getElementById('targetTestResult');
+  resultDiv.style.display = 'block';
+  resultDiv.className = 'test-result';
+  resultDiv.innerHTML = '<span class="loading"></span> 正在测试连接...';
+  
+  const response = await migrationFetch('/api/migration/test-connection', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      host: document.getElementById('targetHost').value,
+      port: parseInt(document.getElementById('targetPort').value),
+      database: document.getElementById('targetDatabase').value,
+      user: document.getElementById('targetUser').value,
+      password: document.getElementById('targetPassword').value
+    })
+  });
+  
+  const data = await response.json();
+  if (data.success) {
+    resultDiv.className = 'test-result success';
+    resultDiv.innerHTML = '✓ 数据库连接成功！';
+  } else {
+    resultDiv.className = 'test-result error';
+    resultDiv.innerHTML = `✗ ${data.error}`;
+  }
+}
+
+async function nextStep(step) {
+  if (step === 1) {
+    if (!validateDbInput('source')) return;
+    
+    config.sourceDb = {
+      host: document.getElementById('sourceHost').value,
+      port: parseInt(document.getElementById('sourcePort').value),
+      database: document.getElementById('sourceDatabase').value,
+      user: document.getElementById('sourceUser').value,
+      password: document.getElementById('sourcePassword').value
+    };
+    
+    await loadSourceTables();
+  } else if (step === 2) {
+    const checkboxes = document.querySelectorAll('#tableList input[type="checkbox"]');
+    config.selectedTables = [];
+    checkboxes.forEach(cb => {
+      if (cb.checked) {
+        config.selectedTables.push(cb.value);
+      }
+    });
+    
+    if (config.selectedTables.length === 0) {
+      alert('请至少选择一个数据表');
+      return;
+    }
+  } else if (step === 3) {
+    config.targetDb = {
+      host: document.getElementById('targetHost').value,
+      port: parseInt(document.getElementById('targetPort').value),
+      database: document.getElementById('targetDatabase').value,
+      user: document.getElementById('targetUser').value,
+      password: document.getElementById('targetPassword').value
+    };
+    
+    document.getElementById('summarySource').textContent = `${config.sourceDb.host}:${config.sourceDb.port}/${config.sourceDb.database}`;
+    document.getElementById('summaryTarget').textContent = `${config.targetDb.host}:${config.targetDb.port}/${config.targetDb.database}`;
+    document.getElementById('summaryTables').textContent = config.selectedTables.length + ' 个表';
+    
+    document.getElementById('migrateLog').innerHTML = '';
+    document.getElementById('migrateBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = true;
+    migrateAbort = false;
+  }
+  
+  showStep(step + 1);
+}
+
+function prevStep() {
+  if (currentStep > 1) {
+    showStep(currentStep - 1);
+  }
+}
+
+async function loadSourceTables() {
+  const tableList = document.getElementById('tableList');
+  tableList.innerHTML = '<div style="text-align:center;padding:20px"><span class="loading"></span> 正在加载数据表...</div>';
+  
+  const response = await migrationFetch('/api/migration/get-tables', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config.sourceDb)
+  });
+  
+  const data = await response.json();
+  if (data.success) {
+    let html = '';
+    data.tables.forEach(table => {
+      html += `<div class="table-item">
+        <input type="checkbox" value="${table}" checked>
+        <span class="table-name">${table}</span>
+      </div>`;
+    });
+    tableList.innerHTML = html;
+  } else {
+    tableList.innerHTML = `<div style="color:#f87171;text-align:center;padding:20px">加载失败：${data.error}</div>`;
+  }
+}
+
+function selectAllTables() {
+  document.querySelectorAll('#tableList input[type="checkbox"]').forEach(cb => cb.checked = true);
+}
+
+function deselectAllTables() {
+  document.querySelectorAll('#tableList input[type="checkbox"]').forEach(cb => cb.checked = false);
+}
+
+function addLog(msg, type = 'info') {
+  const logWindow = document.getElementById('migrateLog');
+  const div = document.createElement('div');
+  div.className = `log-${type}`;
+  div.textContent = msg;
+  logWindow.appendChild(div);
+  logWindow.scrollTop = logWindow.scrollHeight;
+}
+
+async function executeMigration() {
+  const confirmMsg = `确认开始数据库迁移？
+
+源数据库: ${config.sourceDb.host}:${config.sourceDb.port}/${config.sourceDb.database}
+目标数据库: ${config.targetDb.host}:${config.targetDb.port}/${config.targetDb.database}
+迁移表数量: ${config.selectedTables.length}
+
+⚠️ 迁移过程中将禁用目标数据库外键约束，迁移完成后自动恢复。
+⚠️ 如果目标表已存在，将会被覆盖。
+
+确定继续？`;
+  
+  if (!confirm(confirmMsg)) {
+    return;
+  }
+  
+  document.getElementById('migrateBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = false;
+  migrateAbort = false;
+  
+  addLog('[INFO] 开始数据库迁移...');
+  
+  const response = await migrationFetch('/api/migration/migrate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sourceDb: config.sourceDb,
+      targetDb: config.targetDb,
+      tables: config.selectedTables
+    })
+  });
+  
+  const data = await response.json();
+  
+  if (data.logs) {
+    data.logs.forEach(log => {
+      if (log.includes('[SUCCESS]')) addLog(log, 'success');
+      else if (log.includes('[ERROR]')) addLog(log, 'error');
+      else addLog(log);
+    });
+  }
+  
+  if (data.success) {
+    addLog('[SUCCESS] 数据库迁移完成！', 'success');
+  } else {
+    addLog(`[ERROR] 迁移失败：${data.error}`, 'error');
+  }
+  
+  document.getElementById('migrateBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+}
+
+function stopMigration() {
+  migrateAbort = true;
+  addLog('[WARNING] 用户终止迁移', 'warning');
+  document.getElementById('migrateBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+}
+
+async function scanConfigFiles() {
+  const scanFiles = document.getElementById('scanFiles');
+  scanFiles.innerHTML = '<div style="text-align:center;padding:20px"><span class="loading"></span> 正在扫描配置文件...</div>';
+  
+  const response = await migrationFetch('/api/migration/scan-config', { method: 'POST' });
+  const data = await response.json();
+  
+  if (data.success) {
+    let html = '';
+    data.files.forEach(file => {
+      html += `<div class="file-item">
+        <div>
+          <input type="checkbox" class="file-check" value="${file.path}" ${file.hasDbConfig ? 'checked' : ''}>
+          <span class="file-name">${file.path}</span>
+          <span class="${file.hasDbConfig ? 'has-db' : 'no-db'}">(${file.hasDbConfig ? '包含数据库配置' : '无数据库配置'})</span>
+        </div>
+        <span style="color:#6a6a80;font-size:12px">${file.size} bytes</span>
+      </div>`;
+    });
+    
+    if (data.files.length === 0) {
+      html = '<div style="color:#9898b0;text-align:center;padding:20px">未发现配置文件</div>';
+    } else {
+      document.getElementById('replaceBtn').disabled = false;
+    }
+    
+    scanFiles.innerHTML = html;
+  } else {
+    scanFiles.innerHTML = `<div style="color:#f87171;text-align:center;padding:20px">扫描失败：${data.error}</div>`;
+  }
+}
+
+async function replaceConfigFiles() {
+  const checkboxes = document.querySelectorAll('.file-check:checked');
+  const files = Array.from(checkboxes).map(cb => cb.value);
+  
+  if (files.length === 0) {
+    alert('请选择要更新的配置文件');
+    return;
+  }
+  
+  const resultDiv = document.getElementById('replaceResult');
+  resultDiv.style.display = 'block';
+  resultDiv.className = 'test-result';
+  resultDiv.innerHTML = '<span class="loading"></span> 正在更新配置文件...';
+  
+  const response = await migrationFetch('/api/migration/replace-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      files,
+      dbConfig: config.targetDb
+    })
+  });
+  
+  const data = await response.json();
+  if (data.success) {
+    let successCount = 0;
+    let errorCount = 0;
+    data.results.forEach(r => {
+      if (r.success) successCount++;
+      else errorCount++;
+    });
+    
+    resultDiv.className = 'test-result success';
+    resultDiv.innerHTML = `✓ 更新完成！成功 ${successCount} 个，失败 ${errorCount} 个`;
+  } else {
+    resultDiv.className = 'test-result error';
+    resultDiv.innerHTML = `✗ 更新失败：${data.error}`;
+  }
+}
+
+function finishMigration() {
+  alert('数据库迁移向导已完成！\n\n请重启Node.js服务使新配置生效。');
+  window.location.href = '/';
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,163 @@
+/* ============ 成就系统样式（V9.5 统一打磨）============
+   全部颜色走设计 token，自动跟随明暗主题切换。 */
+.achievements-card {
+  background: var(--card2);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border);
+}
+.achievements-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.achievements-title {
+  font-size: var(--font-size-20);
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+.achievements-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.stat-value {
+  font-size: var(--font-size-22);
+  font-weight: 700;
+  color: var(--accent);
+}
+.stat-label {
+  font-size: var(--font-size-12);
+  color: var(--text2);
+}
+.stat-divider {
+  color: var(--border);
+}
+.achievements-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.ach-tab {
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: transparent;
+  color: var(--text2);
+  font-size: var(--font-size-13);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.ach-tab:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ach-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.achievements-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+.achievement-item {
+  background: var(--card);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  border: 1px solid var(--border);
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+.achievement-item.unlocked {
+  border-color: var(--accent);
+}
+.achievement-item.locked {
+  opacity: 0.7;
+}
+.achievement-item.rarity-common.unlocked {
+  border-color: var(--green);
+  background: linear-gradient(135deg, var(--accent-light) 0%, transparent 100%);
+}
+.achievement-item.rarity-rare.unlocked {
+  border-color: var(--sky);
+  background: linear-gradient(135deg, var(--accent-light) 0%, transparent 100%);
+}
+.achievement-item.rarity-epic.unlocked {
+  border-color: #c084fc;
+  background: linear-gradient(135deg, var(--accent-light) 0%, transparent 100%);
+}
+.achievement-item.rarity-legendary.unlocked {
+  border-color: var(--amber);
+  background: linear-gradient(135deg, var(--accent-light) 0%, transparent 100%);
+}
+.achievement-icon {
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+.achievement-info {
+  margin-bottom: 10px;
+}
+.achievement-name {
+  font-size: var(--font-size-15);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.achievement-desc {
+  font-size: var(--font-size-13);
+  color: var(--text2);
+}
+.achievement-progress {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.achievement-progress-bar {
+  height: 100%;
+  background: var(--bar-grad);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.achievement-points {
+  font-size: var(--font-size-13);
+  color: var(--amber);
+  font-weight: 600;
+}
+.achievement-date {
+  font-size: var(--font-size-11);
+  color: var(--text2);
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+@media (max-width: 768px) {
+  .achievements-header {
+    flex-direction: column;
+    align-items: center;
+  }
+  .achievements-stats {
+    margin-top: 8px;
+  }
+  .achievements-grid {
+    grid-template-columns: 1fr;
+  }
+}

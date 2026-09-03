@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>境途同游 - 数据库连接恢复</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(135deg,#0f0f1a 0%,#1a1a2e 100%);min-height:100vh;color:#e4e4f0}
+.container{max-width:600px;margin:0 auto;padding:20px}
+.header{text-align:center;padding:40px 0 24px}
+.header h1{font-size:26px;color:#fff;margin-bottom:8px}
+.header p{color:#9898b0;font-size:14px}
+.warn-box{background:#2e2310;border:1px solid #f59e0b;color:#fbbf24;border-radius:12px;padding:16px 18px;font-size:13px;line-height:1.6;margin-bottom:24px}
+.warn-box strong{color:#fcd34d}
+.form-box{background:#141420;border-radius:16px;border:1px solid #2a2a3e;padding:28px;box-shadow:0 4px 32px rgba(0,0,0,.3)}
+.tab-title{font-size:18px;color:#fff;margin-bottom:6px;font-weight:600}
+.tab-desc{font-size:13px;color:#6a6a80;margin-bottom:22px}
+.form-group{margin-bottom:18px}
+.form-group label{display:block;font-size:14px;color:#c4c4d4;margin-bottom:8px}
+.form-group label span{color:#f87171;margin-left:4px}
+.form-group input{width:100%;padding:12px 16px;background:#0a0a15;border:1px solid #2a2a3e;border-radius:10px;color:#fff;font-size:14px;transition:border-color .3s;outline:none}
+.form-group input:focus{border-color:#7c5cfc}
+.form-group input::placeholder{color:#4a4a5e}
+.form-row{display:flex;gap:12px}
+.form-row .form-group{flex:1}
+.form-group .hint{font-size:12px;color:#6a6a80;margin-top:6px}
+.btn-group{display:flex;gap:12px;margin-top:26px}
+.btn{flex:1;padding:14px;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;transition:all .3s}
+.btn-primary{background:#7c5cfc;color:#fff}
+.btn-primary:hover{background:#6a4cf0}
+.btn-primary:disabled{background:#4a3a8c;cursor:not-allowed}
+.btn-secondary{background:#2a2a3e;color:#c4c4d4}
+.btn-secondary:hover{background:#3a3a4e}
+.test-result{margin-top:14px;padding:12px;border-radius:8px;font-size:13px;display:none;line-height:1.5}
+.test-result.success{background:#0d2e23;color:#34d399;border:1px solid #10b981}
+.test-result.error{background:#2e0d0d;color:#f87171;border:1px solid #ef4444}
+.loading{display:inline-block;width:18px;height:18px;border:2px solid #7c5cfc;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-3px}
+@keyframes spin{to{transform:rotate(360deg)}}
+a.back-link{display:block;text-align:center;margin-top:18px;color:#7c5cfc;text-decoration:none;font-size:13px}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>⚠️ 数据库连接恢复</h1>
+    <p>站点无法连接到 MySQL，已自动跳转至此</p>
+  </div>
+
+  <div class="warn-box">
+    <strong>为什么会到这里？</strong><br>
+    站点启动时检测到数据库不可用（通常是 MySQL 服务未启动、密码被轮换后未同步，或地址/端口变更）。
+    此时所有页面都会报错、连管理员都无法登录，因此提供这个<strong>脱离登录</strong>的恢复通道。<br><br>
+    填写下方数据库连接信息并「保存并重连」后，配置会写入 <code>.env</code> 并<strong>立即热重连</strong>，无需重启服务。
+  </div>
+
+  <div class="form-box">
+    <div class="tab-title">📦 数据库连接信息</div>
+    <div class="tab-desc">修改后系统会用新配置测试连接；仅当当前数据库不可用时才允许提交。</div>
+
+    <div class="form-group">
+      <label>数据库地址 <span>*</span></label>
+      <input type="text" id="dbHost" placeholder="例如: 127.0.0.1">
+      <div class="hint">本机部署通常为 127.0.0.1</div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>端口 <span>*</span></label>
+        <input type="number" id="dbPort" placeholder="3306">
+      </div>
+      <div class="form-group">
+        <label>数据库名 <span>*</span></label>
+        <input type="text" id="dbName" placeholder="例如: jingtu_group">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>用户名 <span>*</span></label>
+        <input type="text" id="dbUser" placeholder="例如: root">
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input type="password" id="dbPass" placeholder="留空则沿用现有密码">
+        <div class="hint">仅改地址/端口时，密码可留空表示沿用现有值</div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>恢复令牌 (RECOVERY_TOKEN) <span>*</span></label>
+      <input type="password" id="recoveryToken" placeholder="服务端 .env 中配置的 RECOVERY_TOKEN">
+      <div class="hint">由服务器管理员在 <code>.env</code> 的 RECOVERY_TOKEN 提供。未配置则恢复通道不可用（返回 503）。本字段仅用于鉴权，不会随数据库配置写入。</div>
+    </div>
+
+    <div class="test-result" id="testResult"></div>
+
+    <div class="btn-group">
+      <button class="btn btn-secondary" id="testBtn">🔍 测试连接</button>
+      <button class="btn btn-primary" id="saveBtn">💾 保存并重连</button>
+    </div>
+  </div>
+
+  <a class="back-link" href="/">返回首页（若已恢复）</a>
+</div>
+
+<script src="/js/db-recover.js"></script>
+</body>
+</html>

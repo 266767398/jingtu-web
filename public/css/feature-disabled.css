@@ -1,0 +1,35 @@
+/* ====================================================
+   境途同游 — 功能隐藏（feature gate）
+   2026-08-31 新增
+
+   背景：直播功能已下线（占用网络资源过大），但 server.js 上的
+   live 路由仍保留代码资产以备将来启用。
+
+   本文件对 [data-feature-disabled] 标记的元素统一隐藏，包括：
+   - Tab 导航按钮（#tab-btn-live 等）
+   - 管理后台侧边栏入口（.admin-nav-item[data-target="live"]）
+   - Tab 面板容器（#tab-live），即使被激活也保持隐藏
+
+   配合 loader.js 的 DISABLED_FEATURES Set 使用：
+   - 入口隐藏（CSS）
+   - 模块不参与懒加载（loader.js）
+   - 切 Tab 兜底拦截（loader.js 的 switchTab 包装器）
+   ==================================================== */
+
+/* 1. 隐藏带标记的所有元素（按钮 / 菜单项 / 容器） */
+[data-feature-disabled] {
+  display: none !important;
+}
+
+/* 2. 兜底：即使 JS 把 #tab-live 设为 active，也保持隐藏。
+   .d-none 是 Bootstrap 类的简写，但这里用属性 + class 双重保险。 */
+#tab-live,
+.tab-content[data-feature-disabled="live"] {
+  display: none !important;
+}
+
+/* 3. 兜底：管理后台侧边栏如果未来改了渲染方式，
+   只要带 data-feature-disabled 就不显示。 */
+.admin-nav-item[data-feature-disabled] {
+  display: none !important;
+}

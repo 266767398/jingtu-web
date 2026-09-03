@@ -1,0 +1,41 @@
+/* 头像显示设置（§11.8.8）：显示开关 + 选哪种头像
+   主题感知：全部用 var(--x, fallback)，明暗主题下均可读 */
+
+.avatar-pref-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.avatar-pref-item {
+  flex: 1 1 120px; min-width: 120px;
+  border: 2px solid var(--border, #444);
+  border-radius: 12px;
+  padding: 12px; text-align: center;
+  cursor: pointer; transition: .15s ease;
+  background: var(--card-bg, #222);
+}
+.avatar-pref-item:hover { border-color: var(--accent, #4f8cff); }
+.avatar-pref-item.active {
+  border-color: var(--accent, #4f8cff);
+  box-shadow: 0 0 0 2px var(--accent, #4f8cff) inset;
+}
+.avatar-pref-item.disabled { opacity: .45; cursor: not-allowed; }
+.avatar-pref-item.disabled:hover { border-color: var(--border, #444); }
+.ap-img {
+  width: 72px; height: 72px; border-radius: 50%;
+  object-fit: cover; border: 2px solid var(--border, #444);
+  background: var(--card-bg, #222);
+}
+.ap-name { margin-top: 6px; font-weight: 600; color: var(--text, #eee); }
+.ap-status { font-size: 12px; color: var(--text-muted, #999); margin-top: 2px; }
+.avatar-pref-item.active .ap-status { color: var(--accent, #4f8cff); font-weight: 600; }
+
+/* iOS 风格开关（与 .switch-wrap / .switch-slider 配合） */
+.switch-wrap { position: relative; display: inline-block; width: 44px; height: 24px; flex: 0 0 auto; }
+.switch-wrap input { opacity: 0; width: 0; height: 0; }
+.switch-slider {
+  position: absolute; cursor: pointer; inset: 0;
+  background: var(--border, #555); border-radius: 24px; transition: .2s ease;
+}
+.switch-slider::before {
+  content: ""; position: absolute; height: 18px; width: 18px;
+  left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s ease;
+}
+.switch-wrap input:checked + .switch-slider { background: var(--accent, #4f8cff); }
+.switch-wrap input:checked + .switch-slider::before { transform: translateX(20px); }

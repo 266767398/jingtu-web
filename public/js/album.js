@@ -1,6 +1,67 @@
 // ==================== 相册系统 ====================
 let albumCateLoaded = false;
-let lastCateId = 0; // 记录上次分类ID，切换时重置页码
+let lastCateId = 0;
+let albumLoading = false;
+
+function initAlbumEventDelegates() {
+  const albumGrid = document.getElementById('albumGrid');
+  if (albumGrid && !albumGrid._albumDelegateInit) {
+    albumGrid._albumDelegateInit = true;
+    albumGrid.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-album-action]');
+      if (!el) return;
+      const action = el.dataset.albumAction;
+      const id = el.dataset.id;
+      if (action === 'show-lightbox') showLightbox(id);
+    });
+  }
+  
+  const lbThumbs = document.getElementById('lbThumbs');
+  if (lbThumbs && !lbThumbs._thumbsDelegateInit) {
+    lbThumbs._thumbsDelegateInit = true;
+    lbThumbs.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-thumb-idx]');
+      if (!el) return;
+      const idx = parseInt(el.dataset.thumbIdx);
+      if (!isNaN(idx)) {
+        currentPhotoIdx = idx;
+        updateLightbox();
+      }
+    });
+  }
+  
+  const recycleList = document.getElementById('recycleList');
+  if (recycleList && !recycleList._recycleDelegateInit) {
+    recycleList._recycleDelegateInit = true;
+    recycleList.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-recycle-action]');
+      if (!el) return;
+      const action = el.dataset.recycleAction;
+      const id = el.dataset.id;
+      if (action === 'restore') restorePhoto(id);
+      else if (action === 'permanent-delete') permanentDelete(id);
+    });
+  }
+  
+  const commentsList = document.getElementById('lbComments');
+  if (commentsList && !commentsList._commentsDelegateInit) {
+    commentsList._commentsDelegateInit = true;
+    commentsList.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-comment-action]');
+      if (!el) return;
+      const action = el.dataset.commentAction;
+      if (action === 'delete') {
+        const photoId = el.dataset.photoId;
+        const commentId = el.dataset.commentId;
+        deletePhotoComment(photoId, commentId);
+      } else if (action === 'edit') {
+        const photoId = el.dataset.photoId;
+        const commentId = el.dataset.commentId;
+        editPhotoComment(photoId, commentId);
+      }
+    });
+  }
+}
 
 // 加载相册分类
 async function loadAlbumCategories() {
@@ -11,51 +72,66 @@ async function loadAlbumCategories() {
     if (res.ok) {
       const data = await res.json();
       const cats = data.categories || [];
-      sel.innerHTML = '<option value="0">${__('album.all_categories')}</option>' + cats.map(c =>
+      sel.innerHTML = '<option value="0">' + __('album.all_categories') + '</option>' + cats.map(c =>
         `<option value="${c.id}">${esc(c.name)}</option>`
       ).join('');
       albumCateLoaded = true;
     }
-  } catch {}
+  } catch (e) {
+    toast(__('auto_album_1'), 'error');
+  }
 }
 
 async function loadAlbum(albumId = null) {
-  // 检查分类是否变化，变化时重置页码
   const currentCate = parseInt(document.getElementById('albumCate')?.value || 0);
   if (currentCate !== lastCateId) {
     albumPage = 1;
     lastCateId = currentCate;
   }
   const container = document.getElementById('albumGrid');
-  if (container && albumPage === 1) container.innerHTML = Array(9).fill('<div class="skeleton-card-grid"></div>').join('');
-  // 首次加载分类
-  if (!albumCateLoaded) await loadAlbumCategories();
+  if (container && albumPage === 1) showSkeleton(container, 'grid', 9);
+  if (albumLoading) return;
+  albumLoading = true;
   try {
+    if (!albumCateLoaded) await loadAlbumCategories();
     const cateId = document.getElementById('albumCate')?.value || 0;
     let url = albumId
       ? `/api/album/photos?album=${albumId}&page=${albumPage}`
       : `/api/album/photos?page=${albumPage}&cate=${cateId}`;
     const res = await api(url, { method: 'GET' });
-    if (res.ok) { const data = await res.json(); albumPhotoList = data.photos || []; renderAlbum(albumPhotoList); const loadMore = document.getElementById('albumPager'); if (loadMore) loadMore.style.display = data.hasMore ? '' : 'none'; }
-  } catch (err) { if (isApiHandledError(err)) return; toast(__('load_failed'), 'error'); }
+    if (res.ok) {
+      const data = await res.json();
+      albumPhotoList = data.photos || [];
+      renderAlbum(albumPhotoList);
+      const loadMore = document.getElementById('albumPager');
+      if (loadMore) loadMore.style.display = data.hasMore ? '' : 'none';
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('load_failed'), 'error');
+  } finally {
+    albumLoading = false;
+  }
 }
 
 function renderAlbum(photos) {
   const container = document.getElementById('albumGrid');
   if (!container) return;
-  if (!photos || photos.length === 0) { container.innerHTML = '<div class="empty-state"><div class="empty-icon">📷</div><div class="empty-sub">${__('album.no_photos')}</div><p class="empty-sub">${__('album.upload_hint')}</p></div>'; return; }
+  initAlbumEventDelegates();
+  if (!photos || photos.length === 0) { renderEmpty(container, { icon: '📷', title: __('album.no_photos'), text: __('album.upload_hint') }); return; }
   const html = photos.map(p => {
     const isVideo = p.mediaType === 'video';
     const hasThumb = isVideo && p.thumbnail && !p.thumbnail.includes('placeholder');
     const mediaHtml = isVideo
       ? (hasThumb
-        ? `<img src="${escAttr(p.thumbnail)}" class="album-photo-thumb" alt="${esc(p.caption || __('album.video'))}" loading="lazy">`
-        : `<div class="album-photo-thumb video-thumb" style="background:#1a1a2e;display:flex;align-items:center;justify-content:center"><span style="font-size:36px">🎬</span></div>`)
-      : `<img src="${escAttr(p.thumbnail || p.url)}" class="album-photo-thumb" alt="${esc(p.caption || __('album.photo'))}" loading="lazy">`;
+        ? imgWithFallback(p.thumbnail, 'album-photo-thumb', p.caption || __('album.video'))
+        : `<div class="album-photo-thumb video-thumb" style="background:var(--bg-secondary);display:flex;align-items:center;justify-content:center"><span style="font-size:36px">🎬</span></div>`)
+      : imgWithFallback(p.thumbnail || p.url, 'album-photo-thumb', p.caption || __('album.photo'));
     const badgeHtml = isVideo ? '<span class="album-media-badge">🎬</span>' : '';
-    return `<div class="album-photo-card" onclick="showLightbox('${escJsStr(String(p.id))}')">${mediaHtml}${badgeHtml}<div class="album-photo-caption">${esc(p.caption || '')}</div>${p.likes ? `<div class="album-photo-likes">❤️ ${p.likes}</div>` : ''}</div>`;
+    return `<div class="album-photo-card photo-item" data-id="${escAttr(String(p.id))}" data-album-action="show-lightbox">${mediaHtml}${badgeHtml}<div class="album-photo-caption">${esc(p.caption || '')}</div>${p.likes ? `<div class="album-photo-likes">❤️ ${p.likes}</div>` : ''}</div>`;
   }).join('');
   if (albumPage === 1) { container.innerHTML = html; document.getElementById('albumDropzone')?.classList.toggle('has-photos', photos.length > 0); } else container.innerHTML += html;
+  initAlbumEventDelegates();
 }
 
 function showLightbox(photoId) {
@@ -80,7 +156,7 @@ function updateLightbox() {
       imgContainer.innerHTML = '<video id="lightboxVideo" class="lightbox-video" src="' + escAttr(p.url) + '" controls autoplay style="max-width:90vw;max-height:80vh;border-radius:8px;"></video>';
       document.getElementById('lightboxImg')?.classList.add('d-none');
     } else {
-      imgContainer.innerHTML = '<img id="lightboxImg" src="' + escAttr(p.url || p.thumbnail) + '" alt="" style="max-width:90vw;max-height:80vh;object-fit:contain;border-radius:8px;">';
+      imgContainer.innerHTML = '<img id="lightboxImg" src="' + escAttr(p.url || p.thumbnail) + '" alt="" style="max-width:90vw;max-height:80vh;object-fit:contain;border-radius:8px;" onerror="window.__imgFail(this)">';
     }
   }
   const caption = document.getElementById('lbDesc');
@@ -115,6 +191,7 @@ function updateLightbox() {
 function renderThumbnails() {
   const container = document.getElementById('lbThumbs');
   if (!container) return;
+  initAlbumEventDelegates();
   if (!albumPhotoList || albumPhotoList.length === 0) {
     container.innerHTML = '';
     return;
@@ -123,13 +200,15 @@ function renderThumbnails() {
     const isV = p.mediaType === 'video';
     const hasThumb = isV && p.thumbnail && !p.thumbnail.includes('placeholder');
     const activeClass = i === currentPhotoIdx ? 'active' : '';
+    const thumbStyle = `width:60px;height:60px;object-fit:cover;border-radius:6px;cursor:pointer;flex-shrink:0;border:2px solid ${i === currentPhotoIdx ? 'var(--accent)' : 'transparent'}`;
     if (isV && hasThumb) {
-      return `<img src="${escAttr(p.thumbnail)}" class="${activeClass}" onclick="currentPhotoIdx=${i};updateLightbox()" alt="" loading="lazy" style="width:60px;height:60px;object-fit:cover;border-radius:6px;cursor:pointer;flex-shrink:0;border:2px solid ${i === currentPhotoIdx ? 'var(--accent)' : 'transparent'}">`;
+      return `<img src="${escAttr(p.thumbnail)}" class="${activeClass}" data-thumb-idx="${i}" alt="" loading="lazy" style="${thumbStyle}" onerror="window.__imgFail(this)">`;
     }
     return isV
-      ? `<div class="lb-thumb-item ${activeClass}" onclick="currentPhotoIdx=${i};updateLightbox()" style="width:60px;height:60px;background:#1a1a2e;display:inline-flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;flex-shrink:0;border:2px solid ${i === currentPhotoIdx ? 'var(--accent)' : 'transparent'}"><span style="font-size:20px">🎬</span></div>`
-      : `<img src="${escAttr(p.thumbnail || p.url)}" class="${activeClass}" onclick="currentPhotoIdx=${i};updateLightbox()" alt="" loading="lazy">`;
+      ? `<div class="lb-thumb-item ${activeClass}" data-thumb-idx="${i}" style="width:60px;height:60px;background:var(--bg-secondary);display:inline-flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;flex-shrink:0;border:2px solid ${i === currentPhotoIdx ? 'var(--accent)' : 'transparent'}"><span style="font-size:20px">🎬</span></div>`
+      : `<img src="${escAttr(p.thumbnail || p.url)}" class="${activeClass}" data-thumb-idx="${i}" alt="" loading="lazy" onerror="window.__imgFail(this)">`;
   }).join('');
+  initAlbumEventDelegates();
   // 滚动到当前缩略图可见
   const activeImg = container.querySelector('.active');
   if (activeImg) activeImg.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
@@ -165,14 +244,28 @@ function lightboxNav(dir) { if (dir === -1) lightboxPrev(); else lightboxNext();
 
 async function likePhoto(photoId) {
   try {
+    // 优化反馈：在请求发出前先翻转按钮文案 + 触发心爆裂动画
+    // （posts.js 乐观更新在前；这里采用「先到服务端、再更新 UI」的模式以保证计数准确）
+    const pBefore = albumPhotoList.find(p => p.id === photoId);
+    const wasLiked = pBefore ? myLikedPhotoIds.has(Number(photoId)) : false;
     const res = await api(`/api/photos/${photoId}/like`, { method: 'POST' });
-      if (res.ok) {
+    if (res.ok) {
       const data = await res.json();
       const p = albumPhotoList.find(p => p.id === photoId);
       if (p && data.likes !== undefined) p.likes = data.likes;
+      // 翻转 like 状态集合 + 按钮文案
+      const nowLiked = !wasLiked;
+      if (nowLiked) myLikedPhotoIds.add(Number(photoId));
+      else myLikedPhotoIds.delete(Number(photoId));
+      const likeBtn = document.getElementById('likeBtn');
+      if (likeBtn) {
+        likeBtn.innerHTML = `${nowLiked ? '💖' : '❤️'} <span id="likeCount">${p ? p.likes || 0 : 0}</span>`;
+      }
+      // 动效反馈：点赞/取消 心爆裂 vs 小回弹
+      try { if (window.SITE_LIKE && likeBtn) window.SITE_LIKE.triggerBurst(likeBtn, nowLiked); } catch (e) { /* 静默 */ }
       toast(__('album.liked'), 'success');
     }
-    } catch (err) { if (isApiHandledError(err)) return; toast(__('album.like_failed'), 'error'); }
+  } catch (err) { if (isApiHandledError(err)) return; toast(__('album.like_failed'), 'error'); }
 }
 
 async function deletePhoto() {
@@ -182,11 +275,10 @@ async function deletePhoto() {
     try { const res = await api(`/api/photos/${p.id}`, { method: 'DELETE' }); if (res.ok) { toast(__('album.deleted'), 'success'); albumPhotoList.splice(currentPhotoIdx, 1); if (albumPhotoList.length === 0) closeLightbox(); else { if (currentPhotoIdx >= albumPhotoList.length) currentPhotoIdx = albumPhotoList.length - 1; updateLightbox(); } } } catch (err) { if (isApiHandledError(err)) return; toast(__('album.delete_failed'), 'error'); }
   });
 }
-function sharePhoto() {
+async function sharePhoto() {
   if (currentPhotoIdx === null) return; const p = albumPhotoList[currentPhotoIdx]; if (!p) return;
-  const url = `${window.location.origin}/api/photos/${p.id}`;
-  if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => toast(__('album.link_copied'), 'success'));
-  else toast(__('album.link_prefix') + url, 'info');
+  // 复用全局分享函数：生成公开落地页链接（无需登录即可查看）
+  await sharePublicLink('album', p.id);
 }
 
 // ==================== 相册选择模式 ====================
@@ -204,7 +296,7 @@ function toggleAlbumSelect() {
     // 重新渲染所有照片卡片加 checkbox
     document.querySelectorAll('.album-photo-card').forEach(el => {
       el.classList.add('selectable');
-      const pid = el.getAttribute('onclick')?.match(/'([^']+)'/)?.[1];
+      const pid = el.getAttribute('data-id');
       if (pid && !el.querySelector('.album-select-checkbox')) {
         const cb = document.createElement('div');
         cb.className = 'album-select-checkbox';
@@ -225,7 +317,7 @@ function toggleAlbumSelect() {
 }
 
 function toggleAlbumSelectItem(photoId, cardEl) {
-  if (!cardEl) cardEl = document.querySelector(`.album-photo-card[onclick*="'${photoId}'"]`);
+  if (!cardEl) cardEl = document.querySelector(`.album-photo-card[data-id="${CSS.escape(photoId)}"]`);
   if (!cardEl) return;
   if (selectedPhotoIds.has(photoId)) {
     selectedPhotoIds.delete(photoId);
@@ -273,22 +365,23 @@ async function showRecycle() {
       const container = document.getElementById('recycleList');
       if (!container) return;
       if (!data || data.length === 0) {
-        container.innerHTML = '<div class="empty-state"><div class="empty-icon">🗑️</div><div>${__('album.trash_empty')}</div></div>';
+        renderEmpty(container, { icon: '🗑️', text: __('album.trash_empty') });
       } else {
         container.innerHTML = data.map(p => `
           <div class="recycle-item">
             <img src="${escAttr(p.thumbPath || p.path)}" class="recycle-thumb" alt="${__('album.alt_photo')}" loading="lazy">
             <div class="recycle-info">
-              <div class="recycle-desc">${esc(p.desc || '${__('album.no_desc')}')}</div>
+              <div class="recycle-desc">${esc(p.desc || __('album.no_desc'))}</div>
               <div class="recycle-meta">${__('album.uploader')}${esc(p.uploaderName || __('unknown'))} · ${__('album.deleted_at')}：${fmtDate(p.recycleTime)}</div>
             </div>
             <div class="recycle-actions">
-              <button class="btn btn-sm btn-accent" onclick="restorePhoto('${escJsStr(String(p.id))}')">${__('album.restore')}</button>
-              <button class="btn btn-sm btn-danger" onclick="permanentDelete('${escJsStr(String(p.id))}')">${__('album.permanent_delete')}</button>
+              <button class="btn btn-sm btn-accent" data-recycle-action="restore" data-id="${escAttr(String(p.id))}">${__('album.restore')}</button>
+              <button class="btn btn-sm btn-danger" data-recycle-action="permanent-delete" data-id="${escAttr(String(p.id))}">${__('album.permanent_delete')}</button>
             </div>
           </div>
         `).join('');
       }
+      initAlbumEventDelegates();
       showModal('recycleModal');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('album.load_trash_failed') + ': ' + err.message, 'error'); }
@@ -311,6 +404,7 @@ async function permanentDelete(photoId) {
 }
 
 function loadMoreAlbum() {
+  if (albumLoading) return;
   albumPage++;
   loadAlbum();
 }
@@ -346,7 +440,7 @@ async function postComment() {
       if (input) input.value = '';
       loadPhotoComments(p.id); // 刷新评论
     }
-  } catch (err) { if (isApiHandledError(err)) return; console.error('[postComment]', err); toast(__('album.comment_post_failed'), 'error'); }
+  } catch (err) { if (isApiHandledError(err)) return; toast(__('album.comment_post_failed'), 'error'); }
 }
 
 // ==================== 已点赞照片缓存 ====================
@@ -378,7 +472,7 @@ async function toggleLike() {
         toast(__('album.unliked'), 'info');
         updateLightbox();
       }
-    } catch (err) { if (isApiHandledError(err)) return; console.error('[unlikePhoto]', err); toast(__('album.unlike_failed'), 'error'); }
+    } catch (err) { if (isApiHandledError(err)) return; toast(__('album.unlike_failed'), 'error'); }
   } else {
     // 未点赞 → 点赞
     await likePhoto(p.id);
@@ -396,25 +490,26 @@ async function loadPhotoComments(photoId) {
     if (res.ok) {
       const comments = await res.json();
       if (!comments || comments.length === 0) {
-        list.innerHTML = '<div class="text-muted text-12 p-8">${__(\'album.no_comments\')}</div>';
+        renderEmpty(list, { icon: '💬', text: __('album.no_comments') });
         return;
       }
       list.innerHTML = comments.map(c => `
-        <div class="det-comment-item">
+        <div class="det-comment-item" data-comment-id="${c.id}">
           <img src="${escAttr(c.avatarUrl || '/api/avatar/default')}" class="det-comment-avatar" alt="" loading="lazy">
           <div class="det-comment-body">
             <div class="det-comment-header">
               <span class="det-comment-user">${esc(c.userName || __('unknown_user'))}</span>
               <span class="det-comment-time">${fmtTime(c.createdAt)}</span>
               ${currentUser && (currentUser.id === c.userId || currentUser.role === 'super_admin' || currentUser.role === 'admin')
-                ? `<button class="btn-text det-comment-del" onclick="deletePhotoComment(${photoId}, ${c.id})">${__('album.delete_comment_btn')}</button>` : ''}
+                ? `<button class="btn-text det-comment-del" data-comment-action="edit" data-photo-id="${escAttr(String(photoId))}" data-comment-id="${escAttr(String(c.id))}">${__('edit')}</button><button class="btn-text det-comment-del" data-comment-action="delete" data-photo-id="${escAttr(String(photoId))}" data-comment-id="${escAttr(String(c.id))}">${__('album.delete_comment_btn')}</button>` : ''}
             </div>
-            <div class="det-comment-content">${esc(c.content)}</div>
+            <div class="det-comment-content" id="albumCommentText-${c.id}">${esc(c.content)}</div>
           </div>
         </div>
       `).join('');
+      initAlbumEventDelegates();
     }
-  } catch (err) { console.error('[loadPhotoComments]', err); list.innerHTML = '<div class="text-muted text-12">${__(\'album.load_failed\')}</div>'; }
+  } catch { list.innerHTML = '<div class="text-muted text-12">' + __('album.load_failed') + '</div>'; }
 }
 
 async function deletePhotoComment(photoId, commentId) {
@@ -422,8 +517,40 @@ async function deletePhotoComment(photoId, commentId) {
     try {
       const res = await api(`/api/photos/${photoId}/comments/${commentId}`, { method: 'DELETE' });
       if (res.ok) { toast(__('album.comment_deleted'), 'success'); loadPhotoComments(photoId); }
-    } catch (err) { if (isApiHandledError(err)) return; console.error('[deletePhotoComment]', err); toast(__('album.delete_comment_failed'), 'error'); }
+    } catch (err) { if (isApiHandledError(err)) return; toast(__('album.delete_comment_failed'), 'error'); }
   });
+}
+
+async function editPhotoComment(photoId, commentId) {
+  const textEl = document.getElementById('albumCommentText-' + commentId);
+  if (!textEl) return;
+  const original = textEl.textContent;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = original;
+  input.maxLength = 2000;
+  input.className = 'det-comment-edit-input';
+  textEl.innerHTML = '';
+  textEl.appendChild(input);
+  input.focus();
+  const finish = async (save) => {
+    if (save) {
+      const content = input.value.trim();
+      if (!content) { loadPhotoComments(photoId); return; }
+      try {
+        const res = await api(`/api/photos/${photoId}/comments/${commentId}`, { method: 'PUT', body: { content } });
+        if (res.ok) { toast(__('operation_success'), 'success'); loadPhotoComments(photoId); }
+        else { loadPhotoComments(photoId); }
+      } catch (err) { if (isApiHandledError(err)) return; toast(__('album.delete_comment_failed'), 'error'); loadPhotoComments(photoId); }
+    } else {
+      loadPhotoComments(photoId);
+    }
+  };
+  input.onkeydown = function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  };
+  input.onblur = function() { finish(true); };
 }
 
 // Enter 键发送评论
@@ -440,19 +567,35 @@ document.addEventListener('DOMContentLoaded', () => {
   // 拖拽上传
   const dropzone = document.getElementById('albumDropzone');
   if (dropzone) {
+    // 浏览器默认会在文件被拖放到页面任意位置时直接打开该文件，从而整页导航离开单页应用。
+    // 用户只要没有精确落在 dropzone 上就会__('auto_album_2')（其实是页面被替换了）。
+    // 因此在 document 上兜底阻止默认行为，只有 dropzone 内的 drop 才真正处理。
+    ['dragover', 'drop'].forEach(function (evt) {
+      document.addEventListener(evt, function (e) {
+        if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+        if (dropzone.contains(e.target)) return;
+        e.preventDefault();
+      });
+    });
+
     dropzone.addEventListener('dragover', (e) => {
       e.preventDefault();
       dropzone.classList.add('drag-over');
     });
-    dropzone.addEventListener('dragleave', () => {
+    // dragleave 在移动到子元素时也会触发，用 relatedTarget 判断是否真的离开了 dropzone，
+    // 否则拖动过程中高亮会不停闪烁。
+    dropzone.addEventListener('dragleave', (e) => {
+      if (e.relatedTarget && dropzone.contains(e.relatedTarget)) return;
       dropzone.classList.remove('drag-over');
     });
     dropzone.addEventListener('drop', (e) => {
       e.preventDefault();
       dropzone.classList.remove('drag-over');
       if (e.dataTransfer.files && e.dataTransfer.files.length) {
+        // 跟点击上传保持一致：带上当前选中的分类，否则后端拿不到 cateId
+        const cateId = parseInt(document.getElementById('albumCate')?.value || '1', 10) || 1;
         for (let i = 0; i < e.dataTransfer.files.length; i++) {
-          uploadPhoto(e.dataTransfer.files[i], '', null);
+          uploadPhoto(e.dataTransfer.files[i], '', cateId);
         }
       }
     });
@@ -461,7 +604,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ==================== 相册分类管理（管理员） ====================
 function showCreateAlbumCate() {
-  showInput('${__('album.enter_category_name')}', '', function(name) {
+  showInput(__('album.enter_category_name'), '', function(name) {
     if (!name || !name.trim()) return;
     (async () => {
       try {
@@ -477,29 +620,29 @@ function showCreateAlbumCate() {
 }
 
 function showDelAlbumCate() {
-  // 获取当前分类列表供选择
   (async () => {
     try {
       const res = await api('/api/album/categories', { method: 'GET' });
       if (res.ok) {
         const data = await res.json();
-        const cats = (data.categories || []).filter(c => c.id !== 1); // 排除"未分类"
-        if (cats.length === 0) { toast('${__('album.no_category_to_delete')}', 'info'); return; }
-        const msg = '${__('album.select_category_delete')}\n' + cats.map((c, i) => `${i + 1}. ${c.name}`).join('\n') + '\n\n' + __('album.enter_indices');
+        const cats = (data.categories || []).filter(c => c.id !== 1);
+        if (cats.length === 0) { toast(__('album.no_category_to_delete'), 'info'); return; }
+        const msg = __('album.select_category_delete') + '\n' + cats.map((c, i) => `${i + 1}. ${c.name}`).join('\n') + '\n\n' + __('album.enter_indices');
         showInput(msg, '', function(input) {
           if (!input) return;
           const indices = input.split(',').map(s => parseInt(s.trim()) - 1).filter(i => i >= 0 && i < cats.length);
           if (indices.length === 0) { toast(__('album.invalid_selection'), 'error'); return; }
           const toDelete = indices.map(i => cats[i]);
-          showConfirm(__('album.delete_category_confirm') + __('album.delete_category_warn') + '\n' + toDelete.map(c => '· ' + c.name).join('\n'), async () => {
-          for (const c of toDelete) {
-            try {
-              await api(`/api/album/categories/${c.id}`, { method: 'DELETE' });
-            } catch {}
-          }
-          toast(__('album.category_deleted'), 'success');
-          albumCateLoaded = false;
-          loadAlbum();
+          showConfirm(__('album.delete_category_confirm') + __('album.delete_category_warn') + '\n' + toDelete.map(c => '· ' + c.name).join('\n'), async function() {
+            for (const c of toDelete) {
+              try {
+                await api(`/api/album/categories/${c.id}`, { method: 'DELETE' });
+              } catch {}
+            }
+            toast(__('album.category_deleted'), 'success');
+            albumCateLoaded = false;
+            loadAlbum();
+          });
         });
       }
     } catch {}
@@ -510,7 +653,7 @@ function showDelAlbumCate() {
 window.loadUserPhotos = async function(userId) {
   try {
     const grid = document.getElementById('albumGrid');
-    if (grid) grid.innerHTML = Array(9).fill('<div class="skeleton-card-grid"></div>').join('');
+    if (grid) showSkeleton(grid, 'grid', 9);
     const res = await api(`/api/users/${userId}/photos`, { method: 'GET' });
     if (res.ok) {
       const data = await res.json();

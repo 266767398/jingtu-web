@@ -1,40 +1,52 @@
 // ==================== 认证系统 ====================
 async function loadMe() {
   try {
-    await ensureCsrf();
-    const res = await fetch('/api/users/me/profile', { method: 'GET', credentials: 'include', headers: { 'X-CSRF-Token': csrfToken || '' } });
-    if (res.ok) { const data = await res.json(); currentUser = data.user || data; return currentUser; }
+    const res = await api('/api/users/me/profile');
+    if (res.ok) { 
+      const data = await res.json(); 
+      currentUser = data.user || data; 
+      return currentUser; 
+    }
   } catch {}
-  currentUser = null; return null;
+  currentUser = null; 
+  return null;
 }
 
 async function login(loginId, password, remember = false) {
   const loginPwdBtn = document.getElementById('loginPwdBtn');
+  const loginLoading = document.getElementById('loginLoading');
   if (loginPwdBtn) { loginPwdBtn.disabled = true; loginPwdBtn.textContent = __('auth.logging_in'); }
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    const res = await fetch(safeUrl('/api/auth/login'), {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
-      body: JSON.stringify({ loginId, password, remember }),
-      signal: controller.signal,
+    const res = await api('/api/auth/login', { 
+      method: 'POST', 
+      body: { loginId, password, remember }
     });
-    clearTimeout(timeoutId);
     const data = await res.json();
     if (res.ok && data.success) {
+      // 登录接口返回的 user（来自 sessionUser）仅含基础字段，缺少 email / 注册时间 /
+      // 最后登录等资料字段。这里用 /me/profile 的完整档案覆盖，确保个人中心账号信息卡片
+      // 能正确显示，而非全部显示 "-"。
       currentUser = data.user;
-      csrfToken = null; await ensureCsrf();
+      try { await loadMe(); } catch (e) { /* 失败则保留 sessionUser 的基础字段 */ }
+      await ensureCsrf();
       if (remember) {
-        // 只记住登录ID，不存密码
         localStorage.setItem('jingtu_remember', JSON.stringify({ loginId }));
       } else localStorage.removeItem('jingtu_remember');
       sessionStorage.removeItem('manual_logout');
-      toast(__('auth.login_ok'), 'success'); showApp(); return true;
-    } else { toast(data.error || __('auth.login_failed'), 'error'); return false; }
+      if (loginLoading) loginLoading.style.display = 'none';
+      toast(__('auth.login_ok'), 'success'); 
+      showApp(); 
+      return true;
+    } else { 
+      if (loginLoading) loginLoading.style.display = 'none';
+      toast(data.error || __('auth.login_failed'), 'error'); 
+      return false; 
+    }
   } catch (err) {
-    if (err.name === 'AbortError') toast(__('auth.login_timeout'), 'error');
-    else toast(__('auth.network_error') + ': ' + err.message, 'error');
+    if (loginLoading) loginLoading.style.display = 'none';
+    if (!isApiHandledError(err)) {
+      toast(__('auth.network_error') + ': ' + err.message, 'error');
+    }
     return false;
   } finally {
     if (loginPwdBtn) { loginPwdBtn.disabled = false; loginPwdBtn.textContent = __('auth.login_btn'); }
@@ -44,51 +56,58 @@ async function login(loginId, password, remember = false) {
 async function logout(redirect = true, silent = false) {
   try { await api('/api/auth/logout', { method: 'POST' }); } catch {}
   disconnectWebSocket();
-  // 停止所有定时轮询
   if (typeof stopGroupPolling === 'function') stopGroupPolling();
   currentUser = null; csrfToken = null; membersCache = []; albumPhotoList = [];
   signedEvents.clear(); albumScrollLock.clear();
   localStorage.removeItem('jingtu_remember');
-  // V6.12: logout 不清除 VRChat 缓存（jingtu_vrc_bound / jingtu_vrc_user）
-  sessionStorage.removeItem('manual_logout'); // 改为清除而非设置！避免 checkAutoLogin 跳过 VRChat 登录
+  sessionStorage.removeItem('manual_logout');
   resetVrcLoginState();
+  // 登出时必须显式收起用户下拉菜单：打开菜单时在 document 上挂了 _handleUserMenuKeydown，
+  // 不收起就不会解绑，登录遮罩弹出后方向键/Esc 仍会把焦点送进被遮住的菜单项里。
+  if (typeof hideUserMenu === 'function') hideUserMenu();
   closeAllModals();
   if (!silent) toast(__('auth.logged_out'), 'info');
-  if (redirect) showLogin();
+  if (redirect) {
+    document.getElementById('loginModeInit')?.classList.add('d-none');
+    showLogin();
+  }
 }
 
 async function checkAutoLogin() {
-  if (sessionStorage.getItem('manual_logout') === 'true') { sessionStorage.removeItem('manual_logout'); return false; }
-  // 先检查 session 是否仍然有效
-  const user = await loadMe();
-  if (user) { showApp(); return true; }
-  // 检查是否有记住的登录ID，预填登录表单
-  const saved = localStorage.getItem('jingtu_remember');
-  if (saved) {
-    try {
-      const { loginId } = JSON.parse(saved);
-      if (loginId) {
-        const loginIdInput = document.getElementById('loginId');
-        if (loginIdInput) loginIdInput.value = loginId;
-      }
-    } catch { localStorage.removeItem('jingtu_remember'); }
-  }
-  // V6.9: VRChat 缓存和标签切换统一由 showLogin() 处理
+  try {
+    if (sessionStorage.getItem('manual_logout') === 'true') { sessionStorage.removeItem('manual_logout'); return false; }
+    const user = await loadMe();
+    if (user) { showApp(); return true; }
+    const saved = localStorage.getItem('jingtu_remember');
+    if (saved) {
+      try {
+        const { loginId } = JSON.parse(saved);
+        if (loginId) {
+          const loginIdInput = document.getElementById('loginId');
+          if (loginIdInput) { loginIdInput.value = loginId; previewLoginAvatar(loginId); }
+        }
+      } catch { localStorage.removeItem('jingtu_remember'); }
+    }
+  } catch {}
   return false;
 }
 
 function showLogin() { 
+  const loginLoading = document.getElementById('loginLoading');
+  if (loginLoading) loginLoading.style.display = 'none';
+  
+  _loadingCount = 0;
+  const bar = (document.getElementById('globalLoadBar') || {style:{}});
+  if (bar) { bar.style.opacity = '0'; bar.style.width = '0'; }
+  
   const overlay = document.getElementById('loginOverlay'); 
   if (overlay) {
     overlay.style.display = 'flex'; 
     overlay.style.animation = 'none';
-    // 强制回流后重新触发动画
     void overlay.offsetHeight;
     overlay.style.animation = 'overlayFadeIn 0.4s ease';
   }
-  // 有用户时默认隐藏初始化 Tab（无用户场景由 init() 覆盖）
   document.getElementById('loginModeInit')?.classList.add('d-none');
-  // V6.15: 两个登录标签始终可见，默认密码登录
   updateLoginTabsVisibility();
   switchLoginMode('password');
 }
@@ -111,26 +130,77 @@ function updateLoginTabsVisibility() {
   }
 }
 function showApp() {
+  const loginLoading = document.getElementById('loginLoading');
+  if (loginLoading) loginLoading.style.display = 'none';
+  
   const overlay = document.getElementById('loginOverlay');
   if (overlay) {
     overlay.style.animation = 'overlayFadeIn 0.3s ease reverse';
     setTimeout(() => { overlay.style.display = 'none'; overlay.style.animation = ''; }, 320);
   }
   stopLoginParticles();
-  // 显示主界面元素（Header / Hero / 主容器默认是 d-none）
-  document.getElementById('appHeader')?.classList.remove('d-none');
-  document.getElementById('heroSection')?.classList.remove('d-none');
-  document.getElementById('mainContainer')?.classList.remove('d-none');
-  updateUserUI();
-  switchTab(activeTab || 'members');
-  connectWebSocket();
-  if (typeof loadMyLikes === 'function') loadMyLikes();
+  
+  _loadingCount = 0;
+  const bar = (document.getElementById('globalLoadBar') || {style:{}});
+  if (bar) { bar.style.opacity = '0'; bar.style.width = '0'; }
+
+  try {
+    document.getElementById('appHeader')?.classList.remove('d-none');
+    document.getElementById('heroSection')?.classList.remove('d-none');
+    document.getElementById('mainContainer')?.classList.remove('d-none');
+    document.getElementById('appFooter')?.classList.remove('d-none');
+    updateUserUI();
+    // 首页公开内容已在 init() 中提前加载，登录态恢复后只需更新用户相关 UI，
+    // 避免重复请求和首屏闪烁。
+    wsReconnectAttempts = 0;
+    wsLongBackoff = false;
+    connectWebSocket();
+    if (typeof loadMyLikes === 'function') loadMyLikes();
+    loadSocialLinks();
+    if (typeof initMobileTabMenu === 'function') initMobileTabMenu();
+    if (typeof initFormValidation === 'function') initFormValidation();
+    // 签到 / 成就：必须等登录完成才初始化。
+    // 这两个模块自带 DOMContentLoaded 自启，但那时用户还在登录页，
+    // 既会往隐藏的 #tab-home 里塞卡片，又会白打一次必然 401 的请求。
+    if (typeof checkinModule !== 'undefined') checkinModule.init();
+    if (typeof achievementsModule !== 'undefined') achievementsModule.init();
+  } catch {}
+}
+
+async function loadSocialLinks() {
+  try {
+    const res = await api('/api/social-links', { method: 'GET' });
+    if (res.ok) {
+      const links = await res.json();
+      const vrcLink = document.getElementById('footerVrcGroupLink');
+      const kookLink = document.getElementById('footerKookLink');
+      const oopzLink = document.getElementById('footerOopzLink');
+      if (vrcLink && links.vrcGroupUrl) {
+        vrcLink.href = links.vrcGroupUrl;
+        vrcLink.removeAttribute('onclick');
+      }
+      if (kookLink && links.kookUrl) {
+        kookLink.href = links.kookUrl;
+        kookLink.removeAttribute('onclick');
+        kookLink.target = '_blank';
+        kookLink.rel = 'noopener';
+      }
+      if (oopzLink && links.oopzUrl) {
+        oopzLink.href = links.oopzUrl;
+        oopzLink.removeAttribute('onclick');
+        oopzLink.target = '_blank';
+        oopzLink.rel = 'noopener';
+      }
+    }
+  } catch (e) { }
 }
 async function doLogout() { await logout(true); }
 
 // ==================== 登录辅助函数 ====================
 function switchLoginMode(mode) {
-  document.querySelectorAll('.login-tab-btn').forEach(btn => btn.classList.toggle('active', btn.id === 'loginMode' + mode.charAt(0).toUpperCase() + mode.slice(1)));
+  const modeIdMap = { password: 'Password', vrchat: 'Vrc', init: 'Init' };
+  const modeId = 'loginMode' + modeIdMap[mode];
+  document.querySelectorAll('.login-tab-btn').forEach(btn => btn.classList.toggle('active', btn.id === modeId));
   const fieldMap = { password: 'loginPasswordFields', vrchat: 'loginVrcFields', init: 'loginInitFields' };
   Object.entries(fieldMap).forEach(([key, id]) => document.getElementById(id)?.classList.toggle('d-none', key !== mode));
   // 移动滑块指示器
@@ -152,13 +222,35 @@ async function doPasswordLogin() {
   const ok = await login(loginId, password, remember);
   if (ok) {
     if (currentUser.vrchatId && currentUser.vrchatName) {
-      // V6.12: 已绑定 VRChat → 标记缓存，保留登录
       localStorage.setItem('jingtu_vrc_bound', '1');
-      toast('✅ ${__('auth.vrc_bound_hint')}', 'success');
     } else {
-      // V6.9: 未绑定 → 引导绑定 VRChat 账号
       setTimeout(() => promptVrcBind(), 700);
     }
+  }
+}
+
+// 登录页账号头像预览（§11.8.3）：输入 loginId 后实时预览「本地头像 + VRChat 头像」
+async function previewLoginAvatar(loginId) {
+  const wrap = document.getElementById('loginAvatarPreview');
+  const localImg = document.getElementById('loginLocalAvatar');
+  const vrcImg = document.getElementById('loginVrcAvatar');
+  if (!wrap || !localImg || !vrcImg) return;
+  const id = (loginId || '').trim();
+  if (!id) {
+    wrap.style.display = 'none';
+    localImg.src = '/api/avatar/default';
+    vrcImg.src = '/api/avatar/default';
+    return;
+  }
+  try {
+    const data = await api('/api/auth/preview?loginId=' + encodeURIComponent(id));
+    if (!data) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'flex';
+    localImg.src = data.avatarUrl || '/api/avatar/default';
+    vrcImg.src = data.vrchatAvatarUrl || '/api/avatar/default';
+  } catch (e) {
+    // 限流/网络错误静默处理，不干扰登录流程
+    wrap.style.display = 'none';
   }
 }
 
@@ -203,35 +295,24 @@ async function sendVrcLoginCode() {
   const btn = document.getElementById('sendVrcCodeBtn');
   if (btn) { btn.disabled = true; btn.querySelector('.login-btn-text').textContent = __('auth.sending'); }
 
-  // 更新用户名缓存
   if (vrchatUser) localStorage.setItem('jingtu_vrc_user', vrchatUser);
 
   try {
-    await ensureCsrf();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-    const res = await fetch(safeUrl('/api/auth/vrchat-login'), {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
-      body: JSON.stringify({ username: vrchatUser, password: vrchatPass }),
-      signal: controller.signal,
+    const res = await api('/api/auth/vrchat-login', { 
+      method: 'POST', 
+      body: { username: vrchatUser, password: vrchatPass }
     });
-    clearTimeout(timeoutId);
-    csrfToken = null; // 单次消费
 
     if (res.ok) {
       const data = await res.json();
       if (data.needBind) {
-        // V6.9: 绑定已被移除 → 清除本地缓存，隐藏 VRChat 标签
-        localStorage.removeItem('jingtu_vrc_bound');
-        localStorage.removeItem('jingtu_vrc_user');
-        updateLoginTabsVisibility();
-        toast(__('auth.vrc_not_bound_warn'), 'warn');
-        switchLoginMode('password');
-        document.getElementById('loginId')?.focus();
+        showVrcBindGuide(data);
       } else if (data.need2fa) {
-        // 需要验证码 → 显示验证码输入区，开始倒计时
-        _vrcLoginTemp = { loginToken: data.loginToken };
+        const methods = Array.isArray(data.methods) ? data.methods : [];
+        const method = methods.includes('emailOtp')
+          ? 'emailOtp'
+          : (methods.includes('totp') ? 'totp' : 'otp');
+        _vrcLoginTemp = { loginToken: data.loginToken, method };
         document.getElementById('vrcLoginCodeArea')?.classList.remove('d-none');
         document.getElementById('vrcLoginCodeInputWrap')?.classList.remove('d-none');
         document.getElementById('vrcLoginNo2faMsg')?.classList.add('d-none');
@@ -240,26 +321,30 @@ async function sendVrcLoginCode() {
         toast(data.message || __('auth.code_sent'), 'success');
         startVrcCodeCountdown();
       } else if (data.success) {
-        // V6.12: 不需要2FA → 不直接登录，先停在这里让用户点"登录"按钮
         _vrcLoginTemp = { no2fa: true, data };
         document.getElementById('vrcLoginCodeArea')?.classList.remove('d-none');
         document.getElementById('vrcLoginCodeInputWrap')?.classList.add('d-none');
         document.getElementById('vrcLoginNo2faMsg')?.classList.remove('d-none');
         toast(__('auth.no_code_needed'), 'info');
-        // 无2FA不需要倒计时，改按钮文字
         const sendBtn = document.getElementById('sendVrcCodeBtn');
         if (sendBtn) { sendBtn.disabled = false; sendBtn.querySelector('.login-btn-text').textContent = __('auth.ready'); }
       } else {
         toast(data.error || __('auth.login_failed_vrc'), 'error');
       }
     } else {
-      // 非 200 响应 → 读取错误消息
-      try { const err = await res.json(); toast(err.error || __('auth.vrc_login_failed'), 'error'); }
-      catch { toast(__('auth.vrc_login_failed'), 'error'); }
+      try {
+        const err = await res.json();
+        if (err.needBind) {
+          showVrcBindGuide(err);
+        } else {
+          toast(err.error || __('auth.vrc_login_failed'), 'error');
+        }
+      } catch { toast(__('auth.vrc_login_failed'), 'error'); }
     }
   } catch (err) {
-    if (err.name === 'AbortError') toast(__('auth.timeout_retry'), 'error');
-    else toast(__('auth.network_error') + ': ' + err.message, 'error');
+    if (!isApiHandledError(err)) {
+      toast(__('auth.network_error') + ': ' + err.message, 'error');
+    }
   } finally {
     if (btn && !_vrcLoginTemp) { btn.disabled = false; btn.querySelector('.login-btn-text').textContent = __('auth.send_code'); }
   }
@@ -270,14 +355,20 @@ function startVrcCodeCountdown() {
   if (!btn) return;
   let seconds = 60;
   btn.disabled = true;
+  // 文案节点可能不存在（模板改版）。原先直接 .textContent 会在定时器里抛，
+  // 后续 update 不再被排期，按钮就永远停在禁用状态，验证码再也发不出去。
+  const setText = (t) => {
+    const el = btn.querySelector('.login-btn-text') || btn;
+    el.textContent = t;
+  };
   const update = () => {
     if (seconds <= 0) {
       btn.disabled = false;
-      btn.querySelector('.login-btn-text').textContent = __('auth.resend');
+      setText(__('auth.resend'));
       _vrcCodeCountdown = null;
       return;
     }
-    btn.querySelector('.login-btn-text').textContent = __('auth.cooldown', {n: seconds});
+    setText(__('auth.cooldown', {n: seconds}));
     seconds--;
     _vrcCodeCountdown = setTimeout(update, 1000);
   };
@@ -289,7 +380,6 @@ async function doVrcLoginConfirm() {
   if (btn) { btn.disabled = true; btn.querySelector('.login-btn-text').textContent = __('auth.logging_in'); }
 
   try {
-    // V6.12: 无2FA情况 → 直接用之前存的数据登录
     if (_vrcLoginTemp?.no2fa && _vrcLoginTemp?.data?.success) {
       currentUser = _vrcLoginTemp.data.user;
       await ensureCsrf();
@@ -303,29 +393,20 @@ async function doVrcLoginConfirm() {
       return;
     }
 
-    // 有2FA情况 → 需要验证码
     const code = document.getElementById('loginVrcCode')?.value.trim();
     if (!code || code.length < 4) { toast(__('auth.enter_full_code'), 'error'); if (btn) { btn.disabled = false; btn.querySelector('.login-btn-text').textContent = __('auth.login_btn'); } return; }
     if (!_vrcLoginTemp?.loginToken) { toast(__('auth.send_code_first'), 'error'); if (btn) { btn.disabled = false; btn.querySelector('.login-btn-text').textContent = __('auth.login_btn'); } return; }
 
-    await ensureCsrf();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-    const res = await fetch(safeUrl('/api/auth/vrchat-login'), {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
-      body: JSON.stringify({ code, loginToken: _vrcLoginTemp.loginToken }),
-      signal: controller.signal,
+    const res = await api('/api/auth/vrchat-login', { 
+      method: 'POST', 
+      body: { code, method: _vrcLoginTemp.method, loginToken: _vrcLoginTemp.loginToken }
     });
-    clearTimeout(timeoutId);
-    csrfToken = null;
 
     if (res.ok) {
       const data = await res.json();
       if (data.success) {
         currentUser = data.user;
         await ensureCsrf();
-        // 缓存 VRChat 用户名 + 标记绑定状态
         const vrcUser = document.getElementById('loginVrcUser')?.value.trim();
         if (vrcUser) localStorage.setItem('jingtu_vrc_user', vrcUser);
         localStorage.setItem('jingtu_vrc_bound', '1');
@@ -340,8 +421,9 @@ async function doVrcLoginConfirm() {
       catch { toast(__('auth.login_failed'), 'error'); }
     }
   } catch (err) {
-    if (err.name === 'AbortError') toast(__('auth.timeout_retry'), 'error');
-    else toast(__('auth.login_failed') + ': ' + err.message, 'error');
+    if (!isApiHandledError(err)) {
+      toast(__('auth.login_failed') + ': ' + err.message, 'error');
+    }
   } finally {
     if (btn) { btn.disabled = false; btn.querySelector('.login-btn-text').textContent = __('auth.login_btn'); }
   }
@@ -363,12 +445,48 @@ function togglePwd(inputId, btnId) {
   const input = document.getElementById(inputId);
   const btn = document.getElementById(btnId);
   if (!input || !btn) return;
-  if (input.type === 'password') { input.type = 'text'; btn.textContent = '🙈'; }
-  else { input.type = 'password'; btn.textContent = '👁️'; }
+  const visible = input.type === 'password';
+  input.type = visible ? 'text' : 'password';
+  btn.classList.toggle('is-visible', visible);
+  btn.setAttribute('aria-pressed', String(visible));
+  btn.setAttribute('aria-label', visible ? __('auth.hide_password') : __('auth.show_password'));
+  btn.title = visible ? __('auth.hide_password') : __('auth.show_password');
 }
-// 保留旧函数名兼容
 function togglePwdVrc() { togglePwd('loginVrcPass', 'pwdToggleVrc'); }
 function togglePwdInit() { togglePwd('initPassword', 'pwdToggleInit'); }
+
+function showVrcBindGuide(data) {
+  localStorage.removeItem('jingtu_vrc_bound');
+  localStorage.removeItem('jingtu_vrc_user');
+  const guide = document.createElement('div');
+  guide.className = 'vrc-bind-guide-overlay';
+  guide.innerHTML = `
+    <div class="vrc-bind-guide-modal">
+      <div class="vrc-bind-guide-icon">🔐</div>
+      <h3 class="vrc-bind-guide-title section-title">${__('auth.vrc_not_bound_title')}</h3>
+      <p class="vrc-bind-guide-desc">${__('auth.vrc_not_bound_desc', { name: esc(data?.vrchatUser?.displayName || '') })}</p>
+      <div class="vrc-bind-guide-steps">
+        <div class="vrc-bind-step"><span class="vrc-bind-step-num">1</span><span>${__('auth.vrc_bind_step1')}</span></div>
+        <div class="vrc-bind-step"><span class="vrc-bind-step-num">2</span><span>${__('auth.vrc_bind_step2')}</span></div>
+        <div class="vrc-bind-step"><span class="vrc-bind-step-num">3</span><span>${__('auth.vrc_bind_step3')}</span></div>
+      </div>
+      <div class="vrc-bind-guide-actions">
+        <button class="vrc-bind-btn vrc-bind-btn-primary" id="vrcBindSwitchPwd">${__('auth.vrc_bind_switch')}</button>
+        <button class="vrc-bind-btn" id="vrcBindClose">${__('auth.vrc_bind_close')}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(guide);
+  setTimeout(() => guide.classList.add('show'), 50);
+  guide.querySelector('#vrcBindClose').onclick = () => guide.remove();
+  guide.querySelector('#vrcBindSwitchPwd').onclick = () => {
+    guide.remove();
+    switchLoginMode('password');
+    document.getElementById('loginId')?.focus();
+  };
+  guide.onclick = (e) => { if (e.target === guide) guide.remove(); };
+  toast(__('auth.vrc_not_bound'), 'warn');
+}
 
 
 // ==================== 登录粒子背景（Premium） ====================
@@ -500,5 +618,160 @@ function stopLoginParticles() {
   if (canvas) {
     canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
     canvas.style.display = 'none';
+  }
+}
+
+// ==================== 忘记密码功能 ====================
+let resetToken = '';
+
+function showForgotPassword() {
+  showModal('forgotPasswordModal');
+  document.getElementById('forgotStep1')?.classList.remove('d-none');
+  document.getElementById('forgotStep2')?.classList.add('d-none');
+  document.getElementById('forgotStep3')?.classList.add('d-none');
+  const titleEl = document.getElementById('forgotModalTitle'); if (titleEl) titleEl.textContent = __('forgot.title');
+  const emailEl = document.getElementById('forgotEmail'); if (emailEl) emailEl.value = '';
+  const codeEl = document.getElementById('forgotCode'); if (codeEl) codeEl.value = '';
+  const newPwEl = document.getElementById('forgotNewPassword'); if (newPwEl) newPwEl.value = '';
+  const emailErr = document.getElementById('forgotEmailError'); if (emailErr) emailErr.textContent = '';
+  const codeErr = document.getElementById('forgotCodeError'); if (codeErr) codeErr.textContent = '';
+  const pwErr = document.getElementById('forgotPasswordError'); if (pwErr) pwErr.textContent = '';
+  resetToken = '';
+}
+
+function closeForgotPassword(e) {
+  if (!e || e.target === e.currentTarget) {
+    closeModal('forgotPasswordModal');
+  }
+}
+
+function backToStep1() {
+  document.getElementById('forgotStep1')?.classList.remove('d-none');
+  document.getElementById('forgotStep2')?.classList.add('d-none');
+  document.getElementById('forgotStep3')?.classList.add('d-none');
+  const titleEl = document.getElementById('forgotModalTitle'); if (titleEl) titleEl.textContent = __('forgot.title');
+}
+
+function backToStep2() {
+  document.getElementById('forgotStep1')?.classList.add('d-none');
+  document.getElementById('forgotStep2')?.classList.remove('d-none');
+  document.getElementById('forgotStep3')?.classList.add('d-none');
+  const titleEl = document.getElementById('forgotModalTitle'); if (titleEl) titleEl.textContent = __('forgot.verify_code');
+}
+
+async function sendForgotCode() {
+  const email = document.getElementById('forgotEmail')?.value?.trim();
+  const errorEl = document.getElementById('forgotEmailError');
+  
+  if (!email) {
+      if (errorEl) errorEl.textContent = __('forgot.enter_email');
+      return;
+    }
+
+    if (!email.includes('@')) {
+      if (errorEl) errorEl.textContent = __('forgot.invalid_email');
+      return;
+    }
+
+    if (errorEl) errorEl.textContent = '';
+
+    try {
+      const res = await api('/api/auth/forgot-password', {
+        method: 'POST',
+        body: { email }
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        resetToken = data.token || '';
+        document.getElementById('forgotStep1')?.classList.add('d-none');
+        document.getElementById('forgotStep2')?.classList.remove('d-none');
+        const titleEl = document.getElementById('forgotModalTitle'); if (titleEl) titleEl.textContent = __('forgot.verify_code');
+        toast(__('forgot.code_sent'), 'success');
+      } else {
+        if (errorEl) errorEl.textContent = data.error || __('forgot.send_failed');
+      }
+    } catch (e) {
+      if (!isApiHandledError(e)) {
+        if (errorEl) errorEl.textContent = __('forgot.network_error');
+      }
+    }
+}
+
+async function verifyForgotCode() {
+  const code = document.getElementById('forgotCode')?.value?.trim();
+  const errorEl = document.getElementById('forgotCodeError');
+
+  if (!code || code.length !== 6) {
+    if (errorEl) errorEl.textContent = __('forgot.enter_code');
+    return;
+  }
+
+  if (errorEl) errorEl.textContent = '';
+
+  try {
+    const res = await api('/api/auth/verify-reset-code', {
+      method: 'POST',
+      body: { token: resetToken, code }
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      document.getElementById('forgotStep2')?.classList.add('d-none');
+      document.getElementById('forgotStep3')?.classList.remove('d-none');
+      const titleEl = document.getElementById('forgotModalTitle'); if (titleEl) titleEl.textContent = __('forgot.set_new_password');
+    } else {
+      if (errorEl) errorEl.textContent = data.error || __('forgot.verify_failed');
+      if (data.expired) {
+        backToStep1();
+        toast(__('forgot.code_expired'), 'info');
+      }
+    }
+  } catch (e) {
+    if (!isApiHandledError(e)) {
+      if (errorEl) errorEl.textContent = __('forgot.network_error');
+    }
+  }
+}
+
+async function resetPassword() {
+  const newPassword = document.getElementById('forgotNewPassword')?.value;
+  const code = document.getElementById('forgotCode')?.value?.trim();
+  const errorEl = document.getElementById('forgotPasswordError');
+
+  if (!newPassword) {
+    if (errorEl) errorEl.textContent = __('forgot.enter_new_password');
+    return;
+  }
+
+  const strength = validatePasswordStrength(newPassword);
+  if (!strength.valid) {
+    if (errorEl) errorEl.textContent = strength.errors.join(' ');
+    return;
+  }
+
+  if (errorEl) errorEl.textContent = '';
+
+  try {
+    const res = await api('/api/auth/reset-password', {
+      method: 'POST',
+      body: { token: resetToken, code, newPassword }
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      closeForgotPassword();
+      toast(data.message, 'success');
+    } else {
+      if (errorEl) errorEl.textContent = data.error || __('forgot.reset_failed');
+      if (data.expired) {
+        backToStep1();
+        toast(__('forgot.link_expired'), 'info');
+      }
+    }
+  } catch (e) {
+    if (!isApiHandledError(e)) {
+      if (errorEl) errorEl.textContent = __('forgot.network_error');
+    }
   }
 }

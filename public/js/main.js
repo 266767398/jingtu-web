@@ -1,87 +1,164 @@
 // ==================== 入口主模块 ====================
 
 function validatePasswordStrength(pwd) {
-  return pwd && pwd.length >= 8 && /[a-z]/.test(pwd) && /[A-Z]/.test(pwd) && /\d/.test(pwd) && /[^a-zA-Z0-9]/.test(pwd);
+  // 与后端 auth.js 及 setup.html 保持一致：长度 8+，同时包含大小写字母与数字，不强制要求符号
+  return pwd && pwd.length >= 8 && /[a-z]/.test(pwd) && /[A-Z]/.test(pwd) && /\d/.test(pwd);
+}
+
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function playNotificationSound() {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+    oscillator.frequency.setValueAtTime(1100, audioCtx.currentTime + 0.1);
+    oscillator.frequency.setValueAtTime(1320, audioCtx.currentTime + 0.2);
+    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+    oscillator.start(audioCtx.currentTime);
+    oscillator.stop(audioCtx.currentTime + 0.3);
+  } catch {}
+}
+
+let _notificationPermissionRequested = false;
+
+function showBrowserNotification(title, message) {
+  if (!('Notification' in window) || !currentUser) return;
+  if (Notification.permission === 'denied') return;
+  if (Notification.permission !== 'granted') {
+    if (!_notificationPermissionRequested) {
+      _notificationPermissionRequested = true;
+      Notification.requestPermission();
+    }
+    return;
+  }
+  try {
+    new Notification(title, {
+      body: message,
+      icon: '/assets/group-avatar.png',
+      badge: '/assets/group-avatar.png',
+      tag: 'jingtu-notification',
+      requireInteraction: false
+    });
+  } catch {}
 }
 
 async function init() {
-  // 初始化粒子背景
   initLoginParticles();
-
-  // 初始化国际化
   initI18n();
-
-  // 初始化主题
   initTheme();
 
-  // 显示"正在检查登录状态"
+  // 预取前端运行环境配置（含 WebSocket 地址，支持环境变量 WS_URL 自定义）。
+  // 不阻塞首屏：失败则前端自动按当前协议探测 ws/wss。
+  fetch('/api/client-config')
+    .then(r => r.ok ? r.json() : null)
+    .then(cfg => { if (cfg && cfg.wsUrl) window.__WS_URL__ = cfg.wsUrl; })
+    .catch(() => {});
+
   const loginLoading = document.getElementById('loginLoading');
   if (loginLoading) loginLoading.style.display = 'block';
 
   try {
-    //⭐ 先检测数据库是否有用户
-    const initCheck = await api('/api/auth/check-init', { method: 'GET' });
+    const initCheck = await api('/api/auth/init', { method: 'GET' });
+    let hasUser = true;
     if (initCheck.ok) {
-      const { hasUser } = await initCheck.json();
-      if (!hasUser) {
-        // 无用户 → 先 showLogin（设置密码模式），再覆盖为初始化模式
-        showLogin();
-        document.getElementById('loginModePassword')?.classList.add('d-none');
-        document.getElementById('loginModeVrc')?.classList.add('d-none');
-        document.getElementById('loginModeInit')?.classList.remove('d-none');
-        switchLoginMode('init');
-        updateLoginTabsVisibility();
-        if (loginLoading) loginLoading.style.display = 'none';
-        // 无用户时跳过 auto login 检查，直接继续到 bindEvents()
-        bindEvents();
-        return;
+      try {
+        const data = await initCheck.json();
+        hasUser = !data.needInit;
+      } catch {
+        hasUser = true;
       }
     }
-    // 有用户 → 正常检查登录状态
-    const isAutoLogged = await checkAutoLogin();
-    if (!isAutoLogged) {
-      showLogin();
+
+    if (!hasUser) {
+      document.getElementById('loginModePassword')?.classList.add('d-none');
+      document.getElementById('loginModeVrc')?.classList.add('d-none');
+      document.getElementById('loginModeInit')?.classList.remove('d-none');
+      switchLoginMode('init');
+      updateLoginTabsVisibility();
+      startInitWizard();
+      bindEvents();
+      return;
     }
-  } catch (err) {
+
+    document.getElementById('loginModeInit')?.classList.add('d-none');
+
+    // 先尽快展示首页骨架与公开内容，避免被登录态/Me接口阻塞 5 秒白屏。
+    // 登录态恢复后在 showApp 里补头像、问候、WebSocket 等私有 UI。
+    document.getElementById('appHeader')?.classList.remove('d-none');
+    document.getElementById('heroSection')?.classList.remove('d-none');
+    document.getElementById('mainContainer')?.classList.remove('d-none');
+    document.getElementById('appFooter')?.classList.remove('d-none');
+    bindEvents();
+    if (activeTab === 'home') switchTab('home', true);
+
+    // 登录态检查不再阻塞首屏渲染
+    checkAutoLogin().then(isAutoLogged => {
+      if (isAutoLogged) {
+        showApp();
+      } else {
+        showLogin();
+      }
+    }).catch(() => showLogin()).finally(() => {
+      if (loginLoading) loginLoading.style.display = 'none';
+    });
+  } catch {
+    document.getElementById('loginModeInit')?.classList.add('d-none');
     showLogin();
-  } finally {
     if (loginLoading) loginLoading.style.display = 'none';
   }
 
-  bindEvents();
-
-  // 启动定时刷新（交错执行避免同时请求）
+  // 启动定时刷新（P2-22：合帧节流 + 仅可见 Tab 刷新）
+  // - 合帧：同一帧内的多次触发合并为一次（_refreshScheduled 防抖），并限制最小间隔避免抖动。
+  // - 仅可见：只刷新当前 activeTab，后台 Tab 不再无意义轮询（切换 Tab 时 switchTab 会全量加载该 Tab）。
   let refreshTimer = null;
-  let refreshQueue = ['home', 'members', 'announcements', 'events', 'album'];
-  let refreshIdx = 0;
+  let _refreshScheduled = false;
+  let _lastRefreshAt = 0;
+  const REFRESH_MIN_GAP = 3000; // 最小刷新间隔，避免频繁触发（如切前台 + 定时器叠加）
 
-  function doStaggeredRefresh() {
+  function runRefresh() {
     if (!currentUser) return;
-    const tab = refreshQueue[refreshIdx % refreshQueue.length];
-    refreshIdx++;
-    if (tab === 'home') { if (activeTab === 'home') loadHome(); }
-    else if (tab === 'members') loadMembers();
-    else if (tab === 'announcements') loadAnnouncements();
-    else if (tab === 'events') loadEvents(currentEvtStatus);
-    else if (tab === 'album') loadAlbum();
-    // 如果当前在地图Tab，每次刷新后也更新地图标记
-    if (activeTab === 'map' && typeof updateMapMarkers === 'function') {
-      setTimeout(updateMapMarkers, 500);
-    }
+    const now = Date.now();
+    if (now - _lastRefreshAt < REFRESH_MIN_GAP) return;
+    _lastRefreshAt = now;
+    // 路由模块为懒加载，未就绪时对应渲染函数尚不存在；用 typeof 守卫避免 ReferenceError
+    const tab = activeTab;
+    if (tab === 'home' && typeof loadHome === 'function') loadHome();
+    else if (tab === 'members' && typeof loadMembers === 'function') loadMembers();
+    else if (tab === 'announcements' && typeof loadAnnouncements === 'function') loadAnnouncements();
+    else if (tab === 'events' && typeof loadEvents === 'function') loadEvents(currentEvtStatus);
+    else if (tab === 'album' && typeof loadAlbum === 'function') loadAlbum();
+    else if (tab === 'map' && typeof updateMapMarkers === 'function') updateMapMarkers();
   }
 
-  setTimeout(doStaggeredRefresh, 30000);
-  refreshTimer = setInterval(doStaggeredRefresh, 75000);
+  // 合帧调度：同一轮事件循环 / 帧内的多次触发只执行一次，避免交错刷新扎堆发请求
+  function scheduleRefresh() {
+    if (_refreshScheduled) return;
+    _refreshScheduled = true;
+    const flush = function () { _refreshScheduled = false; runRefresh(); };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
+    else setTimeout(flush, 16);
+  }
 
-  // 后台标签页暂停定时刷新（节省性能）
+  setTimeout(scheduleRefresh, 30000);
+  refreshTimer = setInterval(scheduleRefresh, 75000);
+
+  // 后台标签页暂停定时刷新（节省性能）；回到前台合帧刷新一次
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       clearInterval(refreshTimer);
       refreshTimer = null;
     } else {
       if (!refreshTimer) {
-        doStaggeredRefresh(); // 回到前台立刻刷新一次
-        refreshTimer = setInterval(doStaggeredRefresh, 75000);
+        scheduleRefresh(); // 回到前台立刻合帧刷新一次
+        refreshTimer = setInterval(scheduleRefresh, 75000);
       }
     }
   });
@@ -92,17 +169,41 @@ let wsClient = null;
 let wsReconnectTimer = null;
 let wsReconnectAttempts = 0;
 let wsPingTimer = null; // 客户端 ping 保活
-const WS_MAX_RECONNECT = 10;
-const WS_PING_INTERVAL = 25000; // 25 秒一次 ping 防止服务端断连
+const WS_MAX_RECONNECT = 3;       // 短周期快速重连次数（指数退避）
+const WS_LONG_BACKOFF = 30000;    // 长周期探测间隔：重连耗尽后每 30s 试探一次，网络恢复即重连
+const WS_PING_INTERVAL = 25000;   // 25 秒一次 ping 防止服务端断连
 let onlineUsersList = [];
+let wsLongBackoff = false;         // 进入长周期探测模式（不再刷屏，但仍会尝试恢复）
+let wsEverOpened = false;          // 本次会话是否已成功建立过 WS 连接（用于区分认证失败与正常断线）
+
+// 解析 WebSocket 地址：优先使用后端注入的环境变量 window.__WS_URL__（支持部署环境自定义），
+// 否则按当前协议自动选择 ws/wss 并复用当前 host。
+// 重要：必须使用 location.host（与页面同源），否则浏览器不会携带会话 cookie(connect.sid)，
+// WS 升级会被 ws_service 的 verifyClient 以 401 拒绝。
+// 早期 Windows 下 localhost 优先解析为 ::1(IPv6)，若反代仅监听 IPv4 会握手失败；
+// 现已在 nginx 开启双栈监听（listen 80 + listen [::]:80），localhost 经 ::1 可达，无需再改写为 127.0.0.1。
+// §31 规范化：若用户手输 127.0.0.1 访问（绕过 nginx 直连 Node），为与「经 localhost(nginx) 登录」建立的
+// 会话 cookie 同源，将 WebSocket 目标改写回 localhost（走 nginx 反代 /ws）。否则 127.0.0.1 与 localhost
+// 的 host-only cookie 不互通，verifyClient 会因无会话返回 401、浏览器报 "WebSocket connection failed"。
+function resolveWsUrl() {
+  if (window.__WS_URL__) return window.__WS_URL__;
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  let host = location.host;
+  if (location.hostname === '127.0.0.1') {
+    // 统一到 localhost 标准入口（nginx 80 端口反代），与登录会话同源
+    host = location.port && location.port !== '80' ? `localhost:${location.port}` : 'localhost';
+  }
+  return `${protocol}//${host}/ws`;
+}
 
 function connectWebSocket() {
-  if (wsClient && wsClient.readyState === WebSocket.OPEN) return;
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${location.host}/ws`;
+  if (wsClient && (wsClient.readyState === WebSocket.OPEN || wsClient.readyState === WebSocket.CONNECTING)) return;
+  const wsUrl = resolveWsUrl();
   wsClient = new WebSocket(wsUrl);
   wsClient.onopen = () => {
     wsReconnectAttempts = 0;
+    wsLongBackoff = false; // 连接成功，退出长周期探测模式
+    wsEverOpened = true;   // §31：标记已成功建立，区分认证失败与正常断线
     // 启动客户端 ping 保活
     clearInterval(wsPingTimer);
     wsPingTimer = setInterval(() => {
@@ -126,15 +227,31 @@ function connectWebSocket() {
       const msg = JSON.parse(e.data);
       if (msg.type === 'online_users') {
         onlineUsersList = msg.users || [];
-        document.getElementById('heroOnline').textContent = msg.count || 0;
-        document.getElementById('headerOnline').textContent = `${__('main.online_count', {n: msg.count || 0})}`;
+        // 只更新数字本身，不要给外层容器写 textContent —— 那样会把内部的数字节点
+        // 整个删掉，下一条消息取不到元素而抛错，异常又被这里的 try 吞掉，
+        // 在线人数就会永久停在第一次的数值。
+        // 顶栏那个__('auto_main_4')已因与统计条重复而移除，实时数字现在落在统计条上；
+        // 群组标签的角标由 updateGroupBadge 负责，这里一并刷新以保持跨标签可见。
+        const onlineEl = document.getElementById('dashOnline');
+        if (onlineEl) {
+          onlineEl.textContent = msg.count || 0;
+          onlineEl.classList.remove('skeleton-stat');
+        }
+        if (typeof updateGroupBadge === 'function') updateGroupBadge(msg.count || 0);
       }
       if (msg.type === 'new_notification' && msg.notification) {
         const n = msg.notification;
         // 刷新通知列表（如果打开则自动更新）
         if (typeof loadNotifications === 'function') loadNotifications();
         // 显示 toast 提示（除非用户当前在通知面板中）
-        toast(`🔔 ${n.title}`, 'info', 5000);
+        const notifPanel = document.getElementById('notificationPanel');
+        if (!notifPanel || !notifPanel.classList.contains('show')) {
+          toast(`🔔 ${n.title}`, 'info', 5000);
+        }
+        // 播放通知音效（如果用户开启了通知声音）
+        playNotificationSound();
+        // 浏览器桌面通知（如果用户开启了浏览器通知）
+        showBrowserNotification(n.title, n.message);
       }
       // V6.11: 实时位置更新
       if ((msg.type === 'location:update' || msg.type === 'location:stop') && typeof handleLocationMessage === 'function') {
@@ -151,51 +268,82 @@ function connectWebSocket() {
       if (msg.type === 'group:new' || msg.type === 'group:location:update' || msg.type === 'group:location:stop') {
         if (typeof handleChatMessage === 'function') handleChatMessage(msg);
       }
+      // V6.14: 群组 VRChat 成员在线状态实时同步（加入/离开/上下线）
+      if (msg.type === 'group:roster_update' && typeof applyRosterUpdate === 'function') {
+        applyRosterUpdate(msg);
+      }
     } catch {}
   };
-  wsClient.onclose = () => {
+  wsClient.onclose = (ev) => {
+    clearInterval(wsPingTimer);
+    // §31：若连接从未成功建立（onopen 未触发）即被关闭，通常是 verifyClient 因
+    // 「会话 cookie 缺失/不同源」返回 401。已登录用户遇到此情况多为访问入口
+    // （127.0.0.1 直连 vs localhost 经 nginx）与登录入口不一致导致 cookie 不互通，
+    // 提示重新登录以重建同源会话，而不是静默失败。
+    if (!wsEverOpened && currentUser && typeof toast === 'function') {
+      toast(__('main.ws_auth_failed') || __('auto_main_5'), 'warn', 5000);
+    }
     if (wsReconnectAttempts < WS_MAX_RECONNECT) {
       wsReconnectAttempts++;
       const delay = Math.min(1000 * Math.pow(2, wsReconnectAttempts - 1), 30000);
       wsReconnectTimer = setTimeout(connectWebSocket, delay);
+    } else {
+      // 短周期重连耗尽后进入长周期探测模式：每 WS_LONG_BACKOFF 试探一次，
+      // 网络恢复即可自动重连，不再永久停止（避免__('auto_main_6')的死状态）。
+      if (!wsLongBackoff) {
+        wsLongBackoff = true;
+        console.warn(__('auto_main_7') + (WS_LONG_BACKOFF / 1000) + __('auto_main_8'));
+      }
+      wsReconnectTimer = setTimeout(connectWebSocket, WS_LONG_BACKOFF);
     }
   };
-  wsClient.onerror = () => { wsClient?.close(); };
+  wsClient.onerror = () => {
+    // 握手失败（如 401 未认证）浏览器只报 generic error，无法读取状态码；
+    // 真正的原因将由上面的 onclose(!wsEverOpened) 提示。
+    wsClient?.close();
+  };
 }
 
 // 点击在线人数展示在线成员列表
 function showOnlineUsers() {
-  const count = parseInt(document.getElementById('heroOnline')?.textContent) || 0;
+  // 以 WS 推来的实际名单为准，而不是去读某个 DOM 元素的文字：
+  // 读 DOM 会把__('auto_main_9')解析成 0，导致列表明明有人却提示__('auto_main_10')。
+  const count = Array.isArray(onlineUsersList) ? onlineUsersList.length : 0;
   if (count === 0) { toast(__('group.no_online'), 'info'); return; }
   const html = onlineUsersList.map(u => {
     const userId = typeof u.userId === 'number' ? u.userId : `'${esc(String(u.userId))}'`;
     const avatarSrc = u.avatarUrl ? escAttr(u.avatarUrl) : '/api/avatar/default';
-    const displayName = esc(u.displayName || '${__('main.unknown_user')}');
+    const displayName = esc(u.displayName || __('main.unknown_user'));
     const isMe = u.userId === currentUser?.id;
     const clickHandler = !isMe ? `goToProfile(${userId})` : '';
     return `
     <div class="online-user-popup-item" style="${!isMe ? 'cursor:pointer' : ''}" onclick="${clickHandler ? `goToProfile(${userId})` : ''}">
       <img src="${avatarSrc}" class="online-user-popup-avatar" loading="lazy">
       <span class="online-user-popup-name">${displayName}</span>
-      ${isMe ? '<span class="text-muted2 text-11">${__('main.me')}</span>' : ''}
+      ${isMe ? '<span class="text-muted2 text-11">' + __('main.me') + '</span>' : ''}
       <span class="online-user-popup-dot" title="${__('main.online')}" aria-label="${__('main.online')}"></span>
     </div>`;
   }).join('');
-  // 使用通用的 showModal 弹窗模式
-  const modal = document.getElementById('onlineUsersModal') || (() => {
-    const m = document.createElement('div');
-    m.id = 'onlineUsersModal';
-    m.className = 'modal';
-    m.innerHTML = `<div class="modal-content" style="max-width:380px">
-      <h3>${__('main.online_users')} <span id="onlineUsersCount" class="text-accent"></span></h3>
+  // 弹窗按需创建。这里原本写成
+  //   getElementById(...) || {style:{},querySelector:()=>null} || (() => { ...创建... })()
+  // 中间那个对象字面量恒为真，短路后真正负责创建弹窗的 IIFE 永远不会执行，
+  // 于是下一行取 #onlineUsersCount 拿到 null，抛 "Cannot set properties of null"，
+  // 表现就是点「在线」完全没反应。
+  let modal = document.getElementById('onlineUsersModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'onlineUsersModal';
+    modal.className = 'modal';
+    modal.innerHTML = `<div class="modal-content" style="max-width:380px">
+      <h3 class="section-title">${__('main.online_users')} <span id="onlineUsersCount" class="text-accent"></span></h3>
       <div id="onlineUsersBody" class="online-users-body"></div>
       <div class="modal-actions"><button class="btn" onclick="closeModal('onlineUsersModal')">${__('main.close')}</button></div>
     </div>`;
-    document.body.appendChild(m);
-    return m;
-  })();
-  document.getElementById('onlineUsersCount').textContent = count;
-  const body = document.getElementById('onlineUsersBody');
+    document.body.appendChild(modal);
+  }
+  const countEl = modal.querySelector('#onlineUsersCount');
+  if (countEl) countEl.textContent = count;
+  const body = modal.querySelector('#onlineUsersBody');
   if (body) body.innerHTML = html;
   showModal('onlineUsersModal');
 }
@@ -218,6 +366,17 @@ function bindEvents() {
   if (oldClickHandler) document.removeEventListener('click', oldClickHandler);
 
   window._mainClickHandler = (e) => {
+    // 动态图片点击（事件委托）
+    const postImg = e.target.closest('.post-media-img');
+    if (postImg && typeof showPostMediaViewer === 'function') {
+      const postId = parseInt(postImg.dataset.postId);
+      const idx = parseInt(postImg.dataset.idx);
+      if (!isNaN(postId) && !isNaN(idx)) {
+        showPostMediaViewer(postId, idx);
+        return;
+      }
+    }
+
     // 主题面板外部点击${__('main.close')}
     const themePanel = document.getElementById('themePanel');
     const themeBtn = document.getElementById('themeBtn');
@@ -237,9 +396,10 @@ function bindEvents() {
     // 用户菜单外部点击${__('main.close')}
     const userMenu = document.getElementById('userDropdown');
     const userAvatar = document.getElementById('userMenuTrigger');
-    if (userMenu && userMenu.style.display === 'block' &&
+    if (userMenu && isElVisible(userMenu) &&
         !userMenu.contains(e.target) && e.target !== userAvatar && !userAvatar?.contains(e.target)) {
-      userMenu.style.display = 'none';
+      // 走 hideUserMenu 而不是直接改 style，才能同步 aria-expanded 和键盘监听
+      if (typeof hideUserMenu === 'function') hideUserMenu(); else userMenu.classList.add('d-none');
     }
   };
   document.addEventListener('click', window._mainClickHandler);
@@ -253,18 +413,26 @@ function bindEvents() {
   });
 
   // 返回顶部按钮（避免重复添加监听器）
-  const backToTopBtn = document.getElementById('backToTopBtn');
-  if (backToTopBtn) {
+  const scrollTopBtn = document.getElementById('scrollTopBtn');
+  if (scrollTopBtn) {
     if (window._backToTopHandler) window.removeEventListener('scroll', window._backToTopHandler);
     window._backToTopHandler = function() {
       if (window.scrollY > 300) {
-        backToTopBtn.classList.add('visible');
+        scrollTopBtn.classList.add('show');
       } else {
-        backToTopBtn.classList.remove('visible');
+        scrollTopBtn.classList.remove('show');
       }
     };
     window.addEventListener('scroll', window._backToTopHandler);
   }
+
+  // 标签切换时滚动到顶部（通过 addEventListener 绑定，不覆盖 onclick）
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', function() {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
 
   // 头像文件输入监听
   const avatarFileInput = document.getElementById('meAvatarUpload');
@@ -281,10 +449,11 @@ function bindEvents() {
   if (albumUpload) {
     albumUpload.addEventListener('change', (e) => {
       if (e.target.files && e.target.files.length) {
+        const cateId = parseInt(document.getElementById('albumCate')?.value || 1);
         for (let i = 0; i < e.target.files.length; i++) {
-          uploadPhoto(e.target.files[i], '', null);
+          uploadPhoto(e.target.files[i], '', cateId);
         }
-        e.target.value = ''; // 重置input，允许重复选择相同文件
+        e.target.value = '';
       }
     });
   }
@@ -295,10 +464,11 @@ function bindEvents() {
     evtPhotoUpload.addEventListener('change', (e) => {
       if (e.target.files && e.target.files.length) {
         const eventId = window._currentEventId;
+        const cateId = parseInt(document.getElementById('albumCate')?.value || 1);
         for (let i = 0; i < e.target.files.length; i++) {
-          uploadPhoto(e.target.files[i], '', null, eventId);
+          uploadPhoto(e.target.files[i], '', cateId, eventId);
         }
-        e.target.value = ''; // 重置input，允许重复选择相同文件
+        e.target.value = '';
       }
     });
   }
@@ -316,7 +486,6 @@ function bindEvents() {
       if (e.key === 'Enter') sendVrcLoginCode();
     });
   }
-  // VRChat 用户名输入框 Enter 也触發发送验证码
   const loginVrcUser = document.getElementById('loginVrcUser');
   if (loginVrcUser) {
     loginVrcUser.addEventListener('keydown', (e) => {
@@ -369,7 +538,7 @@ async function globalSearchDo(query) {
         ...(data.users || []).map(u => ({ ...u, type: 'members' }))
       ];
       if (results.length === 0) {
-        container.innerHTML = '<div class="text-muted text-12 p-12 text-center">${__('main.no_results')}</div>';
+        container.innerHTML = '<div class="text-muted text-12 p-12 text-center">' + __('main.no_results') + '</div>';
       } else {
         container.innerHTML = results.slice(0, 10).map(r =>
         `<div class="search-result-item" onmousedown="searchBlurBlocked=true" onclick="searchBlurBlocked=false;switchTab('${r.type}');hideSearchResults()">
@@ -381,7 +550,7 @@ async function globalSearchDo(query) {
       }
       container.style.display = 'block';
     }
-  } catch { container.innerHTML = '<div class="text-muted text-12 p-8">${__('main.search_failed')}</div>'; }
+  } catch { container.innerHTML = '<div class="text-muted text-12 p-8">' + __('main.search_failed') + '</div>'; }
 }
 
 function hideSearchResults() {
@@ -409,7 +578,7 @@ function bindGroupImageUploads() {
             // 更新对应预览图
             const imgId = type === 'avatar' ? 'adminAvatar' : type === 'banner' ? 'adminBanner' : 'adminHero';
             const img = document.getElementById(imgId);
-            if (img) { img.src = data.url; img.style.display = ''; }
+            if (img) { img.src = data.url; img.classList.remove('d-none'); }
             toast(__('main.group_updated', {type: (type === 'avatar' ? __('global.avatar') : type === 'banner' ? __('global.banner') : __('global.cover'))}), 'success');
           }
         } catch (err) { if (isApiHandledError(err)) return; toast(__('main.upload_failed') + ': ' + err.message, 'error'); }
@@ -421,6 +590,8 @@ function bindGroupImageUploads() {
 
 // ==================== 活动报名 ====================
 async function signEvent(eventId) {
+  const d = window._currentEventDetail;
+  if (d && parseInt(d.id) === parseInt(eventId) && d.ended) { toast(__('events.ended_no_operate'), 'error'); return; }
   showConfirm(__('main.confirm_signup'), async () => {
     try {
       const res = await api(`/api/events/${eventId}/sign`, { method: 'POST' });
@@ -434,6 +605,8 @@ async function signEvent(eventId) {
 }
 
 async function unsignEvent(eventId) {
+  const d = window._currentEventDetail;
+  if (d && parseInt(d.id) === parseInt(eventId) && d.ended) { toast(__('events.ended_no_operate'), 'error'); return; }
   showConfirm(__('main.confirm_cancel_signup'), async () => {
     try {
       const res = await api(`/api/events/${eventId}/unsign`, { method: 'POST' });
@@ -447,9 +620,48 @@ async function unsignEvent(eventId) {
 }
 
 // ==================== 照片上传（逻辑，支持进度条） ====================
-async function uploadPhoto(file, caption = '', albumId = null, eventId = null) {
+// 客户端图片压缩（P1: images-media 技能）——上传前用 canvas 压缩，降低流量与耗时；失败则回退原图
+async function compressImageFile(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = function () {
+      URL.revokeObjectURL(objectUrl);
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (w > maxDim || h > maxDim) {
+        const scale = maxDim / Math.max(w, h);
+        w = Math.round(w * scale); h = Math.round(h * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(function (blob) {
+        if (!blob) return reject(new Error(__('common.canvas_blob_empty')));
+        resolve(blob);
+      }, 'image/jpeg', quality);
+    };
+    img.onerror = function () { URL.revokeObjectURL(objectUrl); reject(new Error(__('common.image_decode_failed'))); };
+    img.src = objectUrl;
+  });
+}
+
+async function uploadPhoto(file, caption = '', cateId = null, eventId = null) {
   if (!file) return;
   if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) { toast(__('main.select_media'), 'error'); return; }
+
+  // 上传前体积预校验（与服务端 multer limits 对齐：album 上传上限 500MB）
+  const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+  if (file.size > MAX_UPLOAD_BYTES) {
+    toast(__('main.file_too_large', { size: '500MB' }), 'error');
+    return;
+  }
+  // 友好提示：图片 >80MB 会先经客户端压缩；超大文件提醒用户网络耗时
+  if (file.type.startsWith('image/') && file.size > 80 * 1024 * 1024) {
+    toast(__('main.image_compressing'), 'info');
+  }
 
   // 显示进度条
   const progressWrap = document.getElementById('uploadProgress');
@@ -460,31 +672,44 @@ async function uploadPhoto(file, caption = '', albumId = null, eventId = null) {
 
   if (progressWrap) progressWrap.classList.remove('d-none');
   if (progressWrap) progressWrap.classList.add('active');
-  if (progressText) progressText.textContent = '${__('main.uploading')}';
+  if (progressText) progressText.textContent = __('main.uploading');
   if (progressPercent) progressPercent.textContent = '0%';
   if (progressFill) progressFill.style.width = '0%';
   if (progressFile) progressFile.textContent = file.name;
 
+  // 图片先尝试客户端压缩（视频与压缩失败均回退原文件）
+  let uploadFile = file;
+  if (file.type && file.type.startsWith('image/')) {
+    try {
+      const compressed = await compressImageFile(file, 1920, 0.85);
+      if (compressed && compressed.size < file.size) uploadFile = compressed;
+    } catch (e) {
+      uploadFile = file;
+    }
+  }
   const formData = new FormData();
-  formData.append('photo', file);
+  formData.append('photo', uploadFile, file.name);
   if (caption) formData.append('caption', caption);
-  if (albumId) formData.append('albumId', albumId);
+  if (cateId) formData.append('cateId', cateId);
   if (eventId) formData.append('eventId', eventId);
   try {
-    const res = await uploadWithProgress('/api/upload', formData, function(percent) {
+    const res = await uploadWithProgress('/api/album/upload', formData, function(percent) {
       if (progressPercent) progressPercent.textContent = percent + '%';
       if (progressFill) progressFill.style.width = percent + '%';
-      if (progressText) progressText.textContent = percent < 100 ? '${__('main.uploading')}' : '${__('main.processing')}';
+      if (progressText) progressText.textContent = percent < 100 ? __('main.uploading') : __('main.processing');
     });
     if (res.ok) {
       const data = await res.json();
       var isVideo = data.mediaType === 'video';
       toast(isVideo ? __('global.video_uploaded') : __('main.photo_uploaded'), 'success');
-      loadAlbum();
+      if (typeof loadAlbum === 'function') loadAlbum();
       // 如果在活动详情弹窗里，重新加载活动照片
       if (eventId && typeof loadEventPhotos === 'function') {
         setTimeout(function() { loadEventPhotos(eventId); }, 300);
       }
+    } else {
+      const data = await res.json().catch(() => ({}));
+      toast(data.error || __('main.upload_failed'), 'error');
     }
   } catch (err) {
     if (isApiHandledError(err)) return;
@@ -497,4 +722,29 @@ async function uploadPhoto(file, caption = '', albumId = null, eventId = null) {
 // ==================== DOMContentLoaded ====================
 document.addEventListener('DOMContentLoaded', () => {
   init();
+  // 数据库可用性自检：若当前 MySQL 不可达，先探测 .env 是否缺失/损坏——
+  //  .env 缺失或缺少必需项 → 跳「配置向导」重新填写 .env（自动备份原文件）
+  //  .env 正常仅数据库不可达 → 跳「数据库连接恢复」页（脱离登录即可重连）
+  // 已在恢复页 / 配置向导 / 迁移页时不重复跳转；网络异常（服务未起）也不跳，避免误伤。
+  if (!['/db-recover.html', '/setup.html', '/migration.html'].includes(window.location.pathname)) {
+    fetch('/api/system/db-status', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && d.ok === false) {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 5000);
+          return fetch('/api/setup/check', { credentials: 'include', signal: controller.signal })
+            .then((r) => (r.ok ? r.json() : null))
+            .finally(() => clearTimeout(timer))
+            .then((st) => {
+              if (st && (st.configured === false || st.envValid === false)) {
+                window.location.href = '/setup.html';
+              } else {
+                window.location.href = '/db-recover.html';
+              }
+            });
+        }
+      })
+      .catch(() => {});
+  }
 });

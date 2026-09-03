@@ -1,0 +1,1030 @@
+/* ====================================================
+   境途同游 — 设计系统统一层 (Design System v1.0)
+
+   目标：收敛全站按钮 / 表单 / 卡片 / 弹窗的视觉与交互差异，
+   参照 Discord 与 VRChat 的界面语言：
+     · 深色优先、低饱和背景 + 高饱和强调色
+     · 中等圆角（8px 控件 / 16px 卡片），不用极端圆角
+     · 悬停靠背景与轻微位移表达，不靠粗描边
+     · 焦点态始终可见（键盘可达性）
+     · 过渡短促（120–200ms），不做夸张动效
+
+   本文件必须最后加载：其职责就是覆盖历史遗留的冲突定义。
+   历史问题（本次收敛的对象）：
+     · .btn 基础规则在 04-components / animations / ui-enhance 中定义 7 次，
+       padding（8px16 vs 10px20）与 font-weight（500 vs 600）互相打架
+     · transition:all 与 transform 位移动画抢占同一属性造成抖动
+     · border-radius 出现 13 种硬编码值
+     · .btn-red / .btn-cancel 在 JS 中被使用但从未定义样式
+   ==================================================== */
+
+:root {
+  /* 控件尺寸阶梯：与 Discord 的紧凑型控件比例接近 */
+  --ctl-h-xs: 26px;
+  --ctl-h-sm: 32px;
+  --ctl-h-md: 38px;
+  --ctl-h-lg: 46px;
+
+  /* 圆角阶梯：控件 8px、卡片 16px，避免全站出现 13 种随机值 */
+  --ds-radius-ctl: 8px;
+  --ds-radius-card: 16px;
+  --ds-radius-pill: 9999px;
+
+  /* 统一过渡：只过渡真正会变的属性，避免 transition:all 抢占 transform */
+  --ds-ease: cubic-bezier(0.2, 0, 0.2, 1);
+  --ds-dur: 0.16s;
+
+  /* 焦点环 */
+  --ds-focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+}
+
+/* ==================== 按钮基座 ==================== */
+/* 覆盖此前 3 个文件 7 处互相冲突的 .btn 定义，统一为单一事实来源。
+   注意：本层后加载，.btn 的 display 会压过同特异性的 .xxx-btn{display:none}，
+   因此所有"默认隐藏的按钮"必须在本文件末尾重新声明（见文件底部）。 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--ctl-h-md);
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--ds-radius-ctl);
+  background: var(--card2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  overflow: hidden;
+  /* 明确列出过渡属性：transition:all 会把 transform 也纳入，与位移动画互相抢占 */
+  transition:
+    background-color var(--ds-dur) var(--ds-ease),
+    border-color var(--ds-dur) var(--ds-ease),
+    color var(--ds-dur) var(--ds-ease),
+    box-shadow var(--ds-dur) var(--ds-ease),
+    transform var(--ds-dur) var(--ds-ease);
+}
+
+.btn:hover:not(:disabled):not(.is-disabled) {
+  background: var(--card-hover);
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled):not(.is-disabled) {
+  transform: translateY(0);
+}
+
+/* 焦点仅在键盘导航时可见，鼠标点击不出现焦点环（与 Discord 行为一致） */
+.btn:focus { outline: none; }
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ds-focus-ring);
+}
+
+.btn:disabled,
+.btn.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  filter: saturate(0.6);
+}
+
+/* ==================== 按钮尺寸 ==================== */
+.btn-xs {
+  min-height: var(--ctl-h-xs);
+  padding: 0 10px;
+  font-size: 12px;
+  gap: 4px;
+}
+
+.btn-sm {
+  min-height: var(--ctl-h-sm);
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.btn-lg {
+  min-height: var(--ctl-h-lg);
+  padding: 0 22px;
+  font-size: 15px;
+}
+
+/* 图标按钮：正方形，保证点击区域不塌陷 */
+.btn-icon {
+  padding: 0;
+  width: var(--ctl-h-md);
+  min-width: var(--ctl-h-md);
+  height: var(--ctl-h-md);
+}
+
+.btn-icon.btn-sm {
+  width: var(--ctl-h-sm);
+  min-width: var(--ctl-h-sm);
+  height: var(--ctl-h-sm);
+}
+
+/* ==================== 按钮语义变体 ==================== */
+.btn-accent,
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn-accent:hover:not(:disabled),
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent2);
+  border-color: var(--accent2);
+  box-shadow: var(--shadow-glow);
+}
+
+.btn-outline {
+  background: transparent;
+  border-color: var(--border-light);
+  color: var(--text);
+}
+
+.btn-outline:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: var(--accent);
+  color: var(--accent2);
+}
+
+/* .btn-red / .btn-cancel 此前在 JS 中使用却从未定义，
+   导致删除类操作按钮丢失危险色，与普通按钮无异。 */
+.btn-danger,
+.btn-red {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled),
+.btn-red:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--red) 82%, #000);
+  border-color: color-mix(in srgb, var(--red) 82%, #000);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--red) 30%, transparent);
+}
+
+.btn-cancel,
+.btn-text {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text2);
+}
+
+.btn-cancel:hover:not(:disabled),
+.btn-text:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.btn-success {
+  background: var(--green);
+  border-color: var(--green);
+  color: #0b1a12;
+}
+
+/* .btn-ghost（friends.js 互关徽章等）此前只被 JS 使用却从未定义样式，
+   导致按钮丢失描边与浅底，与原生外观无异。 */
+.btn-ghost {
+  background: var(--card2);
+  border-color: var(--border);
+  color: var(--text2);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* .btn-skip（setup 跳过按钮）此前依赖 setup.html 内联样式，
+   抽到设计系统统一管理，避免内联样式与主题变量脱节。 */
+.btn-skip {
+  background: transparent;
+  border-color: #2a2a3e;
+  color: #6a6a80;
+}
+
+.btn-skip:hover:not(:disabled) {
+  border-color: #3a3a4e;
+  color: #c4c4d4;
+}
+
+/* ==================== 表单控件 ==================== */
+.form-input,
+.search-box,
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+input[type="date"],
+input[type="datetime-local"],
+input[type="search"],
+select,
+textarea {
+  border-radius: var(--ds-radius-ctl);
+  transition:
+    border-color var(--ds-dur) var(--ds-ease),
+    box-shadow var(--ds-dur) var(--ds-ease),
+    background-color var(--ds-dur) var(--ds-ease);
+}
+
+.form-input:focus,
+.search-box:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+/* 标签现已通过 for 关联控件，指针样式提示其可点击聚焦 */
+.form-group > label,
+label[for] {
+  cursor: pointer;
+}
+
+/* 通用小工具类 */
+.w-auto { width: auto !important; }
+.align-center { align-items: center; }
+
+/* ==================== 卡片与弹窗圆角统一 ==================== */
+.card,
+.modal-content {
+  border-radius: var(--ds-radius-card);
+}
+
+/* 登录遮罩与模态层允许纵向滚动：内容过高时移动端不会因 overflow:hidden 无法滚动 */
+.login-overlay,
+.modal {
+  overflow-y: auto;
+}
+
+/* 小屏上卡片圆角收窄，避免圆角吃掉本就紧张的内容宽度。
+   本层最后加载，若不显式重申会覆盖掉 ui-enhance 中的同名移动端规则。 */
+@media (max-width: 640px) {
+  .card,
+  .modal-content {
+    border-radius: 10px;
+  }
+}
+
+/* ==================== 键盘可达性 ==================== */
+/* 任何可交互元素都必须有可见焦点，否则纯键盘用户会"丢失光标" */
+a:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible,
+.tab:focus-visible,
+.modal-close:focus-visible,
+summary:focus-visible {
+  outline: none;
+  box-shadow: var(--ds-focus-ring);
+  border-radius: var(--ds-radius-ctl);
+}
+
+/* ==================== 移动端一致性 ==================== */
+/* 移动端「全部功能」菜单项已由 div 改为 button（div 无法聚焦、不响应回车/空格，
+   而它是移动端访问成员/群组/公告/生日/相册/收藏夹/地图的唯一入口）。
+   button 不继承页面字体，必须显式声明，否则会退回浏览器默认字体。 */
+.mobile-tab-item,
+.mobile-tab-bar-item,
+.mobile-tab-close {
+  font-family: inherit;
+}
+
+@media (max-width: 768px) {
+  /* 触摸目标不小于 44px（WCAG 2.5.5 / Apple HIG） */
+  .btn {
+    min-height: 44px;
+  }
+
+  .btn-sm {
+    min-height: 40px;
+  }
+
+  .btn-xs {
+    min-height: 34px;
+  }
+
+  .btn-icon {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .btn-icon.btn-sm {
+    width: 40px;
+    min-width: 40px;
+    height: 40px;
+  }
+
+  /* 移动端表单字号不得小于 16px，否则 iOS Safari 会自动放大页面 */
+  .form-input,
+  .search-box,
+  input[type="text"],
+  input[type="password"],
+  input[type="email"],
+  input[type="number"],
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="search"],
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* 指针设备无悬停能力时，去掉悬停位移（否则触摸后按钮会"粘"在悬停态） */
+@media (hover: none) {
+  .btn:hover:not(:disabled):not(.is-disabled) {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not(.force-anim) .btn,
+  :root:not(.force-anim) .btn:hover:not(:disabled):not(.is-disabled),
+  :root:not(.force-anim) .btn:active:not(:disabled):not(.is-disabled) {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* ====================================================
+   真实浏览器审查修复（桌面 1440×900 / 移动 390×844）
+   以下问题均为 Puppeteer 实拍截图与布局体检发现，
+   而非静态分析推断。
+   ==================================================== */
+
+/* --- 1. 默认隐藏的按钮必须重新声明 ---
+   上面的 .btn{display:inline-flex} 与 .mobile-tab-menu-btn{display:none}
+   特异性相同(0,1,0)，本文件后加载所以 .btn 胜出，
+   结果桌面端也冒出了「☰ 全部功能」按钮，还压住了最后一个「聊天」标签。
+   这类"默认隐藏"的按钮必须在此显式重申。 */
+.mobile-tab-menu-btn {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-tab-menu-btn {
+    display: inline-flex;
+    /* 移动端 .tabs 隐藏后这一行只剩这一个按钮，满宽才不至于留下大片空白 */
+    width: 100%;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+  }
+}
+
+/* --- 2. 按钮绝不允许被 flex 压扁 ---
+   成员卡片里的「查看卡片」被压成 38px 宽的竖条，文字完全糊掉
+   （scrollWidth 57 > clientWidth 38）。按钮是操作入口，
+   宁可让容器换行也不能压缩按钮本身。 */
+.btn {
+  flex-shrink: 0;
+}
+
+/* --- 3. 按钮行在窄屏必须换行 ---
+   群组页一行塞了 6 个按钮，390px 下直接溢出屏幕，
+   「同步 VRChat」被截成「同步 VRCh」、「同步在线状态」被截成「同步在线状」。 */
+@media (max-width: 768px) {
+  .flex-row {
+    flex-wrap: wrap;
+  }
+
+  /* 用于把右侧按钮推到行尾的弹性占位，在换行布局里会撑出一整行空白 */
+  .flex-row > .flex-1:empty {
+    display: none;
+  }
+}
+
+/* --- 4. Hero 文字压在背景大字上，完全不可读 ---
+   背景图本身带有巨大的「境途同游」艺术字，而 .hero-gradient-overlay
+   是 to top 渐变：底部 .7、中部仅 .15。文字用 justify-content:center
+   垂直居中，正好落在遮罩最淡处，于是前景标题与背景艺术字糊成一团。
+   补一层中心暗场 + 背景虚化 + 文字投影，保证任何背景图下都可读。 */
+.hero-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.86) 0%,
+    rgba(0, 0, 0, 0.72) 40%,
+    rgba(0, 0, 0, 0.42) 75%,
+    rgba(0, 0, 0, 0.28) 100%
+  );
+  /* 虚化背后的艺术字，让前景文案成为唯一焦点 */
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.hero-overlay > * {
+  position: relative;
+  z-index: 1;
+}
+
+.hero-overlay h2,
+.hero-overlay .hero-subtitle,
+.hero-overlay .hero-desc,
+.hero-overlay p {
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9), 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+
+/* Hero 统计卡片同样浮在艺术字上，需要自己的背板才能读出数字 */
+
+/* --- 5. 视觉隐藏的 file input 仍占据版面 ---
+   后台的头像/横幅/封面上传 input 在移动端渲染成 303×30 的可见控件，
+   与其外层的自定义上传按钮重复。它们由按钮以编程方式触发，
+   应当彻底移出版面（保留可聚焦性，故不用 display:none）。 */
+#avatarInput,
+#bannerInput,
+#heroInput,
+#albumUpload,
+#meAvatarUpload,
+#profileVideoUpload,
+#evtPhotoUpload,
+#editAvatarInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- 6. 颜色选择器触控目标过小 ---
+   移动端实测 50×27，低于 44px 最小触控尺寸。 */
+input[type="color"] {
+  min-height: var(--ctl-h-md);
+  border-radius: var(--ds-radius-ctl);
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  input[type="color"] {
+    min-height: 44px;
+  }
+}
+
+/* --- 勾选框 / 单选框从未被统一 ---
+   #meLocationVisible 是 <label> 里的裸 checkbox，被拉伸成 1110×13 的细长条；
+   后台的开关是 13×13 的浏览器默认小方块。两者都难以点中，也与暗色主题脱节。
+   注意：.toggle-switch input 特异性为 (0,1,1)，高于此处的 (0,1,0)，
+   自定义滑动开关赖以隐藏原生控件的 width:0 不会被这里覆盖。 */
+input[type="checkbox"],
+input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin: 0 2px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+label:has(> input[type="checkbox"]),
+label:has(> input[type="radio"]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+/* --- 7. 后台用户行的操作按钮组溢出 ---
+   移动端实测 right=395 > 视口 390。 */
+.admin-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* --- 8. 语言切换按钮触控目标过小（实测 82×27） --- */
+#langSwitcherBtn {
+  min-height: var(--ctl-h-sm);
+}
+
+@media (max-width: 768px) {
+  #langSwitcherBtn {
+    min-height: 40px;
+  }
+}
+
+/* --- 9. 分段控件（活动页筛选/视图切换）尺寸与 .btn 对齐 ---
+   实测 evt-view-btn 仅 53×23，evt-status-btn 70×29。 */
+.evt-status-btn,
+.evt-view-btn,
+.group-filter-btn,
+.post-filter-btn {
+  min-height: var(--ctl-h-sm);
+  border-radius: var(--ds-radius-ctl);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .evt-status-btn,
+  .evt-view-btn,
+  .group-filter-btn,
+  .post-filter-btn {
+    min-height: 40px;
+  }
+}
+
+/* --- 10. 成员卡片在窄屏两列排布下内容溢出 ---
+   ui-enhance 把 .member-grid 收窄到 minmax(140px)，390px 视口排 2 列
+   每列仅 177px；而 .member-card 内部是 头像+信息+按钮 的横排，
+   内容实际需要 254px，于是「查看卡片」整个溢出到卡片外面去了。
+   窄屏改单列，卡片才装得下一行操作。 */
+@media (max-width: 480px) {
+  .member-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- 11. 后台用户卡片横排放不下 4 个操作按钮 ---
+   .admin-user-card 是 flex nowrap，移动端操作区右边界 401 > 视口 390。
+   窄屏改为纵向堆叠，操作区自成一行。 */
+@media (max-width: 768px) {
+  .admin-user-card {
+    flex-wrap: wrap;
+  }
+
+  .admin-user-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+/* --- 12. 聊天页工具栏横排溢出（scrollWidth 401 > 366） --- */
+.chat-header-toolbar {
+  flex-wrap: wrap;
+}
+
+.chat-search-box {
+  min-width: 0;
+}
+
+/* --- 13. 桌面端标签栏把「管理」挤出可视区 ---
+   14 个标签需要 1346px，而容器只有 1152px，overflow-x:auto 让末尾几个
+   标签滚出视野。桌面没有 ☰ 兜底菜单，用户会以为根本没有这些功能。
+   宽屏改为换行，保证所有功能入口一眼可见；
+   窄屏维持横向滚动（有 ☰ 全部功能菜单兜底）。 */
+@media (min-width: 769px) {
+  .tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+}
+
+/* ====================================================
+   从未被样式化的控件
+   以下按钮在全站渲染为浏览器原生外观
+   （background: rgb(240,240,240) + border: 2px outset），
+   在暗色主题下就是几个灰白色的 Windows 98 方块。
+   .bell-btn / .theme-btn / .back-to-top 出现在全部 15 个标签页。
+   原有 CSS 只给了它们尺寸，从没给过 background / border / color。
+   ==================================================== */
+
+/* --- 顶栏图标按钮（🔔 通知、🌙 主题） --- */
+.bell-btn,
+.theme-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--ctl-h-md);
+  min-height: var(--ctl-h-md);
+  padding: 0 8px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text);
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-ctl);
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.bell-btn:hover,
+.theme-btn:hover {
+  background: var(--card);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.bell-btn:active,
+.theme-btn:active {
+  transform: translateY(0);
+}
+
+/* --- 回到顶部按钮 ---
+   06-members.css 第 27 行虽有 .back-to-top 定义，但缺 border，
+   且未覆盖移动端底部导航避让，导致按钮被 .mobile-tab-bar 压住。 */
+.back-to-top {
+  position: fixed;
+  bottom: 24px;
+  right: 76px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 1px solid var(--border);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 99;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease;
+}
+
+.back-to-top:hover {
+  background: var(--accent2);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+/* --- 分段控件（活动页视图切换、个人页主题明暗切换、动态筛选） --- */
+.evt-view-btn,
+.theme-bright-btn,
+.post-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: var(--ctl-h-sm);
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text2, var(--text));
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-ctl);
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.evt-view-btn:hover,
+.theme-bright-btn:hover,
+.post-filter-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.evt-view-btn.active,
+.theme-bright-btn.active,
+.post-filter-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* --- 顶栏用户头像没有任何尺寸定义 ---
+   .user-avatar-sm 全站只有 hover 动画，没有 width/height，
+   <img> 于是按图片原始像素渲染，把整个顶栏撑到 74px 高，
+   移动端更是把 .header-actions 挤成 4 行、顶栏总高 213px（视口的 25%）。 */
+.user-avatar-sm {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: var(--card2);
+}
+
+.user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  /* 顶栏一行放得下：43+43+44+71+用户区，用户名限宽后总和落回 366px 内 */
+  .user-name {
+    max-width: 84px;
+  }
+
+  .header-actions {
+    align-items: center;
+  }
+
+  .admin-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+}
+
+/* ------------------------------------------------------------------
+   14. Toast 压在移动端底部导航上
+   ------------------------------------------------------------------
+   04-components.css 里 .toast-container 是 { position:fixed; bottom:24px;
+   right:24px; z-index:99999 }，只考虑了桌面。移动端底部有 .mobile-tab-bar
+   （fixed，高 69px + 安全区，z-index 100），toast 的 z-index 99999 远高于
+   它，于是「位置共享已停止」这类提示直接盖住了「聊天 / 管理 / 通知」三个
+   tab —— 提示出现的几秒内用户点不到这三项。
+   把 toast 抬到导航条上方，并改为左右留边的横向铺满，避免长文案被右侧
+   24px 定位挤出视口。 */
+@media (max-width: 768px) {
+  .toast-container {
+    right: 12px;
+    left: 12px;
+    bottom: calc(69px + 12px + env(safe-area-inset-bottom));
+    align-items: center;
+  }
+
+  .toast {
+    max-width: 100%;
+  }
+
+  /* 回到顶部按钮（含管理面板 .scroll-to-top-btn）避开底部导航 */
+  .scroll-to-top,
+  .scroll-to-top-btn,
+  .back-to-top {
+    bottom: calc(69px + 12px + env(safe-area-inset-bottom));
+    right: 14px;
+  }
+}
+
+
+/* ==========================================================================
+   15. 表单控件在弹窗内退化为浏览器原生外观
+   实测（真实浏览器 + CDP 层叠追踪）：创建直播弹窗里
+     #liveTitle  background = rgb(245,245,245)  color = rgb(228,228,237)
+   —— 浅灰底配浅色文字，几乎不可读。根因是 ui-enhance.css 里写的
+   `background: var(--input-bg, #f5f5f5)`，而 --input-bg 从未定义，
+   于是永远落到浅灰回退值上。变量本身已在 01-variables.css 补齐，
+   这里再补三类一直没人管的控件。
+   ========================================================================== */
+
+/* 15.1 复选框 / 单选框不应被通用输入框规则改造。
+   `.form-group input` 会把 padding:10px 14px、width:100%、background 一并
+   套到原生 checkbox 上，导致勾选框被撑开、和后面的文字错位
+   （用户截图里"公开直播"那一行歪掉就是这个原因）。 */
+input[type="checkbox"],
+input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+  cursor: pointer;
+  vertical-align: middle;
+  background: transparent;
+  border: 0;
+}
+
+/* 包着勾选框的 label 用 flex 对齐，避免基线对不齐 */
+.form-group > label:has(> input[type="checkbox"]),
+.form-group > label:has(> input[type="radio"]),
+label.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 400;
+}
+
+/* 15.2 文件选择框保持浏览器原生的灰色"选择文件"按钮，
+   在深色弹窗里非常突兀。给外框和内置按钮都套上主题样式。 */
+input[type="file"] {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--ds-radius-ctl, 10px);
+  background: var(--card2);
+  color: var(--text2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+input[type="file"]::file-selector-button {
+  margin-right: 10px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-ctl, 8px);
+  background: var(--card);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+input[type="file"]::file-selector-button:hover {
+  background: var(--card-hover);
+  border-color: var(--accent);
+}
+
+/* 上面的 input[type="file"] 通用样式不能把那些"故意视觉隐藏、
+   由自定义按钮以编程方式触发"的 input 重新显示出来（见本文件第 5 节）。 */
+#avatarInput,
+#bannerInput,
+#heroInput,
+#albumUpload,
+#meAvatarUpload,
+#profileVideoUpload,
+#evtPhotoUpload,
+#editAvatarInput {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+/* 15.3 弹窗里的裸输入框：ensureModal 动态注入的 HTML 不一定带项目的表单类，
+   这里按元素选择器兜底，保证任何弹窗内的输入控件都跟随主题。 */
+.modal input[type="text"],
+.modal input[type="email"],
+.modal input[type="password"],
+.modal input[type="search"],
+.modal input[type="url"],
+.modal input[type="number"],
+.modal input[type="date"],
+.modal input[type="time"],
+.modal input[type="datetime-local"],
+.modal textarea,
+.modal select {
+  background: var(--card2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-ctl, 10px);
+}
+
+.modal input:focus-visible,
+.modal textarea:focus-visible,
+.modal select:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-light);
+  outline-offset: 0;
+}
+
+/* 15.4 推流地址这类需要整段复制的文本，必须可选中且能换行，
+   否则长的 rtmp:// 地址会被撑出弹窗。 */
+.live-stream-url-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.live-stream-url-row code {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--ds-radius-ctl, 8px);
+  background: var(--code-bg);
+  color: var(--text);
+  font-size: 12px;
+  word-break: break-all;
+  user-select: all;
+}
+
+/* ====================================================
+   SmartSearch 全局命令面板（VN-9，VRCNext 借鉴）
+   Ctrl+K 唤起，搜索页面 / 成员 / 动态
+   ==================================================== */
+.smartsearch-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+}
+.smartsearch-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  animation: ssFadeIn 140ms ease-out;
+}
+.smartsearch-box {
+  position: relative;
+  width: min(560px, calc(100vw - 32px));
+  background: var(--card, #1e222b);
+  border: 1px solid var(--border, #333a48);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  animation: ssSlideIn 160ms ease-out;
+}
+.smartsearch-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border, #333a48);
+}
+.smartsearch-kbd-icon {
+  font-size: 18px;
+  color: var(--accent, #7289da);
+  font-weight: 700;
+}
+.smartsearch-input {
+  flex: 1;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--text, #e8eaef);
+  font-size: 16px;
+  font-family: inherit;
+}
+.smartsearch-input::placeholder { color: var(--text-dim, #7a8194); }
+.smartsearch-kbd {
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid var(--border, #333a48);
+  border-radius: 6px;
+  color: var(--text-dim, #7a8194);
+  background: var(--card2, #161a22);
+  white-space: nowrap;
+}
+.smartsearch-results {
+  max-height: 48vh;
+  overflow-y: auto;
+  padding: 8px;
+}
+.smartsearch-results .ss-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background var(--transition-fast, 120ms);
+}
+.smartsearch-results .ss-result:hover,
+.smartsearch-results .ss-result.ss-active {
+  background: var(--accent-weak, rgba(114, 137, 218, 0.18));
+}
+.smartsearch-results .ss-icon {
+  width: 26px;
+  text-align: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.smartsearch-results .ss-title {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text, #e8eaef);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.smartsearch-results .ss-sub {
+  font-size: 12px;
+  color: var(--text-dim, #7a8194);
+  white-space: nowrap;
+}
+.smartsearch-results .ss-empty {
+  padding: 22px 12px;
+  text-align: center;
+  color: var(--text-dim, #7a8194);
+  font-size: 13px;
+}
+.smartsearch-hint {
+  display: flex;
+  gap: 16px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border, #333a48);
+  font-size: 11px;
+  color: var(--text-dim, #7a8194);
+}
+.smartsearch-hint span {
+  font-family: ui-monospace, Consolas, monospace;
+}
+@keyframes ssFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ssSlideIn { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 768px) {
+  .smartsearch-panel { padding-top: 8vh; }
+  .smartsearch-hint { display: none; }
+}

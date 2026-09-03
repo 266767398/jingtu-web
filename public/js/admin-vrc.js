@@ -1,5 +1,62 @@
 // ==================== 管理员 - VRChat 系统管理模块 ====================
 
+function initVrcEventDelegates() {
+  const container = document.getElementById('tab-admin');
+  if (container && !container._vrcDelegateInit) {
+    container._vrcDelegateInit = true;
+    container.addEventListener('click', handleVrcAction);
+  }
+  const reviewList = document.getElementById('nameReviewList');
+  if (reviewList && !reviewList._vrcDelegateInit) {
+    reviewList._vrcDelegateInit = true;
+    reviewList.addEventListener('click', handleVrcAction);
+  }
+}
+
+function handleVrcAction(e) {
+    const el = e.target.closest('[data-vrc-action], [data-action]');
+    if (!el) return;
+    
+    if (el.hasAttribute('data-vrc-action')) {
+      const action = el.dataset.vrcAction;
+      const id = el.dataset.id;
+      const value = el.dataset.value;
+      
+      switch (action) {
+        case 'show-name-review':
+          showNameReviewModal();
+          break;
+        case 'review-name':
+          reviewNameChange(id, value);
+          break;
+        case 'hide-login':
+          hideSystemVrcLogin();
+          break;
+        case 'do-logout':
+          doSystemVrcLogout();
+          break;
+        case 'show-login':
+          showSystemVrcLogin();
+          break;
+      }
+    } else if (el.hasAttribute('data-action')) {
+      const action = el.dataset.action;
+      const value = parseInt(el.dataset.value);
+      
+      switch (action) {
+        case 'load-oper-log':
+          loadOperLog(value);
+          break;
+      }
+    }
+}
+
+// ========== 数据库管理权限检查（已移除） ==========
+// checkDbPermission 删除：它只是 `if (typeof window.showDbSection === 'function')`
+// 的空壳，而 showDbSection 只存在于从未被 index.html 引入的 admin-db.js，
+// 判断永远为假 —— 也就是说 ui.js 里 switchTab('admin') 那行调用一直是个空操作。
+// 数据库管理面板本来就没有对应的 HTML，接线时请一并恢复。
+
 // ========== 系统状态统计 ==========
 async function loadAdminStats() {
   try {
@@ -38,6 +95,7 @@ async function syncVRChatEvents() {
 
 // ========== 改名审核 ==========
 function showNameReviewModal() {
+  initVrcEventDelegates();
   showModal('nameReviewModal');
   loadNameChangeRequests();
 }
@@ -60,26 +118,26 @@ function renderNameChangeRequests(requests) {
   const container = document.getElementById('nameReviewList');
   if (!container) return;
   if (!requests || requests.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📝</div><div>${__('admin_vrc.no_pending_requests')}</div></div>';
+    renderEmpty(container, { icon: '📝', text: __('admin_vrc.no_pending_requests') });
     return;
   }
   container.innerHTML = requests.map(r => `
     <div class="name-change-card">
       <div class="name-change-user">
-        <img src="${escAttr(r.userAvatar || '/api/avatar/default')}" class="name-change-avatar" alt="${esc(r.userName || '')}" loading="lazy">
+        <img src="/api/avatar/default" class="name-change-avatar" alt="${esc(r.displayName || '')}" loading="lazy">
         <div>
-          <div class="name-change-name">${esc(r.userName || '')}</div>
-          <div class="name-change-time">${__('admin_vrc.applied_at')} ${fmtDate(r.createdAt)}</div>
+          <div class="name-change-name">${esc(r.displayName || '')}</div>
+          <div class="name-change-time">${__('admin_vrc.applied_at')} ${fmtDate(r.createTime)}</div>
         </div>
       </div>
       <div class="name-change-detail">
-        <div>${__('admin_vrc.current_name')}<strong>${esc(r.currentName || '')}</strong></div>
-        <div>${__('admin_vrc.requested_name')}<strong>${esc(r.requestedName || '')}</strong></div>
+        <div>${__('admin_vrc.current_name')}<strong>${esc(r.oldName || '')}</strong></div>
+        <div>${__('admin_vrc.requested_name')}<strong>${esc(r.newName || '')}</strong></div>
         ${r.reason ? `<div class="name-change-reason">${__('admin_vrc.reason')}${esc(r.reason)}</div>` : ''}
       </div>
       <div class="name-change-actions">
-        <button class="btn btn-sm btn-accent" onclick="reviewNameChange('${escJsStr(String(r.id))}', 'approve')">${__('admin.approve')}</button>
-        <button class="btn btn-sm btn-danger" onclick="reviewNameChange('${escJsStr(String(r.id))}', 'reject')">${__('admin.reject')}</button>
+        <button class="btn btn-sm btn-accent" data-vrc-action="review-name" data-id="${escAttr(String(r.id))}" data-value="approve">${__('admin.approve')}</button>
+        <button class="btn btn-sm btn-danger" data-vrc-action="review-name" data-id="${escAttr(String(r.id))}" data-value="reject">${__('admin.reject')}</button>
       </div>
     </div>
   `).join('');
@@ -95,6 +153,8 @@ async function reviewNameChange(requestId, action) {
       if (res.ok) {
         toast(action === 'approve' ? __('admin_vrc.approved') : __('admin_vrc.rejected'), 'success');
         loadNameChangeRequests();
+        updateNameReviewPreview();
+        if (typeof loadAdminStats === 'function') loadAdminStats();
       }
     } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.op_failed') + ': ' + err.message, 'error'); }
   });
@@ -109,8 +169,9 @@ async function updateNameReviewPreview() {
       const count = (data.requests || []).length;
       const preview = document.getElementById('nameChangeList');
       if (preview) {
-        preview.textContent = count > 0 ? __('admin_vrc.pending_count', {n: count}) : __('admin.no_pending_requests');
-        preview.className = count > 0 ? 'text-13 text-accent font-600' : 'text-13 text-muted2';
+        preview.innerHTML = count > 0
+          ? `<button type="button" class="btn btn-sm btn-accent" data-vrc-action="show-name-review">${esc(__('admin_vrc.pending_count', {n: count}))} →</button>`
+          : `<p class="text-13 text-muted2">${esc(__('admin.no_pending_requests'))}</p>`;
       }
     }
   } catch {}
@@ -137,6 +198,7 @@ function onOperLogFilter() {
 async function loadOperLog(page) {
   const container = document.getElementById('operLog');
   if (!container) return;
+  initVrcEventDelegates();
   operLogCurrentPage = page || 1;
   container.innerHTML = '<div class="skeleton-card-list" style="margin:4px"></div><div class="skeleton-card-list" style="margin:4px"></div>';
   try {
@@ -147,12 +209,12 @@ async function loadOperLog(page) {
     const user = document.getElementById('operLogUserSearch')?.value?.trim() || '';
     if (type) params.set('type', type);
     if (user) params.set('user', user);
-    const res = await api('/api/admin/logs?' + params.toString(), { method: 'GET' });
+    const res = await api('/api/admin/oper-logs?' + params.toString(), { method: 'GET' });
     if (res.ok) {
       const data = await res.json();
       const logs = data.logs || [];
       if (!logs || logs.length === 0) {
-        container.innerHTML = '<div class="text-muted text-13 p-8">${__('admin_vrc.no_oper_log')}</div>';
+        container.innerHTML = '<div class="text-muted text-13 p-8">' + __('admin_vrc.no_oper_log') + '</div>';
         document.getElementById('operLogPagination').innerHTML = '';
         return;
       }
@@ -164,7 +226,7 @@ async function loadOperLog(page) {
       ).join('');
       renderOperLogPagination(data);
     }
-  } catch { container.innerHTML = '<div class="text-muted text-13 p-8">${__('admin_vrc.load_failed')}</div>'; }
+  } catch { container.innerHTML = '<div class="text-muted text-13 p-8">' + __('admin_vrc.load_failed') + '</div>'; }
 }
 
 function renderOperLogPagination(data) {
@@ -175,17 +237,17 @@ function renderOperLogPagination(data) {
   const total = data.totalPages;
   let html = `<span class="text-12 text-muted2 mr-4">${__('admin_vrc.total_entries', {n: data.total})}</span>`;
   if (current > 1) {
-    html += `<button class="btn btn-xs btn-outline" onclick="loadOperLog(1)" title="${__('admin_vrc.first_page')}">&laquo;</button>`;
-    html += `<button class="btn btn-xs btn-outline" onclick="loadOperLog(${current - 1})">&lsaquo;</button>`;
+    html += `<button class="btn btn-xs btn-outline" data-action="load-oper-log" data-value="1" title="${__('admin_vrc.first_page')}">&laquo;</button>`;
+    html += `<button class="btn btn-xs btn-outline" data-action="load-oper-log" data-value="${current - 1}">&lsaquo;</button>`;
   }
   const start = Math.max(1, current - 2);
   const end = Math.min(total, current + 2);
   for (let i = start; i <= end; i++) {
-    html += `<button class="btn btn-xs ${i === current ? 'btn-accent' : 'btn-outline'}" onclick="loadOperLog(${i})">${i}</button>`;
+    html += `<button class="btn btn-xs ${i === current ? 'btn-accent' : 'btn-outline'}" data-action="load-oper-log" data-value="${i}">${i}</button>`;
   }
   if (current < total) {
-    html += `<button class="btn btn-xs btn-outline" onclick="loadOperLog(${current + 1})">&rsaquo;</button>`;
-    html += `<button class="btn btn-xs btn-outline" onclick="loadOperLog(${total})" title="${__('admin_vrc.last_page')}">&raquo;</button>`;
+    html += `<button class="btn btn-xs btn-outline" data-action="load-oper-log" data-value="${current + 1}">&rsaquo;</button>`;
+    html += `<button class="btn btn-xs btn-outline" data-action="load-oper-log" data-value="${total}" title="${__('admin_vrc.last_page')}">&raquo;</button>`;
   }
   container.innerHTML = html;
 }
@@ -201,14 +263,38 @@ async function checkSystemVrcStatus() {
       const actionsEl = document.getElementById('systemVrcActions');
       if (!statusEl) return;
       if (data.systemVrcLogin) {
-        statusEl.innerHTML = '<span class="text-green">🟢 ${__('admin_vrc.logged_in')}</span>';
-        if (actionsEl) actionsEl.innerHTML = '<button class="btn btn-sm btn-outline" onclick="hideSystemVrcLogin()">${__('admin_vrc.refresh')}</button><button class="btn btn-sm btn-danger ml-6" onclick="doSystemVrcLogout()">${__('admin_vrc.logout')}</button>';
+        statusEl.innerHTML = '<span class="text-green">🟢 ' + __('admin_vrc.logged_in') + '</span>';
+        if (actionsEl) actionsEl.innerHTML = '<button class="btn btn-sm btn-outline" data-vrc-action="hide-login">' + __('admin_vrc.refresh') + '</button><button class="btn btn-sm btn-danger ml-6" data-vrc-action="do-logout">' + __('admin_vrc.logout') + '</button>';
+        // V8.2: 展示系统 VRChat cookie 软性过期设置与剩余有效期
+        const wrap = document.getElementById('systemVrcExpireWrap');
+        if (wrap) {
+          const remain = data.vrcCookieExpiresAt
+            ? new Date(data.vrcCookieExpiresAt).toLocaleString()
+            : __('admin_vrc.never_expire');
+          wrap.classList.remove('d-none');
+          wrap.innerHTML =
+            '<div class="vrc-expire-row">' +
+              '<label class="vrc-expire-label">' + __('admin_vrc.cookie_expire_label') + '</label>' +
+              '<select id="vrcCookieExpireSel" class="form-control form-control-sm">' +
+                '<option value="0"' + (data.vrcCookieExpireDays === 0 ? ' selected' : '') + '>' + __('admin_vrc.expire_forever') + '</option>' +
+                '<option value="7"' + (data.vrcCookieExpireDays === 7 ? ' selected' : '') + '>' + __('admin_vrc.expire_week') + '</option>' +
+                '<option value="30"' + (data.vrcCookieExpireDays === 30 ? ' selected' : '') + '>' + __('admin_vrc.expire_month') + '</option>' +
+                '<option value="90"' + (data.vrcCookieExpireDays === 90 ? ' selected' : '') + '>' + __('admin_vrc.expire_quarter') + '</option>' +
+                '<option value="180"' + (data.vrcCookieExpireDays === 180 ? ' selected' : '') + '>' + __('admin_vrc.expire_half_year') + '</option>' +
+                '<option value="365"' + (data.vrcCookieExpireDays === 365 ? ' selected' : '') + '>' + __('admin_vrc.expire_year') + '</option>' +
+              '</select>' +
+              '<button class="btn btn-sm btn-accent" onclick="saveVrcCookieExpire()">' + __('admin_vrc.save') + '</button>' +
+            '</div>' +
+            '<div class="vrc-expire-hint text-muted">' + __('admin_vrc.expire_remain', { t: remain }) + '</div>';
+        }
       } else {
-        statusEl.innerHTML = '<span class="text-muted">🔴 ${__('admin_vrc.not_logged_in')}</span>';
-        if (actionsEl) actionsEl.innerHTML = '<button class="btn btn-sm btn-accent" onclick="showSystemVrcLogin()">${__('admin_vrc.login_vrc')}</button>';
+        const wrap = document.getElementById('systemVrcExpireWrap');
+        if (wrap) wrap.classList.add('d-none');
+        statusEl.innerHTML = '<span class="text-muted">🔴 ' + __('admin_vrc.not_logged_in') + '</span>';
+        if (actionsEl) actionsEl.innerHTML = '<button class="btn btn-sm btn-accent" data-vrc-action="show-login">' + __('admin_vrc.login_vrc') + '</button>';
       }
     }
-  } catch { document.getElementById('systemVrcStatus') && (document.getElementById('systemVrcStatus').innerHTML = '<span class="text-red">${__('admin_vrc.check_failed')}</span>'); }
+  } catch { document.getElementById('systemVrcStatus') && (document.getElementById('systemVrcStatus').innerHTML = '<span class="text-red">' + __('admin_vrc.check_failed') + '</span>'); }
 }
 
 function showSystemVrcLogin() {
@@ -241,9 +327,15 @@ async function doSystemVrcLogin() {
     if (res.ok) {
       const data = await res.json();
       if (data.need2fa) {
+        const methods = Array.isArray(data.methods) ? data.methods : [];
+        const method = methods.includes('emailOtp')
+          ? 'emailOtp'
+          : (methods.includes('totp') ? 'totp' : 'otp');
+        const form = document.getElementById('systemVrc2faForm');
+        if (form) form.dataset.method = method;
         document.getElementById('systemVrc2faForm')?.classList.remove('d-none');
         const hint = document.getElementById('sysVrc2faHint');
-        if (hint) hint.textContent = data.methods?.includes('emailOtp') ? __('admin.enter_email_code') : __('admin.enter_auth_code');
+        if (hint) hint.textContent = method === 'emailOtp' ? __('admin.enter_email_code') : __('admin.enter_auth_code');
         toast(__('admin_vrc.need_2fa'), 'info');
         document.getElementById('sysVrc2faCode')?.focus();
         return;
@@ -265,11 +357,13 @@ async function doSystemVrc2FA() {
     return;
   }
   const code = document.getElementById('sysVrc2faCode')?.value?.trim();
+  const method = document.getElementById('systemVrc2faForm')?.dataset.method;
   if (!code || code.length < 4) { toast(__('admin_vrc.enter_full_code'), 'error'); return; }
+  if (!method) { toast(__('admin_vrc.login_failed'), 'error'); return; }
   try {
     const res = await api('/api/2fa', {
       method: 'POST',
-      body: { code }
+      body: { code, method }
     });
     if (res.ok) {
       const data = await res.json();
@@ -286,6 +380,27 @@ async function doSystemVrc2FA() {
 }
 
 function cancelSystemVrc2FA() { hideSystemVrcLogin(); }
+
+// V8.2: 保存系统 VRChat cookie 软性过期时间
+async function saveVrcCookieExpire() {
+  if (!currentUser || currentUser.role !== 'super_admin') {
+    toast(__('admin_vrc.super_admin_only'), 'error');
+    return;
+  }
+  const sel = document.getElementById('vrcCookieExpireSel');
+  if (!sel) return;
+  const days = parseInt(sel.value, 10);
+  try {
+    const res = await api('/api/vrc-cookie-expire', { method: 'PUT', body: { expireDays: days } });
+    if (res.ok) {
+      toast(__('admin_vrc.expire_saved'), 'success');
+      checkSystemVrcStatus();
+    } else {
+      const err = await res.json();
+      toast(err.error || __('admin_vrc.save_failed'), 'error');
+    }
+  } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.save_failed') + ': ' + err.message, 'error'); }
+}
 
 // ========== 群组同步 ==========
 async function adminSyncGroupMembers() {
@@ -350,6 +465,10 @@ async function loadSystemConfig() {
       setVal('cfgPostMaxImages', cfg.post_max_images);
       setVal('cfgPostMaxVideos', cfg.post_max_videos);
       setVal('cfgPostVideoMaxSize', cfg.post_video_max_size_mb);
+      // 全局请求限制（超管可调）
+      setVal('cfgReqMaxUpload', cfg.req_max_upload_mb);
+      setVal('cfgReqMaxBody', cfg.req_max_body_mb);
+      setVal('cfgReqMaxOther', cfg.req_max_other_mb);
       if (cfg.hero_title) {
         const pt = document.getElementById('heroPreviewTitle');
         if (pt) pt.textContent = cfg.hero_title;
@@ -359,7 +478,7 @@ async function loadSystemConfig() {
         if (pi) pi.src = cfg.hero_bg_url;
       }
     }
-  } catch (err) { if (isApiHandledError(err)) return; /* 静默失败 */ }
+  } catch (err) { if (isApiHandledError(err)) return; toast(__('auto_admin_vrc_1'), 'error'); }
 }
 
 // Hero 背景 URL 预览实时更新
@@ -415,6 +534,9 @@ async function saveSystemConfig() {
     post_max_images: getVal('cfgPostMaxImages'),
     post_max_videos: getVal('cfgPostMaxVideos'),
     post_video_max_size_mb: getVal('cfgPostVideoMaxSize'),
+    req_max_upload_mb: getVal('cfgReqMaxUpload'),
+    req_max_body_mb: getVal('cfgReqMaxBody'),
+    req_max_other_mb: getVal('cfgReqMaxOther'),
   };
   if (!config.site_name) { toast(__('fill_required'), 'error'); return; }
   try {
@@ -441,3 +563,5 @@ async function doSystemVrcLogout() {
     } catch {}
   });
 }
+
+initVrcEventDelegates();

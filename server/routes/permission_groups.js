@@ -1,11 +1,16 @@
 /**
  * 境途同游 V6.2 — 权限组系统路由
  * 支持：创建/删除/编辑权限组、父子层级、默认用户组、用户多组归属、权限冲突检测
+ * 
+ * @swagger
+ * tags:
+ *   name: PermissionGroups
+ *   description: 权限组系统相关接口
  */
 const express = require('express');
 const router = express.Router();
 const { requireAuth, requireRole } = require('../auth');
-const { getPool, safeError } = require('../utils');
+const { getPool, handleError, validateFields , sendError, ErrorCodes } = require('../utils');
 
 // 所有已定义的权限键（用英文常量，前端映射中文显示）
 const ALL_PERMISSIONS = [
@@ -20,7 +25,11 @@ const ALL_PERMISSIONS = [
   'can_edit_profile', 'can_change_password',
   'can_view_members', 'can_view_map',
   'can_view_album', 'can_view_events',
-  'can_create_album_category'
+  'can_create_album_category',
+  // V6.9: 动态/朋友圈
+  'can_create_post', 'can_delete_post', 'can_comment_post', 'can_like_post',
+  // V7.x: 模型收藏馆（服务器端 VRChat 模型收藏管理）
+  'can_manage_model_collections'
 ];
 
 const PERMISSION_LABELS = {
@@ -49,12 +58,51 @@ const PERMISSION_LABELS = {
   can_view_map: '查看地图',
   can_view_album: '查看相册',
   can_view_events: '查看活动',
-  can_create_album_category: '创建相册分类'
+  can_create_album_category: '创建相册分类',
+  // V6.9: 动态/朋友圈
+  can_create_post: '发布动态',
+  can_delete_post: '删除动态',
+  can_comment_post: '评论动态',
+  can_like_post: '点赞动态',
+  // V7.x: 模型收藏馆
+  can_manage_model_collections: '管理模型收藏'
 };
 
 // ==================== 权限组 CRUD ====================
 
-// 获取所有权限组（含层级关系）
+/**
+ * @swagger
+ * /api/groups:
+ *   get:
+ *     summary: 获取权限组列表
+ *     description: 获取所有权限组，包含权限条目（超级管理员权限）
+ *     tags: [PermissionGroups]
+ *     responses:
+ *       200:
+ *         description: 权限组列表
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 groups:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *                       description:
+ *                         type: string
+ *                       parentId:
+ *                         type: integer
+ *                       permissions:
+ *                         type: object
+ *       403:
+ *         description: 权限不足
+ */
 router.get('/groups', requireRole('super_admin'), async (req, res) => {
   try {
     const [rows] = await getPool().query(
@@ -73,21 +121,21 @@ router.get('/groups', requireRole('super_admin'), async (req, res) => {
       return { ...g, permissions: permMap };
     }));
     res.json({ groups });
-  } catch (e) { res.status(500).json({ error: safeError(e.message) }); }
+  } catch (e) { handleError(res, e, '[permission-groups/list]'); }
 });
 
 // 创建权限组
 router.post('/groups', requireRole('super_admin'), async (req, res) => {
   try {
     const { name, description, parentId } = req.body;
-    if (!name || !name.trim()) return res.status(400).json({ error: '权限组名称不能为空' });
+    if (!name || !name.trim()) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '权限组名称不能为空');
     const trimmed = name.trim();
     const [dup] = await getPool().query(`SELECT id FROM permission_groups WHERE name = ?`, [trimmed]);
-    if (dup.length > 0) return res.status(400).json({ error: '该权限组名称已存在' });
+    if (dup.length > 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '该权限组名称已存在');
     // 检查父组是否存在
     if (parentId) {
       const [parentCheck] = await getPool().query(`SELECT id FROM permission_groups WHERE id = ?`, [parentId]);
-      if (parentCheck.length === 0) return res.status(400).json({ error: '父权限组不存在' });
+      if (parentCheck.length === 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '父权限组不存在');
     }
     const [result] = await getPool().query(
       `INSERT INTO permission_groups (name, description, parent_id) VALUES (?, ?, ?)`,
@@ -106,60 +154,73 @@ router.post('/groups', requireRole('super_admin'), async (req, res) => {
       }
     }
     res.json({ success: true, id: result.insertId, message: '权限组已创建' });
-  } catch (e) { res.status(500).json({ error: safeError(e.message) }); }
+  } catch (e) { handleError(res, e, '[permission-groups/create]'); }
 });
 
 // 更新权限组（名称/描述/父组）
 router.put('/groups/:id', requireRole('super_admin'), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    if (!id) return res.status(400).json({ error: '参数错误' });
+    if (!id) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
     // 检查是否系统内置组
     const [group] = await getPool().query(`SELECT is_system FROM permission_groups WHERE id = ?`, [id]);
-    if (group.length === 0) return res.status(404).json({ error: '权限组不存在' });
+    if (group.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '权限组不存在');
     const { name, description, parentId } = req.body;
     const updates = {};
     if (name !== undefined) {
-      if (!name.trim()) return res.status(400).json({ error: '名称不能为空' });
+      if (!name.trim()) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '名称不能为空');
       const [dup] = await getPool().query(`SELECT id FROM permission_groups WHERE name = ? AND id != ?`, [name.trim(), id]);
-      if (dup.length > 0) return res.status(400).json({ error: '名称已存在' });
+      if (dup.length > 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '名称已存在');
       updates.name = name.trim();
     }
     if (description !== undefined) updates.description = description;
     if (parentId !== undefined) {
       // 防止循环引用
-      if (parentId === id) return res.status(400).json({ error: '不能将自己设为父组' });
+      if (parentId === id) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '不能将自己设为父组');
       if (parentId) {
         const [check] = await getPool().query(`SELECT id FROM permission_groups WHERE id = ?`, [parentId]);
-        if (check.length === 0) return res.status(400).json({ error: '父组不存在' });
+        if (check.length === 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '父组不存在');
       }
       updates.parent_id = parentId || null;
     }
-    if (Object.keys(updates).length === 0) return res.status(400).json({ error: '无更新字段' });
+    validateFields(updates, ['name', 'description', 'parent_id']);
+    if (Object.keys(updates).length === 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无更新字段');
     const fields = Object.keys(updates).map(k => `${k} = ?`).join(', ');
     const vals = Object.values(updates);
     vals.push(id);
     await getPool().query(`UPDATE permission_groups SET ${fields} WHERE id = ?`, vals);
     res.json({ success: true, message: '权限组已更新' });
-  } catch (e) { res.status(500).json({ error: safeError(e.message) }); }
+  } catch (e) { handleError(res, e, '[permission-groups/update]'); }
 });
 
 // 删除权限组
 router.delete('/groups/:id', requireRole('super_admin'), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    if (!id) return res.status(400).json({ error: '参数错误' });
+    if (!id) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
     const [group] = await getPool().query(`SELECT is_system FROM permission_groups WHERE id = ?`, [id]);
-    if (group.length === 0) return res.status(404).json({ error: '权限组不存在' });
-    if (group[0].is_system) return res.status(400).json({ error: '系统内置组不可删除' });
+    if (group.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '权限组不存在');
+    if (group[0].is_system) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '系统内置组不可删除');
     // 将属于该组的用户移到默认组
     const [defaultGroup] = await getPool().query(`SELECT id FROM permission_groups WHERE is_default = 1 LIMIT 1`);
     const defaultId = defaultGroup.length > 0 ? defaultGroup[0].id : 3;
-    await getPool().query(`UPDATE user_group_membership SET group_id = ? WHERE group_id = ?`, [defaultId, id]);
-    await getPool().query(`DELETE FROM group_permission_entries WHERE group_id = ?`, [id]);
-    await getPool().query(`DELETE FROM permission_groups WHERE id = ?`, [id]);
+
+    // 用事务包裹三条语句，避免部分失败导致孤儿数据
+    const conn = await getPool().getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query(`UPDATE user_group_membership SET group_id = ? WHERE group_id = ?`, [defaultId, id]);
+      await conn.query(`DELETE FROM group_permission_entries WHERE group_id = ?`, [id]);
+      await conn.query(`DELETE FROM permission_groups WHERE id = ?`, [id]);
+      await conn.commit();
+    } catch (e2) {
+      await conn.rollback();
+      throw e2;
+    } finally {
+      conn.release();
+    }
     res.json({ success: true, message: '权限组已删除' });
-  } catch (e) { res.status(500).json({ error: safeError(e.message) }); }
+  } catch (e) { handleError(res, e, '[permission-groups/delete]'); }
 });
 
 // ==================== 权限条目管理 ====================
@@ -174,7 +235,7 @@ router.get('/groups/:id/permissions', requireRole('super_admin'), async (req, re
     const permMap = {};
     for (const p of rows) permMap[p.perm_key] = !!p.value;
     res.json({ permissions: permMap, allKeys: ALL_PERMISSIONS, labels: PERMISSION_LABELS });
-  } catch (e) { res.status(500).json({ error: safeError(e.message) }); }
+  } catch (e) { handleError(res, e, '[permission-groups/permissions]'); }
 });
 
 // 更新组的单个权限
@@ -182,8 +243,8 @@ router.post('/groups/:id/permissions/set', requireRole('super_admin'), async (re
   try {
     const groupId = parseInt(req.params.id);
     const { key, value } = req.body;
-    if (!key) return res.status(400).json({ error: '缺少权限键' });
-    if (!ALL_PERMISSIONS.includes(key)) return res.status(400).json({ error: '无效的权限键' });
+    if (!key) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '缺少权限键');
+    if (!ALL_PERMISSIONS.includes(key)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的权限键');
     // 检查是否有冲突（父组权限与此相反则警告但不阻止）
     const [group] = await getPool().query(`SELECT parent_id FROM permission_groups WHERE id = ?`, [groupId]);
     let conflict = null;
@@ -203,7 +264,7 @@ router.post('/groups/:id/permissions/set', requireRole('super_admin'), async (re
       [groupId, key, v, v]
     );
     res.json({ success: true, conflict, message: '权限已更新' + (conflict ? '（注意：' + conflict + '）' : '') });
-  } catch (e) { res.status(500).json({ error: safeError(e.message) }); }
+  } catch (e) { handleError(res, e, '[permission-groups/set-permission]'); }
 });
 
 // 批量更新组的权限
@@ -211,7 +272,7 @@ router.post('/groups/:id/permissions/batch', requireRole('super_admin'), async (
   try {
     const groupId = parseInt(req.params.id);
     const { permissions } = req.body; // { key: value, ... }
-    if (!permissions || typeof permissions !== 'object') return res.status(400).json({ error: '参数错误' });
+    if (!permissions || typeof permissions !== 'object') return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
     let count = 0;
     for (const [key, value] of Object.entries(permissions)) {
       if (!ALL_PERMISSIONS.includes(key)) continue;
@@ -224,7 +285,7 @@ router.post('/groups/:id/permissions/batch', requireRole('super_admin'), async (
       count++;
     }
     res.json({ success: true, updated: count, message: `${count} 项权限已更新` });
-  } catch (e) { res.status(500).json({ error: safeError(e.message) }); }
+  } catch (e) { handleError(res, e, '[permission-groups/batch-permissions]'); }
 });
 
 // ==================== 用户归属管理 ====================
@@ -232,13 +293,15 @@ router.post('/groups/:id/permissions/batch', requireRole('super_admin'), async (
 // 获取某个用户的权限组归属
 router.get('/users/:userId/groups', requireRole('super_admin'), async (req, res) => {
   try {
+    const userId = parseInt(req.params.userId);
+    if (!Number.isInteger(userId) || userId <= 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的用户ID');
     const [rows] = await getPool().query(
       `SELECT pg.id, pg.name, pg.description, pg.parent_id AS parentId,
               pg.is_default AS isDefault, pg.is_system AS isSystem,
               ugm.joined_at AS joinedAt
        FROM user_group_membership ugm
        JOIN permission_groups pg ON ugm.group_id = pg.id
-       WHERE ugm.user_id = ?`, [req.params.userId]
+       WHERE ugm.user_id = ?`, [userId]
     );
     // 获取可用（未加入的）组
     const [allGroups] = await getPool().query(
@@ -247,23 +310,24 @@ router.get('/users/:userId/groups', requireRole('super_admin'), async (req, res)
     const joinedIds = new Set(rows.map(r => r.id));
     const available = allGroups.filter(g => !joinedIds.has(g.id));
     res.json({ groups: rows, available });
-  } catch (e) { res.status(500).json({ error: safeError(e.message) }); }
+  } catch (e) { handleError(res, e, '[permission-groups/user-groups]'); }
 });
 
 // 为用户添加权限组
 router.post('/users/:userId/groups', requireRole('super_admin'), async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
+    if (!Number.isInteger(userId) || userId <= 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的用户ID');
     const { groupId } = req.body;
-    if (!groupId) return res.status(400).json({ error: '缺少权限组ID' });
+    if (!groupId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '缺少权限组ID');
     // 检查是否已加入
     const [existing] = await getPool().query(
       `SELECT id FROM user_group_membership WHERE user_id = ? AND group_id = ?`, [userId, groupId]
     );
-    if (existing.length > 0) return res.status(400).json({ error: '用户已加入该权限组' });
+    if (existing.length > 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '用户已加入该权限组');
     // 冲突检测：同一层级组不能同时加入（如果有相同父组）
     const [newGroup] = await getPool().query(`SELECT parent_id FROM permission_groups WHERE id = ?`, [groupId]);
-    if (newGroup.length === 0) return res.status(404).json({ error: '权限组不存在' });
+    if (newGroup.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '权限组不存在');
     const [userGroups] = await getPool().query(
       `SELECT pg.id, pg.parent_id FROM user_group_membership ugm
        JOIN permission_groups pg ON ugm.group_id = pg.id
@@ -284,13 +348,14 @@ router.post('/users/:userId/groups', requireRole('super_admin'), async (req, res
       success: true,
       message: '用户已加入权限组' + (conflicts.length > 0 ? '（注意：' + conflicts.join('; ') + '）' : '')
     });
-  } catch (e) { res.status(500).json({ error: safeError(e.message) }); }
+  } catch (e) { handleError(res, e, '[permission-groups/add-user-group]'); }
 });
 
 // 从权限组移除用户
 router.delete('/users/:userId/groups/:groupId', requireRole('super_admin'), async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
+    if (!Number.isInteger(userId) || userId <= 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的用户ID');
     const groupId = parseInt(req.params.groupId);
     // 检查是否是用户的最后一个默认组
     const [defaultGroup] = await getPool().query(`SELECT id FROM permission_groups WHERE is_default = 1 LIMIT 1`);
@@ -299,7 +364,7 @@ router.delete('/users/:userId/groups/:groupId', requireRole('super_admin'), asyn
       `SELECT ugm.id FROM user_group_membership ugm WHERE ugm.user_id = ? AND ugm.group_id = ?`,
       [userId, groupId]
     );
-    if (membership.length === 0) return res.status(404).json({ error: '用户不在该权限组中' });
+    if (membership.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不在该权限组中');
     await getPool().query(`DELETE FROM user_group_membership WHERE user_id = ? AND group_id = ?`, [userId, groupId]);
     // 如果用户没有组了，自动加入默认组
     const [remaining] = await getPool().query(
@@ -311,7 +376,7 @@ router.delete('/users/:userId/groups/:groupId', requireRole('super_admin'), asyn
       );
     }
     res.json({ success: true, message: '用户已从权限组移除' });
-  } catch (e) { res.status(500).json({ error: safeError(e.message) }); }
+  } catch (e) { handleError(res, e, '[permission-groups/remove-user-group]'); }
 });
 
 // ==================== 获取当前用户有效权限 ====================
@@ -335,7 +400,10 @@ router.get('/my', requireAuth, async (req, res) => {
     const permMap = {};
     for (const p of permRows) permMap[p.perm_key] = !!p.value;
     res.json({ permissions: permMap, groupIds });
-  } catch (e) { res.json({ permissions: {}, groupIds: [] }); }
+  } catch (e) {
+    console.error('[permission-groups/my] 权限查询失败:', e.message);
+    return res.status(500).json({ error: '权限查询失败，请稍后重试', code: 'PERM_QUERY_FAILED' });
+  }
 });
 
 // ==================== 获取所有权限定义 ====================
@@ -343,4 +411,7 @@ router.get('/definitions', requireRole('super_admin'), (req, res) => {
   res.json({ allKeys: ALL_PERMISSIONS, labels: PERMISSION_LABELS });
 });
 
+// 同时导出权限常量，供权限查看接口复用（单一事实来源，避免与前端标签漂移）
 module.exports = router;
+module.exports.ALL_PERMISSIONS = ALL_PERMISSIONS;
+module.exports.PERMISSION_LABELS = PERMISSION_LABELS;

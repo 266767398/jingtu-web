@@ -1,0 +1,14 @@
+{
+  "_comment": "境途WEB 运维工具自身配置（不影响业务）。bin/conf=null 时自动探测 phpStudy 默认路径；亦可设置环境变量 JINGTU_MYSQL_BIN / JINGTU_MYSQL_CONF / JINGTU_NGINX_BIN / JINGTU_NGINX_CONF 覆盖。",
+  "mysql": {
+    "enabled": true,
+    "bin": null,
+    "conf": null,
+    "waitSeconds": 30
+  },
+  "nginx": {
+    "enabled": true,
+    "bin": null,
+    "conf": null
+  }
+}

@@ -1,4 +1,227 @@
 /* 境途同游 — 01 Variables */
 /* 从 style.css 拆分而来 */
 
-/* ========== CSS Variables ========== */:root[data-theme="dark"] {  --bg: #0d0d1d; --card: #16162a; --card2: #1e1e36; --card-hover: #222240; --accent: #7c5cfc; --accent2: #a78bfa;  --text: #e8e8f4; --text2: #9a9ab8; --text3: #6a6a8a; --border: #2a2a42; --green: #4ade80; --red: #f87171;  --orange: #fb923c; --yellow: #fbbf24;  --hero-grad: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #0f3460 100%);  --hero-accent: #7c5cfc;  --hover: rgba(124,92,252,.12); --card-bg: #141420;  --gradient-end: #7c3aed;  --sky: #38bdf8;  --amber: #f59e0b;  --rose: #fca5a5;  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);  --shadow-md: 0 4px 16px rgba(0,0,0,.35);  --shadow-lg: 0 8px 32px rgba(0,0,0,.4);  --shadow-xl: 0 16px 48px rgba(0,0,0,.5);  --shadow-glow: 0 0 20px rgba(124,92,252,.15);  --transition-fast: .15s cubic-bezier(.4,0,.2,1);  --transition: .2s cubic-bezier(.4,0,.2,1);  --transition-slow: .3s cubic-bezier(.4,0,.2,1);  --scrollbar-track: #141420;  --scrollbar-thumb: #2a2a3e;  --scrollbar-thumb-hover: #3a3a4e;}:root[data-theme="light"] {  --bg: #f0f0f8; --card: #ffffff; --card2: #f7f7ff; --card-hover: #f0f0ff; --accent: #7c5cfc; --accent2: #5b3fd9;  --text: #1a1a2e; --text2: #555577; --text3: #7777aa; --border: #ddddf0; --green: #16a34a; --red: #dc2626;  --orange: #ea580c; --yellow: #ca8a04;  --hero-grad: linear-gradient(135deg, #667eea 0%, #764ba2 40%, #f093fb 100%);  --hero-accent: #7c5cfc;  --hover: rgba(124,92,252,.08); --card-bg: #ffffff;  --gradient-end: #7c3aed;  --sky: #38bdf8;  --amber: #f59e0b;  --rose: #fca5a5;  --shadow-sm: 0 1px 3px rgba(0,0,0,.08);  --shadow-md: 0 4px 16px rgba(0,0,0,.1);  --shadow-lg: 0 8px 32px rgba(0,0,0,.12);  --shadow-xl: 0 16px 48px rgba(0,0,0,.15);  --shadow-glow: 0 0 20px rgba(124,92,252,.12);  --transition-fast: .15s cubic-bezier(.4,0,.2,1);  --transition: .2s cubic-bezier(.4,0,.2,1);  --transition-slow: .3s cubic-bezier(.4,0,.2,1);  --scrollbar-track: #f0f0f8;  --scrollbar-thumb: #ddddf0;  --scrollbar-thumb-hover: #cccce0;}
+/* ========== CSS Variables ========== */
+:root[data-theme="dark"] {  
+  --bg: #121218; 
+  --bg-secondary: #1a1a24; 
+  --card: #1e1e2a; 
+  --card2: #262632; 
+  --card-hover: #2a2a38; 
+  --card-elevated: #242430;
+  --accent: #7c5cfc; 
+  --accent2: #9d7cff;
+  --accent-light: rgba(124,92,252,.15);
+  --text: #e4e4ed; 
+  --text2: #a0a0b0; 
+  --text3: #6a6a7a; 
+  --text-disabled: #505060;
+  --border: #2a2a3a; 
+  --border-light: #323242;
+  --green: #6ee7b7; 
+  --red: #f87171; 
+  --orange: #fb923c; 
+  --yellow: #fbbf24;
+  --sky: #7dd3fc;
+  --amber: #f59e0b;
+  --rose: #fca5a5;
+  --hero-grad: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #102540 100%);
+  --hero-accent: #7c5cfc;
+  --hover: rgba(124,92,252,.12);
+  --card-bg: #1e1e2a;
+  --gradient-end: #7c3aed;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 16px rgba(0,0,0,.35);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,.4);
+  --shadow-xl: 0 16px 48px rgba(0,0,0,.5);
+  --shadow-glow: 0 0 20px rgba(124,92,252,.15);
+  --transition-fast: .15s cubic-bezier(.4,0,.2,1);
+  --transition: .2s cubic-bezier(.4,0,.2,1);
+  --transition-slow: .25s cubic-bezier(.4,0,.2,1);
+  --scrollbar-track: #1a1a24;
+  --scrollbar-thumb: #2a2a3a;
+  --scrollbar-thumb-hover: #3a3a4a;
+  --success: #6ee7b7;
+  --warning: #fbbf24;
+  --error: #f87171;
+  --info: #7dd3fc;
+  --notice-success-bg: #0d2e23;
+  --notice-success-border: #10b981;
+  --notice-success-text: #a7f3d0;
+  --notice-warning-bg: #2e230d;
+  --notice-warning-border: #f59e0b;
+  --notice-warning-text: #fbbf24;
+  --notice-danger-bg: #2e0d0d;
+  --notice-danger-border: #ef4444;
+  --notice-danger-text: #f87171;
+  --media-thumb-grad: linear-gradient(135deg, #1a1a2e, #2a2a4e);
+  --success-solid: #10b981;
+  --muted: #6a6a7a;
+  --trust: #7c5cfc;
+  --tc: #7c5cfc;
+}
+
+:root[data-theme="light"] {  
+  --bg: #f8f8fc; 
+  --bg-secondary: #f0f0f8; 
+  --card: #ffffff; 
+  --card2: #f7f7ff; 
+  --card-hover: #f0f0ff; 
+  --card-elevated: #ffffff;
+  --accent: #6d4cfc; 
+  --accent2: #5b3fd9;
+  --accent-light: rgba(109,76,252,.08);
+  --text: #1a1a2e; 
+  --text2: #555577; 
+  --text3: #7777aa; 
+  --text-disabled: #9090a0;
+  --border: #e0e0f0; 
+  --border-light: #f0f0f8;
+  --green: #16a34a; 
+  --red: #dc2626; 
+  --orange: #ea580c; 
+  --yellow: #ca8a04;
+  --sky: #0ea5e9;
+  --amber: #f59e0b;
+  --rose: #f43f5e;
+  --hero-grad: linear-gradient(135deg, #667eea 0%, #764ba2 40%, #f093fb 100%);
+  --hero-accent: #6d4cfc;
+  --hover: rgba(109,76,252,.08);
+  --card-bg: #ffffff;
+  --gradient-end: #7c3aed;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.06);
+  --shadow-md: 0 4px 16px rgba(0,0,0,.08);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,.1);
+  --shadow-xl: 0 16px 48px rgba(0,0,0,.12);
+  --shadow-glow: 0 0 20px rgba(109,76,252,.1);
+  --transition-fast: .15s cubic-bezier(.4,0,.2,1);
+  --transition: .2s cubic-bezier(.4,0,.2,1);
+  --transition-slow: .25s cubic-bezier(.4,0,.2,1);
+  --scrollbar-track: #f0f0f8;
+  --scrollbar-thumb: #ddddee;
+  --scrollbar-thumb-hover: #ccccdd;
+  --success: #16a34a;
+  --warning: #ca8a04;
+  --error: #dc2626;
+  --info: #0ea5e9;
+  --notice-success-bg: #d1fae5;
+  --notice-success-border: #10b981;
+  --notice-success-text: #065f46;
+  --notice-warning-bg: #fef3c7;
+  --notice-warning-border: #f59e0b;
+  --notice-warning-text: #92400e;
+  --notice-danger-bg: #fee2e2;
+  --notice-danger-border: #ef4444;
+  --notice-danger-text: #991b1b;
+  --media-thumb-grad: linear-gradient(135deg, #e9e9f6, #f5f5ff);
+  --success-solid: #10b981;
+  --muted: #7777aa;
+  --trust: #6d4cfc;
+  --tc: #6d4cfc;
+}
+
+:root {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* Compatibility aliases for feature styles that predate the current token names. */
+  --text-primary: var(--text);
+  --text-secondary: var(--text2);
+  --text-muted: var(--text3);
+  --border-color: var(--border);
+  --hover-bg: var(--hover);
+  --primary-color: var(--accent);
+  --danger-color: var(--red);
+  --shadow-color: color-mix(in srgb, #000 18%, transparent);
+  --bg-subtle: var(--card2);
+  --bg-muted: var(--border-light);
+  --radius: var(--radius-lg);
+  --radius-card: var(--radius-lg);
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+
+  /* ===== 字号系统（V9.5 统一打磨新增）=====
+     收敛 10/11/12/13/14/15/16/18/20/22/24/26/28/30 这些实际出现值，
+     所有文件 font-size 硬编码应替换为对应变量。 */
+  --font-size-10: 10px;
+  --font-size-11: 11px;
+  --font-size-12: 12px;
+  --font-size-13: 13px;
+  --font-size-14: 14px;
+  --font-size-15: 15px;
+  --font-size-16: 16px;
+  --font-size-18: 18px;
+  --font-size-20: 20px;
+  --font-size-22: 22px;
+  --font-size-24: 24px;
+  --font-size-26: 26px;
+  --font-size-28: 28px;
+  --font-size-30: 30px;
+
+  /* ===== 语义化字号（按用途命名）===== */
+  --text-xs: var(--font-size-11);
+  --text-sm: var(--font-size-12);
+  --text-md: var(--font-size-13);
+  --text-base: var(--font-size-14);
+  --text-lg: var(--font-size-15);
+  --text-xl: var(--font-size-16);
+  --text-2xl: var(--font-size-18);
+  --text-3xl: var(--font-size-20);
+  --text-4xl: var(--font-size-22);
+  --text-5xl: var(--font-size-24);
+
+  /* ===== 骨架屏 shimmer 渐变（V9.5 新增）
+     把 ui-enhance.css 中 5 处重复的渐变统一到这一处。 */
+  --skeleton-shimmer: linear-gradient(
+    90deg,
+    var(--card2) 25%,
+    var(--card-hover) 50%,
+    var(--card2) 75%
+  );
+  --skeleton-shimmer-size: 200% 100%;
+
+  /* ===== 进度条渐变（统一 worlds-panel/preset 进度条）===== */
+  --bar-grad: linear-gradient(90deg, var(--accent), var(--accent2));
+  --bar-grad-end: linear-gradient(90deg, var(--accent), var(--gradient-end));
+
+  /* ===== 补齐从未被定义、却在样式里被 var() 引用的别名 =====
+     这些名字散落在 ui-enhance.css / 08-chat-posts.css 等文件里。
+     其中大部分连回退值都没写（例如 `var(--bg2)`），
+     按 CSS 规范，引用未定义且无回退的自定义属性会让整条声明
+     在「计算值时」失效 —— 属性静默退回继承值/初始值，
+     实测共有 30 条声明因此完全没生效。
+     还有两个更糟：`var(--input-bg, #f5f5f5)` 和 `var(--code-bg, #f5f5f5)`
+     的回退是浅灰，在深色主题下配浅色文字变成白底白字，
+     直播创建弹窗的输入框就是这么变成"白底不可读"的。
+     这里统一指向已有的设计令牌，使其自动跟随明暗主题。 */
+  --bg2: var(--bg-secondary);
+  --bg3: var(--card2);
+  --bg-primary: var(--bg);
+  --text1: var(--text);
+  --text-muted2: var(--text3);
+  --danger: var(--red);
+  --accent-dark: var(--accent2);
+  --accent-bg: var(--accent-light);
+  --active-bg: var(--accent-light);
+  --card-bg-hover: var(--card-hover);
+  --input-bg: var(--card);
+  --code-bg: var(--card2);
+  /* 移动端底部导航实测高度 69px（ui-enhance.css .mobile-tab-bar），
+     此前 99-design-system.css 里写的回退值 76px 与实际不符。 */
+  --mobile-tab-bar-h: 69px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not(.force-anim) {
+    --transition-fast: 0s;
+    --transition: 0s;
+    --transition-slow: 0s;
+  }
+}

@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# 后台与 API 不对外暴露
+Disallow: /api/
+Disallow: /admin
+
+Sitemap: http://localhost:3456/sitemap.xml

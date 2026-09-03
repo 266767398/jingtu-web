@@ -47,7 +47,7 @@
 }
 
 .tab-content.d-none {
-  display: none !important;
+  display: none;
 }
 
 /* ========== 3. 弹窗动画增强 ========== */
@@ -71,45 +71,21 @@
   animation: toastSlideOut .25s ease forwards;
 }
 
-/* ========== 5. 骨架屏加载 ========== */
-.skeleton-card-grid {
-  background: linear-gradient(90deg, var(--card2) 25%, var(--card-hover, var(--card)) 50%, var(--card2) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease infinite;
-  border-radius: var(--radius);
-  min-height: 180px;
-}
-.skeleton-card {
-  background: linear-gradient(90deg, var(--card2) 25%, var(--card-hover, var(--card)) 50%, var(--card2) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease infinite;
-  border-radius: var(--radius);
-  min-height: 80px;
-  margin-bottom: 12px;
-}
-.skeleton-text {
-  display: inline-block;
-  height: 12px;
-  border-radius: 6px;
-  background: linear-gradient(90deg, var(--card2) 25%, var(--card-hover, var(--card)) 50%, var(--card2) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease infinite;
-}
-.skeleton-stat {
-  background: linear-gradient(90deg, var(--card2) 25%, var(--card-hover, var(--card)) 50%, var(--card2) 75%) !important;
-  background-size: 200% 100% !important;
-  animation: shimmer 1.5s ease infinite !important;
-  border-radius: 4px;
-  min-width: 40px;
-  min-height: 26px;
-  display: inline-block;
-}
+/* ========== 5. 骨架屏加载（V9.5 统一渐变到 --skeleton-shimmer） ========== */
+.skeleton-card-grid,
+.skeleton-card,
+.skeleton-text,
+.skeleton.skeleton-stat,
 .skeleton-circle {
-  border-radius: 50%;
-  background: linear-gradient(90deg, var(--card2) 25%, var(--card-hover, var(--card)) 50%, var(--card2) 75%);
-  background-size: 200% 100%;
+  background: var(--skeleton-shimmer);
+  background-size: var(--skeleton-shimmer-size);
   animation: shimmer 1.5s ease infinite;
 }
+.skeleton-card-grid { border-radius: var(--radius); min-height: 180px; }
+.skeleton-card { border-radius: var(--radius); min-height: 80px; margin-bottom: 12px; }
+.skeleton-text { display: inline-block; height: 12px; border-radius: 6px; }
+.skeleton.skeleton-stat { border-radius: var(--radius-sm); min-width: 40px; min-height: 26px; display: inline-block; }
+.skeleton-circle { border-radius: 50%; }
 
 /* ========== 6. 卡片微交互 ========== */
 .card, .member-card, .event-card {
@@ -170,10 +146,13 @@
   opacity: 0;
   pointer-events: none;
   transition: opacity .3s ease;
+  /* 未激活时彻底不参与视觉渲染，避免透明层截断底部通知 */
+  visibility: hidden;
 }
 .global-loading.show {
   opacity: 1;
   pointer-events: all;
+  visibility: visible;
 }
 .global-loading .spinner {
   width: 40px; height: 40px;
@@ -183,25 +162,7 @@
   animation: spin .7s linear infinite;
 }
 
-/* ========== 10. 空状态美化 ========== */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 20px;
-  text-align: center;
-  animation: fadeIn .4s ease;
-}
-.empty-state .empty-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
-  opacity: .5;
-}
-.empty-state div:last-child {
-  color: var(--text3);
-  font-size: 14px;
-}
+/* ========== 10. 空状态美化（已由 ui.js 的 renderEmpty 接管，旧 .empty-state 规则已移除） ========== */
 
 /* ========== 11. 徽章 & 标签动画 ========== */
 .tag, .badge {
@@ -261,10 +222,44 @@ input:focus, select:focus, textarea:focus {
   animation: pulse-glow 2s infinite;
 }
 
-/* ========== 17. 标签页底栏指示器动画 ========== */
-.tab.active::after {
-  animation: fadeIn .25s ease;
+/* ========== 17. 标签页选中指示器（滑动“选择移动动画”，由 ui.js 驱动 .tab-indicator 定位） ========== */
+/* 注意：原 .tab.active::after 因缺少 base 导致半截下划线且首页常驻，已废弃，
+   改用 JS 注入的 .tab-indicator 元素做平滑滑动指示，避免上述问题。 */
+/* 让 .tabs 成为定位上下文，使指示器与 .tab 共用同一 offsetParent，定位精确 */
+#mainContainer > .tabs { position: relative; }
+
+/* 提高特异性（#mainContainer > .tabs .tab-indicator），覆盖 04-components.css 等基础样式，
+   确保滑动药丸的定位（top/bottom 竖向）与 transform/width 过渡逻辑独占生效，避免动画错位。 */
+#mainContainer > .tabs .tab-indicator {
+  position: absolute;
+  top: 5px;            /* 与 .tabs 的 padding 对齐 */
+  bottom: 5px;
+  left: 0;             /* 定位基准与 .tab.offsetLeft 同源（均相对 .tabs 内边距） */
+  width: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  box-shadow: 0 2px 12px rgba(124,92,252,0.3);
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform, width;
+  transition: transform .28s cubic-bezier(0.4,0,0.2,1), width .28s cubic-bezier(0.4,0,0.2,1), opacity .2s ease;
+  z-index: 0;
 }
+/* 指示器仅供桌面端顶部标签栏使用；首页隐藏标签栏时一并隐藏 */
+body.home-active .tab-indicator { opacity: 0 !important; }
+@media (max-width: 768px) { .tab-indicator { display: none !important; } }
+/* 让 tab 文本浮在指示器之上 */
+.tab { z-index: 1; }
+/* 提高特异性，覆盖后加载的 ui-components.css 中 .tab.active/.tab[aria-selected="true"] 的紫色背景，
+   使主标签栏只保留滑动药丸指示器 */
+#mainContainer > .tabs .tab.active,
+#mainContainer > .tabs .tab[aria-selected="true"] {
+  background: transparent;
+  color: #fff;
+  box-shadow: none;
+}
+/* 隐藏旧的伪元素下划线，避免与 JS 滑动药丸指示器冲突导致视觉方向错乱 */
+#mainContainer > .tabs .tab.active::after { display: none; }
 
 /* ========== 18. 滚动条美化（覆盖 style.css） ========== */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -542,7 +537,297 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid rgba(255,255,255,.1);
 }
 
-/* ========== 37. 响应式微调 ========== */
+/* ========== 37. 数据仪表盘 ========== */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.dashboard-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  transition: all .25s cubic-bezier(.34,1.56,.64,1);
+}
+.dashboard-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--accent);
+}
+.dashboard-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+.dashboard-info {
+  flex: 1;
+  min-width: 0;
+}
+.dashboard-value {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1;
+}
+.dashboard-label {
+  font-size: 12px;
+  color: var(--text3);
+  margin-top: 4px;
+}
+.dashboard-trend {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.dashboard-trend.up {
+  color: var(--green);
+  background: rgba(16,185,129,.1);
+}
+.dashboard-trend.down {
+  color: var(--red);
+  background: rgba(239,68,68,.1);
+}
+.dashboard-trend.steady {
+  color: var(--text3);
+  background: var(--card2);
+}
+
+/* ========== 38. 活动日历视图 - 周历视图 ========== */
+.week-view-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  padding: 12px;
+  background: var(--card);
+}
+.week-view-day {
+  background: var(--card2);
+  border-radius: 8px;
+  padding: 10px;
+  cursor: pointer;
+  transition: all .2s ease;
+  border: 1px solid transparent;
+}
+.week-view-day:hover {
+  background: rgba(124,92,252,.06);
+  border-color: var(--border);
+  transform: translateY(-2px);
+}
+.week-view-day.today {
+  background: rgba(124,92,252,.1);
+}
+.week-view-day.selected {
+  background: rgba(124,92,252,.15);
+  border-color: var(--accent);
+}
+.week-day-header {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text3);
+  margin-bottom: 8px;
+}
+.week-day-num {
+  display: block;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 2px;
+}
+.week-view-day.today .week-day-num {
+  color: var(--accent);
+}
+.week-day-events {
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.week-event-item {
+  font-size: 11px;
+  padding: 4px 6px;
+  background: rgba(124,92,252,.15);
+  border-radius: 4px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.week-event-item:hover {
+  background: rgba(124,92,252,.25);
+  transform: translateX(2px);
+}
+.week-event-more {
+  font-size: 10px;
+  color: var(--text3);
+  text-align: center;
+  padding: 2px;
+}
+.week-day-empty {
+  flex: 1;
+  background: transparent;
+}
+
+/* ========== 39. 活动日历视图 - 月历视图 ========== */
+.evt-calendar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--card);
+  border-radius: var(--radius) var(--radius) 0 0;
+  border-bottom: 1px solid var(--border);
+}
+.evt-calendar-nav h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+.evt-calendar-today-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: rgba(124,92,252,.1);
+  color: var(--accent);
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.evt-calendar-today-btn:hover {
+  background: rgba(124,92,252,.2);
+  transform: translateY(-1px);
+}
+.evt-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  padding: 12px;
+  background: var(--card);
+}
+.evt-calendar-weekday {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text3);
+  padding: 8px 4px;
+  border-radius: 6px;
+}
+.evt-calendar-day {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 6px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .2s cubic-bezier(.34,1.56,.64,1);
+  border: 1px solid transparent;
+  background: var(--card2);
+}
+.evt-calendar-day:hover {
+  background: var(--hover-bg, rgba(124,92,252,.06));
+  border-color: var(--border);
+  transform: scale(1.05);
+}
+.evt-calendar-day.selected {
+  background: rgba(124,92,252,.15);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(124,92,252,.2);
+}
+.evt-calendar-day.today {
+  background: rgba(124,92,252,.1);
+}
+.evt-calendar-day.today .day-num {
+  color: var(--accent);
+  font-weight: 800;
+}
+.evt-calendar-day.other-month {
+  opacity: .3;
+  cursor: default;
+}
+.day-num {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1;
+}
+.evt-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 4px;
+  justify-content: center;
+  max-width: 100%;
+}
+.evt-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse-glow 2s infinite;
+}
+.cal-day-events {
+  padding: 16px;
+  background: var(--card);
+  border-radius: 0 0 var(--radius) var(--radius);
+  border-top: 1px solid var(--border);
+}
+.cal-day-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.cal-event-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .2s ease;
+  background: var(--card2);
+  margin-bottom: 8px;
+}
+.cal-event-item:last-child {
+  margin-bottom: 0;
+}
+.cal-event-item:hover {
+  background: var(--hover-bg, rgba(124,92,252,.06));
+  transform: translateX(4px);
+}
+.cal-event-time {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.cal-event-title {
+  font-size: 13px;
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-event-world {
+  font-size: 11px;
+  color: var(--text3);
+  flex-shrink: 0;
+}
+
+/* ========== 40. 响应式微调 ========== */
 @media (max-width: 768px) {
   .tab-content {
     animation-duration: .25s;
@@ -552,6 +837,47 @@ input:focus, select:focus, textarea:focus {
   .container { padding: 12px; }
   .card { padding: 14px; }
   .member-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+  .dashboard-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+  }
+  .dashboard-value {
+    font-size: 20px;
+  }
+  .dashboard-icon {
+    font-size: 24px;
+  }
+  .week-view-grid {
+    gap: 4px;
+    padding: 8px;
+  }
+  .week-view-day {
+    padding: 6px;
+  }
+  .week-day-header {
+    font-size: 10px;
+    margin-bottom: 4px;
+  }
+  .week-day-num {
+    font-size: 12px;
+  }
+  .week-event-item {
+    font-size: 9px;
+    padding: 2px 4px;
+  }
+  .evt-calendar-grid {
+    gap: 2px;
+    padding: 8px;
+  }
+  .evt-calendar-day {
+    padding: 4px 2px;
+  }
+  .day-num {
+    font-size: 11px;
+  }
+  .cal-event-item {
+    padding: 8px 10px;
+  }
 }
 @media (max-width: 480px) {
   .member-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
@@ -576,6 +902,17 @@ input:focus, select:focus, textarea:focus {
 .stat-card:hover::before { opacity: .05; }
 .stat-card .stat-value { font-size: 28px; font-weight: 800; position: relative; z-index: 1; }
 .stat-card .stat-label { position: relative; z-index: 1; }
+.stat-card .stat-tip {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity .2s ease;
+  position: relative;
+  z-index: 1;
+}
+.stat-card:hover .stat-tip { opacity: 1; }
+.stat-card.cursor-pointer { cursor: pointer; }
 
 /* 管理面板卡片头部增强 */
 .admin-card-header {
@@ -626,17 +963,50 @@ input:focus, select:focus, textarea:focus {
 }
 .member-card:hover::after { opacity: 1; }
 
-/* ========== 40. 空状态 & 欢迎提示增强 ========== */
+/* ========== 40. 欢迎卡片增强 ========== */
 .welcome-card {
-  background: linear-gradient(135deg, var(--card2) 0%, rgba(124,92,252,.06) 100%);
+  background: linear-gradient(135deg, var(--card) 0%, rgba(124,92,252,.08) 50%, rgba(157,78,221,.05) 100%);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px 24px;
-  margin-bottom: 16px;
+  padding: 24px;
+  margin-bottom: 20px;
   text-align: center;
+  position: relative;
+  overflow: hidden;
 }
-.welcome-card h2 { font-size: 18px; font-weight: 700; margin: 0 0 6px; }
-.welcome-card p { font-size: 14px; color: var(--text2); margin: 0; line-height: 1.6; }
+.welcome-card::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle, rgba(124,92,252,.1) 0%, transparent 70%);
+  animation: floatBg 6s ease-in-out infinite;
+}
+@keyframes floatBg {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  50% { transform: translate(10%, 10%) rotate(5deg); }
+}
+.welcome-card h2 { 
+  font-size: 22px; 
+  font-weight: 800; 
+  margin: 0 0 8px; 
+  position: relative;
+  z-index: 1;
+  background: linear-gradient(90deg, var(--text), var(--accent));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.welcome-card p { 
+  font-size: 15px; 
+  color: var(--text2); 
+  margin: 0; 
+  line-height: 1.6;
+  position: relative;
+  z-index: 1;
+}
 
 /* ========== 41. 表单 & 按钮响应式改进 ========== */
 @media (max-width: 768px) {
@@ -674,42 +1044,94 @@ input:focus, select:focus, textarea:focus {
 .admin-user-info .admin-user-meta { font-size: 11px; color: var(--text2); }
 .admin-user-actions { display: flex; gap: 4px; flex-shrink: 0; flex-wrap: wrap; }
 
+.admin-log-row:hover {
+  background: var(--hover);
+}
+
 /* ========== 43. 首页 Home Tab 样式 ========== */
-.home-quick-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 10px;
+/* 统计条：由原先 5 张 14px 内边距 + 40px 图标块的大卡片收敛为一行细条。
+   原设计单独占掉近 90px 高度，而 hero 里已经展示了在线/成员/照片三个同样的数字，
+   等于同一屏出现两遍。现在压成一行，并让每一项可点击跳转到对应模块，
+   顺带接管了被删掉的"快捷入口"九宫格的导航职责。 */
+.home-stat-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 4px;
   margin-bottom: 16px;
-}
-.home-quick-card {
-  background: var(--card2);
+  padding: 4px;
+  background: var(--card);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px 14px;
-  text-align: center;
-  cursor: pointer;
-  transition: all .25s cubic-bezier(.34,1.56,.64,1);
-  position: relative;
-  overflow: hidden;
+  border-radius: 12px;
 }
-.home-quick-card::before {
+.hs-item {
+  flex: 1 1 0;
+  min-width: 84px;
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background .18s ease, color .18s ease;
+}
+/* 宽屏下每一项会被拉到 200px 以上，数字之间空当很大，看起来像散落的孤立数字。
+   在间隙里放一条细分隔线，让这一行读起来是一个整体。 */
+.hs-item + .hs-item::before {
   content: '';
   position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, var(--accent) 0%, transparent 60%);
-  opacity: 0;
-  transition: opacity .3s ease;
+  left: -3px;
+  top: 22%;
+  bottom: 22%;
+  width: 1px;
+  background: var(--border);
 }
-.home-quick-card:hover {
-  transform: translateY(-4px);
-  border-color: var(--accent);
-  box-shadow: 0 8px 24px rgba(124,92,252,.2);
+.hs-item:hover { background: var(--hover); }
+.hs-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.hs-value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
-.home-quick-card:hover::before { opacity: .06; }
-.home-quick-card:active { transform: translateY(-1px); }
-.home-quick-icon { font-size: 28px; margin-bottom: 6px; position: relative; z-index: 1; }
-.home-quick-label { font-weight: 700; font-size: 14px; position: relative; z-index: 1; }
-.home-quick-tip { font-size: 11px; color: var(--text2); margin-top: 4px; position: relative; z-index: 1; }
+.hs-label {
+  font-size: 0.75rem;
+  color: var(--text2);
+  white-space: nowrap;
+}
+/* 在线状态用一个小圆点表示，比 emoji 更稳定：emoji 在不同系统下尺寸差异很大，
+   会把这一行的基线撑歪。 */
+.hs-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  align-self: center;
+  flex-shrink: 0;
+}
+/* 颜色交给状态修饰类，别硬编码在基础类上 —— 否则 HTML 上写着 hs-dot-online
+   却没有任何对应规则，读代码的人会以为颜色是它给的。 */
+.hs-dot-online { background: var(--green); }
+@media (max-width: 640px) {
+  .home-stat-bar { gap: 2px; padding: 3px; }
+  .hs-item { min-width: 0; padding: 7px 4px; gap: 4px; }
+  .hs-item + .hs-item::before { left: -2px; }
+  .hs-value { font-size: 0.95rem; }
+  .hs-label { font-size: 0.68rem; }
+}
+/* 窄屏把数字和标签改为上下排列，这样每一项只需要一个字宽，5 项仍能挤在一行。
+   之前用 flex-basis 强制换行，结果是 3+2 的不对称两行，反而比原来的卡片还高。
+   小圆点在这个尺寸下只会挤占宽度，直接隐藏（它本来就是纯装饰）。 */
+@media (max-width: 480px) {
+  .hs-item { flex-direction: column; align-items: center; gap: 1px; padding: 6px 2px; }
+  .hs-dot { display: none; }
+  .hs-value { font-size: 0.9rem; }
+}
 
 .section-title { font-size: 16px; font-weight: 700; margin: 0; }
 .section-title-icon { font-size: 20px; }
@@ -739,10 +1161,7 @@ input:focus, select:focus, textarea:focus {
 .post-mini-content { font-size: 13px; color: var(--text2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .post-mini-time { font-size: 11px; color: var(--text3, var(--text2)); margin-top: 2px; }
 @media (max-width: 480px) {
-  .home-quick-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .home-quick-card { padding: 12px 8px; }
-  .home-quick-icon { font-size: 22px; }
-  .home-quick-tip { display: none; }
+  .post-mini-content { max-width: 100%; }
 }
 
 /* ========== 44. 通用增强 ========== */
@@ -752,3 +1171,387 @@ input:focus, select:focus, textarea:focus {
 .gap-8 { gap: 8px; }
 .mt-16 { margin-top: 16px; }
 .mb-8 { margin-bottom: 8px; }
+
+/* ========== 45. 卡片悬浮光效增强 ========== */
+.card, .event-card, .dashboard-card {
+  position: relative;
+}
+.card::after, .event-card::after, .dashboard-card::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent2), var(--sky), var(--accent));
+  background-size: 200% 100%;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+.card:hover::after, .event-card:hover::after, .dashboard-card:hover::after {
+  opacity: .5;
+  animation: shimmer 1.5s ease infinite;
+}
+
+/* ========== 46. 按钮点击波纹效果 ========== */
+.btn {
+  position: relative;
+  overflow: hidden;
+}
+.btn::before {
+  content: '';
+  position: absolute;
+  width: 100px;
+  height: 100px;
+  background: rgba(255,255,255,.3);
+  border-radius: 50%;
+  transform: scale(0);
+  transition: transform .4s ease;
+  pointer-events: none;
+}
+.btn:active::before {
+  transform: scale(4);
+}
+
+/* ========== 47. 输入框聚焦光晕效果 ========== */
+input:focus, select:focus, textarea:focus {
+  box-shadow: 0 0 0 3px var(--hover), 0 0 20px rgba(124,92,252,.15);
+}
+
+/* ========== 48. 列表项交错动画 ========== */
+.list-item {
+  opacity: 0;
+  transform: translateY(10px);
+  animation: fadeInUp .3s ease forwards;
+}
+.list-item:nth-child(1) { animation-delay: 0s; }
+.list-item:nth-child(2) { animation-delay: .05s; }
+.list-item:nth-child(3) { animation-delay: .1s; }
+.list-item:nth-child(4) { animation-delay: .15s; }
+.list-item:nth-child(5) { animation-delay: .2s; }
+.list-item:nth-child(6) { animation-delay: .25s; }
+.list-item:nth-child(7) { animation-delay: .3s; }
+.list-item:nth-child(8) { animation-delay: .35s; }
+
+/* ========== 49. 进度条动画增强 ========== */
+@keyframes progressFill {
+  from { width: 0; }
+}
+.progress-fill {
+  animation: progressFill .6s cubic-bezier(.4,0,.2,1);
+}
+
+/* ========== 50. 状态指示器增强 ========== */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.status-dot.online {
+  background: var(--green);
+  animation: pulse-glow 2s infinite;
+}
+.status-dot.offline {
+  background: var(--text3);
+}
+.status-dot.busy {
+  background: var(--orange);
+  animation: pulse-glow 1.5s infinite;
+}
+
+/* ========== 51. 标签页切换平滑过渡 ========== */
+.tab-content {
+  transition: opacity .3s ease, transform .3s cubic-bezier(.4,0,.2,1);
+}
+.tab-content:not(.d-none) {
+  opacity: 1;
+  transform: translateY(0);
+}
+.tab-content.d-none {
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+}
+
+/* ========== 52. 滚动到顶部按钮（V9.5 合并到 ui-components.css，保留别名兜底） ========== */
+.scroll-top-btn,
+.scroll-to-top {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  opacity: 0;
+  visibility: hidden;
+  transition: all .3s ease;
+  z-index: 1000;
+  box-shadow: var(--shadow-lg);
+}
+.scroll-top-btn.show,
+.scroll-to-top.show {
+  opacity: 1;
+  visibility: visible;
+}
+.scroll-top-btn:hover,
+.scroll-to-top:hover {
+  background: var(--accent-dark);
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: 0 0 24px rgba(124,92,252,.4);
+}
+@media (max-width: 768px) {
+  .scroll-top-btn,
+  .scroll-to-top {
+    bottom: calc(69px + 12px + env(safe-area-inset-bottom));
+    right: 14px;
+  }
+}
+
+/* ========== 53. 搜索结果动画 ========== */
+.search-results-dropdown {
+  animation: fadeInUp .2s cubic-bezier(.34,1.56,.64,1);
+}
+
+/* ========== 54. 通知面板弹出动画 ========== */
+.notification-panel {
+  animation: scaleIn .2s cubic-bezier(.34,1.56,.64,1);
+}
+
+/* ========== 54.1 通知设置面板样式 ========== */
+.notification-settings {
+  border-top: 1px solid var(--border);
+  padding: 10px 16px;
+  margin-top: auto;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.notif-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text2);
+  cursor: pointer;
+  padding: 4px 0;
+}
+.notif-toggle-row input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.notif-toggle-row:hover { color: var(--text); }
+.notif-settings-header {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.notif-setting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+.notif-setting-label {
+  font-size: 13px;
+  color: var(--text2);
+}
+.notif-toggle {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  cursor: pointer;
+}
+.notif-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.notif-toggle-slider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border);
+  transition: .3s;
+  border-radius: 24px;
+}
+.notif-toggle-slider:before {
+  position: absolute;
+  content: '';
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0,0,0,.2);
+}
+.notif-toggle input:checked + .notif-toggle-slider {
+  background-color: var(--accent);
+}
+.notif-toggle input:checked + .notif-toggle-slider:before {
+  transform: translateX(20px);
+}
+
+/* ========== 54.2 通知类型筛选标签（VRCX Log 模块分组思路） ========== */
+.notif-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 14px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.notif-filter {
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 10px;
+  border-radius: 999px;
+  color: var(--text2);
+  background: var(--chip-bg, rgba(255,255,255,.05));
+  cursor: pointer;
+  user-select: none;
+  transition: background .15s, color .15s;
+  white-space: nowrap;
+}
+.notif-filter:hover { color: var(--text); background: var(--chip-bg-hover, rgba(255,255,255,.1)); }
+.notif-filter.active {
+  color: #fff;
+  background: var(--accent);
+  font-weight: 600;
+}
+.notif-load-more {
+  display: block;
+  width: calc(100% - 28px);
+  margin: 10px 14px 12px;
+  padding: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--chip-bg, rgba(255,255,255,.05));
+  color: var(--text2);
+  font-size: 13px;
+  text-align: center;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.notif-load-more:hover { background: var(--chip-bg-hover, rgba(255,255,255,.1)); color: var(--text); }
+
+/* ========== 55. 头像悬浮缩放效果 ========== */
+.user-avatar-sm, .group-avatar-sm, .member-avatar {
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1);
+}
+.user-avatar-sm:hover, .group-avatar-sm:hover, .member-avatar:hover {
+  transform: scale(1.15);
+}
+
+/* ========== 56. 边框发光动画 ========== */
+@keyframes borderPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(124,92,252,.4); }
+  50% { box-shadow: 0 0 0 8px rgba(124,92,252,0); }
+}
+.border-pulse {
+  animation: borderPulse 2s infinite;
+}
+
+/* ========== 57. 快捷操作按钮 ========== */
+.quick-action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 12px;
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all .25s cubic-bezier(.34,1.56,.64,1);
+  gap: 6px;
+}
+.quick-action-btn:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px rgba(124,92,252,.2);
+  background: rgba(124,92,252,.06);
+}
+.quick-action-btn:active { transform: translateY(-1px); }
+.quick-action-icon { font-size: 26px; }
+.quick-action-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ========== 58. 管理员筛选栏 ========== */
+.admin-filter-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+}
+.admin-filter-chip {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  background: var(--card2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all .2s ease;
+}
+.admin-filter-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.admin-filter-chip.active {
+  background: rgba(124,92,252,.15);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(124,92,252,.15);
+}
+
+/* ========== 59. 管理面板滚动导航辅助 ========== */
+.scroll-to-top-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  opacity: 0;
+  visibility: hidden;
+  transition: all .3s ease;
+  z-index: 1000;
+  box-shadow: var(--shadow-lg);
+}
+.scroll-to-top-btn.show {
+  opacity: 1;
+  visibility: visible;
+}
+.scroll-to-top-btn:hover {
+  transform: translateY(-3px) scale(1.1);
+  box-shadow: 0 0 24px rgba(124,92,252,.4);
+}
+
+

@@ -1,8 +1,21 @@
 // ==================== 生日专区模块 ====================
 
 let birthdaysCache = [];
+let birthdayLoading = false;
+// 生日派对活动缓存（供活动日历视图合并展示）
+window.birthdayPartiesCache = window.birthdayPartiesCache || [];
+
+// 事件委托：生日派对__('auto_birthday_1')（避免内联 onclick 转义问题）
+document.addEventListener('click', function (e) {
+  const t = e.target.closest('[data-party-id]');
+  if (!t) return;
+  e.stopPropagation();
+  if (typeof showEventDetail === 'function') showEventDetail(t.getAttribute('data-party-id'));
+});
 
 async function loadBirthdays() {
+  if (birthdayLoading) return;
+  birthdayLoading = true;
   try {
     const res = await api('/api/users/birthdays', { method: 'GET' });
     if (res.ok) {
@@ -13,6 +26,8 @@ async function loadBirthdays() {
   } catch (err) {
     if (isApiHandledError(err)) return;
     toast(__('birthday.load_failed'), 'error');
+  } finally {
+    birthdayLoading = false;
   }
 }
 
@@ -20,7 +35,7 @@ function renderBirthdays(birthdays) {
   const container = document.getElementById('birthdaysList');
   if (!container) return;
   if (!birthdays || birthdays.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">🎂</div><div>${__('birthday.no_birthdays')}</div></div>';
+    renderEmpty(container, { icon: '🎂', text: __('birthday.no_birthdays') });
     return;
   }
   const sorted = [...birthdays].sort((a, b) => {
@@ -35,7 +50,7 @@ function renderBirthdays(birthdays) {
         <div class="birthday-name">${esc(b.displayName || b.loginId)}</div>
         <div class="birthday-date">🎂 ${b.birthday || __('unknown')}</div>
       </div>
-      ${isToday(b.birthday) ? '<div class="birthday-today-badge">${__('birthday.today')}</div>' : ''}
+      ${isToday(b.birthday) ? '<div class="birthday-today-badge">' + __('birthday.today') + '</div>' : ''}
       ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin') ? `<button class="btn btn-sm btn-outline mt-4" onclick="createBirthdayEvent(${b.id}, '${escJsStr(b.displayName || b.loginId)}', '${escJsStr(b.birthday || '')}')">${__('birthday.create_party_from_birthday')}</button>` : ''}
     </div>
   `).join('');
@@ -50,16 +65,20 @@ function isToday(birthday) {
 
 // ==================== 生日派对活动 ====================
 async function loadBirthdayParties() {
+  if (birthdayLoading) return;
+  birthdayLoading = true;
   try {
-    // 用现有 events API，按 birthday 类型筛选
     const res = await api('/api/events?type=birthday&status=all', { method: 'GET' });
     if (res.ok) {
       const data = await res.json();
-      renderBirthdayParties(data.events || []);
+      window.birthdayPartiesCache = data.events || [];
+      renderBirthdayParties(window.birthdayPartiesCache);
     }
   } catch (err) {
     if (isApiHandledError(err)) return;
     toast(__('birthday.party_load_failed'), 'error');
+  } finally {
+    birthdayLoading = false;
   }
 }
 
@@ -67,10 +86,11 @@ function renderBirthdayParties(parties) {
   const container = document.getElementById('birthdayPartiesList');
   if (!container) return;
   if (!parties || parties.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">🎉</div><div>${__('birthday.no_parties')}</div></div>';
+    renderEmpty(container, { icon: '🎉', text: __('birthday.no_parties') });
     return;
   }
   const isAdmin = currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin');
+  const myUid = currentUser ? currentUser.id : null;
   const now = new Date();
   container.innerHTML = parties.map(p => {
     const evtId = p.id;
@@ -79,15 +99,21 @@ function renderBirthdayParties(parties) {
     const evtDesc = p.description || __('birthday.party_default');
     const evtTimeDate = evtTime ? new Date(evtTime) : null;
     const isPast = evtTimeDate && evtTimeDate < now;
-    const statusBadge = isPast ? '<span class="tag tag-past">⚪ ${__(\'birthday.status_ended\')}</span>' : (p.isActive ? '<span class="tag tag-ongoing">🔴 ${__(\'birthday.status_ongoing\')}</span>' : '<span class="tag tag-upcoming">🟢 ${__(\'birthday.status_upcoming\')}</span>');
+    const isCreator = myUid != null && p.createUserId != null && String(p.createUserId) === String(myUid);
+    // 管理权限：管理员/超级管理员，或生日派对创建者本人（与后端删除权限一致）
+    const canManage = isAdmin || isCreator;
+    // 后端未返回 isActive 字段，这里基于时间派生：已开始且未结束（有 endsAt 则以 endsAt 为准）即为进行中
+    const evtEndDate = (p.endsAt && !isNaN(new Date(p.endsAt).getTime())) ? new Date(p.endsAt) : null;
+    const isActive = !!evtTimeDate && evtTimeDate <= now && (!evtEndDate || evtEndDate >= now);
+    const statusBadge = isPast ? '<span class="tag tag-past">⚪ ' + __('birthday.status_ended') + '</span>' : (isActive ? '<span class="tag tag-ongoing">🔴 ' + __('birthday.status_ongoing') + '</span>' : '<span class="tag tag-upcoming">🟢 ' + __('birthday.status_upcoming') + '</span>');
     return `<div class="event-card birthday-party">
       <div class="d-flex-between mb-4">
         <div class="event-title">🎂 ${esc(evtTitle)}</div>
-        <div class="flex-center-gap6">${statusBadge}${isAdmin ? `<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();editBirthdayParty(${evtId})" title="${__('edit')}">✏️</button><button class="btn btn-sm btn-outline" onclick="event.stopPropagation();deleteBirthdayParty(${evtId})" title="${__('delete')}">🗑️</button>` : ''}</div>
+        <div class="flex-center-gap6">${statusBadge}${canManage ? `<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();editBirthdayParty(${evtId})" title="${__('edit')}">✏️</button><button class="btn btn-sm btn-outline" onclick="event.stopPropagation();deleteBirthdayParty(${evtId})" title="${__('delete')}">🗑️</button>` : ''}</div>
       </div>
       <div class="event-time">📅 ${fmtTime(evtTime)}</div>
       <div class="event-desc">${esc(evtDesc)}</div>
-      <div class="mt-6"><span class="text-12 text-muted2" style="cursor:pointer" onclick="event.stopPropagation();showEventDetail(\'${escJsStr(String(evtId))}\')">${__('birthday.view_detail')}</span></div>
+      <div class="mt-6"><span class="text-12 text-muted2" style="cursor:pointer" data-party-id="${escAttr(String(evtId))}">${__('birthday.view_detail')}</span></div>
     </div>`;
   }).join('');
 }
@@ -117,7 +143,7 @@ window.createBirthdayEvent = async function(userId, userName, birthday) {
           title: __('birthday.party_title_for', {name: userName}),
           time: startStr,
           endsAt: endStr,
-          description: `${__('birthday.party_desc', {name: userName})}`${__('birthday.celebrate')}`,
+          description: __('birthday.party_desc', {name: userName}) + __('birthday.celebrate'),
           eventType: 'birthday',
           visibility: 'members_only',
           maxSign: 30
@@ -158,7 +184,7 @@ async function editBirthdayParty(id) {
   if (!evt) {
     // 从缓存或 API 加载
     try {
-      const res = await api(`/api/events/${id}`, { method: 'GET' });
+      const res = await api(`/api/events/detail/${id}`, { method: 'GET' });
       if (!res.ok) { toast(__('birthday.load_data_failed'), 'error'); return; }
       const data = await res.json();
       fillBirthdayForm(data.event || data);
@@ -166,7 +192,7 @@ async function editBirthdayParty(id) {
   } else {
     fillBirthdayForm(evt);
   }
-  document.getElementById('bdayModalTitle').textContent = '${__('birthday.edit_party')}';
+  document.getElementById('bdayModalTitle').textContent = __('birthday.edit_party');
   document.getElementById('bdaySaveBtn').textContent = __('save');
   document.getElementById('bdaySaveBtn').onclick = () => saveBirthdayEdit(id);
   showModal('birthdayEventModal');
@@ -231,7 +257,7 @@ function showBirthdayEventModalNew() {
   document.getElementById('bdayEndsAt').value = '';
   document.getElementById('bdayDesc').value = '';
   document.getElementById('bdayMax').value = '0';
-  document.getElementById('bdayModalTitle').textContent = '${__('birthday.create_party')}';
+  document.getElementById('bdayModalTitle').textContent = __('birthday.create_party');
   document.getElementById('bdaySaveBtn').textContent = __('create');
   document.getElementById('bdaySaveBtn').onclick = saveBirthdayEvent;
   showBirthdayEventModal();

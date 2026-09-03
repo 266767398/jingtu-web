@@ -1,0 +1,95 @@
+# ==================== 境途同游 Web — docker-compose ====================
+# 一键起站（应用 + MySQL）：
+#   cp docker.env.example .env      # 填写 SESSION_SECRET / ENCRYPT_KEY / 数据库密码
+#   docker compose up -d --build
+#   curl -fsS http://127.0.0.1:3456/api/health/ready
+#
+# 说明：
+# - 应用容器内部通过服务名 `db` 访问数据库（MYSQL_HOST 已在下方写死，不读取宿主 .env）。
+# - 数据库账号/密码优先使用 docker.env.example 中定义的 JINGTU_DB_* 变量；
+#   若这些变量缺失，则回退到下方默认值，但默认值仅适合本地测试，生产务必修改。
+# - SESSION_SECRET / ENCRYPT_KEY 为必填，缺失时 compose 会直接报错提示。
+# - 公网部署请在本机另配 Nginx / 宝塔 反代并终结 TLS（见 DEPLOY.md 与 deploy/nginx/jingtu.conf）。
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: jingtu-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${JINGTU_DB_ROOT_PASSWORD:-change_me_root_password}
+      MYSQL_DATABASE: ${JINGTU_DB_NAME:-jingtu_group}
+      MYSQL_USER: ${JINGTU_DB_USER:-jingtu_user}
+      MYSQL_PASSWORD: ${JINGTU_DB_PASSWORD:-change_me_db_password}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${JINGTU_DB_ROOT_PASSWORD:-change_me_root_password}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - jingtu-net
+
+  app:
+    build: .
+    image: jingtu-web:latest
+    container_name: jingtu-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3456
+      TRUST_PROXY: "1"
+      # 容器内访问数据库使用服务名
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${JINGTU_DB_NAME:-jingtu_group}
+      MYSQL_USER: ${JINGTU_DB_USER:-jingtu_user}
+      MYSQL_PASSWORD: ${JINGTU_DB_PASSWORD:-change_me_db_password}
+      # 必填密钥（缺失则启动报错）
+      SESSION_SECRET: ${SESSION_SECRET:?请在 docker.env.example 中设置 SESSION_SECRET}
+      ENCRYPT_KEY: ${ENCRYPT_KEY:?请在 docker.env.example 中设置 ENCRYPT_KEY}
+      # 业务配置（可选）
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      GROUP_ID: ${GROUP_ID:-}
+      VRC_API_KEY: ${VRC_API_KEY:-}
+      VRC_GROUP_URL: ${VRC_GROUP_URL:-}
+      KOOK_URL: ${KOOK_URL:-}
+      OOPZ_URL: ${OOPZ_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # 直播推流（可选）
+      RTMP_HOST: ${RTMP_HOST:-}
+      RTMP_PORT: ${RTMP_PORT:-1935}
+      RTMP_APP: ${RTMP_APP:-live}
+      HLS_BASE_URL: ${HLS_BASE_URL:-}
+    ports:
+      - "${APP_PORT:-3456}:3456"
+    volumes:
+      - uploads:/app/uploads
+      - backups:/app/backups
+      - logs:/app/logs
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3456/api/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - jingtu-net
+
+volumes:
+  db_data:
+  uploads:
+  backups:
+  logs:
+
+networks:
+  jingtu-net:
+    driver: bridge

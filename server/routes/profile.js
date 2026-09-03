@@ -1,6 +1,11 @@
 /**
  * 境途同游 V6.6 — 用户资料系统路由
  * 用户资料 CRUD + 相册 + 照片 + 视频 + 隐私控制
+ * 
+ * @swagger
+ * tags:
+ *   name: Profile
+ *   description: 用户资料相关接口
  */
 const express = require('express');
 const router = express.Router();
@@ -9,7 +14,8 @@ const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
 const { requireAuth } = require('../auth');
-const { getPool, safeError } = require('../utils');
+const { getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload } = require('../utils');
+const logger = require('../logger');
 const { extractVideoThumbnail, getVideoDuration } = require('../video_utils');
 
 const ROOT_DIR = path.join(__dirname, '..', '..');
@@ -45,21 +51,13 @@ const videoStorage = multer.diskStorage({
 const uploadPhoto = multer({
   storage: photoStorage,
   limits: { fileSize: 200 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) return cb(null, true);
-    cb(new Error('仅支持图片和视频文件'));
-  }
+  fileFilter: createFileFilter(['IMAGE', 'VIDEO'])
 });
 
 const uploadVideo = multer({
   storage: videoStorage,
   limits: { fileSize: 200 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const allowed = ['.mp4', '.mov', '.avi', '.webm', '.mkv'];
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (allowed.includes(ext)) return cb(null, true);
-    cb(new Error('仅支持 MP4/MOV/AVI/WEBM/MKV 格式'));
-  }
+  fileFilter: createFileFilter(['VIDEO'])
 });
 
 // ==================== 辅助函数 ====================
@@ -77,45 +75,174 @@ async function generateThumb(originalPath) {
       .toFile(thumbPath);
     return thumbPath;
   } catch (e) {
-    console.warn('[profile] 缩略图生成失败:', e.message);
+    logger.warn('profile', '[profile] 缩略图生成失败:', e.message);
     return '';
   }
 }
 
 /**
  * 构建隐私条件 SQL
+ * members_only 仅对好友可见（杜绝"任意登录用户可见"的 1=1 恒真漏洞）
+ * @param {number} ownerId   内容所属用户
+ * @param {boolean} isLoggedIn 当前是否有登录态
+ * @param {boolean} viewerIsFriend 当前用户是否为 owner 的好友（accepted）
+ * @param {string} tableAlias 表别名
  */
-function privacyCondition(userId, isLoggedIn, tableAlias = '') {
+function privacyCondition(ownerId, isLoggedIn, viewerIsFriend, tableAlias = '') {
   const col = tableAlias ? `${tableAlias}.privacy` : 'privacy';
-  const ownerCol = tableAlias ? `${tableAlias}.user_id` : 'user_id';
+  // 仅当 viewer 非 owner 时调用（调用方用 if(targetUserId!==currentUserId) 保证），
+  // 故此处 viewer 必非 owner：private 内容仅 owner 本人可见，绝不对他人（含好友）可见。
   if (!isLoggedIn) {
     return `AND ${col} = 'public'`;
   }
-  return `AND (${col} = 'public' OR (${col} = 'members_only' AND 1=1) OR (${col} = 'private' AND ${ownerCol} = ?))`;
+  if (!viewerIsFriend) {
+    // 非好友（已登录）：仅 public 可见
+    return `AND ${col} = 'public'`;
+  }
+  // 好友：public + members_only 可见；private 不可见
+  return `AND (${col} = 'public' OR ${col} = 'members_only')`;
 }
 
 /**
- * 构建隐私查询参数
+ * 构建隐私查询参数。
+ * 新隐私条件已移除 private 的 user_id=? 占位子句，不再需要任何占位符，
+ * 统一返回空数组，与 privacyCondition 生成的无 ? 片段保持一致，避免参数数量不匹配。
  */
-function privacyParams(userId, isLoggedIn) {
-  if (!isLoggedIn) return [];
-  return [userId];
+function privacyParams(ownerId, isLoggedIn, viewerIsFriend) {
+  return [];
 }
 
 /**
- * 获取头像 URL（与 auth.js 中 getAvatarUrl 逻辑一致）
+ * 判断 currentUserId 是否为 targetUserId 的已接受好友（内部 try-catch，失败按非好友）
  */
-function getAvatarUrl(user) {
-  if (user.avatar_type === 'custom' && user.custom_avatar_path) {
-    return user.custom_avatar_path;
+async function getViewerIsFriend(currentUserId, targetUserId) {
+  if (!currentUserId || currentUserId === targetUserId) return !!currentUserId;
+  try {
+    const [fr] = await getPool().query(
+      `SELECT 1 FROM user_friends WHERE user_id = ? AND friend_id = ? AND status = 'accepted'`,
+      [currentUserId, targetUserId]
+    );
+    return fr.length > 0;
+  } catch (e) {
+    logger.warn('[profile] 好友关系查询失败，按非好友处理:', e.message);
+    return false;
   }
-  if (user.avatar_type === 'vrchat' && user.vrchat_avatar_url) {
-    return user.vrchat_avatar_url;
-  }
-  return null;
 }
 
 // ==================== 路由 ====================
+
+// `/:userId` 是一个通配路由，任何没被前面精确路由匹配到的单段路径都会落进来
+// （例如用 GET 访问只支持 DELETE 的 /delete，或访问 /albums）。
+// 以前这里直接 parseInt 后拿 NaN 去查库，数据库报错被当成 500 抛出，
+// 用户只会看到"服务器错误"，日志里则是一条误导性的 SQL 异常。
+// 统一在参数层拦截：非正整数一律 400。
+router.param('userId', (req, res, next, value) => {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) {
+    return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的用户ID');
+  }
+  req.targetUserId = id;
+  next();
+});
+
+/**
+ * GET /stats - 获取当前用户的统计数据
+ */
+router.get('/stats', requireAuth, async (req, res) => {
+  const uid = req.session?.userId;
+  if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
+  try {
+    const pool = getPool();
+    const [posts] = await pool.query('SELECT COUNT(*) as c FROM posts WHERE user_id = ?', [uid]);
+    // §34: album_photo 表用 upload_vrcid 存上传者标识（user.id 字符串），photos/comments 表不存在
+    const [photos] = await pool.query('SELECT COUNT(*) as c FROM album_photo WHERE upload_vrcid = ?', [String(uid)]);
+    const [events] = await pool.query('SELECT COUNT(*) as c FROM event WHERE create_user_id = ?', [uid]);
+    const [comments] = await pool.query('SELECT COUNT(*) as c FROM post_comment WHERE user_id = ?', [uid]);
+    res.json({
+      posts: posts[0].c,
+      photos: photos[0].c,
+      events: events[0].c,
+      comments: comments[0].c
+    });
+  } catch (e) { handleError(res, e, '[profile/stats]'); }
+});
+
+router.get('/export', requireAuth, async (req, res) => {
+  const uid = req.session?.userId;
+  if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
+  try {
+    const pool = getPool();
+    const [users] = await pool.query('SELECT id, login_id, display_name, email, birthday, created_at FROM users WHERE id = ?', [uid]);
+    const [profile] = await pool.query('SELECT * FROM profiles WHERE user_id = ?', [uid]);
+    const [posts] = await pool.query('SELECT id, content, created_at FROM posts WHERE user_id = ?', [uid]);
+    // §34: photos→album_photo（字段 url→photo_path、caption→photo_desc、created_at→create_time，用别名保持响应兼容）；comments→post_comment
+    const [photos] = await pool.query('SELECT id, photo_path AS url, photo_desc AS caption, create_time AS created_at FROM album_photo WHERE upload_vrcid = ?', [String(uid)]);
+    const [events] = await pool.query('SELECT id, title, description, created_at FROM event WHERE created_by = ?', [uid]);
+    const [comments] = await pool.query('SELECT id, content, created_at FROM post_comment WHERE user_id = ?', [uid]);
+    
+    const data = {
+      exportedAt: new Date().toISOString(),
+      user: users[0] || null,
+      profile: profile[0] || null,
+      posts: posts.map ? posts : [],
+      photos: photos.map ? photos : [],
+      events: events.map ? events : [],
+      comments: comments.map ? comments : []
+    };
+    
+    const jsonStr = JSON.stringify(data, null, 2);
+    const buffer = Buffer.from(jsonStr, 'utf-8');
+    
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="user-data-${uid}-${Date.now()}.json"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (e) { handleError(res, e, '[profile/export]'); }
+});
+
+router.delete('/delete', requireAuth, async (req, res) => {
+  const uid = req.session?.userId;
+  if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
+  let conn;
+  try {
+    const pool = getPool();
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    const [users] = await conn.query('SELECT login_id FROM users WHERE id = ? FOR UPDATE', [uid]);
+    if (users.length === 0) {
+      await conn.rollback();
+      return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
+    }
+    const loginId = users[0].login_id;
+    await conn.query('DELETE FROM user_like WHERE from_user_id = ? OR to_user_id = ?', [uid, uid]);
+    await conn.query('DELETE FROM member_note WHERE owner_id = ? OR target_id = ?', [uid, uid]);
+    await conn.query('DELETE FROM post_comment WHERE user_id = ?', [uid]);
+    await conn.query('DELETE FROM posts WHERE user_id = ?', [uid]);
+    await conn.query('DELETE FROM album_comment WHERE user_vrcid = ?', [loginId]);
+    await conn.query('DELETE FROM album_like WHERE user_vrcid = ?', [loginId]);
+    await conn.query('DELETE FROM album_comment WHERE photo_id IN (SELECT id FROM album_photo WHERE upload_vrcid = ?)', [String(uid)]);
+    await conn.query('DELETE FROM album_like WHERE photo_id IN (SELECT id FROM album_photo WHERE upload_vrcid = ?)', [String(uid)]);
+    await conn.query('DELETE FROM album_photo WHERE upload_vrcid = ?', [String(uid)]);
+    await conn.query('DELETE FROM event WHERE create_user_id = ?', [uid]);
+    await conn.query('DELETE FROM profiles WHERE user_id = ?', [uid]);
+    await conn.query('DELETE FROM users WHERE id = ?', [uid]);
+    await conn.commit();
+    
+    req.session.destroy(() => {
+      res.clearCookie('connect.sid');
+      res.json({ success: true, message: '账号已删除' });
+    });
+  } catch (e) {
+    if (conn) {
+      try { await conn.rollback(); } catch (rollbackError) {
+        logger.error('profile', '账号删除事务回滚失败:', rollbackError.message);
+      }
+    }
+    handleError(res, e, '[profile/delete]');
+  } finally {
+    if (conn) conn.release();
+  }
+});
 
 /**
  * GET /:userId - 获取用户公开资料
@@ -131,24 +258,44 @@ router.get('/:userId', async (req, res) => {
       `SELECT id, login_id AS loginId, display_name AS displayName,
               avatar_type, custom_avatar_path, vrchat_avatar_url,
               role, vrchat_id AS vrchatId, vrchat_name AS vrchatName,
-              birthday
+              birthday, location, bio
        FROM users WHERE id = ? AND deleted_at IS NULL`,
       [targetUserId]
     );
-    if (!users.length) return res.status(404).json({ error: '用户不存在' });
+    if (!users.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
 
     const user = users[0];
 
-    // 查询资料
+    // 好友关系判定（用于隐私墙：members_only 仅好友可见）
+    const isSelf = currentUserId && currentUserId === targetUserId;
+    let viewerIsFriend = false;
+    if (currentUserId && !isSelf) {
+      try {
+        const [fr] = await getPool().query(
+          `SELECT 1 FROM user_friends WHERE user_id = ? AND friend_id = ? AND status = 'accepted'`,
+          [currentUserId, targetUserId]
+        );
+        viewerIsFriend = fr.length > 0;
+      } catch (e) {
+        logger.warn('[profile] 好友关系查询失败，按非好友处理:', e.message);
+      }
+    } else if (isSelf) {
+      viewerIsFriend = true;
+    }
+
+    const canSeeSensitive = isSelf || viewerIsFriend;
+
+    // 查询资料（user_profile 仅含 motto/bio；location 取自 users 主表）
     const [profiles] = await getPool().query(
-      `SELECT motto, bio, cover_image AS coverImage,
-              location, website, social_links AS socialLinks
-       FROM user_profile WHERE user_id = ?`,
+      `SELECT motto, bio
+       FROM user_profile WHERE vrchat_id = (SELECT vrchat_id FROM users WHERE id = ?)`,
       [targetUserId]
     );
     const profile = profiles.length ? profiles[0] : {
-      motto: '', bio: '', coverImage: '', location: '', website: '', socialLinks: null
+      motto: '', bio: ''
     };
+    // location 优先取 users 主表（隐私：非好友/游客按隐私设置隐藏）
+    profile.location = (user.location && (canSeeSensitive || user.location_visible)) ? user.location : '';
 
     // 查询相册（隐私控制）
     let albumsSql = `SELECT id, user_id AS userId, name, description, cover_photo AS coverPhoto,
@@ -157,8 +304,8 @@ router.get('/:userId', async (req, res) => {
                FROM user_albums WHERE user_id = ?`;
     let albumsParams = [targetUserId];
     if (targetUserId !== currentUserId) {
-      albumsSql += ' ' + privacyCondition(targetUserId, isLoggedIn);
-      albumsParams = albumsParams.concat(privacyParams(targetUserId, isLoggedIn));
+      albumsSql += ' ' + privacyCondition(targetUserId, isLoggedIn, viewerIsFriend);
+      albumsParams = albumsParams.concat(privacyParams(targetUserId, isLoggedIn, viewerIsFriend));
     }
     albumsSql += ' ORDER BY sort ASC, created_at DESC';
     const [albums] = await getPool().query(albumsSql, albumsParams);
@@ -171,8 +318,8 @@ router.get('/:userId', async (req, res) => {
                FROM user_videos WHERE user_id = ?`;
     let videosParams = [targetUserId];
     if (targetUserId !== currentUserId) {
-      videosSql += ' ' + privacyCondition(targetUserId, isLoggedIn);
-      videosParams = videosParams.concat(privacyParams(targetUserId, isLoggedIn));
+      videosSql += ' ' + privacyCondition(targetUserId, isLoggedIn, viewerIsFriend);
+      videosParams = videosParams.concat(privacyParams(targetUserId, isLoggedIn, viewerIsFriend));
     }
     videosSql += ' ORDER BY created_at DESC';
     const [videos] = await getPool().query(videosSql, videosParams);
@@ -189,17 +336,17 @@ router.get('/:userId', async (req, res) => {
         displayName: user.displayName,
         avatarUrl: getAvatarUrl(user),
         role: user.role,
-        vrchatId: user.vrchatId,
-        vrchatName: user.vrchatName,
-        birthday: user.birthday
+        // 隐私墙：vrchatId / vrchatName / birthday 仅本人或好友可见（游客/陌生者隐藏）
+        vrchatId: canSeeSensitive ? user.vrchatId : null,
+        vrchatName: canSeeSensitive ? user.vrchatName : null,
+        birthday: canSeeSensitive ? user.birthday : null
       },
       profile,
       albums,
       videos: mappedVideos
     });
   } catch (e) {
-    console.error('[profile] GET /:userId error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/get-user]');
   }
 });
 
@@ -237,8 +384,7 @@ router.post('/update', requireAuth, async (req, res) => {
 
     res.json({ success: true, message: '资料更新成功' });
   } catch (e) {
-    console.error('[profile] POST /update error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/update]');
   }
 });
 
@@ -252,6 +398,7 @@ router.get('/:userId/albums', async (req, res) => {
     const targetUserId = parseInt(req.params.userId, 10);
     const currentUserId = req.session?.userId;
     const isLoggedIn = !!currentUserId;
+    const viewerIsFriend = await getViewerIsFriend(currentUserId, targetUserId);
 
     let sql = `SELECT id, user_id AS userId, name, description, cover_photo AS coverPhoto,
                 sort, privacy, photo_count AS photoCount,
@@ -260,16 +407,15 @@ router.get('/:userId/albums', async (req, res) => {
     let params = [targetUserId];
 
     if (targetUserId !== currentUserId) {
-      sql += ' ' + privacyCondition(targetUserId, isLoggedIn);
-      params = params.concat(privacyParams(targetUserId, isLoggedIn));
+      sql += ' ' + privacyCondition(targetUserId, isLoggedIn, viewerIsFriend);
+      params = params.concat(privacyParams(targetUserId, isLoggedIn, viewerIsFriend));
     }
     sql += ' ORDER BY sort ASC, created_at DESC';
 
     const [albums] = await getPool().query(sql, params);
     res.json({ albums });
   } catch (e) {
-    console.error('[profile] GET /:userId/albums error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/albums]');
   }
 });
 
@@ -282,7 +428,7 @@ router.post('/albums', requireAuth, async (req, res) => {
     const { name, description, privacy } = req.body;
 
     if (!name || !name.trim()) {
-      return res.status(400).json({ error: '相册名称不能为空' });
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '相册名称不能为空');
     }
 
     const [result] = await getPool().query(
@@ -296,8 +442,7 @@ router.post('/albums', requireAuth, async (req, res) => {
       album: { id: result.insertId, userId, name: name.trim(), description: description || null, privacy: privacy || 'public', photoCount: 0 }
     });
   } catch (e) {
-    console.error('[profile] POST /albums error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/create-album]');
   }
 });
 
@@ -313,8 +458,8 @@ router.put('/albums/:id', requireAuth, async (req, res) => {
     const [albums] = await getPool().query(
       `SELECT id, user_id FROM user_albums WHERE id = ?`, [albumId]
     );
-    if (!albums.length) return res.status(404).json({ error: '相册不存在' });
-    if (albums[0].user_id !== userId) return res.status(403).json({ error: '无权编辑此相册' });
+    if (!albums.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '相册不存在');
+    if (albums[0].user_id !== userId) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权编辑此相册');
 
     const updates = [];
     const values = [];
@@ -331,8 +476,7 @@ router.put('/albums/:id', requireAuth, async (req, res) => {
 
     res.json({ success: true, message: '相册已更新' });
   } catch (e) {
-    console.error('[profile] PUT /albums/:id error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/update-album]');
   }
 });
 
@@ -346,21 +490,20 @@ router.put('/albums/:id/privacy', requireAuth, async (req, res) => {
     const { privacy } = req.body;
 
     if (!['public', 'members_only', 'private'].includes(privacy)) {
-      return res.status(400).json({ error: '无效的隐私设置' });
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的隐私设置');
     }
 
     const [albums] = await getPool().query(
       `SELECT id, user_id FROM user_albums WHERE id = ?`, [albumId]
     );
-    if (!albums.length) return res.status(404).json({ error: '相册不存在' });
-    if (albums[0].user_id !== userId) return res.status(403).json({ error: '无权修改此相册' });
+    if (!albums.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '相册不存在');
+    if (albums[0].user_id !== userId) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权修改此相册');
 
     await getPool().query(`UPDATE user_albums SET privacy = ? WHERE id = ?`, [privacy, albumId]);
 
     res.json({ success: true, message: '隐私设置已更新' });
   } catch (e) {
-    console.error('[profile] PUT /albums/:id/privacy error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/update-album-privacy]');
   }
 });
 
@@ -375,24 +518,23 @@ router.delete('/albums/:id', requireAuth, async (req, res) => {
     const [albums] = await getPool().query(
       `SELECT id, user_id FROM user_albums WHERE id = ?`, [albumId]
     );
-    if (!albums.length) return res.status(404).json({ error: '相册不存在' });
-    if (albums[0].user_id !== userId) return res.status(403).json({ error: '无权删除此相册' });
+    if (!albums.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '相册不存在');
+    if (albums[0].user_id !== userId) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权删除此相册');
 
     // 删除相册下所有照片
     const [photos] = await getPool().query(
       `SELECT photo_path, thumb_path FROM user_photos WHERE album_id = ?`, [albumId]
     );
     for (const p of photos) {
-      try { if (p.photo_path) fs.unlinkSync(path.join(ROOT_DIR, p.photo_path)); } catch (_) {}
-      try { if (p.thumb_path) fs.unlinkSync(path.join(ROOT_DIR, p.thumb_path)); } catch (_) {}
+      try { if (p.photo_path) fs.unlinkSync(path.join(ROOT_DIR, p.photo_path)); } catch (err) { logger.warn('profile', '[profile] 删除照片文件失败:', p.photo_path, err.message); }
+      try { if (p.thumb_path) fs.unlinkSync(path.join(ROOT_DIR, p.thumb_path)); } catch (err) { logger.warn('profile', '[profile] 删除缩略图失败:', p.thumb_path, err.message); }
     }
     await getPool().query(`DELETE FROM user_photos WHERE album_id = ?`, [albumId]);
     await getPool().query(`DELETE FROM user_albums WHERE id = ?`, [albumId]);
 
     res.json({ success: true, message: '相册已删除' });
   } catch (e) {
-    console.error('[profile] DELETE /albums/:id error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/delete-album]');
   }
 });
 
@@ -401,7 +543,7 @@ router.delete('/albums/:id', requireAuth, async (req, res) => {
 /**
  * POST /albums/:id/photos - 上传照片到相册
  */
-router.post('/albums/:id/photos', requireAuth, uploadPhoto.array('photos', 20), async (req, res) => {
+router.post('/albums/:id/photos', requireAuth, secureUpload(uploadPhoto.array('photos', 20)), async (req, res) => {
   try {
     const albumId = parseInt(req.params.id, 10);
     const userId = req.session.userId;
@@ -409,11 +551,11 @@ router.post('/albums/:id/photos', requireAuth, uploadPhoto.array('photos', 20), 
     const [albums] = await getPool().query(
       `SELECT id, user_id FROM user_albums WHERE id = ?`, [albumId]
     );
-    if (!albums.length) return res.status(404).json({ error: '相册不存在' });
-    if (albums[0].user_id !== userId) return res.status(403).json({ error: '无权上传到此相册' });
+    if (!albums.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '相册不存在');
+    if (albums[0].user_id !== userId) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权上传到此相册');
 
     if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: '请选择要上传的文件' });
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请选择要上传的文件');
     }
 
     const uploadedPhotos = [];
@@ -434,7 +576,7 @@ router.post('/albums/:id/photos', requireAuth, uploadPhoto.array('photos', 20), 
           if (!fs.existsSync(placeholderPath)) {
             try {
               await sharp({ create: { width: 300, height: 300, channels: 3, background: { r: 30, g: 30, b: 50 } } }).png().toFile(placeholderPath);
-            } catch (_) {}
+            } catch (e) { logger.warn('profile', '[profile] 生成视频占位图失败:', e.message); }
           }
           thumbPath = 'assets/album/thumb_video_placeholder.png';
         }
@@ -481,8 +623,7 @@ router.post('/albums/:id/photos', requireAuth, uploadPhoto.array('photos', 20), 
 
     res.json({ success: true, photos: uploadedPhotos, photoCount });
   } catch (e) {
-    console.error('[profile] POST /albums/:id/photos error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/upload-photos]');
   }
 });
 
@@ -498,15 +639,23 @@ router.get('/albums/:id/photos', async (req, res) => {
     const [albums] = await getPool().query(
       `SELECT id, user_id AS userId, privacy FROM user_albums WHERE id = ?`, [albumId]
     );
-    if (!albums.length) return res.status(404).json({ error: '相册不存在' });
+    if (!albums.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '相册不存在');
 
     const album = albums[0];
 
     // 隐私检查
     if (album.userId !== currentUserId) {
-      if (album.privacy === 'private') return res.status(403).json({ error: '该相册为私密相册' });
-      if (album.privacy === 'members_only' && !currentUserId) {
-        return res.status(401).json({ error: '请先登录' });
+      if (album.privacy === 'private') {
+        return sendError(res, 403, ErrorCodes.FORBIDDEN, '该相册为私密相册');
+      }
+      if (album.privacy === 'members_only') {
+        if (!currentUserId) {
+          return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
+        }
+        const viewerIsFriend = await getViewerIsFriend(currentUserId, album.userId);
+        if (!viewerIsFriend) {
+          return sendError(res, 403, ErrorCodes.FORBIDDEN, '该相册仅好友可见');
+        }
       }
     }
 
@@ -523,8 +672,7 @@ router.get('/albums/:id/photos', async (req, res) => {
 
     res.json({ albumId, photos });
   } catch (e) {
-    console.error('[profile] GET /albums/:id/photos error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/get-photos]');
   }
 });
 
@@ -539,14 +687,14 @@ router.delete('/photos/:id', requireAuth, async (req, res) => {
     const [photos] = await getPool().query(
       `SELECT id, user_id, album_id, photo_path, thumb_path FROM user_photos WHERE id = ?`, [photoId]
     );
-    if (!photos.length) return res.status(404).json({ error: '照片不存在' });
-    if (photos[0].user_id !== userId) return res.status(403).json({ error: '无权删除此照片' });
+    if (!photos.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '照片不存在');
+    if (photos[0].user_id !== userId) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权删除此照片');
 
     const photo = photos[0];
 
     // 删除文件
-    try { if (photo.photo_path) fs.unlinkSync(path.join(ROOT_DIR, photo.photo_path)); } catch (_) {}
-    try { if (photo.thumb_path) fs.unlinkSync(path.join(ROOT_DIR, photo.thumb_path)); } catch (_) {}
+    try { if (photo.photo_path) fs.unlinkSync(path.join(ROOT_DIR, photo.photo_path)); } catch (err) { logger.warn('profile', '[profile] 删除照片文件失败:', photo.photo_path, err.message); }
+    try { if (photo.thumb_path) fs.unlinkSync(path.join(ROOT_DIR, photo.thumb_path)); } catch (err) { logger.warn('profile', '[profile] 删除缩略图失败:', photo.thumb_path, err.message); }
 
     // 删除数据库记录
     await getPool().query(`DELETE FROM user_photos WHERE id = ?`, [photoId]);
@@ -579,8 +727,7 @@ router.delete('/photos/:id', requireAuth, async (req, res) => {
 
     res.json({ success: true, message: '照片已删除', photoCount });
   } catch (e) {
-    console.error('[profile] DELETE /photos/:id error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/delete-photo]');
   }
 });
 
@@ -589,19 +736,19 @@ router.delete('/photos/:id', requireAuth, async (req, res) => {
 /**
  * POST /videos - 上传视频（需登录）
  */
-router.post('/videos', requireAuth, uploadVideo.single('video'), async (req, res) => {
+router.post('/videos', requireAuth, secureUpload(uploadVideo.single('video')), async (req, res) => {
   try {
     const userId = req.session.userId;
 
     if (!req.file) {
-      return res.status(400).json({ error: '请选择要上传的视频' });
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请选择要上传的视频');
     }
 
     const { title, description, privacy } = req.body;
     if (!title || !title.trim()) {
       // 删除已上传文件
-      try { fs.unlinkSync(req.file.path); } catch (_) {}
-      return res.status(400).json({ error: '视频标题不能为空' });
+      try { fs.unlinkSync(req.file.path); } catch (err) { logger.warn('profile', '[profile] 清理上传文件失败:', req.file.path, err.message); }
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '视频标题不能为空');
     }
 
     const relativePath = path.relative(ROOT_DIR, req.file.path).replace(/\\/g, '/');
@@ -642,10 +789,8 @@ router.post('/videos', requireAuth, uploadVideo.single('video'), async (req, res
       }
     });
   } catch (e) {
-    console.error('[profile] POST /videos error:', e);
-    // 清理上传的文件
-    if (req.file) { try { fs.unlinkSync(req.file.path); } catch (_) {} }
-    res.status(500).json({ error: safeError(e.message) });
+    if (req.file) { try { fs.unlinkSync(req.file.path); } catch (err) { logger.warn('profile', '[profile] 清理上传文件失败:', req.file.path, err.message); } }
+    handleError(res, e, '[profile/upload-video]');
   }
 });
 
@@ -657,6 +802,7 @@ router.get('/:userId/videos', async (req, res) => {
     const targetUserId = parseInt(req.params.userId, 10);
     const currentUserId = req.session?.userId;
     const isLoggedIn = !!currentUserId;
+    const viewerIsFriend = await getViewerIsFriend(currentUserId, targetUserId);
 
     let sql = `SELECT id, user_id AS userId, title, description,
                 video_path AS videoPath, thumb_path AS thumbPath,
@@ -666,8 +812,8 @@ router.get('/:userId/videos', async (req, res) => {
     let params = [targetUserId];
 
     if (targetUserId !== currentUserId) {
-      sql += ' ' + privacyCondition(targetUserId, isLoggedIn);
-      params = params.concat(privacyParams(targetUserId, isLoggedIn));
+      sql += ' ' + privacyCondition(targetUserId, isLoggedIn, viewerIsFriend);
+      params = params.concat(privacyParams(targetUserId, isLoggedIn, viewerIsFriend));
     }
     sql += ' ORDER BY created_at DESC';
 
@@ -678,8 +824,7 @@ router.get('/:userId/videos', async (req, res) => {
     }));
     res.json({ videos: mappedVideos });
   } catch (e) {
-    console.error('[profile] GET /:userId/videos error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/videos]');
   }
 });
 
@@ -694,21 +839,20 @@ router.delete('/videos/:id', requireAuth, async (req, res) => {
     const [videos] = await getPool().query(
       `SELECT id, user_id, video_path, thumb_path FROM user_videos WHERE id = ?`, [videoId]
     );
-    if (!videos.length) return res.status(404).json({ error: '视频不存在' });
-    if (videos[0].user_id !== userId) return res.status(403).json({ error: '无权删除此视频' });
+    if (!videos.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '视频不存在');
+    if (videos[0].user_id !== userId) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权删除此视频');
 
     const video = videos[0];
 
     // 删除文件
-    try { if (video.video_path) fs.unlinkSync(path.join(ROOT_DIR, video.video_path)); } catch (_) {}
-    try { if (video.thumb_path) fs.unlinkSync(path.join(ROOT_DIR, video.thumb_path)); } catch (_) {}
+    try { if (video.video_path) fs.unlinkSync(path.join(ROOT_DIR, video.video_path)); } catch (err) { logger.warn('profile', '[profile] 删除视频文件失败:', video.video_path, err.message); }
+    try { if (video.thumb_path) fs.unlinkSync(path.join(ROOT_DIR, video.thumb_path)); } catch (err) { logger.warn('profile', '[profile] 删除视频缩略图失败:', video.thumb_path, err.message); }
 
     await getPool().query(`DELETE FROM user_videos WHERE id = ?`, [videoId]);
 
     res.json({ success: true, message: '视频已删除' });
   } catch (e) {
-    console.error('[profile] DELETE /videos/:id error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/delete-video]');
   }
 });
 
@@ -722,21 +866,20 @@ router.put('/videos/:id/privacy', requireAuth, async (req, res) => {
     const { privacy } = req.body;
 
     if (!['public', 'members_only', 'private'].includes(privacy)) {
-      return res.status(400).json({ error: '无效的隐私设置' });
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的隐私设置');
     }
 
     const [videos] = await getPool().query(
       `SELECT id, user_id FROM user_videos WHERE id = ?`, [videoId]
     );
-    if (!videos.length) return res.status(404).json({ error: '视频不存在' });
-    if (videos[0].user_id !== userId) return res.status(403).json({ error: '无权修改此视频' });
+    if (!videos.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '视频不存在');
+    if (videos[0].user_id !== userId) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权修改此视频');
 
     await getPool().query(`UPDATE user_videos SET privacy = ? WHERE id = ?`, [privacy, videoId]);
 
     res.json({ success: true, message: '隐私设置已更新' });
   } catch (e) {
-    console.error('[profile] PUT /videos/:id/privacy error:', e);
-    res.status(500).json({ error: safeError(e.message) });
+    handleError(res, e, '[profile/update-video-privacy]');
   }
 });
 

@@ -1,0 +1,136 @@
+/* ============ 社交模块（好友 / 关注）============
+   服务 public/js/friends.js 与 public/js/follows.js
+   仅使用设计系统 CSS 变量（01-variables.css），自动适配 dark / light 主题。
+*/
+
+/* ---------- 通用表单控件（被搜索框复用；原先无定义） ---------- */
+.form-control {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  outline: none;
+  transition: var(--transition-fast);
+}
+.form-control::placeholder { color: var(--text3); }
+.form-control:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+}
+
+/* ---------- 外层容器 ---------- */
+.social-wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---------- 搜索区 ---------- */
+.social-search { position: relative; }
+.social-search-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.social-search-results:empty { display: none; }
+/* 下拉中的行：去掉卡片边框，改为分隔线，避免视觉过重 */
+.social-search-results .social-row {
+  margin-bottom: 0;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+}
+.social-search-results .social-row:last-child { border-bottom: none; }
+
+/* ---------- 分区 ---------- */
+.social-section { padding-top: 4px; }
+.social-h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 10px;
+}
+.social-sublabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  letter-spacing: .02em;
+  margin: 10px 2px 6px;
+}
+
+/* ---------- 用户行 ---------- */
+.social-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: var(--transition-fast);
+}
+.social-row:hover {
+  background: var(--card-hover);
+  border-color: var(--border-light);
+}
+.social-row:last-child { margin-bottom: 0; }
+
+.social-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--card2);
+  border: 1px solid var(--border);
+}
+
+.social-meta {
+  flex: 1;
+  min-width: 0;            /* 允许子元素省略号截断 */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.social-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.social-sub { margin: 0; } /* 尺寸/颜色由 text-13 text-muted2 提供 */
+
+.social-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ---------- 移动端适配 ---------- */
+@media (max-width: 480px) {
+  .social-wrap { padding: 12px; gap: 12px; }
+  .social-avatar { width: 38px; height: 38px; }
+  .social-actions .btn-sm { padding: 4px 8px; font-size: 11px; }
+}
