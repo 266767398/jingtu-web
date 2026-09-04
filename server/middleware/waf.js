@@ -113,12 +113,35 @@ const SHELL_CMD_PATTERNS = [
   /\/usr\/bin\/(sh|bash|zsh)/i,
 ];
 
+function safeDecode(str) {
+  try {
+    return decodeURIComponent(str);
+  } catch (e) {
+    return null;
+  }
+}
+
+function testPattern(pattern, str) {
+  // 带 g 标志的正则 test() 会推进 lastIndex，跨请求复用时可能漏检，这里每次重置
+  pattern.lastIndex = 0;
+  const matched = pattern.test(str);
+  pattern.lastIndex = 0;
+  return matched;
+}
+
 function scanString(str, patterns, type) {
   if (!str || typeof str !== 'string') return false;
-  for (const pattern of patterns) {
-    if (pattern.test(str)) {
-      return { matched: pattern, type };
+  // 先扫原文，再对 URL 编码载荷最多做两轮解码复扫（%3Csvg onload、%253C 双重编码等）
+  let candidate = str;
+  for (let round = 0; round < 3; round++) {
+    for (const pattern of patterns) {
+      if (testPattern(pattern, candidate)) {
+        return { matched: pattern, type };
+      }
     }
+    const decoded = safeDecode(candidate);
+    if (decoded === null || decoded === candidate) break;
+    candidate = decoded;
   }
   return false;
 }
@@ -126,6 +149,9 @@ function scanString(str, patterns, type) {
 function scanObject(obj, patterns, type) {
   if (!obj || typeof obj !== 'object') return false;
   for (const key of Object.keys(obj)) {
+    // 对象 key 同样是攻击载体（如 {"onerror=alert(1)": "..."}），与值一并扫描
+    const keyResult = scanString(key, patterns, type);
+    if (keyResult) return keyResult;
     const value = obj[key];
     if (typeof value === 'string') {
       const result = scanString(value, patterns, type);
