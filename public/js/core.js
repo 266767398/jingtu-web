@@ -218,15 +218,17 @@ async function api(path, opt = {}) {
     // 避免把对象渲染成 "[object Object]"（非中文界面会暴露此 bug）。
     const safeErrMsg = (d) => {
       if (!d) return '';
+      // P2-5：优先按 code 取语言包（error.* 命名空间）。兼容两种包络：
+      // 统一包络 {error:{code,message}}（utils.js sendError）与
+      // 旧式扁平包络 {error:'串', code:'WAF_BLOCKED', type}（waf.js 中间件，code 在顶层）。
+      // 未命中（__ 返回 key 本身）时回退到后端原文 message，保证未翻译的错误码不破版。
+      const code = (d.error && typeof d.error === 'object' && d.error.code) || (typeof d.code === 'string' ? d.code : '');
+      if (code) {
+        const translated = __('error.' + code);
+        if (translated && translated !== 'error.' + code) return translated;
+      }
       if (typeof d.error === 'string') return d.error;
       if (d.error && typeof d.error === 'object') {
-        // 优先按 code 取语言包（error.* 命名空间，见 docs/09 第十五轮 B1 方案 / docs/10 §2.1）；
-        // 未命中（__ 返回 key 本身）时回退到后端中文 message，保证旧错误码不破版。
-        const code = d.error.code;
-        if (code) {
-          const translated = __('error.' + code);
-          if (translated && translated !== 'error.' + code) return translated;
-        }
         return d.error.message || code || '';
       }
       return '';
