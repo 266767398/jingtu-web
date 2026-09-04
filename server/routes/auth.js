@@ -29,6 +29,7 @@ const {
 const { getPool, safeError, encryptCookie, handleError, sendError, ErrorCodes, createErr, getAvatarUrl } = require('../utils');
 const { passwordResetLimiter, createCustomLimiter } = require('../middleware/rate_limit');
 const logger = require('../logger');
+const mailer = require('../mailer');
 
 // ==================== VRChat 临时状态存储（绑定 + 登录）====================
 // bindTokens: token →{ cookie, vrcUser, userId, expireAt }
@@ -883,14 +884,6 @@ router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
     resetTokens.set(token, { userId: user.id, code, expireAt, attempts: 0 });
 
     try {
-      const transporter = require('nodemailer').createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT) || 587,
-        secure: process.env.SMTP_SECURE === 'true',
-        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
-      });
-
-      const mailer = require('../../mailer');
       const resetHtml = `<div style="max-width:600px;margin:0 auto;padding:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
           <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;padding:20px;border-radius:8px 8px 0 0;">
             <h1 style="margin:0;font-size:20px;">境途同游</h1>

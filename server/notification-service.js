@@ -1,38 +1,16 @@
 /**
  * 境途同游 V6.14 — 通知服务模块
- * 支持：WebSocket 推送、数据库存储、邮件通知
+ * 支持：WebSocket 推送、数据库存储、邮件通知（统一走 mailer 队列）
  * 修复：使用 target_type/target_id/post_id 替代单一 related_id，解决语义歧义
  * 新增：检查用户通知设置（browser/email/sound）
  */
 const { getPool, safeError } = require('./utils');
-const nodemailer = require('nodemailer');
+const mailer = require('./mailer');
 const wsService = require('./ws_service');
 
 class NotificationService {
   constructor() {
     this._settingsCache = new Map();
-    this._emailTransporter = null;
-    this._initEmail();
-  }
-
-  _initEmail() {
-    const smtpHost = process.env.SMTP_HOST;
-    const smtpPort = process.env.SMTP_PORT;
-    const smtpUser = process.env.SMTP_USER;
-    const smtpPass = process.env.SMTP_PASS;
-    const smtpSecure = process.env.SMTP_SECURE === 'true';
-    if (smtpHost && smtpUser && smtpPass) {
-      this._emailTransporter = nodemailer.createTransport({
-        host: smtpHost,
-        port: parseInt(smtpPort) || 587,
-        secure: smtpSecure,
-        auth: {
-          user: smtpUser,
-          pass: smtpPass
-        }
-      });
-      console.log('📧 邮件通知服务已初始化');
-    }
   }
 
   setWSReferences() {
@@ -126,17 +104,13 @@ class NotificationService {
   }
 
   async sendEmailNotification(userId, title, message) {
-    if (!this._emailTransporter) return;
+    if (!mailer.isMailerEnabled()) return;
     try {
       const [rows] = await getPool().query(`SELECT email, display_name FROM users WHERE id = ?`, [userId]);
       if (rows.length === 0 || !rows[0].email) return;
       const user = rows[0];
-      await this._emailTransporter.sendMail({
-        from: process.env.SMTP_FROM || 'JingTu <noreply@jingtu.com>',
-        to: user.email,
-        subject: `【境途同游】${title}`,
-        text: `${message}\n\n-- 境途同游团队`,
-        html: `<div style="max-width:600px;margin:0 auto;padding:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+      // 统一走 mailer 队列（含重试与限速），不再自建 transporter
+      const html = `<div style="max-width:600px;margin:0 auto;padding:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
           <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;padding:20px;border-radius:8px 8px 0 0;">
             <h1 style="margin:0;font-size:20px;">境途同游</h1>
           </div>
@@ -147,8 +121,11 @@ class NotificationService {
           <div style="text-align:center;color:#999;font-size:12px;padding:15px;border-top:1px solid #eee;">
             <p>这是一封自动发送的通知邮件，请勿回复。</p>
           </div>
-        </div>`
-      });
+        </div>`;
+      const result = mailer.sendEmail(user.email, `【境途同游】${title}`, html, `${message}\n\n-- 境途同游团队`);
+      if (!result.success) {
+        console.warn('⚠️ 发送邮件通知失败:', result.error);
+      }
     } catch (e) {
       console.warn('⚠️ 发送邮件通知失败:', e.message);
     }

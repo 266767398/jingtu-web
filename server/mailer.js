@@ -12,7 +12,9 @@ function initMailer() {
     const smtpHost = process.env.SMTP_HOST;
     const smtpPort = parseInt(process.env.SMTP_PORT) || 587;
     const smtpUser = process.env.SMTP_USER;
-    const smtpPass = process.env.SMTP_PASSWORD;
+    // 环境变量统一：安装向导与 notification-service 均使用 SMTP_PASS，
+    // 此处 SMTP_PASS 优先，SMTP_PASSWORD 作为历史配置的兼容回退
+    const smtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD;
     const smtpSecure = process.env.SMTP_SECURE === 'true';
     const smtpFrom = process.env.SMTP_FROM || smtpUser;
 
@@ -51,7 +53,7 @@ async function sendEmailDirect(to, subject, html, text) {
       from: `"境途同游" <${from}>`,
       to: to,
       subject: subject,
-      text: text || html.replace(/<[^>]*>/g, ''),
+      text: text || (html ? html.replace(/<[^>]*>/g, '') : subject),
       html: html
     });
     console.log('[mailer] 邮件发送成功:', info.messageId);
@@ -202,6 +204,30 @@ function isMailerEnabled() {
   return isEnabled;
 }
 
+// 安装向导专用：使用表单提交的 SMTP 配置直发测试邮件，
+// 不依赖 .env（首次安装时 env 尚无 SMTP 配置，initMailer 无法初始化共享 transporter）
+async function sendTestEmail(config, to) {
+  try {
+    const testTransporter = nodemailer.createTransport({
+      host: config.host,
+      port: parseInt(config.port) || 587,
+      secure: config.secure === true || config.secure === 'true',
+      auth: { user: config.user, pass: config.pass }
+    });
+    const info = await testTransporter.sendMail({
+      from: `"境途同游" <${config.from || config.user}>`,
+      to: to,
+      subject: '【境途同游】邮件测试',
+      text: '邮件测试成功！'
+    });
+    console.log('[mailer] 测试邮件发送成功:', info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (e) {
+    console.error('[mailer] 测试邮件发送失败:', e.message);
+    return { success: false, error: e.message };
+  }
+}
+
 function getQueueStats() {
   return {
     queueLength: mailQueue.length,
@@ -216,6 +242,7 @@ module.exports = {
   sendWelcomeEmail,
   sendEventNotification,
   sendSystemAlert,
+  sendTestEmail,
   isMailerEnabled,
   getQueueStats
 };

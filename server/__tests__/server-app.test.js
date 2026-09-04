@@ -52,6 +52,14 @@ describe('P2-1 server.js 整机集成（app 级 supertest）', () => {
     expect(res.body).toEqual({ error: '请求的资源不存在' });
   });
 
+  test('非 API 未匹配路径返回 404 中文 HTML 页面（P2-4 全局兜底，非 Express 默认英文）', async () => {
+    const res = await request(app).get('/definitely-not-a-page');
+    expect(res.status).toBe(404);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    expect(res.text).toContain('页面不存在');
+    expect(res.text).not.toMatch(/Cannot GET/i);
+  });
+
   test('CORS 默认拒绝未授权跨域来源：不回写 Access-Control-Allow-Origin', async () => {
     const res = await request(app)
       .get('/api/health/live')

@@ -24,6 +24,7 @@ const bcrypt = require('bcryptjs');
 const { handleError, sendError, ErrorCodes } = require('../utils');
 const { requireRole } = require('../auth');
 const { applyDbConfig } = require('../db');
+const mailer = require('../mailer');
 
 const router = express.Router();
 
@@ -237,8 +238,9 @@ router.post('/setup/test-email', requireNotInstalled, requireSuperAdminForReconf
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'SMTP密码必填');
     }
 
-    const mailer = require('../../mailer');
-    const result = mailer.sendEmail(to || user, '【境途同游】邮件测试', null, '邮件测试成功！');
+    // 使用表单提交的 SMTP 配置直发测试邮件：首次安装时 .env 尚无 SMTP 配置，
+    // 共享 transporter 不可用；重走模式下密码留空则沿用 .env 现有值
+    const result = await mailer.sendTestEmail({ host, port, secure, user, pass, from }, to || user);
     if (!result.success) {
       return sendError(res, 500, ErrorCodes.INTERNAL, '邮件发送失败：' + (result.error || '未知错误'));
     }

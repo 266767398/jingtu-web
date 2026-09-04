@@ -1095,6 +1095,36 @@ if (process.env.NODE_ENV !== 'production') {
   }
 }
 
+// 非 API 路径的全局兜底：路由与静态资源均未命中时返回中文 404 页面（P2-4）
+// 必须位于 Swagger 挂载之后，避免截胡 /api-docs
+app.use((req, res) => {
+  res.status(404).type('html').send(`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 - 页面不存在 | 境途同游</title>
+  <style>
+    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+           font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Microsoft YaHei',sans-serif;
+           background:#f5f6fa; color:#333; }
+    .box { text-align:center; padding:40px 20px; }
+    .code { font-size:72px; font-weight:bold; color:#667eea; margin:0; }
+    .msg { font-size:18px; color:#666; margin:12px 0 24px; }
+    .btn { display:inline-block; padding:10px 28px; background:#667eea; color:#fff;
+           border-radius:6px; text-decoration:none; font-size:15px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <p class="code">404</p>
+    <p class="msg">抱歉，您访问的页面不存在或已被移除</p>
+    <a class="btn" href="/">返回首页</a>
+  </div>
+</body>
+</html>`);
+});
+
 // ==================== 全局错误处理 ====================
 app.use((err, req, res, next) => {
   logger.error('[server]', '服务器错误:', err.message, err.stack);
