@@ -427,6 +427,27 @@ async function adminSyncGroupMembers() {
 }
 
 // ========== ⚙️ 系统设置 ==========
+// F-5: 媒体镜像源 JSON ↔ 逐行文本（名称|URL模板|Referer(可选)）互转
+function mirrorsToLines(jsonStr) {
+  let arr;
+  try { arr = JSON.parse(jsonStr || '[]'); } catch (e) { return ''; }
+  if (!Array.isArray(arr)) return '';
+  return arr.map(function (m) {
+    if (!m || !m.urlTemplate) return '';
+    return [m.name || '', m.urlTemplate, m.referer || ''].filter(function (p, i) { return i < 2 || p; }).join('|');
+  }).filter(Boolean).join('\n');
+}
+function linesToMirrors(text) {
+  return String(text || '').split(/\r?\n/).map(function (line) {
+    line = line.trim();
+    if (!line) return null;
+    const parts = line.split('|').map(function (p) { return p.trim(); });
+    const entry = { name: parts[0] || '', urlTemplate: parts[1] || '' };
+    if (parts[2]) entry.referer = parts[2];
+    return entry;
+  }).filter(function (e) { return e && e.urlTemplate; });
+}
+
 async function loadSystemConfig() {
   const contentEl = document.getElementById('adminSettingsContent');
   if (!contentEl) return;
@@ -470,6 +491,10 @@ async function loadSystemConfig() {
       setVal('cfgReqMaxUpload', cfg.req_max_upload_mb);
       setVal('cfgReqMaxBody', cfg.req_max_body_mb);
       setVal('cfgReqMaxOther', cfg.req_max_other_mb);
+      // F-5: 媒体代理源池（后端存 JSON，前端以「名称|URL模板|Referer」逐行编辑）
+      setVal('cfgMediaMirrors', mirrorsToLines(cfg.media_provider_mirrors));
+      setVal('cfgMediaMirrorFirst', cfg.media_provider_mirror_first);
+      setVal('cfgMediaTimeout', cfg.media_provider_timeout_ms);
       if (cfg.hero_title) {
         const pt = document.getElementById('heroPreviewTitle');
         if (pt) pt.textContent = cfg.hero_title;
@@ -539,6 +564,9 @@ async function saveSystemConfig() {
     req_max_upload_mb: getVal('cfgReqMaxUpload'),
     req_max_body_mb: getVal('cfgReqMaxBody'),
     req_max_other_mb: getVal('cfgReqMaxOther'),
+    media_provider_mirrors: JSON.stringify(linesToMirrors(getVal('cfgMediaMirrors'))),
+    media_provider_mirror_first: getVal('cfgMediaMirrorFirst'),
+    media_provider_timeout_ms: getVal('cfgMediaTimeout'),
   };
   if (!config.site_name) { toast(__('fill_required'), 'error'); return; }
   try {

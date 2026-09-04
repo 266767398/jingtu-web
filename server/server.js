@@ -1151,6 +1151,13 @@ process.on('unhandledRejection', (reason) => {
       logger.info('[init]', '运行时设置已载入内存（请求大小限制等）');
     } catch (se) { logger.warn('[init]', '载入运行时设置失败，使用默认值:', se.message); }
 
+    // F-5: 媒体代理源池配置（镜像列表/链序/超时）同样启动载入，超管后台可调、无需重启
+    try {
+      const mediaProviders = require('./media_providers');
+      await mediaProviders.refreshFromDb(getPool());
+      logger.info('[init]', '媒体代理源池配置已载入内存');
+    } catch (me) { logger.warn('[init]', '载入媒体代理源池配置失败，使用默认值:', me.message); }
+
     // V8.2: 从 system_config 载入 VRChat cookie 软性过期时间（天），超管后台可调、无需重启
     try {
       const [rows] = await getPool().query(

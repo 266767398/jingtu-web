@@ -7,13 +7,18 @@
  * 解决：后端代理拉取并缓存到本地磁盘（jingtu-web/assets/avatar-cache/），
  *       之后即使源签名过期，本地缓存副本仍长期可用 → 头像"不过期"。
  *       同时带 Referer/Origin 头绕过 VRChat CDN 防盗链。
+ *
+ * F-5（可配置媒体代理源池）：回源不再单源直连 VRChat CDN，改走
+ *       server/media_providers.js 的 provider 链（官方 CDN + 管理员配置的备用镜像），
+ *       失败自动切换 + 熔断冷却；缓存分级为 L1 内存 LRU → L2 本地磁盘 → L3 源池回源。
  */
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
-const https = require('https');
 const crypto = require('crypto');
+const { handleError } = require('../utils');
+const { requireAdminCompat } = require('../auth');
+const mediaProviders = require('../media_providers');
 
 const ALLOWED_HOSTS = [
   'api.vrchat.cloud',
@@ -21,9 +26,6 @@ const ALLOWED_HOSTS = [
   'assets.amlcdn.com',
   'assets.vrchat.com'
 ];
-
-// 回源最大体积（防止通过代理拉取超大资源撑爆内存/磁盘）
-const MAX_BODY_BYTES = 8 * 1024 * 1024; // 8MB
 
 // 默认占位头像（纯文本 SVG，绝不裂图）—— /default 与限速兜底共用
 const DEFAULT_AVATAR_SVG =
@@ -98,6 +100,37 @@ function pruneCacheIfNeeded() {
   } catch (e) { /* ignore */ }
 }
 
+// 回源成功结果写入 L1 内存热缓存（整群头像浏览时避免每请求都读磁盘）。
+// 双上限：条目数 + 总字节，防止大图把进程内存吃穿。
+const L1_MAX_ENTRIES = 1500;
+const L1_MAX_BYTES = 24 * 1024 * 1024;
+const L1_MAX_AGE_MS = 5 * 60 * 1000; // 5 分钟
+const _l1 = new Map();
+let _l1Bytes = 0;
+function l1Get(key) {
+  const e = _l1.get(key);
+  if (!e) return null;
+  if (Date.now() - e.ts > L1_MAX_AGE_MS) { _l1.delete(key); _l1Bytes -= e.buf.length; return null; }
+  return e; // { buf, ct, ts }
+}
+function l1Put(key, buf, ct) {
+  if (_l1.has(key)) {
+    const old = _l1.get(key);
+    _l1Bytes -= old.buf.length;
+    _l1.delete(key);
+  }
+  if (buf.length > L1_MAX_BYTES / 4) return; // 单张过大不进 L1
+  _l1.set(key, { buf, ct, ts: Date.now() });
+  _l1Bytes += buf.length;
+  while (_l1.size > L1_MAX_ENTRIES || _l1Bytes > L1_MAX_BYTES) {
+    const first = _l1.keys().next().value; // Map 保持插入序 → 淘汰最旧
+    if (first === undefined) break;
+    const old = _l1.get(first);
+    _l1Bytes -= old.buf.length;
+    _l1.delete(first);
+  }
+}
+
 /**
  * V9.0: VRChat 图片 CDN 全局令牌桶（同 VRChat API 限流思路）
  * 头像代理回源时若瞬时并行拉取整群头像（数百张），会打爆 VRChat CDN 触发 429。
@@ -152,60 +185,8 @@ function cdnAcquire() {
   });
 }
 
-// 用内置 http/https 拉取（零依赖，绕开 Node fetch 版本差异）。
-// _retry 用于 429 / 网络抖动的指数退避重试，避免偶发限流直接暴露为裂图。
-function fetchRemote(u, redirects, _retry) {
-  redirects = redirects || 0;
-  _retry = _retry || 0;
-  return new Promise((resolve, reject) => {
-    if (redirects > 4) return reject(new Error('too many redirects'));
-    const parsed = new URL(u);
-    const lib = parsed.protocol === 'http:' ? http : https;
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
-      'Referer': 'https://vrchat.com/',
-      'Origin': 'https://vrchat.com',
-      'Accept': 'image/avif,image/webp,image/png,image/*,*/*'
-    };
-    const req = lib.request(u, { method: 'GET', headers, timeout: 10000 }, (resp) => {
-      const { statusCode, headers: h } = resp;
-      if (statusCode >= 300 && statusCode < 400 && h.location) {
-        resp.resume();
-        const next = new URL(h.location, u).toString();
-        return resolve(fetchRemote(next, redirects + 1, _retry));
-      }
-      if (statusCode === 429) {
-        resp.resume();
-        if (_retry < 3) { setTimeout(() => resolve(fetchRemote(u, redirects, _retry + 1)), Math.min(4000, 800 * (_retry + 1))); return; }
-        return reject(new Error('upstream status 429'));
-      }
-      if (statusCode !== 200) {
-        resp.resume();
-        return reject(new Error('upstream status ' + statusCode));
-      }
-      // 体积硬上限：超直接断开
-      const len = parseInt(h['content-length'] || '0', 10);
-      if (len > MAX_BODY_BYTES) {
-        resp.resume();
-        return reject(new Error('payload too large'));
-      }
-      let total = 0;
-      const chunks = [];
-      resp.on('data', (c) => {
-        total += c.length;
-        if (total > MAX_BODY_BYTES) {
-          resp.destroy(new Error('payload too large'));
-          return;
-        }
-        chunks.push(c);
-      });
-      resp.on('end', () => resolve({ buffer: Buffer.concat(chunks), contentType: h['content-type'] || 'image/jpeg' }));
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(new Error('timeout')); });
-    req.end();
-  });
-}
+// （原单源 fetchRemote 已迁至 server/media_providers.js，并升级为多源 failover：
+//   fetchWithFailover 按链序尝试官方 CDN 与管理员配置的镜像源，失败自动切换。）
 
 function sendBuffer(res, buf, contentType) {
   res.set('Content-Type', contentType);
@@ -239,7 +220,11 @@ module.exports = function () {
     const key = cacheKeyFor(u);
     const cacheFile = path.join(CACHE_DIR, key + '.img');
 
-    // 1) 命中本地缓存：直接返回，不消耗限速配额。
+    // 1) L1 内存热缓存：直接返回，不读磁盘、不消耗限速配额
+    const hit = l1Get(key);
+    if (hit) return sendBuffer(res, hit.buf, hit.ct);
+
+    // 2) L2 命中本地缓存：直接返回，不消耗限速配额。
     //    （根因修复：旧逻辑在缓存之前就限速，导致头像已缓存也会被每 IP 上限卡成 429）
     try {
       if (fs.existsSync(cacheFile)) {
@@ -248,12 +233,13 @@ module.exports = function () {
           const buf = fs.readFileSync(cacheFile);
           let ct = 'image/jpeg';
           try { ct = fs.readFileSync(cacheFile + '.ct', 'utf8'); } catch (e) { /* 缺 content-type 文件则回退 */ }
+          l1Put(key, buf, ct);
           return sendBuffer(res, buf, ct);
         }
       }
     } catch (e) { /* 缓存读失败则回源 */ }
 
-    // 2) 限速（仅对「回源」计费）：超限返回占位头像而非 429 JSON，
+    // 3) 限速（仅对「回源」计费）：超限返回占位头像而非 429 JSON，
     //    避免 <img> 裂图并刷满控制台；上游节流由 CDN 全局令牌桶兜底。
     const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString().split(',')[0].trim();
     if (avatarRateLimited(clientIp)) {
@@ -262,11 +248,12 @@ module.exports = function () {
       return res.send(DEFAULT_AVATAR_SVG);
     }
 
-    // 3) 回源拉取（经 CDN 全局令牌桶限速，避免瞬时数百请求打爆 VRChat CDN 触发 429）
+    // 4) 回源：经 CDN 全局令牌桶限速 + 多源 failover（官方 CDN →/← 镜像池，熔断冷却跳过死源）
     try {
       await cdnAcquire();
-      const { buffer, contentType } = await fetchRemote(u, 0);
-      // 写缓存（忽略写失败），并触发缓存清理
+      const { buffer, contentType } = await mediaProviders.fetchWithFailover(u);
+      // 写 L1/L2 缓存（忽略写失败），并触发磁盘缓存清理
+      l1Put(key, buffer, contentType);
       try {
         fs.writeFileSync(cacheFile, buffer);
         fs.writeFileSync(cacheFile + '.ct', contentType);
@@ -274,12 +261,12 @@ module.exports = function () {
       } catch (e) { /* 忽略 */ }
       return sendBuffer(res, buffer, contentType);
     } catch (e) {
-      // 3) 回源失败：若有旧缓存（即便超龄）也兜底返回，避免裂图
+      // 5) 回源失败：若有旧缓存（即便超龄）也兜底返回，避免裂图
       try {
         if (fs.existsSync(cacheFile)) {
           const buf = fs.readFileSync(cacheFile);
           let ct = 'image/jpeg';
-          try { ct = fs.readFileSync(cacheFile + '.ct', 'utf8'); } catch (e) { /* 缺 content-type 文件则回退 */ }
+          try { ct = fs.readFileSync(cacheFile + '.ct', 'utf8'); } catch (e2) { /* 缺 content-type 文件则回退 */ }
           return sendBuffer(res, buf, ct);
         }
       } catch (e2) { /* ignore */ }
@@ -288,6 +275,22 @@ module.exports = function () {
       res.set('Cache-Control', 'no-store');
       return res.send(DEFAULT_AVATAR_SVG);
     }
+  });
+
+  // 源池状态（管理员排障用）：当前生效配置 + 各源熔断状态
+  router.get('/providers', requireAdminCompat, async (req, res) => {
+    try {
+      const cfg = mediaProviders.getConfig();
+      res.json({
+        mirrorFirst: cfg.media_provider_mirror_first === '1',
+        timeoutMs: Number(cfg.media_provider_timeout_ms),
+        mirrors: (() => { try { return JSON.parse(cfg.media_provider_mirrors || '[]'); } catch (e) { return []; } })(),
+        chain: mediaProviders.getChain().map((p) => ({
+          name: p.name,
+          coolingDown: mediaProviders.isCoolingDown(p.name),
+        })),
+      });
+    } catch (e) { handleError(res, e, '[avatar/providers]'); }
   });
 
   return router;

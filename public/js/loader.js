@@ -75,7 +75,7 @@ function _loadScriptOnce(src) {
   if (_loadingMods[src]) return _loadingMods[src];
   var p = new Promise(function (resolve, reject) {
     var s = document.createElement('script');
-    s.src = '/js/' + src + '?v=20260903b';
+    s.src = '/js/' + src + '?v=20260903c';
     s.async = false; // 同批脚本保持插入顺序，保证模块间相对依赖
     s.onload = function () { _loadedMods[src] = true; resolve(); };
     s.onerror = function () { reject(new Error('Failed to load ' + src)); };

@@ -108,9 +108,16 @@ describe('同名全局函数不得跨文件重复定义（后加载者会静默�
     // checkin.js / achievements.js 更严重：后端接口、数据表、CSS、i18n 全都齐了，
     // 只差 index.html 里的两行 script，整套签到与成就功能对用户完全不可见。
     // 这类文件不会报任何错，只会让人以为功能存在。
+    //
+    // 例外（有意下线、保留资产的脚本，删除前先确认security-regressions仍引用）：
+    //   live.js —— 前端直播模块已从 loader.js ROUTE_MODULES 移除（docs/19 P1-5：
+    //   缺外部转码管线），后端 /api/live 路由保留。security-regressions.test.js
+    //   仍读取该文件校验"前端上传契约与后端对齐"，故文件保留在原位。
+    //   若重新启用直播（P1-5 落地），把它加回 ROUTE_MODULES 并从此处移除豁免。
+    const intentionallyUnloaded = new Set(['live.js']);
     const orphans = fs
       .readdirSync(JS_DIR)
-      .filter((f) => f.endsWith('.js') && !scriptsUsedByAnyPage.has(f));
+      .filter((f) => f.endsWith('.js') && !scriptsUsedByAnyPage.has(f) && !intentionallyUnloaded.has(f));
     expect(orphans).toEqual([]);
   });
 });

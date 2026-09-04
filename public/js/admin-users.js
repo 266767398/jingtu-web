@@ -344,32 +344,9 @@ async function resetUserPassword() {
 // 同名函数跨文件重复定义没有任何报错，只会静默覆盖，这里留下的死代码
 // 会让后来者误以为改对了地方。已删除，操作日志统一见 admin-vrc.js。
 
-// ==================== 数据导出 ====================
-async function exportData(type, format) {
-  if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'super_admin')) {
-    toast(__('permission_denied'), 'error');
-    return;
-  }
-  try {
-    const res = await api(`/api/admin/export/${type}?format=${format}`, { method: 'GET', responseType: 'blob' });
-    if (res.ok) {
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const filename = `${type}_export_${new Date().toISOString().slice(0,10)}.${format}`;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast(__('admin.export_success'), 'success');
-    }
-  } catch (err) {
-    if (isApiHandledError(err)) return;
-    toast(__('admin.export_failed') + ': ' + err.message, 'error');
-  }
-}
+// （此处的 exportData(type, format) 死代码已删除：全站无任何调用点，
+// 且与 profile-page.js 的 exportData(format) 同名互相覆盖。
+// 个人中心导出见 profile-page.js，如需管理端导出请另行命名接入。）
 
 // ==================== 系统备份 ====================
 async function createBackup() {
