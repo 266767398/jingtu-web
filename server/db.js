@@ -138,7 +138,7 @@ async function _dbHeartbeat() {
   }
 }
 
-setInterval(_dbHeartbeat, DB_HEARTBEAT_INTERVAL);
+setInterval(_dbHeartbeat, DB_HEARTBEAT_INTERVAL).unref(); // unref：HTTP 服务本身持有事件循环，心跳不应阻塞进程退出（Jest/工具脚本 require 本模块时不挂起）
 console.log('⏰ 数据库心跳监测已启动（间隔 ' + (DB_HEARTBEAT_INTERVAL / 1000) + ' 秒）');
 
 module.exports = { holder, DB_NAME, DB_CONFIG, getPool, recreatePool, applyDbConfig };

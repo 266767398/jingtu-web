@@ -378,19 +378,25 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 let sessionStore;
-try {
-  const MySQLStore = require('express-mysql-session')(session);
-  sessionStore = new MySQLStore({
-    host: process.env.MYSQL_HOST || '127.0.0.1',
-    port: parseInt(process.env.MYSQL_PORT, 10) || 3306,
-    user: process.env.MYSQL_USER || 'root',
-    password: process.env.MYSQL_PASSWORD || '',
-    database: process.env.MYSQL_DATABASE || 'jingtu_group',
-    createDatabaseTable: true,
-    expiration: 7 * 24 * 60 * 60 * 1000,
-    schema: { tableName: 'sessions' }
-  });
-} catch (e) { logger.warn('[session]', 'express-mysql-session 加载失败，回退到 MemoryStore:', e.message); logger.warn('[session]', '运行 npm install express-mysql-session 可启用 MySQL session 持久化'); }
+if (process.env.NODE_ENV === 'test') {
+  // P2-1：集成测试（supertest require 本模块）不依赖 MySQL；且 express-mysql-session
+  // 构造时会启动未 unref 的过期清理定时器，会挂住 Jest worker 进程，故测试环境直接用 MemoryStore。
+  logger.warn('[session]', 'NODE_ENV=test：session 使用 MemoryStore（supertest 集成测试专用）');
+} else {
+  try {
+    const MySQLStore = require('express-mysql-session')(session);
+    sessionStore = new MySQLStore({
+      host: process.env.MYSQL_HOST || '127.0.0.1',
+      port: parseInt(process.env.MYSQL_PORT, 10) || 3306,
+      user: process.env.MYSQL_USER || 'root',
+      password: process.env.MYSQL_PASSWORD || '',
+      database: process.env.MYSQL_DATABASE || 'jingtu_group',
+      createDatabaseTable: true,
+      expiration: 7 * 24 * 60 * 60 * 1000,
+      schema: { tableName: 'sessions' }
+    });
+  } catch (e) { logger.warn('[session]', 'express-mysql-session 加载失败，回退到 MemoryStore:', e.message); logger.warn('[session]', '运行 npm install express-mysql-session 可启用 MySQL session 持久化'); }
+}
 
 app.use(session({
   secret: effectiveSecret,
@@ -1133,22 +1139,27 @@ async function gracefulShutdown(signal) {
   process.exit(0);
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGHUP', () => gracefulShutdown('SIGHUP'));
-// 未捕获异常 — 记录详细堆栈后退出（不阻塞不清理，因为状态可能已损坏）
-process.on('uncaughtException', (err) => {
-  logger.error('[uncaught]', '未捕获异常:', err.message, err.stack);
-  try { if (dbMod.holder.pool) dbMod.holder.pool.end(); } catch {}
-  process.exit(1);
-});
-process.on('unhandledRejection', (reason) => {
-  logger.error('[rejection]', '未处理的 Promise 拒绝:', reason instanceof Error ? reason.message : reason);
-  if (reason instanceof Error) logger.error('[rejection]', reason.stack);
-});
+// ==================== 启动入口（P2-1 可测试化） ====================
+// require('./server')（supertest 集成测试）只拿到配置好的 app；
+// 端口监听、进程信号接管仅在 node server.js 直跑时注册，避免测试进程被占用/被信号退出。
+if (require.main === module) {
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGHUP', () => gracefulShutdown('SIGHUP'));
+  // 未捕获异常 — 记录详细堆栈后退出（不阻塞不清理，因为状态可能已损坏）
+  process.on('uncaughtException', (err) => {
+    logger.error('[uncaught]', '未捕获异常:', err.message, err.stack);
+    try { if (dbMod.holder.pool) dbMod.holder.pool.end(); } catch {}
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (reason) => {
+    logger.error('[rejection]', '未处理的 Promise 拒绝:', reason instanceof Error ? reason.message : reason);
+    if (reason instanceof Error) logger.error('[rejection]', reason.stack);
+  });
+}
 
 // ==================== 初始化 ====================
-(async function init() {
+async function init() {
   try {
     const initDatabase = require('./db_init');
     await initDatabase();
@@ -1207,4 +1218,11 @@ process.on('unhandledRejection', (reason) => {
     mailer.initMailer();
     try { tasks.startTasks(); } catch (e) { logger.warn('[init]', '定时任务启动异常:', e.message); }
   });
-})();
+}
+
+module.exports = app;
+
+// 直跑才启动初始化（置于导出之后：require 本模块时绝不触发端口监听与启动初始化）
+if (require.main === module) {
+  init();
+}

@@ -1,0 +1,44 @@
+name: CI
+
+# P2-1：API 集成测试 + CI（工程债闭环）。
+# 在 server/ 目录运行完整 Jest 套件（单元 + router 级 supertest + server.js 整机集成），
+# 带覆盖率门槛（jest.config.js coverageThreshold）。测试全程不依赖 MySQL/Redis/SMTP。
+on:
+  push:
+    branches: [jingtu-web, main, master]
+  pull_request:
+    branches: [jingtu-web, main, master]
+
+jobs:
+  server-test:
+    name: 服务端测试（Jest：单元 + supertest 集成）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 运行测试（含覆盖率门槛）
+        run: npm run test:ci
+
+      - name: 上传覆盖率报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-node${{ matrix.node-version }}
+          path: server/coverage/lcov-report
+          retention-days: 7

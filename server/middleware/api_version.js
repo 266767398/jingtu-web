@@ -1,16 +1,18 @@
 function apiVersionMiddleware(req, res, next) {
-  const pathParts = req.path.split('/');
+  const match = req.path.match(/^\/api\/(v[12])(?=\/|$)/);
   let version = 'v1';
-  
-  if (pathParts[2] === 'v1' || pathParts[2] === 'v2') {
-    version = pathParts[2];
-    req.path = '/' + pathParts.slice(3).join('/');
-    req.version = version;
-  } else {
-    req.version = 'v1';
+
+  if (match) {
+    version = match[1];
+    // 修复（P2-1 集成测试发现）：此前仅对 req.path 赋值，而 req.path 是基于 req.url 的
+    // 只读 getter，路由匹配始终读取原始 req.url，版本前缀请求实际全部 404。
+    // 现改为重写 req.url：仅剥离版本段、保留 /api 前缀，使挂载于 /api/* 的限流器
+    // （ddosLimiter、loginBruteForceLimiter 等）与路由对版本化请求同样生效。
+    req.url = req.url.replace(/^\/api\/v[12](?=\/|$)/, '/api');
   }
-  
-  res.setHeader('X-API-Version', req.version);
+
+  req.version = version;
+  res.setHeader('X-API-Version', version);
   next();
 }
 
