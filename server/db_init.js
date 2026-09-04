@@ -550,10 +550,10 @@ async function initDatabase() {
       // 精细 RBAC 改用 group_permission_entries + user_group_membership + user_permissions(V6.14)。
       // 仅 CREATE TABLE IF NOT EXISTS 不会清理已有库；若旧库仍含该表可手动 `DROP TABLE IF EXISTS permissions;`。
 
-      // 用户权限键值表 (V6.14)
-      // routes/admin.js 的 /permissions、/permissions/me、/permissions/set 全部使用该表；
-      // 此前从未建表，导致权限管理页 500 (ER_NO_SUCH_TABLE)。
-      // uk_user_permission 是 /permissions/set 的 ON DUPLICATE KEY UPDATE 生效前提。
+      // 用户权限键值表 (V6.14，P2-3 起转为只读历史快照)
+      // 旧写入路由 /permissions、/permissions/me、/permissions/set 已于 2026-09-04 从 admin.js 下线；
+      // 精细 RBAC 写侧统一走权限组接口（permission_groups.js），该表仅被 /api/permissions-view
+      // 的 legacy 透明展示读取。若要 DROP 此表，需先移除 routes/permissions.js 的 legacy 展示块。
       `CREATE TABLE IF NOT EXISTS user_permissions (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,

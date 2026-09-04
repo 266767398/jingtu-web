@@ -417,53 +417,6 @@ module.exports = function (groupId, vrcCookieCfg) {
     } catch (e) { handleError(res, e, '[admin/name-change/review]'); }
   });
 
-  // ==================== 权限系统 API（旧版） ====================
-  router.get('/permissions', requireAdminCompat, async (req, res) => {
-    try {
-      // 以管理员用户为基准左连接权限记录：若只查 user_permissions，
-      // 在尚无任何授权记录时列表为空，管理员将永远无法授予第一个权限。
-      const [rows] = await getPool().query(
-        `SELECT u.id AS userId, u.display_name AS displayName, u.login_id AS loginId, u.role,
-                p.permission AS permissionKey, p.granted
-         FROM users u
-         LEFT JOIN user_permissions p ON p.user_id = u.id
-         WHERE u.deleted_at IS NULL AND u.banned = 0 AND u.role IN ('admin', 'super_admin')
-         ORDER BY u.display_name, p.permission`
-      );
-      const byUser = {};
-      for (const r of rows) {
-        if (!byUser[r.userId]) {
-          byUser[r.userId] = { userId: r.userId, displayName: r.displayName, loginId: r.loginId, role: r.role, perms: {} };
-        }
-        if (r.permissionKey) {
-          byUser[r.userId].perms[r.permissionKey] = r.granted === 1 || r.granted === true;
-        }
-      }
-      res.json({ userPermissions: Object.values(byUser) });
-    } catch (e) { handleError(res, e, '[admin/permissions]'); }
-  });
-
-  router.get('/permissions/me', requireAuth, async (req, res) => {
-    try {
-      const [rows] = await getPool().query(`SELECT permission, granted FROM user_permissions WHERE user_id=?`, [req.session.userId]);
-      const grants = {};
-      for (const r of rows) grants[r.permission] = r.granted === 1;
-      res.json({ grants });
-    } catch (e) { handleError(res, e, '[admin/permissions/me]'); }
-  });
-
-  router.post('/permissions/set', requireAdminCompat, async (req, res) => {
-    try {
-      const { userId, permission, granted } = req.body;
-      if (!userId || !permission) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
-      await getPool().query(
-        `INSERT INTO user_permissions (user_id, permission, granted, granted_by) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE granted=?, granted_by=?`,
-        [userId, permission, granted ? 1 : 0, req.session.userId, granted ? 1 : 0, req.session.userId]
-      );
-      res.json({ success: true });
-    } catch (e) { handleError(res, e, '[admin/permissions/set]'); }
-  });
-
   // ==================== 权限组排序 API ====================
   router.get('/admin/groups', requireAdminCompat, async (req, res) => {
     try {

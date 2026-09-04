@@ -148,24 +148,22 @@ describe('map module regressions', () => {
 });
 
 describe('permission module regressions', () => {
-  // 防止权限 upsert 没有唯一键支撑，INSERT ... ON DUPLICATE KEY UPDATE 永远不触发更新。
-  test('user_permissions table is created with the uniqueness the writer relies on', () => {
+  // P2-3 双写下线：旧版 user_permissions 写入路由已整体移除，
+  // 防止旧路由或旧 upsert SQL 被无意恢复，与权限组写侧形成新的双写。
+  test('legacy user_permissions write routes stay retired from admin.js', () => {
+    const admin = readServer('routes', 'admin.js');
+    expect(admin).not.toMatch(/router\.(get|post)\(\s*['"]\/permissions/);
+    expect(admin).not.toMatch(/INSERT INTO user_permissions/);
+  });
+
+  // 遗留表保留为历史快照：db_init 仍建表（含唯一键），权限查看器 legacy 展示仍 SELECT 它。
+  // 若未来要 DROP 该表，必须先移除 permissions.js 的 legacy 展示块，两处需联动。
+  test('user_permissions table is retained as a read-only snapshot for the viewer', () => {
     const dbInit = readServer('db_init.js');
     const createTable = dbInit.match(/CREATE TABLE IF NOT EXISTS user_permissions \([\s\S]*?\) ENGINE=InnoDB/)[0];
     expect(createTable).toMatch(/UNIQUE\s+KEY\s+uk_user_permission\s*\(user_id,\s*permission\)/i);
-    const admin = readServer('routes', 'admin.js');
-    expect(admin).toMatch(/INSERT INTO user_permissions \(user_id, permission, granted, granted_by\) VALUES \(\?, \?, \?, \?\) ON DUPLICATE KEY UPDATE granted=\?, granted_by=\?/);
-  });
-
-  // 防止权限列表只查已有授权记录，导致尚未授权的管理员无法出现在页面上。
-  test('permission listing is seeded from admin users, not only existing grants', () => {
-    const admin = readServer('routes', 'admin.js');
-    const route = admin.slice(admin.indexOf("router.get('/permissions'"), admin.indexOf("router.get('/permissions/me'"));
-    expect(route).toMatch(/FROM\s+users\s+u/i);
-    expect(route).toMatch(/LEFT\s+JOIN\s+user_permissions\s+p\s+ON\s+p\.user_id\s*=\s*u\.id/i);
-    expect(route).toMatch(/u\.role\s+IN\s*\(\s*['"]admin['"],\s*['"]super_admin['"]\s*\)/);
-    expect(route).toMatch(/res\.json\(\{\s*userPermissions:\s*Object\.values\(byUser\)\s*\}\)/);
-    expect(route).not.toMatch(/FROM\s+user_permissions\s+p\s+(?:LEFT\s+)?JOIN\s+users/i);
+    const viewer = readServer('routes', 'permissions.js');
+    expect(viewer).toMatch(/SELECT\s+permission,\s*granted\s+FROM\s+user_permissions\s+WHERE\s+user_id\s*=\s*\?/);
   });
 });
 
