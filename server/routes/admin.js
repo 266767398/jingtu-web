@@ -331,22 +331,6 @@ module.exports = function (groupId, vrcCookieCfg) {
     catch (e) { handleError(res, e, '[admin/users/reset-password]'); }
   });
 
-  // ==================== 全局搜索 ====================
-  router.get('/search', requireAuth, async (req, res) => {
-    try {
-      const q = req.query.q ? req.query.q.trim() : '';
-      if (!q || q.length < 2) return res.json({ users: [], events: [], announcements: [] });
-      const like = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
-      const [users] = await getPool().query(
-        `SELECT id, login_id AS loginId, display_name AS displayName, role, avatar_type, custom_avatar_path, vrchat_avatar_url FROM users WHERE deleted_at IS NULL AND (login_id LIKE ? OR display_name LIKE ?) LIMIT 10`,
-        [like, like]
-      );
-      const [events] = await getPool().query(`SELECT id, title, event_time AS eventTime, event_type AS eventType FROM event WHERE title LIKE ? AND is_archive=0 LIMIT 10`, [like]);
-      const [announcements] = await getPool().query(`SELECT id, title FROM announcement WHERE title LIKE ? LIMIT 10`, [like]);
-      res.json({ users, events, announcements });
-    } catch (e) { handleError(res, e, '[admin/search]'); }
-  });
-
   // ==================== VRChat 改名系统 ====================
   router.post('/name-change/request', requireAuth, async (req, res) => {
     try {

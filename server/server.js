@@ -1053,6 +1053,26 @@ app.use('/api/collections', require('./routes/collections')(getVRCCookie));
 
 app.use('/api/event-teams', require('./routes/event_teams'));
 
+// 启动期路由冲突自检（P2-15 / B-3，只读）：扫描全部已注册路由，
+// 报告「同方法同路径完全重复（死代码）」与「参数路由先注册截胡字面路由」两类隐患。
+try {
+  const { auditRouteConflicts } = require('./route_guard');
+  const audit = auditRouteConflicts(app);
+  if (audit.exact.length === 0 && audit.shadow.length === 0) {
+    logger.info('[server]', '路由冲突自检通过（共 ' + audit.total + ' 条路由）');
+  } else {
+    for (const d of audit.exact) {
+      logger.warn('[server]', '路由完全重复（后注册者死代码）: ' + d.key + '，先注册 seq=' + d.first.seq + '，重复 seq=' + d.dup.seq);
+    }
+    for (const s of audit.shadow) {
+      logger.warn('[server]', '路由被截胡: ' + s.key + '（seq=' + s.seqSelf + '）被先注册的 ' + s.by + '（seq=' + s.seqFirst + '）形状兼容覆盖');
+    }
+    logger.warn('[server]', '路由冲突自检发现 ' + (audit.exact.length + audit.shadow.length) + ' 处冲突（共 ' + audit.total + ' 条路由），请核查挂载顺序');
+  }
+} catch (e) {
+  logger.warn('[server]', '路由冲突自检失败（已跳过）：', e.message);
+}
+
 // /api 未匹配路由统一返回中文 JSON 404（避免 Express 默认 HTML "Cannot GET"）
 app.use('/api', (req, res) => {
   res.status(404).json({ error: '请求的资源不存在' });

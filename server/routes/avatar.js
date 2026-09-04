@@ -198,12 +198,8 @@ function sendBuffer(res, buf, contentType) {
 module.exports = function () {
   const router = express.Router();
 
-  // 默认头像（兜底，纯文本 SVG，绝不裂图）
-  router.get('/default', (req, res) => {
-    res.set('Content-Type', 'image/svg+xml');
-    res.set('Cache-Control', 'public, max-age=604800, immutable');
-    res.send(DEFAULT_AVATAR_SVG);
-  });
+  // 默认头像路由已移除（P2-15 路由冲突清理）：server.js 顶部的 app.get('/api/avatar/default')
+  // 先注册生效，此处重复注册不可达；DEFAULT_AVATAR_SVG 仍被 /proxy 与 fallback 使用。
 
   // 代理 VRChat 头像：缓存到本地，源过期也不影响
   router.get('/proxy', async (req, res) => {
