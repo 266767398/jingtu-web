@@ -115,7 +115,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 .lang-switch{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px}
 .lang-switch .lang-label{font-size:13px;color:#9898b0}
-.lang-switch select{background:#0a0a15;border:1px solid #2a2a3e;color:#c4c4d4;border-radius:8px;padding:6px 10px;font-size:13px;outline:none}
 
 </style>
 <script>
@@ -141,7 +140,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <a href="/" style="display:inline-block;margin-top:12px;padding:8px 12px;color:#9898b0;font-size:13px;text-decoration:underline;border-radius:8px;transition:all .2s" onmouseover="this.style.color='#7c5cfc'" onmouseout="this.style.color='#9898b0'" data-i18n="setup.back_home">← 返回首页</a>
     <div class="lang-switch">
       <span class="lang-label" data-i18n="setup.lang_label">🌐 语言</span>
-      <select id="langSelect" onchange="setLanguage(this.value)"></select>
+      <button id="langSwitcherBtn" class="lang-switcher-btn" type="button" data-i18n="lang.switch_to" onclick="showLangSwitcher()">简体中文</button>
     </div>
   </div>
 
@@ -385,15 +384,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <script>
   (function () {
     initI18n();
-    var sel = document.getElementById('langSelect');
-    if (sel && typeof LANG_ORDER !== 'undefined' && typeof LANG !== 'undefined') {
-      LANG_ORDER.forEach(function (c) {
-        var o = document.createElement('option');
-        o.value = c; o.textContent = (LANG[c] && (LANG[c].emoji + ' ' + LANG[c].native)) || c;
-        sel.appendChild(o);
-      });
-      if (typeof getCurrentLang === 'function') sel.value = getCurrentLang();
-    }
+    // P2-13：切换器按钮 #langSwitcherBtn 的文案由 initI18n → updateLangSwitcherUI 填充，
+    // 弹窗由 i18n.js 统一组件渲染（与主站同一 DOM 结构与样式规格）。
     if (typeof applyStaticI18n === 'function') applyStaticI18n();
   })();
 </script>

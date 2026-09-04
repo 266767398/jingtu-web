@@ -185,9 +185,49 @@ function reloadDynamicI18n() {
 }
 
 // ==================== 语言切换器 UI ====================
+// P2-13 统一组件：所有页面共用本函数与同一 DOM 结构（button.lang-switcher-btn 触发 +
+// #langSwitcherModal 弹窗）。主站（有 core.js）走 showModal/closeModal；轻量页
+// （如 setup.html 只加载 i18n.js）首次弹出时注入一次限定作用域的自举样式，视觉规格与主站一致。
+
+// 统一关闭入口：优先走 core.js 的 closeModal，轻量页无该函数时手动隐藏
+function _closeLangSwitcher() {
+  if (typeof closeModal === 'function') { closeModal('langSwitcherModal'); return; }
+  const m = document.getElementById('langSwitcherModal');
+  if (m) m.classList.remove('show');
+}
+
+// 轻量页自举样式：变量与组件规则全部限定在 #langSwitcherModal / .lang-switch 内，
+// 不会影响主站既有样式（主站因存在 showModal 永远不会走到这里）。
+function _injectLangSwitcherStandaloneCSS() {
+  if (document.getElementById('lang-switcher-standalone-style')) return;
+  const st = document.createElement('style');
+  st.id = 'lang-switcher-standalone-style';
+  st.textContent = [
+    '.lang-switch .lang-switcher-btn{background:none;border:1px solid #2a2a3e;color:#e4e4f0;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px;white-space:nowrap;transition:all .2s ease;display:inline-flex;align-items:center;gap:4px;font-family:inherit;}',
+    '.lang-switch .lang-switcher-btn:hover{border-color:#7c5cfc;background:rgba(124,92,252,.08);}',
+    '#langSwitcherModal{--border:#2a2a3e;--text:#e4e4f0;--accent:#7c5cfc;--hover-bg:rgba(124,92,252,.08);position:fixed;inset:0;z-index:1000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);}',
+    '#langSwitcherModal.show{display:flex;}',
+    '#langSwitcherModal .modal-content{background:#141420;border:1px solid #2a2a3e;border-radius:16px;width:92%;max-width:320px;box-shadow:0 4px 32px rgba(0,0,0,.3);}',
+    '#langSwitcherModal .modal-header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #2a2a3e;}',
+    '#langSwitcherModal .modal-header h3{font-size:15px;color:#fff;font-weight:600;margin:0;}',
+    '#langSwitcherModal .modal-close{background:none;border:none;color:#9898b0;font-size:16px;cursor:pointer;}',
+    '#langSwitcherModal .lang-switcher-list{display:flex;flex-direction:column;gap:4px;padding:8px;}',
+    '#langSwitcherModal .lang-switcher-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:transparent;border:1px solid transparent;cursor:pointer;transition:all .2s ease;font-size:14px;color:var(--text);width:100%;text-align:left;font-family:inherit;}',
+    '#langSwitcherModal .lang-switcher-item:hover{background:var(--hover-bg);border-color:var(--border);}',
+    '#langSwitcherModal .lang-switcher-item.active{border-color:var(--accent);background:rgba(124,92,252,.1);font-weight:600;}',
+    '#langSwitcherModal .lang-emoji{font-size:12px;width:28px;text-align:center;font-weight:700;letter-spacing:.5px;}',
+    '#langSwitcherModal .lang-name{flex:1;}',
+    '#langSwitcherModal .lang-check{margin-left:auto;font-size:14px;}'
+  ].join('\n');
+  document.head.appendChild(st);
+}
+
 function showLangSwitcher() {
   const existing = document.getElementById('langSwitcherModal');
     if (existing) existing.remove();
+
+  // 轻量页（无 core.js 的 showModal）需要自举样式才能正确展示同一组件
+  if (typeof showModal !== 'function') _injectLangSwitcherStandaloneCSS();
 
   const langs = LANG_ORDER;
   const current = _currentLang;
@@ -195,7 +235,7 @@ function showLangSwitcher() {
   const items = langs.map(code => {
     const lang = LANG[code];
     const isActive = code === current;
-    return `<button class="lang-switcher-item ${isActive ? 'active' : ''}" onclick="setLanguage('${code}');closeModal('langSwitcherModal')">
+    return `<button class="lang-switcher-item ${isActive ? 'active' : ''}" onclick="setLanguage('${code}');_closeLangSwitcher()">
       <span class="lang-emoji">${lang.emoji}</span>
       <span class="lang-name">${lang.native}</span>
       ${isActive ? '<span class="lang-check">✅</span>' : ''}
@@ -206,15 +246,16 @@ function showLangSwitcher() {
   div.id = 'langSwitcherModal';
   div.className = 'modal';
   div.innerHTML = `<div class="modal-content modal-sm">
-    <div class="modal-header"><h3>${__('lang.switch_to')}</h3><button class="modal-close" onclick="closeModal('langSwitcherModal')" aria-label="${__('ui.close')}">✕</button></div>
+    <div class="modal-header"><h3>${__('lang.switch_to')}</h3><button class="modal-close" onclick="_closeLangSwitcher()" aria-label="${__('ui.close')}">✕</button></div>
     <div class="lang-switcher-list">${items}</div>
   </div>`;
   document.body.appendChild(div);
-  showModal('langSwitcherModal');
+  if (typeof showModal === 'function') showModal('langSwitcherModal');
+  else div.classList.add('show');
 }
 
 function updateLangSwitcherUI() {
-  const btnIds = ['langSwitcherBtn', 'loginLangSwitcherBtn'];
+  const btnIds = ['langSwitcherBtn'];
   btnIds.forEach(btnId => {
     const btn = document.getElementById(btnId);
     if (btn) {
