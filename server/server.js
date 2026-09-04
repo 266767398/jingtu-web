@@ -43,7 +43,7 @@ const { WebSocketServer } = require('ws');
 const compression = require('compression');
 const dbMod = require('./db');
 const wsService = require('./ws_service');
-const { getPool, safeError, logOper, encryptCookie, decryptCookie, createFileFilter, sendError, ErrorCodes } = require('./utils');
+const { getPool, safeError, logOper, encryptCookie, decryptCookie, createFileFilter, sendError, ErrorCodes, ok } = require('./utils');
 const startSchedule = require('./schedule');
 const {
   requireAuth, requireAdminCompat, requireRole,
@@ -1026,7 +1026,7 @@ app.post('/api/admin/group-image', requireAdminCompat, groupImgUpload.single('im
     await sharp(req.file.path).resize(type === 'avatar' ? 512 : type === 'banner' ? 1200 : 1920).jpeg({ quality: 85 }).toFile(targetFile);
     // sharp 成功后删除临时文件
     try { fs.unlinkSync(req.file.path); } catch {}
-    res.json({ success: true, url: `/assets/group-${type}.png?v=${Date.now()}` });
+    ok(res, { url: `/assets/group-${type}.png?v=${Date.now()}` });
   } catch (e) {
     // sharp 处理异常时也要清理临时文件
     try { if (req.file && req.file.path) fs.unlinkSync(req.file.path); } catch {}

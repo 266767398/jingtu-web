@@ -7,7 +7,7 @@
  *   description: 管理后台相关接口
  */
 const express = require('express');
-const { getPool, handleError, logOper , sendError, ErrorCodes } = require('../utils');
+const { ok,  getPool, handleError, logOper , sendError, ErrorCodes  } = require('../utils');;
 const {
   requireAuth, requireAdminCompat, requireRole,
   hashPassword, validatePasswordStrength, verifyPassword,
@@ -61,7 +61,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       if (vrcCookieCfg && typeof vrcCookieCfg.setExpireDays === 'function') {
         vrcCookieCfg.setExpireDays(days);
       }
-      res.json({ success: true, expireDays: days });
+      ok(res, { expireDays: days });
     } catch (e) { handleError(res, e, '[admin/vrc-cookie-expire:put]'); }
   });
 
@@ -217,7 +217,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       // F-5: 媒体代理源池配置同样热更新到内存（镜像清洗校验在 applyConfig 内完成）
       mediaProviders.applyConfig(incoming);
       await logOper(req.session.userId, '更新系统配置', JSON.stringify(Object.keys(incoming)));
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[admin/config/put]'); }
   });
 
@@ -274,12 +274,12 @@ module.exports = function (groupId, vrcCookieCfg) {
         [userId, groupId]
       );
       await logOper(req.session.userId, '创建用户', `创建用户 ${displayName || loginId} (${loginId}) 角色: ${userRole}`);
-      res.json({ success: true, id: userId });
+      ok(res, { id: userId });
     } catch (e) { handleError(res, e, '[admin/users/post]'); }
   });
 
   router.post('/admin/users/:id/approve', requireAdminCompat, async (req, res) => {
-    try { await getPool().query(`UPDATE users SET approved=1 WHERE id=?`, [req.params.id]); await logOper(req.session.userId, '批准用户', `批准用户 #${req.params.id}`); res.json({ success: true }); }
+    try { await getPool().query(`UPDATE users SET approved=1 WHERE id=?`, [req.params.id]); await logOper(req.session.userId, '批准用户', `批准用户 #${req.params.id}`); ok(res); }
     catch (e) { handleError(res, e, '[admin/users/approve]'); }
   });
   router.post('/admin/users/:id/ban', requireAdminCompat, async (req, res) => {
@@ -289,7 +289,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       await getPool().query(`UPDATE users SET banned=1 WHERE id=?`, [req.params.id]);
       await getPool().query(`DELETE FROM notifications WHERE user_id = ?`, [req.params.id]);
       await logOper(req.session.userId, '封禁用户', `封禁用户 ${guard.targetUser.display_name} (#${req.params.id})`);
-      res.json({ success: true });
+      ok(res);
     }
     catch (e) { handleError(res, e, '[admin/users/ban]'); }
   });
@@ -299,7 +299,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       if (!guard.ok) return;
       await getPool().query(`UPDATE users SET banned=0 WHERE id=?`, [req.params.id]);
       await logOper(req.session.userId, '解封用户', `解封用户 ${guard.targetUser.display_name} (#${req.params.id})`);
-      res.json({ success: true });
+      ok(res);
     }
     catch (e) { handleError(res, e, '[admin/users/unban]'); }
   });
@@ -309,7 +309,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       if (!guard.ok) return;
       await getPool().query(`UPDATE users SET deleted_at=NOW() WHERE id=?`, [req.params.id]);
       await logOper(req.session.userId, '删除用户', `删除用户 ${guard.targetUser.display_name} (#${req.params.id})`);
-      res.json({ success: true });
+      ok(res);
     }
     catch (e) { handleError(res, e, '[admin/users/delete]'); }
   });
@@ -326,7 +326,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       const hashed = await hashPassword(newPassword);
       await getPool().query(`UPDATE users SET password_hash=? WHERE id=?`, [hashed, req.params.id]);
       await logOper(req.session.userId, '重置密码', `管理员 ${req.session.displayName} 重置了用户 ${guard.targetUser.display_name} (#${req.params.id}) 的密码`);
-      res.json({ success: true });
+      ok(res);
     }
     catch (e) { handleError(res, e, '[admin/users/reset-password]'); }
   });
@@ -348,7 +348,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       await getPool().query(`INSERT INTO name_change_requests (user_id, old_name, new_name, reason) VALUES (?, ?, ?, ?)`,
         [req.session.userId, req.session.displayName || '用户', newNameTrim, reason ? String(reason).slice(0, 500) : null]);
       await logOper(req.session.userId, '提交改名申请', `${req.session.displayName} → ${newNameTrim}`);
-      res.json({ success: true, message: '改名申请已提交，等待管理员审核' });
+      ok(res, { message: '改名申请已提交，等待管理员审核' });
     } catch (e) { handleError(res, e, '[admin/name-change/request]'); }
   });
 
@@ -397,7 +397,7 @@ module.exports = function (groupId, vrcCookieCfg) {
         await getPool().query(`UPDATE name_change_requests SET status='rejected', reviewed_by=?, review_comment=?, review_time=NOW() WHERE id=?`, [reviewerId, comment || null, id]);
         await logOper(reviewerId, '拒绝改名', `${reqs[0].old_name} → ${reqs[0].new_name}: ${comment || ''}`);
       }
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[admin/name-change/review]'); }
   });
 
@@ -419,7 +419,7 @@ module.exports = function (groupId, vrcCookieCfg) {
         await getPool().query('UPDATE permission_groups SET sort = ? WHERE id = ?', [i, groupIds[i]]);
       }
       await logOper(req.session.userId, '调整权限组排序', `排序: ${groupIds.join(',')}`);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[admin/groups/sort]'); }
   });
 
@@ -455,7 +455,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       if (!id) return res.status(400).json({ error: 'invalid id' });
       await getPool().query(`UPDATE live_streams SET status = 'ended', ended_at = NOW() WHERE id = ?`, [id]);
       await logOper(req.session.userId, '强制结束直播', '直播ID: ' + id);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[admin/live:end]'); }
   });
 
@@ -465,7 +465,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       if (!id) return res.status(400).json({ error: 'invalid id' });
       await getPool().query(`DELETE FROM live_streams WHERE id = ?`, [id]);
       await logOper(req.session.userId, '删除直播', '直播ID: ' + id);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[admin/live:delete]'); }
   });
 
@@ -561,7 +561,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       }
       await getPool().query(`DELETE FROM ${cfg.table} WHERE ${cfg.id} = ?`, [id]);
       await logOper(req.session.userId, '删除内容(' + req.params.type + ')', 'ID: ' + id);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[admin/content:delete]'); }
   });
 
@@ -573,7 +573,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       if (!ids.length) return res.status(400).json({ error: 'empty ids' });
       await getPool().query(`DELETE FROM ${cfg.table} WHERE ${cfg.id} IN (?)`, [ids]);
       await logOper(req.session.userId, '批量删除内容(' + req.body.type + ')', 'IDs: ' + ids.join(','));
-      res.json({ success: true, deleted: ids.length });
+      ok(res, { deleted: ids.length });
     } catch (e) { handleError(res, e, '[admin/content:batch]'); }
   });
 
@@ -632,7 +632,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       }
       const { imported } = await importUserData(userId, body);
       await logOper(req.session.userId, '导入用户数据', '用户ID: ' + userId);
-      res.json({ success: true, imported });
+      ok(res, { imported });
     } catch (e) {
       if (e && e.statusCode === 404) return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
       handleError(res, e, '[admin/user-data/import]');
@@ -679,7 +679,7 @@ module.exports = function (groupId, vrcCookieCfg) {
         }
       }
       await logOper(req.session.userId, '批量导入用户数据', '用户数: ' + summary.length);
-      res.json({ success: true, imported: summary, failed });
+      ok(res, { imported: summary, failed });
     } catch (e) { handleError(res, e, '[admin/user-data/batch-import]'); }
   });
 

@@ -3,7 +3,7 @@ const router = express.Router();
 const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
-const { safeError } = require('../utils');
+const { ok,  safeError  } = require('../utils');;
 const { requireAdminCompat } = require('../auth');
 const { validateRequest, migrationValidations } = require('../validation');
 const logger = require('../logger');
@@ -57,7 +57,7 @@ router.get('/detect', async (req, res) => {
       }
     }
     
-    res.json({ success: true, results });
+    ok(res, { results });
   } catch (e) {
     res.json({ success: false, error: safeError(e.message), results: [] });
   }
@@ -82,7 +82,7 @@ router.post('/test-connection', validateRequest(migrationValidations.testConnect
     
     await conn.end();
     
-    res.json({ success: true, message: '数据库连接成功！' });
+    ok(res, { message: '数据库连接成功！' });
   } catch (e) {
     let errorType = 'unknown';
     let errorMsg = e.message;
@@ -128,7 +128,7 @@ router.post('/get-databases', async (req, res) => {
       .map(d => d.Database)
       .filter(db => !['information_schema', 'mysql', 'performance_schema', 'sys'].includes(db));
     
-    res.json({ success: true, databases: filtered });
+    ok(res, { databases: filtered });
   } catch (e) {
     res.json({ success: false, error: safeError(e.message) });
   }
@@ -156,7 +156,7 @@ router.post('/get-tables', async (req, res) => {
     
     const tableNames = tables.map(t => Object.values(t)[0]);
     
-    res.json({ success: true, tables: tableNames });
+    ok(res, { tables: tableNames });
   } catch (e) {
     res.json({ success: false, error: safeError(e.message) });
   }
@@ -265,7 +265,7 @@ router.post('/migrate', requireAdminCompat, validateRequest(migrationValidations
     
     logs.push(`[INFO] 迁移完成！成功：${successCount} 表，失败：${failCount} 表`);
     
-    res.json({ success: true, logs });
+    ok(res, { logs });
   } catch (e) {
     try {
       if (targetConn) {
@@ -317,7 +317,7 @@ router.post('/scan-config', async (req, res) => {
       }
     }
     
-    res.json({ success: true, files: foundFiles });
+    ok(res, { files: foundFiles });
   } catch (e) {
     res.json({ success: false, error: safeError(e.message), files: [] });
   }
@@ -458,14 +458,14 @@ router.post('/replace-config', requireAdminCompat, validateRequest(migrationVali
       }
     }
     
-    res.json({ success: true, results });
+    ok(res, { results });
   } catch (e) {
     res.json({ success: false, error: safeError(e.message), results: [] });
   }
 });
 
 router.get('/panel-configs', (req, res) => {
-  res.json({ success: true, panels: PANEL_CONFIGS });
+  ok(res, { panels: PANEL_CONFIGS });
 });
 
 module.exports = router;

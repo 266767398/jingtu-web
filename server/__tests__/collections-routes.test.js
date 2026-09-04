@@ -31,6 +31,9 @@ jest.mock('../vrc', () => ({
 
 jest.mock('../utils', () => ({
   getPool: () => mockPool,
+  ok(res, fields) {
+    return res.json(fields ? { success: true, ...fields } : { success: true });
+  },
   ErrorCodes: {
     BAD_REQUEST: 'BAD_REQUEST',
     NOT_FOUND: 'NOT_FOUND',

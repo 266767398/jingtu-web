@@ -9,7 +9,7 @@
  *   description: 活动管理相关接口
  */
 const express = require('express');
-const { getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes } = require('../utils');
+const { ok,  getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes  } = require('../utils');;
 const { requireAuth, requireAdminCompat, getAvatarUrl, ROLE_LEVEL } = require('../auth');
 const { vrchatGetGroupEvents } = require('../vrc');
 const cacheService = require('../cache_service');
@@ -287,7 +287,7 @@ router.get('/', async (req, res) => {
       // 失效缓存并触发webhook
       await cacheService.invalidateRelated('activity');
       webhook.triggerEventCreated({ id: result.insertId, title, description, start_time: eventTime, end_time: endsAt }).catch(() => {});
-      res.json({ success: true, id: result.insertId });
+      ok(res, { id: result.insertId });
     } catch (e) { handleError(res, e, '[events/create]'); }
   });
 
@@ -339,7 +339,7 @@ router.get('/', async (req, res) => {
       await getPool().query(`UPDATE event SET ${sets} WHERE id=?`, vals);
       await cacheService.invalidateActivity(req.params.id);
       webhook.triggerEventUpdated({ id: parseInt(req.params.id), ...updates }).catch(() => {});
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[events/update]'); }
   });
 
@@ -391,7 +391,7 @@ router.get('/', async (req, res) => {
       await conn.beginTransaction();
       await deleteOneEvent(conn, parseInt(req.params.id), uid, roleLevel);
       await conn.commit();
-      res.json({ success: true });
+      ok(res);
     } catch (e) {
       if (conn) await conn.rollback();
       // deleteOneEvent 抛出的错误携带 status/code，直接透传
@@ -441,7 +441,7 @@ router.get('/', async (req, res) => {
       await conn.commit();
       // 审计：批量删除活动
       try { await logOper(uid, '批量删除活动', `IDs: ${ids.join(',')}`); } catch (_) {}
-      res.json({ success: true, deleted: ids.length });
+      ok(res, { deleted: ids.length });
     } catch (e) {
       if (conn) await conn.rollback();
       if (e.status) return sendError(res, e.status, e.code, e.message);
@@ -479,7 +479,7 @@ router.get('/', async (req, res) => {
       await conn.commit();
       // 审计：批量归档活动
       try { await logOper(uid, '批量归档活动', `IDs: ${ids.join(',')}`); } catch (_) {}
-      res.json({ success: true, archived: ids.length });
+      ok(res, { archived: ids.length });
     } catch (e) {
       if (conn) await conn.rollback();
       handleError(res, e, '[events/batch-archive]');
@@ -511,7 +511,7 @@ router.get('/', async (req, res) => {
         );
         if (result.affectedRows > 0) added++;
       }
-      res.json({ success: true, added, total: events.length });
+      ok(res, { added, total: events.length });
     } catch (e) { handleError(res, e, '[events/sync-vrchat]'); }
   });
 
@@ -530,7 +530,7 @@ router.get('/', async (req, res) => {
       if (evt.length === 0) { await conn.rollback(); return sendError(res, 404, ErrorCodes.NOT_FOUND, '活动不存在'); }
       if (eventHasEnded(evt[0])) { await conn.rollback(); return sendError(res, 403, ErrorCodes.FORBIDDEN, '活动已结束，无法报名'); }
       const [existing] = await conn.query(`SELECT id FROM event_sign WHERE event_id=? AND user_vrcid=? FOR UPDATE`, [req.params.id, uid]);
-      if (existing.length > 0) { await conn.rollback(); return res.json({ success: true, alreadySigned: true }); }
+      if (existing.length > 0) { await conn.rollback(); return ok(res, { alreadySigned: true }); }
       if (evt[0].maxSign > 0) {
         const [cnt] = await conn.query(`SELECT COUNT(*) AS c FROM event_sign WHERE event_id=?`, [req.params.id]);
         if (cnt[0].c >= evt[0].maxSign) { await conn.rollback(); return sendError(res, 400, ErrorCodes.BAD_REQUEST, '活动已满员'); }
@@ -547,7 +547,7 @@ router.get('/', async (req, res) => {
           { targetType: 'event', targetId: parseInt(req.params.id) }
         );
       }
-      res.json({ success: true });
+      ok(res);
     } catch (e) { if (conn) await conn.rollback().catch(()=>{}); handleError(res, e, '[events/sign]'); }
     finally { if (conn) conn.release(); }
   });
@@ -562,7 +562,7 @@ router.get('/', async (req, res) => {
       const [[evt]] = await getPool().query(`SELECT event_time AS eventTime, ends_at AS endsAt FROM event WHERE id=?`, [req.params.id]);
       if (eventHasEnded(evt)) return sendError(res, 403, ErrorCodes.FORBIDDEN, '活动已结束，无法取消报名');
       await getPool().query(`DELETE FROM event_sign WHERE event_id=? AND user_vrcid=?`, [req.params.id, uid]);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[events/unsign]'); }
   });
 
@@ -574,9 +574,9 @@ router.get('/', async (req, res) => {
       if (eventHasEnded(evt)) return sendError(res, 403, ErrorCodes.FORBIDDEN, '活动已结束，无法签到');
       const name = req.session.displayName || '管理员';
       await getPool().query(`INSERT INTO event_checkin (event_id, user_id, user_name) VALUES (?, ?, ?)`, [req.params.id, req.session.userId, name]);
-      res.json({ success: true, message: '签到成功' });
+      ok(res, { message: '签到成功' });
     } catch (e) {
-      if (e.code === 'ER_DUP_ENTRY') return res.json({ success: true, message: '已签到' });
+      if (e.code === 'ER_DUP_ENTRY') return ok(res, { message: '已签到' });
       handleError(res, e, '[events/checkin]');
     }
   });
@@ -641,7 +641,7 @@ router.get('/', async (req, res) => {
           { targetType: 'event', targetId: parseInt(req.params.id) }
         );
       }
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[events/create-comment]'); }
   });
 
@@ -665,7 +665,7 @@ router.get('/', async (req, res) => {
       const eventId = parseInt(req.params.eventId);
       const photoId = parseInt(req.params.photoId);
       await getPool().query(`UPDATE album_photo SET is_recycle=1, recycle_time=NOW() WHERE id=? AND event_id=?`, [photoId, eventId]);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[events/delete-photo]'); }
   });
 
@@ -687,7 +687,7 @@ router.get('/', async (req, res) => {
         return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权编辑此评论');
       }
       await getPool().query(`UPDATE event_comment SET content=? WHERE id=?`, [content.trim(), commentId]);
-      res.json({ success: true, content: content.trim() });
+      ok(res, { content: content.trim() });
     } catch (e) { handleError(res, e, '[events/update-comment]'); }
   });
 
@@ -702,17 +702,17 @@ router.get('/', async (req, res) => {
       } else {
         await getPool().query(`DELETE FROM event_comment WHERE id=? AND user_id=?`, [req.params.commentId, uid]);
       }
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[events/delete-comment]'); }
   });
 
   // ==================== 活动归档/恢复 ====================
   router.post('/:id/archive', requireAdminCompat, async (req, res) => {
-    try { await getPool().query(`UPDATE event SET is_archive=1 WHERE id=?`, [req.params.id]); res.json({ success: true }); }
+    try { await getPool().query(`UPDATE event SET is_archive=1 WHERE id=?`, [req.params.id]); ok(res); }
     catch (e) { handleError(res, e, '[events/archive]'); }
   });
   router.post('/:id/unarchive', requireAdminCompat, async (req, res) => {
-    try { await getPool().query(`UPDATE event SET is_archive=0 WHERE id=?`, [req.params.id]); res.json({ success: true }); }
+    try { await getPool().query(`UPDATE event SET is_archive=0 WHERE id=?`, [req.params.id]); ok(res); }
     catch (e) { handleError(res, e, '[events/unarchive]'); }
   });
 

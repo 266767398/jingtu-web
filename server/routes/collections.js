@@ -3,7 +3,7 @@
 // 提供统一的收藏 CRUD、分组(folders)、多维筛选、搜索、公开发现(discover)、评分与失效检测。
 const express = require('express');
 const router = express.Router();
-const { getPool, handleError, createErr, proxyVrcAvatar, ErrorCodes } = require('../utils');
+const { ok,  getPool, handleError, createErr, proxyVrcAvatar, ErrorCodes  } = require('../utils');;
 const { requireAuth, requireAdminCompat } = require('../auth');
 const {
   vrchatGetAvatar, vrchatGetWorld, vrchatGetUser, vrchatSetAvatar, vrchatCloneAvatar,
@@ -71,7 +71,7 @@ router.get('/folders', requireAuth, async (req, res) => {
        FROM collection_folders f WHERE f.user_id = ? ORDER BY f.sort_order ASC, f.id ASC`,
       [uid]
     );
-    res.json({ success: true, folders: rows });
+    ok(res, { folders: rows });
   } catch (e) { handleError(res, e, 'collections.folders'); }
 });
 
@@ -89,7 +89,7 @@ router.post('/folders', requireAuth, async (req, res) => {
       `INSERT INTO collection_folders (user_id, name, sort_order) VALUES (?, ?, (SELECT COALESCE(MAX(sort_order)+1,0) FROM collection_folders f2 WHERE f2.user_id=?))`,
       [uid, name, uid]
     );
-    res.json({ success: true, folder: { id: r.insertId, user_id: uid, name, sort_order: 0, item_count: 0 } });
+    ok(res, { folder: { id: r.insertId, user_id: uid, name, sort_order: 0, item_count: 0 } });
   } catch (e) { handleError(res, e, 'collections.folder.create'); }
 });
 
@@ -104,7 +104,7 @@ router.put('/folders/:id', requireAuth, async (req, res) => {
     const [ex] = await pool.query(`SELECT id FROM collection_folders WHERE user_id=? AND name=? AND id<>?`, [uid, name, id]);
     if (ex.length) return res.status(409).json({ success: false, error: { code: ErrorCodes.BAD_REQUEST, message: '分组已存在' } });
     await pool.query(`UPDATE collection_folders SET name=? WHERE id=? AND user_id=?`, [name, id, uid]);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, 'collections.folder.update'); }
 });
 
@@ -116,7 +116,7 @@ router.delete('/folders/:id', requireAuth, async (req, res) => {
     // 分组下项目移回未分组
     await pool.query(`UPDATE collections SET folder_id=NULL WHERE folder_id=? AND user_id=?`, [id, uid]);
     await pool.query(`DELETE FROM collection_folders WHERE id=? AND user_id=?`, [id, uid]);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, 'collections.folder.delete'); }
 });
 
@@ -183,8 +183,7 @@ router.get('/', requireAuth, async (req, res) => {
     );
     // 缩略图代理 + 去重标记（同模型ID是否已有他人公开副本）
     rows.forEach(r => { if (r.thumbnail) r.thumbnail = proxyThumb(r.thumbnail); r.public_duplicate = !!Number(r.public_duplicate); });
-    res.json({
-      success: true,
+    ok(res, {
       items: rows,
       page, pageSize, total, totalPages,
       scope: q.scope || 'mine'
@@ -228,7 +227,7 @@ router.get('/discover', requireAuth, async (req, res) => {
       [...params, pageSize, (page - 1) * pageSize]
     );
     rows.forEach(r => { if (r.thumbnail) r.thumbnail = proxyThumb(r.thumbnail); delete r.notes; r.public_duplicate = !!Number(r.public_duplicate); });
-    res.json({ success: true, items: rows, page, pageSize, total, totalPages });
+    ok(res, { items: rows, page, pageSize, total, totalPages });
   } catch (e) { handleError(res, e, 'collections.discover'); }
 });
 
@@ -243,7 +242,7 @@ router.get('/tags', requireAuth, async (req, res) => {
          WHERE visibility='public' AND tags IS NOT NULL
        ) t WHERE tag IS NOT NULL GROUP BY tag ORDER BY count DESC LIMIT 30`
     );
-    res.json({ success: true, tags: rows });
+    ok(res, { tags: rows });
   } catch (e) { handleError(res, e, 'collections.tags'); }
 });
 
@@ -268,7 +267,7 @@ router.get('/search-models', async (req, res) => {
     const cacheKey = q.toLowerCase() + '|' + n;
     const cached = vrcxSearchCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < VRCX_CACHE_TTL) {
-      return res.json({ success: true, results: cached.data, cached: true });
+      return ok(res, { results: cached.data, cached: true });
     }
     let upstream;
     const ctrl = new AbortController();
@@ -280,11 +279,11 @@ router.get('/search-models', async (req, res) => {
     } catch (e) {
       clearTimeout(timer);
       // 上游不可达：返回空结果 + 提示，不让前端崩溃（降级）
-      return res.json({ success: true, results: [], error: '搜索服务暂不可用，请稍后重试' });
+      return ok(res, { results: [], error: '搜索服务暂不可用，请稍后重试' });
     }
     clearTimeout(timer);
     if (!upstream.ok) {
-      return res.json({ success: true, results: [], error: '上游搜索服务返回异常' });
+      return ok(res, { results: [], error: '上游搜索服务返回异常' });
     }
     const raw = await upstream.json().catch(() => null);
     const arr = Array.isArray(raw) ? raw
@@ -304,10 +303,10 @@ router.get('/search-models', async (req, res) => {
       .filter(x => x.id && /^avtr_/i.test(x.id))
       .slice(0, n);
     vrcxSearchCache.set(cacheKey, { ts: Date.now(), data: results });
-    res.json({ success: true, results });
+    ok(res, { results });
   } catch (e) {
     // 兜底：任何未预期错误都返回空结果，不抛 500（搜索非核心功能）
-    res.json({ success: true, results: [], error: '搜索失败：' + (e.message || '未知错误') });
+    ok(res, { results: [], error: '搜索失败：' + (e.message || '未知错误') });
   }
 });
 
@@ -364,20 +363,20 @@ router.get('/search-worlds', async (req, res) => {
     const cacheKey = 'w:' + q.toLowerCase() + '|' + n;
     const cached = vrcWorldSearchCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < VRC_WORLD_CACHE_TTL) {
-      return res.json({ success: true, results: cached.data, cached: true });
+      return ok(res, { results: cached.data, cached: true });
     }
     let resp;
     try {
       resp = await vrchatListWorlds({ search: q, n, sort: 'popularity' }, req.vrcCookie || null);
     } catch (e) {
       // 上游不可达/限流：返回空结果，不抛 500
-      return res.json({ success: true, results: [], error: '世界搜索服务暂不可用，请稍后重试' });
+      return ok(res, { results: [], error: '世界搜索服务暂不可用，请稍后重试' });
     }
     const results = normalizeWorldList(resp?.data, n);
     vrcWorldSearchCache.set(cacheKey, { ts: Date.now(), data: results });
-    res.json({ success: true, results });
+    ok(res, { results });
   } catch (e) {
-    res.json({ success: true, results: [], error: '世界搜索失败：' + (e.message || '未知错误') });
+    ok(res, { results: [], error: '世界搜索失败：' + (e.message || '未知错误') });
   }
 });
 
@@ -391,7 +390,7 @@ router.get('/popular-worlds', async (req, res) => {
     const cacheKey = 'pw:' + key + '|' + n;
     const cached = vrcWorldSearchCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < VRC_WORLD_CACHE_TTL) {
-      return res.json({ success: true, results: cached.data, sort: key, cached: true });
+      return ok(res, { results: cached.data, sort: key, cached: true });
     }
     let resp;
     try {
@@ -401,13 +400,13 @@ router.get('/popular-worlds', async (req, res) => {
       else if (key === 'updated') resp = await vrchatListWorlds({ sort: 'updated', n }, req.vrcCookie || null);
       else resp = await vrchatGetPopularWorlds(n, req.vrcCookie || null);
     } catch (e) {
-      return res.json({ success: true, results: [], sort: key, error: '世界排行服务暂不可用，请稍后重试' });
+      return ok(res, { results: [], sort: key, error: '世界排行服务暂不可用，请稍后重试' });
     }
     const results = normalizeWorldList(resp?.data, n);
     vrcWorldSearchCache.set(cacheKey, { ts: Date.now(), data: results });
-    res.json({ success: true, results, sort: key });
+    ok(res, { results, sort: key });
   } catch (e) {
-    res.json({ success: true, results: [], error: '世界排行失败：' + (e.message || '未知错误') });
+    ok(res, { results: [], error: '世界排行失败：' + (e.message || '未知错误') });
   }
 });
 
@@ -431,7 +430,7 @@ router.get('/:id', requireAuth, async (req, res) => {
       return res.status(403).json({ success: false, error: { code: ErrorCodes.FORBIDDEN, message: '无权查看' } });
     if (it.thumbnail) it.thumbnail = proxyThumb(it.thumbnail);
     it.public_duplicate = !!Number(it.public_duplicate);
-    res.json({ success: true, item: it });
+    ok(res, { item: it });
   } catch (e) { handleError(res, e, 'collections.detail'); }
 });
 
@@ -536,7 +535,7 @@ router.post('/', requireAuth, async (req, res) => {
     await refreshAggregates(pool, targetId, kind);
     const [item] = await pool.query(`SELECT * FROM collections WHERE id=?`, [r.insertId]);
     if (item[0] && item[0].thumbnail) item[0].thumbnail = proxyThumb(item[0].thumbnail);
-    res.json({ success: true, item: item[0] });
+    ok(res, { item: item[0] });
   } catch (e) { handleError(res, e, 'collections.add'); }
 });
 
@@ -580,7 +579,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     }
     const [item] = await pool.query(`SELECT * FROM collections WHERE id=?`, [id]);
     if (item[0] && item[0].thumbnail) item[0].thumbnail = proxyThumb(item[0].thumbnail);
-    res.json({ success: true, item: item[0] });
+    ok(res, { item: item[0] });
   } catch (e) { handleError(res, e, 'collections.update'); }
 });
 
@@ -594,7 +593,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     if (!cur.length) return res.status(404).json({ success: false, error: { code: ErrorCodes.NOT_FOUND, message: '收藏不存在' } });
     await pool.query(`DELETE FROM collections WHERE id=?`, [id]);
     await refreshAggregates(pool, cur[0].target_id, cur[0].kind);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, 'collections.delete'); }
 });
 
@@ -619,7 +618,7 @@ router.post('/:id/check', requireAuth, async (req, res) => {
       `UPDATE collections SET status=?, invalid_reason=?, last_checked_at=NOW(), invalid_at=? WHERE id=?`,
       [status, invalidReason, invalidAt, id]
     );
-    res.json({ success: true, status, invalidReason });
+    ok(res, { status, invalidReason });
   } catch (e) { handleError(res, e, 'collections.check'); }
 });
 
@@ -641,7 +640,7 @@ router.post('/:id/rate', requireAuth, async (req, res) => {
     const [agg] = await pool.query(`SELECT AVG(rating) AS avg, COUNT(*) AS cnt FROM collection_ratings WHERE collection_id=?`, [id]);
     await pool.query(`UPDATE collections SET rating_avg=?, rating_count=? WHERE id=?`, [(agg[0].avg || 0).toFixed(2), agg[0].cnt || 0, id]);
     await refreshAggregates(pool, cur[0].target_id, cur[0].kind);
-    res.json({ success: true, rating_avg: agg[0].avg, rating_count: agg[0].cnt });
+    ok(res, { rating_avg: agg[0].avg, rating_count: agg[0].cnt });
   } catch (e) { handleError(res, e, 'collections.rate'); }
 });
 
@@ -670,8 +669,8 @@ router.post('/:id/set-avatar', requireAuth, async (req, res) => {
       try { await vrchatCloneAvatar(inventoryItemId, cookie); } catch (_) { /* 可能已在库存，忽略 */ }
     }
     // 3) 切换穿戴
-    const ok = await vrchatSetAvatar(avatarId, cookie);
-    if (ok) res.json({ success: true });
+    const switched = await vrchatSetAvatar(avatarId, cookie);
+    if (switched) ok(res);
     else res.status(400).json({ success: false, error: { code: ErrorCodes.BAD_REQUEST, message: '切换失败' } });
   } catch (e) { handleError(res, e, 'collections.setAvatar'); }
 });
@@ -691,7 +690,7 @@ router.post('/scan', requireAdminCompat, async (req, res) => {
         else await pool.query(`UPDATE collections SET status='valid', last_checked_at=NOW() WHERE id=?`, [r.id]);
       } catch (e) { /* skip */ }
     }
-    res.json({ success: true, checked, newInvalid });
+    ok(res, { checked, newInvalid });
   } catch (e) { handleError(res, e, 'collections.scan'); }
 });
 
@@ -704,7 +703,7 @@ router.get('/admin/stats', requireAdminCompat, async (req, res) => {
     const [invalid] = await pool.query(`SELECT COUNT(*) AS c FROM collections WHERE kind='avatar_model' AND status='invalid'`);
     const [unknown] = await pool.query(`SELECT COUNT(*) AS c FROM collections WHERE kind='avatar_model' AND status='unknown'`);
     const [userC] = await pool.query(`SELECT COUNT(DISTINCT user_id) AS c FROM collections WHERE kind='avatar_model'`);
-    res.json({ success: true, summary: { total: total[0].c, valid: valid[0].c, invalid: invalid[0].c, unknown: unknown[0].c }, userCount: userC[0].c });
+    ok(res, { summary: { total: total[0].c, valid: valid[0].c, invalid: invalid[0].c, unknown: unknown[0].c }, userCount: userC[0].c });
   } catch (e) { handleError(res, e, 'collections.admin.stats'); }
 });
 
@@ -725,7 +724,7 @@ router.get('/admin/invalid', requireAdminCompat, async (req, res) => {
       ownerVrcName: r.author_id, thumbnailUrl: r.thumbnail ? proxyThumb(r.thumbnail) : '',
       status: r.status, invalidReason: r.invalid_reason, notes: r.notes, isRecommended: r.is_recommended
     }));
-    res.json({ success: true, items, page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) });
+    ok(res, { items, page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) });
   } catch (e) { handleError(res, e, 'collections.admin.invalid'); }
 });
 
@@ -743,8 +742,7 @@ router.get('/admin/user/:userId', requireAdminCompat, async (req, res) => {
     const [si] = await pool.query(`SELECT COUNT(*) AS c FROM collections WHERE kind='avatar_model' AND user_id=? AND status='invalid'`, [userId]);
     const [su] = await pool.query(`SELECT COUNT(*) AS c FROM collections WHERE kind='avatar_model' AND user_id=? AND status='unknown'`, [userId]);
     const [u] = await pool.query(`SELECT id, display_name, login_id FROM users WHERE id=?`, [userId]);
-    res.json({
-      success: true, user: u[0] || { id: userId },
+    ok(res, { user: u[0] || { id: userId },
       summary: { total: rows.length, valid: sv[0].c, invalid: si[0].c, unknown: su[0].c },
       collections
     });
@@ -756,7 +754,7 @@ router.delete('/admin/user/:userId', requireAdminCompat, async (req, res) => {
     const pool = getPool();
     const userId = Number(req.params.userId);
     const [r] = await pool.query(`DELETE FROM collections WHERE kind='avatar_model' AND user_id=?`, [userId]);
-    res.json({ success: true, deleted: r.affectedRows });
+    ok(res, { deleted: r.affectedRows });
   } catch (e) { handleError(res, e, 'collections.admin.user.delete'); }
 });
 
@@ -768,7 +766,7 @@ router.delete('/admin/:id', requireAdminCompat, async (req, res) => {
     if (!cur.length) return res.status(404).json({ success: false, error: { code: ErrorCodes.NOT_FOUND, message: '不存在' } });
     await pool.query(`DELETE FROM collections WHERE id=?`, [id]);
     await refreshAggregates(pool, cur[0].target_id, cur[0].kind);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, 'collections.admin.delete'); }
 });
 
@@ -786,7 +784,7 @@ router.post('/admin/user/:userId/scan', requireAdminCompat, async (req, res) => 
         else await pool.query(`UPDATE collections SET status='valid' WHERE id=?`, [r.id]);
       } catch (e) { /* skip */ }
     }
-    res.json({ success: true, scanned, newlyInvalid });
+    ok(res, { scanned, newlyInvalid });
   } catch (e) { handleError(res, e, 'collections.admin.scan'); }
 });
 
@@ -804,7 +802,7 @@ router.post('/admin/scan', requireAdminCompat, async (req, res) => {
         else await pool.query(`UPDATE collections SET status='valid' WHERE id=?`, [r.id]);
       } catch (e) { /* skip */ }
     }
-    res.json({ success: true, scanned, newlyInvalid });
+    ok(res, { scanned, newlyInvalid });
   } catch (e) { handleError(res, e, 'collections.admin.scanAll'); }
 });
 

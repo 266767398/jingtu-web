@@ -21,7 +21,7 @@ const crypto = require('crypto');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 
-const { handleError, sendError, ErrorCodes } = require('../utils');
+const { ok,  handleError, sendError, ErrorCodes  } = require('../utils');;
 const { requireRole } = require('../auth');
 const { applyDbConfig } = require('../db');
 const mailer = require('../mailer');
@@ -184,7 +184,7 @@ router.post('/setup/state', (req, res) => {
       wiz.drafts = clean;
     }
     writeWizard(wiz);
-    res.json({ success: true });
+    ok(res);
   } catch (e) {
     handleError(res, e, '[setup]');
   }
@@ -195,7 +195,7 @@ router.post('/setup/state', (req, res) => {
 router.post('/setup/reset', requireRole('super_admin'), (req, res) => {
   try {
     writeWizard(defaultWizard());
-    res.json({ success: true, message: '建站引导数据已重置，可重新走引导流程（站点其他配置不受影响）' });
+    ok(res, { message: '建站引导数据已重置，可重新走引导流程（站点其他配置不受影响）' });
   } catch (e) {
     handleError(res, e, '[setup]');
   }
@@ -218,7 +218,7 @@ router.post('/setup/test-db', requireNotInstalled, requireSuperAdminForReconfigu
 
     const conn = await mysql.createConnection({ host, port, database, user, password });
     await conn.end();
-    res.json({ success: true });
+    ok(res);
   } catch (e) {
     handleError(res, e, '[setup]');
   }
@@ -245,7 +245,7 @@ router.post('/setup/test-email', requireNotInstalled, requireSuperAdminForReconf
       return sendError(res, 500, ErrorCodes.INTERNAL, '邮件发送失败：' + (result.error || '未知错误'));
     }
 
-    res.json({ success: true });
+    ok(res);
   } catch (e) {
     handleError(res, e, '[setup]');
   }
@@ -429,7 +429,7 @@ router.post('/setup/save', requireNotInstalled, requireSuperAdminForReconfigure,
     writeWizard(wiz);
 
     const mode = envExists ? 'update' : 'install';
-    res.json({ success: true, mode, adminCreated: adminResult.created, adminUpdated: adminResult.updated });
+    ok(res, { mode, adminCreated: adminResult.created, adminUpdated: adminResult.updated });
   } catch (e) {
     handleError(res, e, '[setup]');
   }

@@ -6,7 +6,7 @@
  * 接口契约（入参/出参/越权/错误码）严格遵循 docs/10 §3.3。
  */
 const express = require('express');
-const { getPool, getAvatarUrl, handleError, sendError, ErrorCodes } = require('../utils');
+const { ok,  getPool, getAvatarUrl, handleError, sendError, ErrorCodes  } = require('../utils');;
 const { requireAuth } = require('../auth');
 
 module.exports = function (notificationService) {
@@ -119,7 +119,7 @@ module.exports = function (notificationService) {
             `${myName} 接受了你的好友请求`, { targetType: 'user', targetId: me }
           );
         }
-        return res.json({ success: true, status: 'accepted', friendship: { status: 'accepted' } });
+        return ok(res, { status: 'accepted', friendship: { status: 'accepted' } });
       }
 
       // 新建 pending 申请
@@ -136,8 +136,7 @@ module.exports = function (notificationService) {
           `${myName} 想加你为好友`, { targetType: 'user', targetId: me }
         );
       }
-      return res.json({
-        success: true,
+      return ok(res, {
         status: 'pending',
         friendship: { id: r.insertId, status: 'pending', targetUserId }
       });
@@ -175,7 +174,7 @@ module.exports = function (notificationService) {
 
       if (action === 'reject') {
         await pool.query(`DELETE FROM user_friends WHERE id = ?`, [requestId]);
-        return res.json({ success: true, status: 'rejected' });
+        return ok(res, { status: 'rejected' });
       }
 
       // accept → 对称 accepted
@@ -188,7 +187,7 @@ module.exports = function (notificationService) {
           `${myName} 接受了你的好友请求`, { targetType: 'user', targetId: me }
         );
       }
-      return res.json({ success: true, status: 'accepted' });
+      return ok(res, { status: 'accepted' });
     } catch (e) {
       handleError(res, e, '[friends/respond]');
     }
@@ -210,7 +209,7 @@ module.exports = function (notificationService) {
       if (r.affectedRows === 0) {
         return sendError(res, 404, ErrorCodes.FRIEND_NOT_FOUND, '未拉黑该用户');
       }
-      return res.json({ success: true, ok: true });
+      return ok(res, { ok: true });
     } catch (e) {
       handleError(res, e, '[friends/unblock]');
     }
@@ -234,7 +233,7 @@ module.exports = function (notificationService) {
       if (r.affectedRows === 0) {
         return sendError(res, 404, ErrorCodes.FRIEND_NOT_FOUND, '好友关系不存在');
       }
-      return res.json({ success: true, ok: true });
+      return ok(res, { ok: true });
     } catch (e) {
       handleError(res, e, '[friends/delete]');
     }
@@ -291,7 +290,7 @@ module.exports = function (notificationService) {
       } finally {
         conn.release();
       }
-      return res.json({ success: true, ok: true });
+      return ok(res, { ok: true });
     } catch (e) {
       handleError(res, e, '[friends/block]');
     }

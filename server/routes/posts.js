@@ -12,7 +12,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { requireAuth } = require('../auth');
-const { getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, logOper } = require('../utils');
+const { ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, logOper  } = require('../utils');;
 const cacheService = require('../cache_service');
 const webhook = require('../webhook');
 const logger = require('../logger');
@@ -420,7 +420,7 @@ router.post('/', requireAuth, (req, res, next) => {
     await cacheService.invalidatePost(postId);
     await cacheService.del(cacheService.cacheKeys.posts());
     webhook.triggerPostCreated(post).catch(() => {});
-    res.json({ success: true, post });
+    ok(res, { post });
   } catch (e) {
     if (connection && !committed) await connection.rollback();
     if (!committed) cleanupFiles();
@@ -557,7 +557,7 @@ router.put('/:id', requireAuth, (req, res, next) => {
       const isAdmin = ['admin', 'super_admin'].includes(req.session.role) && posts[0].user_id !== userId;
       await logOper(userId, isAdmin ? '编辑动态(管理)' : '编辑动态', `动态#${postId}` + (isAdmin ? `, 原作者#${posts[0].user_id}` : ''));
     } catch (_) { /* 审计失败不影响主流程 */ }
-    res.json({ success: true, post });
+    ok(res, { post });
   } catch (e) {
     if (connection) await connection.rollback();
     cleanupNewFiles();
@@ -622,7 +622,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
       await logOper(userId, isAdmin ? '删除动态(管理)' : '删除动态', `动态#${postId}, 媒体数 ${media.length}` + (isAdmin ? `, 原作者#${posts[0].user_id}` : ''));
     } catch (_) { /* 审计失败不影响主流程 */ }
 
-    res.json({ success: true, message: '动态已删除' });
+    ok(res, { message: '动态已删除' });
   } catch (e) {
     if (connection && !committed) await connection.rollback();
     handleError(res, e, '[posts/delete]');
@@ -751,8 +751,7 @@ router.post('/:id/comments', requireAuth, async (req, res) => {
 
     const [[{ comment_count }]] = await getPool().query(`SELECT comment_count FROM posts WHERE id = ?`, [postId]);
 
-    res.json({
-      success: true,
+    ok(res, {
       comment: {
         id: result.insertId,
         content: content.trim(),
@@ -793,7 +792,7 @@ router.put('/:id/comments/:commentId', requireAuth, async (req, res) => {
     }
 
     await getPool().query(`UPDATE post_comment SET content = ? WHERE id = ?`, [content.trim(), commentId]);
-    res.json({ success: true, content: content.trim() });
+    ok(res, { content: content.trim() });
   } catch (e) {
     handleError(res, e, '[posts/comment-update]');
   }
@@ -822,7 +821,7 @@ router.delete('/:id/comments/:commentId', requireAuth, async (req, res) => {
 
     const [[{ comment_count }]] = await getPool().query(`SELECT comment_count FROM posts WHERE id = ?`, [postId]);
 
-    res.json({ success: true, commentCount: comment_count });
+    ok(res, { commentCount: comment_count });
   } catch (e) {
     handleError(res, e, '[posts/comment-delete]');
   }
@@ -844,7 +843,7 @@ router.put('/:id/pin', requireAuth, async (req, res) => {
     try {
       await logOper(req.session.userId, pinned ? '置顶动态' : '取消置顶动态', `动态#${postId}`);
     } catch (_) { /* 审计失败不影响主流程 */ }
-    res.json({ success: true, pinned: !!pinned });
+    ok(res, { pinned: !!pinned });
   } catch (e) {
     handleError(res, e, '[posts/pin]');
   }

@@ -211,7 +211,7 @@ describe('security regressions', () => {
     const initRoute = sliceBetween(files.authRoute, "router.post('/init'", '/**\n * @swagger');
     expect(initRoute).toMatch(/req\.session\.regenerate/);
     expect(initRoute).toMatch(/await buildSession\(req,\s*user\)/);
-    expect(initRoute).toMatch(/res\.json\(\{ success:\s*true,\s*user:\s*sessionUser\(req\.session\)/);
+    expect(initRoute).toMatch(/ok\(res,\s*\{\s*user:\s*sessionUser\(req\.session\)/);
     const doInit = sliceBetween(files.initJs, 'async function doInit()', 'function startInitWizard');
     expect(doInit).toMatch(/currentUser = data\.user \|\|/);
     expect(doInit).toMatch(/await ensureCsrf\(\);[\s\S]*showApp\(\)/);

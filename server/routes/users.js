@@ -17,7 +17,7 @@ const {
   encryptAES, decryptAES, requireAuth, requireRole,
   requireAdminCompat, getAvatarUrl
 } = require('../auth');
-const { getPool, safeError, validateFields, handleError, sendError, ErrorCodes, createErr, createFileFilter, secureUpload } = require('../utils');
+const { ok,  getPool, safeError, validateFields, handleError, sendError, ErrorCodes, createErr, createFileFilter, secureUpload  } = require('../utils');;
 const { VRC_API, VRC_API_KEY } = require('../vrc');
 const logger = require('../logger');
 
@@ -344,7 +344,7 @@ router.post('/', requireRole('super_admin'), async (req, res) => {
     );
 
     await conn.commit();
-    res.json({ success: true, id: userId, message: '用户创建成功' });
+    ok(res, { id: userId, message: '用户创建成功' });
   } catch (e) {
     await conn.rollback();
     if (e.code === 'ER_DUP_ENTRY') {
@@ -504,7 +504,7 @@ router.post('/me/import', requireAuth, async (req, res) => {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '导入数据格式不正确');
     }
     const { imported } = await importUserData(req.session.userId, body);
-    res.json({ success: true, imported });
+    ok(res, { imported });
   } catch (e) {
     if (e && e.statusCode === 404) {
       return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
@@ -614,7 +614,7 @@ router.put('/:id', requireRole('admin'), async (req, res) => {
       [req.session.loginId, `更新用户 ID:${req.params.id}`]
     );
 
-    res.json({ success: true, message: '更新成功' });
+    ok(res, { message: '更新成功' });
   } catch (e) {
     handleError(res, e, '[users]');
   }
@@ -654,7 +654,7 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
       [req.session.loginId, `软删除用户 ID:${req.params.id}`]
     );
 
-    res.json({ success: true, message: '用户已删除' });
+    ok(res, { message: '用户已删除' });
   } catch (e) {
     handleError(res, e, '[users]');
   }
@@ -695,7 +695,7 @@ router.post('/:id/reset-password', requireRole('admin'), async (req, res) => {
       [req.session.loginId, `重置用户 ${req.params.id} 密码`]
     );
 
-    res.json({ success: true, message: '密码已重置' });
+    ok(res, { message: '密码已重置' });
   } catch (e) {
     handleError(res, e, '[users]');
   }
@@ -841,7 +841,7 @@ router.put('/me/profile', requireAuth, async (req, res) => {
     await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '更新个人资料', ?)`,
       [req.session.userId, `更新字段: ${changedFields}`]);
 
-    res.json({ success: true, message: '资料更新成功' });
+    ok(res, { message: '资料更新成功' });
   } catch (e) {
     handleError(res, e, '[users]');
   }
@@ -889,7 +889,7 @@ router.post('/me/avatar', requireAuth, secureUpload(avatarUpload.single('avatar'
     req.session.avatarUrl = url;
     await req.session.save();
 
-    res.json({ success: true, avatarUrl: url, thumbUrl, message: '头像上传成功' });
+    ok(res, { avatarUrl: url, thumbUrl, message: '头像上传成功' });
     // 操作日志
     await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '上传头像', ?)`,
       [req.session.userId, `上传自定义头像: ${req.file.originalname}`]);
@@ -936,7 +936,7 @@ router.post('/me/avatar-vrchat', requireAuth, async (req, res) => {
     req.session.avatarUrl = avatarUrl;
     await req.session.save();
 
-    res.json({ success: true, avatarUrl, message: '已切换为VRChat头像' });
+    ok(res, { avatarUrl, message: '已切换为VRChat头像' });
     // 操作日志
     await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '切换头像', ?)`,
       [req.session.userId, '切换为VRChat头像']);
@@ -974,7 +974,7 @@ router.delete('/me/avatar', requireAuth, async (req, res) => {
     req.session.avatarUrl = null;
     await req.session.save();
 
-    res.json({ success: true, message: '头像已移除' });
+    ok(res, { message: '头像已移除' });
     // 操作日志
     await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '移除头像', ?)`,
       [req.session.userId, '移除自定义头像']);
@@ -1044,8 +1044,7 @@ router.post('/me/avatar-pref', requireAuth, async (req, res) => {
 
     const [rows] = await getPool().query(`SELECT avatar_type, avatar_visible FROM users WHERE id = ?`, [uid]);
     const u = rows[0];
-    res.json({
-      success: true,
+    ok(res, {
       avatarType: u.avatar_type,
       avatarVisible: u.avatar_visible === 0 ? false : true,
       avatarUrl: getAvatarUrl(u),
@@ -1095,7 +1094,7 @@ router.put('/me/location', requireAuth, async (req, res) => {
     const vals = Object.values(updates);
     vals.push(req.session.userId);
     await getPool().query(`UPDATE users SET ${fields}, updated_at = NOW() WHERE id = ?`, vals);
-    res.json({ success: true, message: '位置更新成功' });
+    ok(res, { message: '位置更新成功' });
   } catch (e) {
     handleError(res, e, '[users]');
   }
@@ -1241,7 +1240,7 @@ router.post('/:userId/tags', requireAdminCompat, async (req, res) => {
       [userId, name.trim(), color || '#1890ff', color || '#1890ff']
     );
     await logOper(req.session.userId, '添加用户标签', `用户ID: ${userId}, 标签: ${name}`);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, '[users/tag-add]'); }
 });
 
@@ -1251,7 +1250,7 @@ router.delete('/:userId/tags/:tagId', requireAdminCompat, async (req, res) => {
     const tagId = parseInt(req.params.tagId);
     await getPool().query('DELETE FROM user_tags WHERE id = ? AND user_id = ?', [tagId, userId]);
     await logOper(req.session.userId, '删除用户标签', `用户ID: ${userId}, 标签ID: ${tagId}`);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, '[users/tag-delete]'); }
 });
 
@@ -1296,7 +1295,7 @@ router.post('/:userId/notes', requireAuth, async (req, res) => {
       [req.session.userId, userId, noteText, color, tagsStr, noteText, color, tagsStr]
     );
     await logOper(req.session.userId, '设置用户备注', `用户ID: ${userId}, 备注: ${noteText}`);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, '[users/notes-set]'); }
 });
 
@@ -1305,7 +1304,7 @@ router.delete('/:userId/notes', requireAuth, async (req, res) => {
     const userId = parseInt(req.params.userId);
     await getPool().query('DELETE FROM member_note WHERE owner_id = ? AND target_id = ?', [req.session.userId, userId]);
     await logOper(req.session.userId, '删除用户备注', `用户ID: ${userId}`);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, '[users/notes-delete]'); }
 });
 
@@ -1333,7 +1332,7 @@ router.post('/me/change-password', requireAuth, async (req, res) => {
     const newHash = await hashPassword(newPassword);
     await getPool().query('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, req.session.userId]);
     await logOper(req.session.userId, '修改密码', '用户修改了密码');
-    res.json({ success: true, message: '密码修改成功' });
+    ok(res, { message: '密码修改成功' });
   } catch (e) { handleError(res, e, '[users/change-password]'); }
 });
 
@@ -1348,7 +1347,7 @@ router.post('/me/logout-all', requireAuth, async (req, res) => {
     } catch (e) { logger.error('users', '[logout-all] clear sessions', e); }
     req.session.destroy(() => {
       res.clearCookie('connect.sid');
-      res.json({ success: true, message: '已退出所有会话' });
+      ok(res, { message: '已退出所有会话' });
     });
   } catch (e) { logger.error('users', '[logout-all]', e); handleError(res, e, '[users]'); }
 });

@@ -26,7 +26,7 @@ const {
   vrchatGetUser,
   vrchatVerifyTwoFactor
 } = require('../vrc');
-const { getPool, safeError, encryptCookie, handleError, sendError, ErrorCodes, createErr, getAvatarUrl } = require('../utils');
+const { ok,  getPool, safeError, encryptCookie, handleError, sendError, ErrorCodes, createErr, getAvatarUrl  } = require('../utils');;
 const { passwordResetLimiter, createCustomLimiter } = require('../middleware/rate_limit');
 const logger = require('../logger');
 const mailer = require('../mailer');
@@ -217,7 +217,7 @@ router.post('/init', async (req, res) => {
       if (err) { handleError(res, err, 'auth'); return; }
       await buildSession(req, user);
       await req.session.save();
-      res.json({ success: true, user: sessionUser(req.session), message: '超级管理员创建成功' });
+      ok(res, { user: sessionUser(req.session), message: '超级管理员创建成功' });
     });
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') return sendError(res, 400, ErrorCodes.CONFLICT, '该登录ID已被使用');
@@ -369,7 +369,7 @@ router.post('/login', async (req, res) => {
       try {
         await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '用户登录', ?)`, [user.login_id, `${user.display_name} 登录`]);
       } catch {}
-      res.json({ success: true, user: sessionUser(req.session) });
+      ok(res, { user: sessionUser(req.session) });
     });
   } catch (e) { 
     handleError(res, e, '[auth/login]'); 
@@ -402,9 +402,9 @@ router.post('/logout', async (req, res) => {
       if (err) { handleError(res, err, 'auth'); return; }
       // 必须指定相同→path/httpOnly/sameSite 参数才能正确清除 cookie
       res.clearCookie('connect.sid', { path: '/', httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
-      res.json({ success: true });
+      ok(res);
     });
-  } else { res.json({ success: true }); }
+  } else { ok(res); }
 });
 
 /**
@@ -465,7 +465,7 @@ router.post('/change-password', passwordResetLimiter, requireAuth, async (req, r
       await getPool().query(`DELETE FROM sessions WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.userId')) = ?`, [String(req.session.userId)]);
     } catch (e) { logger.warn('auth', '[change-password] 清理其他会话失败:', e.message); }
     await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '修改密码', ?)`, [req.session.userId, `用户 ${req.session.userId} 修改密码`]);
-    res.json({ success: true, message: '密码修改成功' });
+    ok(res, { message: '密码修改成功' });
   } catch (e) { handleError(res, e, '[auth/change-password]'); }
 });
 
@@ -515,7 +515,7 @@ router.post('/vrchat-login', async (req, res) => {
         await buildSession(req, boundUser, finalCookie);
         await req.session.save();
         await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, 'VRC登录', ?)`, [boundUser.login_id, `${boundUser.display_name} VRChat登录`]);
-        res.json({ success: true, user: sessionUser(req.session), bindStatus: 'already_bound' });
+        ok(res, { user: sessionUser(req.session), bindStatus: 'already_bound' });
       });
       return;
     }
@@ -578,7 +578,7 @@ router.post('/vrchat-login', async (req, res) => {
         await buildSession(req, boundUser, cookie);
         await req.session.save();
         await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, 'VRC登录', ?)`, [boundUser.login_id, `${boundUser.display_name} VRChat登录`]);
-        res.json({ success: true, user: sessionUser(req.session), bindStatus: 'already_bound' });
+        ok(res, { user: sessionUser(req.session), bindStatus: 'already_bound' });
       });
       return;
     }
@@ -649,7 +649,7 @@ router.post('/vrchat-2fa', async (req, res) => {
       await buildSession(req, boundUser, finalCookie);
       await req.session.save();
       await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, 'VRC登录', ?)`, [boundUser.login_id, `${boundUser.display_name} VRChat登录`]);
-      res.json({ success: true, user: sessionUser(req.session) });
+      ok(res, { user: sessionUser(req.session) });
     });
   } catch (e) { handleError(res, e, '[auth/vrchat-2fa]'); }
 });
@@ -806,8 +806,7 @@ router.post('/vrchat-bind-verify', passwordResetLimiter, requireAuth, async (req
     await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '密码绑定VRChat', ?)`,
       [req.session.loginId, `密码验证绑定: ${vrchatName}${verified ? ' (已验证群成员)' : ''}`]);
 
-    res.json({
-      success: true,
+    ok(res, {
       user: sessionUser(req.session),
       message: verified ? '🎉 绑定成功！已通过群组验证' : '🎉 绑定成功'
     });
@@ -831,7 +830,7 @@ router.post('/vrchat-unbind', requireAuth, async (req, res) => {
     if (req.session.avatarType === 'vrchat') { req.session.avatarType = 'none'; req.session.avatarUrl = null; }
     await req.session.save();
     await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '解绑VRChat', ?)`, [req.session.loginId, '解绑VRChat']);
-    res.json({ success: true, user: sessionUser(req.session), message: 'VRChat解绑成功' });
+    ok(res, { user: sessionUser(req.session), message: 'VRChat解绑成功' });
   } catch (e) { handleError(res, e, '[auth/vrchat-unbind]'); }
 });
 
@@ -872,7 +871,7 @@ router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
       [email]
     );
     if (users.length === 0) {
-      return res.json({ success: true, message: '如果该邮箱已注册，验证码已发送到您的邮箱' });
+      return ok(res, { message: '如果该邮箱已注册，验证码已发送到您的邮箱' });
     }
 
     const user = users[0];
@@ -912,7 +911,7 @@ router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
       return;
     }
 
-    res.json({ success: true, message: '验证码已发送到您的邮箱', token });
+    ok(res, { message: '验证码已发送到您的邮箱', token });
   } catch (e) {
     handleError(res, e, '[auth/forgot-password]');
   }
@@ -931,7 +930,7 @@ router.post('/verify-reset-code', passwordResetLimiter, async (req, res) => {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '验证码错误');
     }
 
-    res.json({ success: true, message: '验证通过' });
+    ok(res, { message: '验证通过' });
   } catch (e) {
     handleError(res, e, '[auth/verify-reset-code]');
   }
@@ -968,7 +967,7 @@ router.post('/reset-password', passwordResetLimiter, async (req, res) => {
     await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '重置密码', ?)`,
       [state.userId, '通过邮箱验证重置密码']);
 
-    res.json({ success: true, message: '密码重置成功，请使用新密码登录' });
+    ok(res, { message: '密码重置成功，请使用新密码登录' });
   } catch (e) {
     handleError(res, e, '[auth/reset-password]');
   }

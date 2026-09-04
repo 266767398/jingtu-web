@@ -7,7 +7,7 @@
  *   description: 公告管理相关接口
  */
 const express = require('express');
-const { getPool, logOper, validateFields, handleError , sendError, ErrorCodes } = require('../utils');
+const { ok,  getPool, logOper, validateFields, handleError , sendError, ErrorCodes  } = require('../utils');;
 const { requireAdminCompat } = require('../auth');
 
 
@@ -29,7 +29,7 @@ router.post('/:id/attachments', requireAdminCompat, async (req, res) => {
       [id, filename, url, fileSize || 0, mimeType || '']
     );
     await logOper(req.session.userId, '上传公告附件', `公告ID: ${id}, 文件: ${filename}`);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, '[announcements/attachments/upload]'); }
 });
 
@@ -54,7 +54,7 @@ router.delete('/:id/attachments/:attachmentId', requireAdminCompat, async (req, 
     if (!id || !attachmentId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
     await getPool().query('DELETE FROM announcement_attachments WHERE id = ? AND announcement_id = ?', [attachmentId, id]);
     await logOper(req.session.userId, '删除公告附件', `公告ID: ${id}, 附件ID: ${attachmentId}`);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, '[announcements/attachments/delete]'); }
 });
 
@@ -85,7 +85,7 @@ router.post('/:id/restore/:version', requireAdminCompat, async (req, res) => {
     const current = history[0];
     await getPool().query('UPDATE announcement SET title = ?, content = ? WHERE id = ?', [current.title, current.content, id]);
     await logOper(req.session.userId, '恢复公告版本', `公告ID: ${id}, 版本: ${version}`);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, '[announcements/restore]'); }
 });
 
@@ -209,7 +209,7 @@ router.post('/', requireAdminCompat, async (req, res) => {
     }
     await logOper(req.session.userId, '发布公告', `标题: ${title}`);
     if (notificationService) notificationService.notifyAllMembers('announcement', `📢 新公告: ${title}`, content.substring(0, 100), { relatedId: result.insertId, targetType: 'announcement', targetId: result.insertId });
-    res.json({ success: true, id: result.insertId });
+    ok(res, { id: result.insertId });
   } catch (e) { handleError(res, e, '[announcements/create]'); }
 });
 
@@ -256,7 +256,7 @@ router.put('/:id', requireAdminCompat, async (req, res) => {
       } else throw e2;
     }
     await logOper(req.session.userId, '编辑公告', `ID: ${id}, 标题: ${title || '不变'}`);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, '[announcements/update]'); }
 });
 
@@ -271,7 +271,7 @@ router.delete('/:id', requireAdminCompat, async (req, res) => {
     await getPool().query(`DELETE FROM announcement_history WHERE announcement_id=?`, [id]);
     await getPool().query(`DELETE FROM announcement WHERE id = ?`, [id]);
     await logOper(req.session.userId, '删除公告', `ID: ${id}`);
-    res.json({ success: true });
+    ok(res);
   } catch (e) { handleError(res, e, '[announcements/delete]'); }
 });
 

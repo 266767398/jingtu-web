@@ -14,7 +14,7 @@ const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
 const { requireAuth } = require('../auth');
-const { getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload } = require('../utils');
+const { ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload  } = require('../utils');;
 const logger = require('../logger');
 const { extractVideoThumbnail, getVideoDuration } = require('../video_utils');
 
@@ -230,7 +230,7 @@ router.delete('/delete', requireAuth, async (req, res) => {
     
     req.session.destroy(() => {
       res.clearCookie('connect.sid');
-      res.json({ success: true, message: '账号已删除' });
+      ok(res, { message: '账号已删除' });
     });
   } catch (e) {
     if (conn) {
@@ -382,7 +382,7 @@ router.post('/update', requireAuth, async (req, res) => {
       ]
     );
 
-    res.json({ success: true, message: '资料更新成功' });
+    ok(res, { message: '资料更新成功' });
   } catch (e) {
     handleError(res, e, '[profile/update]');
   }
@@ -437,8 +437,7 @@ router.post('/albums', requireAuth, async (req, res) => {
       [userId, name.trim(), description || null, privacy || 'public']
     );
 
-    res.json({
-      success: true,
+    ok(res, {
       album: { id: result.insertId, userId, name: name.trim(), description: description || null, privacy: privacy || 'public', photoCount: 0 }
     });
   } catch (e) {
@@ -474,7 +473,7 @@ router.put('/albums/:id', requireAuth, async (req, res) => {
       await getPool().query(`UPDATE user_albums SET ${updates.join(', ')} WHERE id = ?`, values);
     }
 
-    res.json({ success: true, message: '相册已更新' });
+    ok(res, { message: '相册已更新' });
   } catch (e) {
     handleError(res, e, '[profile/update-album]');
   }
@@ -501,7 +500,7 @@ router.put('/albums/:id/privacy', requireAuth, async (req, res) => {
 
     await getPool().query(`UPDATE user_albums SET privacy = ? WHERE id = ?`, [privacy, albumId]);
 
-    res.json({ success: true, message: '隐私设置已更新' });
+    ok(res, { message: '隐私设置已更新' });
   } catch (e) {
     handleError(res, e, '[profile/update-album-privacy]');
   }
@@ -532,7 +531,7 @@ router.delete('/albums/:id', requireAuth, async (req, res) => {
     await getPool().query(`DELETE FROM user_photos WHERE album_id = ?`, [albumId]);
     await getPool().query(`DELETE FROM user_albums WHERE id = ?`, [albumId]);
 
-    res.json({ success: true, message: '相册已删除' });
+    ok(res, { message: '相册已删除' });
   } catch (e) {
     handleError(res, e, '[profile/delete-album]');
   }
@@ -621,7 +620,7 @@ router.post('/albums/:id/photos', requireAuth, secureUpload(uploadPhoto.array('p
       [photoCount, coverPhoto, albumId]
     );
 
-    res.json({ success: true, photos: uploadedPhotos, photoCount });
+    ok(res, { photos: uploadedPhotos, photoCount });
   } catch (e) {
     handleError(res, e, '[profile/upload-photos]');
   }
@@ -725,7 +724,7 @@ router.delete('/photos/:id', requireAuth, async (req, res) => {
       [photoCount, coverPhoto, photo.album_id]
     );
 
-    res.json({ success: true, message: '照片已删除', photoCount });
+    ok(res, { message: '照片已删除', photoCount });
   } catch (e) {
     handleError(res, e, '[profile/delete-photo]');
   }
@@ -774,8 +773,7 @@ router.post('/videos', requireAuth, secureUpload(uploadVideo.single('video')), a
       } catch (_) { /* 静默处理 */ }
     })();
 
-    res.json({
-      success: true,
+    ok(res, {
       video: {
         id: result.insertId,
         userId,
@@ -850,7 +848,7 @@ router.delete('/videos/:id', requireAuth, async (req, res) => {
 
     await getPool().query(`DELETE FROM user_videos WHERE id = ?`, [videoId]);
 
-    res.json({ success: true, message: '视频已删除' });
+    ok(res, { message: '视频已删除' });
   } catch (e) {
     handleError(res, e, '[profile/delete-video]');
   }
@@ -877,7 +875,7 @@ router.put('/videos/:id/privacy', requireAuth, async (req, res) => {
 
     await getPool().query(`UPDATE user_videos SET privacy = ? WHERE id = ?`, [privacy, videoId]);
 
-    res.json({ success: true, message: '隐私设置已更新' });
+    ok(res, { message: '隐私设置已更新' });
   } catch (e) {
     handleError(res, e, '[profile/update-video-privacy]');
   }

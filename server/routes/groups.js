@@ -9,7 +9,7 @@
  */
 const express = require('express');
 const sleep = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
-const { getPool, handleError , sendError, sendVrcError, ErrorCodes } = require('../utils');
+const { ok,  getPool, handleError , sendError, sendVrcError, ErrorCodes  } = require('../utils');;
 const { requireAuth, requireAdminCompat } = require('../auth');
 const {
   vrchatRequest, vrchatGetCurrentUser, vrchatGetCurrentUserResult, vrchatGetGroupMembers,
@@ -439,7 +439,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       await conn.commit();
       // 成员加入/离开后，立即向前端实时广播该群组最新在线统计（解决"加入/离开状态未更新"）。
       try { await schedule.forceRosterBroadcast(GROUP_ID); } catch (be) { logger.warn('groups', 'sync 后广播群组状态失败', be.message); }
-      res.json({ success: true, total: allMembers.length, joined: joinedCount, left: leftCount, updated: updatedCount });
+      ok(res, { total: allMembers.length, joined: joinedCount, left: leftCount, updated: updatedCount });
     } catch (e) {
       if (conn) { try { await conn.rollback(); } catch {} }
       try { await getPool().query(`INSERT INTO group_sync_log (sync_type, total_members, success, error_msg) VALUES ('full', 0, 0, ?)`, [e.message]); } catch {}
@@ -478,7 +478,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     const pool = getPool();
     try {
       const [members] = await pool.query(`SELECT vrchat_id, vrchat_name, avatar_url FROM group_roster WHERE is_member=1`);
-      if (members.length === 0) return res.json({ success: true, online: 0, offline: 0, total: 0 });
+      if (members.length === 0) return ok(res, { online: 0, offline: 0, total: 0 });
 
       // 不再对输入做硬截断：好友在线状态走 /auth/user/friends 一次全量解析，
       // 非好友详细状态由 vrchatResolveOnlineStatuses 内部的 maxFallback 上限（默认 25）兜底，
@@ -605,7 +605,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         [members.length, onlineCount]
       );
 
-      res.json({ success: true, degraded, online: onlineCount, offline: offlineCount, total: members.length, updated: updatedCount, results });
+      ok(res, { degraded, online: onlineCount, offline: offlineCount, total: members.length, updated: updatedCount, results });
       // 手动刷新在线状态后，立即向前端实时广播该群组最新在线统计。
       try { await schedule.forceRosterBroadcast(GROUP_ID); } catch (be) { logger.warn('groups', 'refresh 后广播群组状态失败', be.message); }
     } catch (e) {
@@ -648,11 +648,11 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         return res.status(401).json({ success: false, error: 'VRChat 账号未绑定或已过期', code: 'VRC_SYSTEM_OFFLINE' });
       }
       const shared = result && result.shared !== undefined ? result.shared : 0;
-      res.json({ success: true, shared });
+      ok(res, { shared });
     } catch (e) {
       // 贡献是增强特性，失败不应阻断主流程（如 VRChat 限流 / cookie 过期）
       logger.warn('groups', 'presence/contribute 失败', e.message);
-      res.json({ success: true, shared: 0, skipped: true });
+      ok(res, { shared: 0, skipped: true });
     }
   });
 
@@ -740,7 +740,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       if (!vrchatId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '缺少 VRChat ID');
       await getPool().query(`INSERT INTO group_roster (vrchat_id, vrchat_name, is_member) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE vrchat_name=?, is_member=1`,
         [vrchatId, displayName || '', displayName || '']);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, 'groups/admin-roster-sync'); }
   });
 
@@ -1335,7 +1335,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         );
       }
       
-      res.json({ success: true, vrchatId, status, errorMsg });
+      ok(res, { vrchatId, status, errorMsg });
     } catch (e) { handleError(res, e, 'groups/status-check'); }
   });
 
@@ -1381,7 +1381,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         }
       }
       
-      res.json({ success: true, results });
+      ok(res, { results });
     } catch (e) { handleError(res, e, 'groups/batch-status'); }
   });
 
@@ -1455,7 +1455,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       }
       
       await logOper(req.session.userId, '批量邀请', `邀请人数: ${vrchatIds.length}`);
-      res.json({ success: true, results });
+      ok(res, { results });
     } catch (e) { handleError(res, e, 'groups/batch-invite'); }
   });
 
@@ -1502,7 +1502,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         [invite[0].vrchat_id, invite[0].vrchat_name]
       );
       
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, 'groups/invite-accept'); }
   });
 
@@ -1518,7 +1518,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       if (!vrcId || vrcId !== invite[0].vrchat_id) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权拒绝此邀请');
       
       await getPool().query(`UPDATE group_invites SET status = 'rejected', responded_at = NOW() WHERE id = ?`, [req.params.id]);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, 'groups/invite-reject'); }
   });
 
