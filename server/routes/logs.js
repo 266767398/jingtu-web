@@ -9,7 +9,7 @@
 const express = require('express');
 const { getLogs, getRecentLogs, getLogFiles, deleteLogFile } = require('../logger');
 const { requireAdminCompat } = require('../auth');
-const { handleError } = require('../utils');
+const { ok, handleError } = require('../utils');
 
 const router = express.Router();
 
@@ -42,7 +42,7 @@ router.delete('/admin/logs/:filename', requireAdminCompat, (req, res) => {
   try {
     const result = deleteLogFile(req.params.filename);
     if (result.success) {
-      res.json({ success: true });
+      ok(res);
     } else {
       res.status(400).json({ error: result.error });
     }

@@ -9,7 +9,7 @@
  */
 const express = require('express');
 const crypto = require('crypto');
-const { getPool, handleError , sendError, ErrorCodes } = require('../utils');
+const { ok, getPool, handleError , sendError, ErrorCodes } = require('../utils');
 const { requireAuth } = require('../auth');
 
 module.exports = function () {
@@ -67,7 +67,7 @@ module.exports = function () {
       );
 
       const shareUrl = `${req.protocol}://${req.get('host')}/api/share/${shareCode}`;
-      res.json({ success: true, shareCode, shareUrl, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() });
+      ok(res, {shareCode, shareUrl, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()});
     } catch (e) { handleError(res, e, '[share]'); }
   });
 
@@ -267,7 +267,7 @@ module.exports = function () {
       // creator_id 为 null（匿名分享）时也不允许删除，除非管理员
       if (links[0].creator_id !== uid && !isAdmin) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权删除此分享');
       await getPool().query('DELETE FROM share_links WHERE share_code = ?', [req.params.code]);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[share]'); }
   });
 

@@ -11,7 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { requireAdminCompat } = require('../auth');
-const { handleError , sendError, ErrorCodes } = require('../utils');
+const { ok, handleError , sendError, ErrorCodes } = require('../utils');
 const { DB_NAME, DB_CONFIG } = require('../db');
 
 const router = express.Router();
@@ -77,7 +77,7 @@ router.delete('/admin/backups/:filename', requireAdminCompat, (req, res) => {
     }
 
     fs.unlinkSync(filePath);
-    res.json({ success: true, message: '备份文件已删除' });
+    ok(res, {message: '备份文件已删除'});
   } catch (e) { handleError(res, e, '[backups/delete]'); }
 });
 
@@ -88,7 +88,7 @@ router.post('/admin/backups/cleanup', requireAdminCompat, (req, res) => {
     const threshold = Date.now() - days * 24 * 60 * 60 * 1000;
 
     if (!fs.existsSync(backupDir)) {
-      return res.json({ success: true, deleted: 0, message: '备份目录不存在' });
+      return ok(res, {deleted: 0, message: '备份目录不存在'});
     }
 
     let deleted = 0;
@@ -103,7 +103,7 @@ router.post('/admin/backups/cleanup', requireAdminCompat, (req, res) => {
       }
     }
 
-    res.json({ success: true, deleted, message: `已清理 ${deleted} 个过期备份` });
+    ok(res, {deleted, message: `已清理 ${deleted} 个过期备份`});
   } catch (e) { handleError(res, e, '[backups/cleanup]'); }
 });
 
@@ -143,16 +143,13 @@ router.post('/admin/backups/create', requireAdminCompat, async (req, res) => {
       mysqldump.on('close', (code) => {
         if (code === 0) {
           const stat = fs.statSync(filePath);
-          resolve(res.json({
-            success: true,
-            filename,
+          resolve(ok(res, {filename,
             size: stat.size,
             sizeFormatted: stat.size < 1024 * 1024 
               ? `${(stat.size / 1024).toFixed(1)} KB` 
               : `${(stat.size / 1024 / 1024).toFixed(2)} MB`,
             createdAt: stat.birthtime.toISOString(),
-            message: '数据库备份创建成功'
-          }));
+            message: '数据库备份创建成功'}));
         } else {
           if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
@@ -203,11 +200,8 @@ router.post('/admin/backups/restore/:filename', requireAdminCompat, async (req, 
 
       mysql.on('close', (code) => {
         if (code === 0) {
-          resolve(res.json({
-            success: true,
-            filename,
-            message: '数据库恢复成功'
-          }));
+          resolve(ok(res, {filename,
+            message: '数据库恢复成功'}));
         } else {
           handleError(res, new Error('恢复失败，mysql 退出码: ' + code), 'backups');
           resolve();

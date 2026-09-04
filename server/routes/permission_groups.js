@@ -10,7 +10,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth, requireRole } = require('../auth');
-const { getPool, handleError, validateFields , sendError, ErrorCodes } = require('../utils');
+const { ok, getPool, handleError, validateFields , sendError, ErrorCodes } = require('../utils');
 
 // 所有已定义的权限键（用英文常量，前端映射中文显示）
 const ALL_PERMISSIONS = [
@@ -153,7 +153,7 @@ router.post('/groups', requireRole('super_admin'), async (req, res) => {
         );
       }
     }
-    res.json({ success: true, id: result.insertId, message: '权限组已创建' });
+    ok(res, {id: result.insertId, message: '权限组已创建'});
   } catch (e) { handleError(res, e, '[permission-groups/create]'); }
 });
 
@@ -189,7 +189,7 @@ router.put('/groups/:id', requireRole('super_admin'), async (req, res) => {
     const vals = Object.values(updates);
     vals.push(id);
     await getPool().query(`UPDATE permission_groups SET ${fields} WHERE id = ?`, vals);
-    res.json({ success: true, message: '权限组已更新' });
+    ok(res, {message: '权限组已更新'});
   } catch (e) { handleError(res, e, '[permission-groups/update]'); }
 });
 
@@ -219,7 +219,7 @@ router.delete('/groups/:id', requireRole('super_admin'), async (req, res) => {
     } finally {
       conn.release();
     }
-    res.json({ success: true, message: '权限组已删除' });
+    ok(res, {message: '权限组已删除'});
   } catch (e) { handleError(res, e, '[permission-groups/delete]'); }
 });
 
@@ -263,7 +263,7 @@ router.post('/groups/:id/permissions/set', requireRole('super_admin'), async (re
        ON DUPLICATE KEY UPDATE permission_value = ?`,
       [groupId, key, v, v]
     );
-    res.json({ success: true, conflict, message: '权限已更新' + (conflict ? '（注意：' + conflict + '）' : '') });
+    ok(res, {conflict, message: '权限已更新' + (conflict ? '（注意：' + conflict + '）' : '')});
   } catch (e) { handleError(res, e, '[permission-groups/set-permission]'); }
 });
 
@@ -284,7 +284,7 @@ router.post('/groups/:id/permissions/batch', requireRole('super_admin'), async (
       );
       count++;
     }
-    res.json({ success: true, updated: count, message: `${count} 项权限已更新` });
+    ok(res, {updated: count, message: `${count} 项权限已更新`});
   } catch (e) { handleError(res, e, '[permission-groups/batch-permissions]'); }
 });
 
@@ -344,10 +344,7 @@ router.post('/users/:userId/groups', requireRole('super_admin'), async (req, res
     await getPool().query(
       `INSERT INTO user_group_membership (user_id, group_id) VALUES (?, ?)`, [userId, groupId]
     );
-    res.json({
-      success: true,
-      message: '用户已加入权限组' + (conflicts.length > 0 ? '（注意：' + conflicts.join('; ') + '）' : '')
-    });
+    ok(res, {message: '用户已加入权限组' + (conflicts.length > 0 ? '（注意：' + conflicts.join('; ') + '）' : '')});
   } catch (e) { handleError(res, e, '[permission-groups/add-user-group]'); }
 });
 
@@ -375,7 +372,7 @@ router.delete('/users/:userId/groups/:groupId', requireRole('super_admin'), asyn
         `INSERT INTO user_group_membership (user_id, group_id) VALUES (?, ?)`, [userId, defaultId]
       );
     }
-    res.json({ success: true, message: '用户已从权限组移除' });
+    ok(res, {message: '用户已从权限组移除'});
   } catch (e) { handleError(res, e, '[permission-groups/remove-user-group]'); }
 });
 

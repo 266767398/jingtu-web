@@ -10,7 +10,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { requireAdminCompat } = require('../auth');
-const { handleError, sendError, ErrorCodes } = require('../utils');
+const { ok, handleError, sendError, ErrorCodes } = require('../utils');
 
 const router = express.Router();
 const envPath = path.join(__dirname, '..', '..', '.env');
@@ -38,7 +38,7 @@ router.get('/admin/config/env', requireAdminCompat, (req, res) => {
         }
       }
     }
-    res.json({ success: true, config });
+    ok(res, {config});
   } catch (e) { handleError(res, e, '[config/env-get]'); }
 });
 
@@ -86,7 +86,7 @@ router.put('/admin/config/env', requireAdminCompat, (req, res) => {
       process.env[key] = value;
     }
 
-    res.json({ success: true, message: '配置已更新，部分配置需要重启服务生效' });
+    ok(res, {message: '配置已更新，部分配置需要重启服务生效'});
   } catch (e) { handleError(res, e, '[config/env-put]'); }
 });
 
@@ -100,7 +100,7 @@ router.post('/admin/config/reload', requireAdminCompat, (req, res) => {
         process.env[key] = value;
       }
     }
-    res.json({ success: true, message: '环境变量已重新加载' });
+    ok(res, {message: '环境变量已重新加载'});
   } catch (e) { handleError(res, e, '[config/reload]'); }
 });
 

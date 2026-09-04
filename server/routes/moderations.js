@@ -10,9 +10,7 @@ const express = require('express');
 const {
   requireAuth, requireRole
 } = require('../auth');
-const {
-  getPool, logOper, handleError, sendError, ErrorCodes
-} = require('../utils');
+const { ok, getPool, logOper, handleError, sendError, ErrorCodes } = require('../utils');
 const {
   vrchatBlockUser, vrchatMuteUser
 } = require('../vrc');
@@ -104,7 +102,7 @@ module.exports = (getVRCCookieUserOnly) => {
         [req.session.userId, targetId, targetType, reason.trim(), 'pending']
       );
       await logOper(req.session.userId, '提交审核举报', `目标用户: ${targetId}, 类型: ${targetType}`);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[moderations/submit]'); }
   });
 
@@ -194,7 +192,7 @@ module.exports = (getVRCCookieUserOnly) => {
         }
       }
 
-      res.json({ success: true, status, remote });
+      ok(res, {status, remote});
     } catch (e) { handleError(res, e, '[moderations/resolve]'); }
   });
 

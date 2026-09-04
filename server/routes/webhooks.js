@@ -8,7 +8,7 @@
  */
 const express = require('express');
 const { requireAdminCompat } = require('../auth');
-const { handleError , sendError, ErrorCodes } = require('../utils');
+const { ok, handleError , sendError, ErrorCodes } = require('../utils');
 const {
   WEBHOOK_EVENTS,
   getWebhooks,
@@ -38,7 +38,7 @@ router.post('/admin/webhooks', requireAdminCompat, async (req, res) => {
     }
     
     const id = await createWebhook(url, events, secret);
-    res.json({ success: true, id });
+    ok(res, {id});
   } catch (e) {
     handleError(res, e, '[webhooks]');
   }
@@ -51,7 +51,7 @@ router.put('/admin/webhooks/:id', requireAdminCompat, async (req, res) => {
     
     const success = await updateWebhook(id, updates);
     if (success) {
-      res.json({ success: true });
+      ok(res);
     } else {
       sendError(res, 404, ErrorCodes.NOT_FOUND, 'Webhook不存在');
     }
@@ -66,7 +66,7 @@ router.delete('/admin/webhooks/:id', requireAdminCompat, async (req, res) => {
     const success = await deleteWebhook(id);
     
     if (success) {
-      res.json({ success: true });
+      ok(res);
     } else {
       sendError(res, 404, ErrorCodes.NOT_FOUND, 'Webhook不存在');
     }

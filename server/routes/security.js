@@ -9,14 +9,14 @@
 const express = require('express');
 const { getStats } = require('../security_alert');
 const { requireAdminCompat } = require('../auth');
-const { handleError } = require('../utils');
+const { ok, handleError } = require('../utils');
 
 const router = express.Router();
 
 router.get('/admin/security/alerts/stats', requireAdminCompat, (req, res) => {
   try {
     const stats = getStats();
-    res.json({ success: true, stats });
+    ok(res, {stats});
   } catch (e) {
     handleError(res, e, '[security]');
   }

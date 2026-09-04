@@ -7,7 +7,7 @@
  *   description: 通知系统相关接口
  */
 const express = require('express');
-const { getPool, handleError , sendError, ErrorCodes } = require('../utils');
+const { ok, getPool, handleError , sendError, ErrorCodes } = require('../utils');
 const { requireAuth } = require('../auth');
 
 module.exports = function (authStateRef, notificationService) {
@@ -59,7 +59,7 @@ module.exports = function (authStateRef, notificationService) {
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
     try {
       await getPool().query(`UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0`, [uid]);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[notifications/read]'); }
   });
 
@@ -68,7 +68,7 @@ module.exports = function (authStateRef, notificationService) {
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
     try {
       await getPool().query(`UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0`, [uid]);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[notifications/read-all]'); }
   });
 
@@ -77,7 +77,7 @@ module.exports = function (authStateRef, notificationService) {
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
     try {
       await getPool().query('UPDATE notifications SET is_archived = 1 WHERE user_id = ?', [uid]);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[notifications/archive-all]'); }
   });
 
@@ -105,7 +105,7 @@ module.exports = function (authStateRef, notificationService) {
         [JSON.stringify(settings), req.session.userId]
       );
       if (notificationService) notificationService.invalidateSettingsCache(req.session.userId);
-      res.json({ success: true, settings });
+      ok(res, {settings});
     } catch (e) { handleError(res, e, '[notifications/settings]'); }
   });
 
@@ -114,7 +114,7 @@ module.exports = function (authStateRef, notificationService) {
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
     try {
       await getPool().query(`DELETE FROM notifications WHERE user_id = ?`, [uid]);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[notifications/delete]'); }
   });
 
@@ -123,7 +123,7 @@ module.exports = function (authStateRef, notificationService) {
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
     try {
       await getPool().query(`UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?`, [req.params.id, uid]);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[notifications/:id/read]'); }
   });
 
@@ -133,7 +133,7 @@ module.exports = function (authStateRef, notificationService) {
     try {
       const { archived } = req.body;
       await getPool().query('UPDATE notifications SET is_archived = ? WHERE id = ? AND user_id = ?', [archived ? 1 : 0, req.params.id, uid]);
-      res.json({ success: true, archived: !!archived });
+      ok(res, {archived: !!archived});
     } catch (e) { handleError(res, e, '[notifications/:id/archive]'); }
   });
 
@@ -142,7 +142,7 @@ module.exports = function (authStateRef, notificationService) {
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
     try {
       await getPool().query(`DELETE FROM notifications WHERE id = ? AND user_id = ?`, [req.params.id, uid]);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[notifications/:id]'); }
   });
 

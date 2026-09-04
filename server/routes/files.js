@@ -10,7 +10,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { requireAdminCompat } = require('../auth');
-const { handleError , sendError, ErrorCodes } = require('../utils');
+const { ok, handleError , sendError, ErrorCodes } = require('../utils');
 
 const router = express.Router();
 const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
@@ -123,7 +123,7 @@ router.delete('/admin/files/:filepath', requireAdminCompat, async (req, res) => 
 
     // §35: 异步 unlink
     await fs.promises.unlink(fullPath);
-    res.json({ success: true, message: '文件已删除' });
+    ok(res, {message: '文件已删除'});
   } catch (e) { handleError(res, e, '[files/delete]'); }
 });
 
@@ -164,7 +164,7 @@ router.post('/admin/files/create-dir', requireAdminCompat, (req, res) => {
     }
 
     fs.mkdirSync(newDir, { recursive: true });
-    res.json({ success: true, message: '目录已创建' });
+    ok(res, {message: '目录已创建'});
   } catch (e) { handleError(res, e, '[files/create-dir]'); }
 });
 
@@ -203,15 +203,12 @@ router.post('/admin/files/cleanup', requireAdminCompat, async (req, res) => {
       await cleanupDir(uploadsDir);
     }
 
-    res.json({
-      success: true,
-      deleted,
+    ok(res, {deleted,
       freed: freed < 1024 * 1024
         ? `${(freed / 1024).toFixed(1)} KB`
         : `${(freed / 1024 / 1024).toFixed(2)} MB`,
       freedBytes: freed,
-      message: `已清理 ${deleted} 个过期文件，释放 ${freed < 1024 * 1024 ? (freed / 1024).toFixed(1) + ' KB' : (freed / 1024 / 1024).toFixed(2) + ' MB'}`
-    });
+      message: `已清理 ${deleted} 个过期文件，释放 ${freed < 1024 * 1024 ? (freed / 1024).toFixed(1) + ' KB' : (freed / 1024 / 1024).toFixed(2) + ' MB'}`});
   } catch (e) { handleError(res, e, '[files/cleanup]'); }
 });
 
@@ -247,7 +244,7 @@ router.post('/admin/files/rename', requireAdminCompat, async (req, res) => {
 
     // §35: 异步 rename
     await fs.promises.rename(fullPath, newFullPath);
-    res.json({ success: true, message: '文件已重命名', newPath: newFullPath.replace(uploadsDir + path.sep, '') });
+    ok(res, {message: '文件已重命名', newPath: newFullPath.replace(uploadsDir + path.sep, '')});
   } catch (e) { handleError(res, e, '[files/rename]'); }
 });
 

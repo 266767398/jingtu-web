@@ -4,7 +4,7 @@
  * 接口契约（入参/出参/越权/错误码）严格遵循 docs/10 §6.3。
  */
 const express = require('express');
-const { getPool, getAvatarUrl, handleError, sendError, ErrorCodes } = require('../utils');
+const { ok, getPool, getAvatarUrl, handleError, sendError, ErrorCodes } = require('../utils');
 const { requireAuth } = require('../auth');
 
 module.exports = function (notificationService) {
@@ -50,7 +50,7 @@ module.exports = function (notificationService) {
       );
       // 幂等：已关注直接返回成功（docs/10 §6.3）
       if (existing.length) {
-        return res.json({ success: true, ok: true, following: true });
+        return ok(res, {ok: true, following: true});
       }
 
       // 拉黑双向校验：任一方 blocked 即禁止建立关注
@@ -74,7 +74,7 @@ module.exports = function (notificationService) {
           `${myName} 关注了你`, { targetType: 'user', targetId: me }
         );
       }
-      return res.json({ success: true, ok: true, following: true });
+      return ok(res, {ok: true, following: true});
     } catch (e) {
       handleError(res, e, '[follows/follow]');
     }
@@ -96,7 +96,7 @@ module.exports = function (notificationService) {
       if (r.affectedRows === 0) {
         return sendError(res, 404, ErrorCodes.NOT_FOLLOWING, '你还没有关注该用户');
       }
-      return res.json({ success: true, ok: true, following: false });
+      return ok(res, {ok: true, following: false});
     } catch (e) {
       handleError(res, e, '[follows/unfollow]');
     }

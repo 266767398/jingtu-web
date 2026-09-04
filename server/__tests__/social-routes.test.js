@@ -30,6 +30,9 @@ jest.mock('../utils', () => ({
   getPool: () => mockPool,
   getAvatarUrl: () => null,
   ErrorCodes: errorCodes,
+  ok(res, fields) {
+    return res.json(fields ? { success: true, ...fields } : { success: true });
+  },
   sendError(res, status, code, message) {
     return res.status(status).json({ success: false, error: { code, message } });
   },

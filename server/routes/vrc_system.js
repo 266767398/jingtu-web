@@ -15,7 +15,7 @@ const {
   vrchatVerifyTwoFactor,
   VRC_API_KEY
 } = require('../vrc');
-const { handleError , sendError, ErrorCodes } = require('../utils');
+const { ok, handleError , sendError, ErrorCodes } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 const logger = require('../logger');
 
@@ -45,7 +45,7 @@ module.exports = function (authStateRef, saveAuthStateFn) {
       authStateRef.displayName = vrcUser.displayName;
       authStateRef.cookieSetAt = Date.now(); // V8.2: 记录 cookie 设置时间（用于软性过期判断）
       await saveAuthStateFn();
-      res.json({ success: true, user: vrcUser });
+      ok(res, {user: vrcUser});
     } catch (e) { handleError(res, e, '[vrc-system/login]'); }
   });
 
@@ -81,7 +81,7 @@ module.exports = function (authStateRef, saveAuthStateFn) {
       delete req.session._vrcLoginCookie;
       delete req.session._vrcLoginMethods;
       await saveAuthStateFn();
-      res.json({ success: true, user: finalUser });
+      ok(res, {user: finalUser});
     } catch (e) { handleError(res, e, '[vrc-system/2fa]'); }
   });
 
@@ -98,7 +98,7 @@ module.exports = function (authStateRef, saveAuthStateFn) {
     authStateRef.displayName = null;
     authStateRef.cookieSetAt = null;
     await saveAuthStateFn();
-    res.json({ success: true });
+    ok(res);
   });
 
   return router;

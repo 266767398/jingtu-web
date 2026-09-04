@@ -25,7 +25,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { getPool, applyDbConfig, DB_CONFIG } = require('../db');
-const { handleError, sendError, ErrorCodes } = require('../utils');
+const { ok, handleError, sendError, ErrorCodes } = require('../utils');
 const logger = require('../logger');
 
 const router = express.Router();
@@ -176,7 +176,7 @@ router.post('/db-recover', requireRecoveryToken, async (req, res) => {
   }
 
   if (testOnly) {
-    return res.json({ success: true, tested: true });
+    return ok(res, {tested: true});
   }
 
   // 4) 写入 .env（仅 MYSQL_*，合并保留其它键）
@@ -195,13 +195,10 @@ router.post('/db-recover', requireRecoveryToken, async (req, res) => {
     await initDatabase();
   } catch (e) {
     // 配置已写入磁盘；初始化失败（如表不存在）提示用户手动跑 db_init.js
-    return res.json({
-      success: true,
-      reinitialized: false,
-      warning: '数据库已连接，但表结构初始化失败：' + e.message + '（可能需要先在服务器运行 `node db_init.js`）'
-    });
+    return ok(res, {reinitialized: false,
+      warning: '数据库已连接，但表结构初始化失败：' + e.message + '（可能需要先在服务器运行 `node db_init.js`）'});
   }
-  res.json({ success: true, reinitialized: true });
+  ok(res, {reinitialized: true});
 });
 
 module.exports = router;

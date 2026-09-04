@@ -13,7 +13,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
-const { getPool, logOper, handleError , sendError, ErrorCodes, createFileFilter, secureUpload } = require('../utils');
+const { ok, getPool, logOper, handleError , sendError, ErrorCodes, createFileFilter, secureUpload } = require('../utils');
 const { extractVideoThumbnail, getVideoDuration } = require('../video_utils');
 const { requireAdminCompat, ROLE_LEVEL, getAvatarUrl } = require('../auth');
 const logger = require('../logger');
@@ -106,7 +106,7 @@ module.exports = function (authStateRef, notificationService) {
       const { name } = req.body;
       if (!name || !name.trim()) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入分类名称');
       const [result] = await getPool().query(`INSERT INTO album_cate (cate_name) VALUES (?)`, [name.trim()]);
-      res.json({ success: true, id: result.insertId });
+      ok(res, {id: result.insertId});
     } catch (e) {
       if (e.code === 'ER_DUP_ENTRY') return sendError(res, 400, ErrorCodes.BAD_REQUEST, '该分类名称已存在');
       handleError(res, e, '[album/categories/create]');
@@ -136,7 +136,7 @@ module.exports = function (authStateRef, notificationService) {
     try {
       await getPool().query(`UPDATE album_photo SET cate_id=1 WHERE cate_id=?`, [req.params.id]);
       await getPool().query(`DELETE FROM album_cate WHERE id=? AND id!=1`, [req.params.id]);
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[album/categories/delete]'); }
   });
 
@@ -227,7 +227,7 @@ module.exports = function (authStateRef, notificationService) {
         `INSERT INTO album_photo (photo_path, thumb_path, photo_desc, upload_vrcid, upload_name, event_id) VALUES (?, ?, ?, ?, ?, ?)`,
         [photoPath, thumbPath, caption || '', uid, req.session.displayName || '', eventId || null]
       );
-      res.json({ success: true, id: result.insertId });
+      ok(res, {id: result.insertId});
     } catch (e) { handleError(res, e, '[album/photos/create]'); }
   });
 
@@ -244,7 +244,7 @@ module.exports = function (authStateRef, notificationService) {
       } else {
         await getPool().query(`UPDATE album_photo SET photo_desc=? WHERE id=? AND upload_vrcid=?`, [caption || '', req.params.id, uid]);
       }
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[album/photos/update]'); }
   });
 
@@ -261,7 +261,7 @@ module.exports = function (authStateRef, notificationService) {
       }
       // 审计：删除照片（管理员代删会留下痕迹）
       try { await logOper(uid, isAdminUser ? '删除照片(管理)' : '删除照片', `照片#${req.params.id}`); } catch (_) {}
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[album/photos/delete]'); }
   });
 
@@ -302,7 +302,7 @@ module.exports = function (authStateRef, notificationService) {
         }
       }
       const [[{ cnt }]] = await getPool().query(`SELECT COUNT(*) AS cnt FROM album_like WHERE photo_id = ?`, [req.params.id]);
-      res.json({ success: true, likes: cnt });
+      ok(res, {likes: cnt});
     } catch (e) { handleError(res, e, '[album/photos/like]'); }
   });
 
@@ -314,7 +314,7 @@ module.exports = function (authStateRef, notificationService) {
       await getPool().query(`DELETE FROM album_like WHERE photo_id=? AND user_vrcid=?`, [req.params.id, uid]);
       await getPool().query(`UPDATE album_photo SET like_count = (SELECT COUNT(*) FROM album_like WHERE photo_id = ?) WHERE id = ?`, [req.params.id, req.params.id]);
       const [[{ cnt }]] = await getPool().query(`SELECT COUNT(*) AS cnt FROM album_like WHERE photo_id = ?`, [req.params.id]);
-      res.json({ success: true, likes: cnt });
+      ok(res, {likes: cnt});
     } catch (e) { handleError(res, e, '[album/photos/unlike]'); }
   });
 
@@ -360,7 +360,7 @@ module.exports = function (authStateRef, notificationService) {
           );
         }
       }
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[album/comments/create]'); }
   });
 
@@ -383,7 +383,7 @@ module.exports = function (authStateRef, notificationService) {
         return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权编辑此评论');
       }
       await getPool().query(`UPDATE album_comment SET comment=? WHERE id=?`, [content.trim(), commentId]);
-      res.json({ success: true, content: content.trim() });
+      ok(res, {content: content.trim()});
     } catch (e) { handleError(res, e, '[album/comments/update]'); }
   });
 
@@ -398,7 +398,7 @@ module.exports = function (authStateRef, notificationService) {
       } else {
         await getPool().query(`DELETE FROM album_comment WHERE id=? AND user_vrcid=?`, [req.params.commentId, req.session.loginId || uid]);
       }
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[album/comments/delete]'); }
   });
 
@@ -427,7 +427,7 @@ module.exports = function (authStateRef, notificationService) {
       if (validIds.length === 0) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权删除所选照片');
       await getPool().query(`UPDATE album_photo SET is_recycle = 1, recycle_time = NOW() WHERE id IN (${validIds.map(() => '?').join(',')})`, validIds);
       await logOper(uid, '批量删除照片', `IDs: ${validIds.join(',')}`);
-      res.json({ success: true, count: validIds.length });
+      ok(res, {count: validIds.length});
     } catch (e) { handleError(res, e, '[album/photos/batch-delete]'); }
   });
 
@@ -448,7 +448,7 @@ module.exports = function (authStateRef, notificationService) {
       const [result] = await getPool().query(`UPDATE album_photo SET is_recycle = 0, recycle_time = NULL WHERE id = ? AND is_recycle = 1`, [req.params.id]);
       if (result.affectedRows === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '照片不存在或不在回收站');
       try { await logOper(req.session.userId, '还原照片', `照片#${req.params.id}`); } catch (_) {}
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[album/recycle/restore]'); }
   });
 
@@ -463,7 +463,7 @@ module.exports = function (authStateRef, notificationService) {
       await getPool().query(`DELETE FROM notifications WHERE target_type='comment' AND target_id=?`, [req.params.id]);
       await getPool().query(`DELETE FROM album_photo WHERE id = ?`, [req.params.id]);
       try { await logOper(req.session.userId, '永久删除照片', `照片#${req.params.id}`); } catch (_) {}
-      res.json({ success: true });
+      ok(res);
     } catch (e) { handleError(res, e, '[album/recycle/permanent]'); }
   });
 
@@ -527,7 +527,7 @@ module.exports = function (authStateRef, notificationService) {
           `INSERT INTO album_photo (photo_path, thumb_path, photo_desc, upload_vrcid, upload_name, media_type, file_size, cate_id, event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [photoPath, thumbPath, req.body.caption || '', uid, req.session.displayName || '', isVideo ? 'video' : 'image', fileSize, cateId, eventId]
         );
-        res.json({ success: true, id: result.insertId, url: '/' + photoPath, thumbnail: '/' + thumbPath, mediaType: isVideo ? 'video' : 'image' });
+        ok(res, {id: result.insertId, url: '/' + photoPath, thumbnail: '/' + thumbPath, mediaType: isVideo ? 'video' : 'image'});
       } catch (e) {
         try { if (req.file && req.file.path) fs.unlinkSync(req.file.path); } catch {}
         handleError(res, e, '[album/upload]');
@@ -548,7 +548,7 @@ router.get('/album/featured', async (req, res) => {
        ORDER BY p.like_count DESC, p.create_time DESC LIMIT ?`,
       [limit]
     );
-    res.json({ success: true, photos: rows, total: rows.length });
+    ok(res, {photos: rows, total: rows.length});
   } catch (e) { handleError(res, e, '[album/featured]'); }
 });
 

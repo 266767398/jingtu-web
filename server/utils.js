@@ -118,6 +118,14 @@ function sendError(res, status, code, message, detail) {
 }
 
 /**
+ * 统一成功响应包络（P2-6 第一步）：输出与全站主流形状逐字节一致
+ * fields 平铺在顶层（无 data 包装）；created()/201 全站暂无用例，留待后续批次
+ */
+function ok(res, fields) {
+  return res.json(fields ? { success: true, ...fields } : { success: true });
+}
+
+/**
  * 统一错误响应
  * @param {object} res - Express response
  * @param {Error} e - 捕获的异常
@@ -363,4 +371,4 @@ function getAvatarUrl(user) {
   return null;
 }
 
-module.exports = { getPool, IS_DEV, safeError, handleError, sendError, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, validateFields, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar };
+module.exports = { getPool, IS_DEV, safeError, handleError, sendError, ok, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, validateFields, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar };
