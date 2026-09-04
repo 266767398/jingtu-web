@@ -870,18 +870,24 @@ function _renderMapGrid(worlds) {
 }
 
 // ==================== 视图切换 ====================
-// VRC 页签子视图切换：群组视图 / VRChat 世界视图。
+// VRC 页签子视图切换：群组视图 / VRChat 世界视图 / 收藏视图。
 // 地图页已简化为仅成员位置（原 .map-tab-btn 子页签并入 VRC 页签）。
 function switchVrcView(view) {
   const btns = document.querySelectorAll('#tab-vrc .map-tab-btn');
   btns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
   const groupView = document.getElementById('vrcGroupView');
   const worldsView = document.getElementById('vrcWorldsView');
+  const collView = document.getElementById('vrcCollectionsView');
   if (groupView) groupView.classList.toggle('d-none', view !== 'group');
   if (worldsView) worldsView.classList.toggle('d-none', view !== 'worlds');
+  if (collView) collView.classList.toggle('d-none', view !== 'collections');
   if (view === 'worlds') {
     bindMapWorldsControls();
     updateWorldMapMarkers();
+  }
+  // 收藏视图：懒加载 collections.js 后刷新数据（与原独立页签行为一致）
+  if (view === 'collections' && typeof window.loadCollections === 'function') {
+    window.loadCollections();
   }
 }
 

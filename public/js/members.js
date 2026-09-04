@@ -870,8 +870,8 @@ function renderVrcMemberCard(d, forId) {
         linkOpen = `<a class="vrc-model-card" href="${escAttr(m.url)}" target="_blank" rel="noopener">`;
         linkClose = '</a>';
       } else {
-        // 站内路由（如统一收藏 tab）：点击切换到对应 tab，避免在空白新标签打开
-        linkOpen = `<a class="vrc-model-card" href="javascript:void(0)" onclick="if(typeof switchTab==='function'){switchTab('collections');}">`;
+        // 站内路由（收藏已并入 VRC 页签子视图）：切到 VRC 页签并指定目标子视图
+        linkOpen = `<a class="vrc-model-card" href="javascript:void(0)" onclick="window.__vrcPendingView='collections';if(typeof switchTab==='function'){switchTab('vrc');}">`;
         linkClose = '</a>';
       }
     } else {

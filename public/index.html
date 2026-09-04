@@ -16,37 +16,37 @@
 <link rel="dns-prefetch" href="https://assets.amlcdn.com">
 <link rel="dns-prefetch" href="https://assets.vrchat.com">
 <!-- 首屏关键 CSS：阻塞渲染（页面骨架 / 设计令牌 / 基础 UI / 导航 / 首页内容） -->
-<link rel="stylesheet" href="/css/style.css?v=20260903a">
-<link rel="stylesheet" href="/css/99-design-system.css?v=20260903a">
-<link rel="stylesheet" href="/css/ui-components.css?v=20260903a">
-<link rel="stylesheet" href="/css/ui-enhance.css?v=20260903a">
-<link rel="stylesheet" href="/css/nav-scroller.css?v=20260903a">
-<link rel="stylesheet" href="/css/home-featured.css?v=20260903a">
-<link rel="stylesheet" href="/css/home-enhance.css?v=20260903a">
-<link rel="stylesheet" href="/css/animations.css?v=20260903a">
+<link rel="stylesheet" href="/css/style.css?v=20260903b">
+<link rel="stylesheet" href="/css/99-design-system.css?v=20260903b">
+<link rel="stylesheet" href="/css/ui-components.css?v=20260903b">
+<link rel="stylesheet" href="/css/ui-enhance.css?v=20260903b">
+<link rel="stylesheet" href="/css/nav-scroller.css?v=20260903b">
+<link rel="stylesheet" href="/css/home-featured.css?v=20260903b">
+<link rel="stylesheet" href="/css/home-enhance.css?v=20260903b">
+<link rel="stylesheet" href="/css/animations.css?v=20260903b">
 <!-- 点赞动效（like-burst）：给 post/album 等点赞按钮加心爆裂动画 + 无障碍兜底 -->
-<link rel="stylesheet" href="/css/likes-anim.css?v=20260903a">
+<link rel="stylesheet" href="/css/likes-anim.css?v=20260903b">
 <!-- 功能隐藏：直播入口 #tab-btn-live / 管理侧栏 live / #tab-live 面板统一不显示。
      兜底性兜底：即使 JS 误把 #tab-live 设为 active，也会被 CSS 强制隐藏。 -->
-<link rel="stylesheet" href="/css/feature-disabled.css?v=20260903a">
+<link rel="stylesheet" href="/css/feature-disabled.css?v=20260903b">
 <!-- 非首屏 CSS：改为非阻塞异步加载（media=print 命中后切回 all），避免拖慢 LCP；
      首屏默认落在 home Tab，members/collections/social/地图/“更多”菜单等样式多为
      第二屏或弹层，异步加载后由浏览器空闲补全，导航到对应 Tab 时已就绪（P2-21） -->
-<link rel="stylesheet" href="/css/06b-presence.css?v=20260903a" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/06-members.css?v=20260903a" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/collections.css?v=20260903a" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/10-social.css?v=20260903a" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/baidu-modern.css?v=20260903a" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/06b-presence.css?v=20260903b" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/06-members.css?v=20260903b" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/collections.css?v=20260903b" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/10-social.css?v=20260903b" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/baidu-modern.css?v=20260903b" media="print" onload="this.media='all'">
 <!-- V9.4 地图 VRChat 世界面板样式（异步加载） -->
-<link rel="stylesheet" href="/css/worlds-panel.css?v=20260903a" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20260903a"></noscript>
+<link rel="stylesheet" href="/css/worlds-panel.css?v=20260903b" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20260903b"></noscript>
 <!-- 无 JS 兜底：保证禁用 JS 时样式仍加载 -->
 <noscript>
-  <link rel="stylesheet" href="/css/06b-presence.css?v=20260903a">
-  <link rel="stylesheet" href="/css/06-members.css?v=20260903a">
-  <link rel="stylesheet" href="/css/collections.css?v=20260903a">
-  <link rel="stylesheet" href="/css/10-social.css?v=20260903a">
-  <link rel="stylesheet" href="/css/baidu-modern.css?v=20260903a">
+  <link rel="stylesheet" href="/css/06b-presence.css?v=20260903b">
+  <link rel="stylesheet" href="/css/06-members.css?v=20260903b">
+  <link rel="stylesheet" href="/css/collections.css?v=20260903b">
+  <link rel="stylesheet" href="/css/10-social.css?v=20260903b">
+  <link rel="stylesheet" href="/css/baidu-modern.css?v=20260903b">
 </noscript>
   <meta name="description" content="境途同游是一个面向 VRChat 玩家的社群平台，提供群组相册、活动报名、动态分享、成员地图与实时聊天，记录你在虚拟世界里的每一次同游。">
   <meta property="og:type" content="website">
@@ -78,12 +78,12 @@
         return 'zh';
       }
       // 解析期 document.write 外部脚本为阻塞式，保证在 i18n.js 之前就绪
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260903a"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260903b"><\/script>');
     })();
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
        必须在 i18n 之后（依赖 window.__）、在 loader.js / ui.js 之前（确保 og:url 尽早被爬虫读取）。 -->
-  <script src="/js/seo.js?v=20260903a"></script>
+  <script src="/js/seo.js?v=20260903b"></script>
   <!-- 首屏性能量化（P2-21）：?perf=1 时上报 LCP/FCP 到 console，便于回归比对；
        生产默认关闭，零副作用。仅观测，不改写任何渲染行为。 -->
   <script>
@@ -434,7 +434,6 @@
     <button id="tab-btn-events" class="tab" role="tab" aria-selected="false"><span class="tab-emoji">📅</span><span data-i18n="nav.events">活动</span> <span id="evtBadge" class="tab-badge d-none"></span></button>
     <button id="tab-btn-birthday" class="tab" role="tab" aria-selected="false"><span class="tab-emoji">🎂</span><span data-i18n="nav.birthday">生日</span></button>
     <button id="tab-btn-album" class="tab" role="tab" aria-selected="false"><span class="tab-emoji">🖼️</span><span data-i18n="nav.album">相册</span></button>
-    <button id="tab-btn-collections" class="tab" role="tab" aria-selected="false"><span class="tab-emoji">📚</span><span data-i18n="nav.collections">收藏</span></button>
     <button id="tab-btn-posts" class="tab" role="tab" aria-selected="false"><span class="tab-emoji">📝</span><span data-i18n="nav.posts">动态</span></button>
     <button id="tab-btn-live" class="tab" role="tab" aria-selected="false" data-feature-disabled="live"><span class="tab-emoji">📺</span><span data-i18n="nav.live">直播</span></button>
     <button id="tab-btn-map" class="tab" role="tab" aria-selected="false"><span class="tab-emoji">🗺️</span><span data-i18n="nav.map">地图</span></button>
@@ -596,6 +595,7 @@
     <div class="map-legend">
       <span class="map-tab-btn active" data-view="group" role="button" tabindex="0" onclick="switchVrcView('group')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVrcView('group')">👥 <span data-i18n="nav.group">群组</span></span>
       <span class="map-tab-btn" data-view="worlds" role="button" tabindex="0" onclick="switchVrcView('worlds')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVrcView('worlds')">🌐 <span data-i18n="map.worlds_view">VRChat 世界</span></span>
+      <span class="map-tab-btn" data-view="collections" role="button" tabindex="0" onclick="switchVrcView('collections')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVrcView('collections')">📚 <span data-i18n="nav.collections">收藏</span></span>
     </div>
     <div id="vrcGroupView">
     <div id="groupOverview" class="group-overview">
@@ -674,6 +674,87 @@
         <h3 class="worlds-sub-title" data-i18n="map.kpi_worlds" style="margin-top:14px">世界分布</h3>
         <div id="eventWorldsGrid" class="worlds-grid"></div>
       </section>
+    </div>
+    <div id="vrcCollectionsView" class="d-none">
+    <div class="coll-layout">
+      <!-- 左侧：个性化分组侧栏 -->
+      <aside class="coll-sidebar" id="collSidebar">
+        <div class="coll-sidebar-head flex-row justify-between align-center">
+          <span data-i18n="collections.folders">分组</span>
+          <button id="collAddFolderBtn" class="btn btn-xs btn-outline" title="新建分组">＋</button>
+        </div>
+        <ul class="coll-folder-list" id="collFolderList">
+          <li class="coll-folder active" data-folder="all"><span data-i18n="collections.all">全部</span><span class="coll-folder-count" id="collCountAll">0</span></li>
+          <li class="coll-folder" data-folder="none"><span data-i18n="collections.ungrouped">未分组</span><span class="coll-folder-count" id="collCountNone">0</span></li>
+        </ul>
+      </aside>
+
+      <!-- 右侧：主区 -->
+      <div class="coll-main">
+        <div class="page-header">
+          <h2 data-i18n="nav.collections">📚 收藏</h2>
+          <div class="page-actions">
+            <button id="collWorldDiscoverBtn" class="btn btn-sm btn-outline">🌐 <span data-i18n="world_discover.title">世界发现</span></button>
+            <button id="collAddBtn" class="btn btn-sm btn-accent">➕ <span data-i18n="collections.add">添加收藏</span></button>
+            <button id="collScanMineBtn" class="btn btn-sm btn-outline admin-only">🔄 <span data-i18n="collections.recheck_all">复检全部</span></button>
+          </div>
+        </div>
+
+        <!-- 收藏类型切换 -->
+        <div class="coll-kind-bar" id="collKindBar">
+          <button class="coll-kind active" data-kind="avatar_model">🎭 <span data-i18n="nav.modelcoll">模型</span></button>
+          <button class="coll-kind" data-kind="world">🌐 <span data-i18n="nav.worlds">世界</span></button>
+          <button class="coll-kind" data-kind="avatar_favorite">🧑‍🦰 <span data-i18n="nav.avatars">头像</span></button>
+        </div>
+
+        <!-- 范围切换：我的 / 公开 -->
+        <div class="coll-scope-bar" id="collScopeBar">
+          <button class="coll-scope active" data-scope="mine" data-i18n="collections.mine">📁 我的收藏</button>
+          <button class="coll-scope" data-scope="public" data-i18n="collections.discover">🌐 公开发现</button>
+        </div>
+
+        <!-- 筛选栏 -->
+        <div class="coll-filters flex-row gap-8 mb-8 flex-wrap" id="collFilters">
+          <input type="text" id="collSearch" class="search-box m-0 flex-1" placeholder="搜索 ID / 名称 / 作者 / 描述..." data-i18n-placeholder="collections.search_placeholder" aria-label="搜索">
+          <select id="collStatusFilter" class="search-box m-0 coll-filter-sm" aria-label="按状态筛选">
+            <option value="">全部状态</option>
+            <option value="valid">有效</option>
+            <option value="invalid">已失效</option>
+            <option value="unknown">未检测</option>
+          </select>
+          <select id="collPlatformFilter" class="search-box m-0 coll-filter-sm" aria-label="按平台筛选">
+            <option value="">全部平台</option>
+            <option value="standalonewindows">PC / Windows</option>
+            <option value="android">安卓 Android</option>
+            <option value="ios">苹果 iOS</option>
+          </select>
+          <select id="collCategoryFilter" class="search-box m-0 coll-filter-sm" aria-label="按定位筛选">
+            <option value="">全部定位</option>
+            <option value="white">白模</option>
+            <option value="functional">功能模型</option>
+          </select>
+          <select id="collContentFilter" class="search-box m-0 coll-filter-sm" aria-label="按内容分级筛选">
+            <option value="">全部分级</option>
+            <option value="all">全年龄</option>
+            <option value="18+">18+</option>
+          </select>
+          <select id="collSort" class="search-box m-0 coll-filter-sm" aria-label="排序方式">
+            <option value="updated">最近更新</option>
+            <option value="favorite">收藏最多</option>
+            <option value="rating">评分最高</option>
+            <option value="created">最新发布</option>
+            <option value="name">名称</option>
+            <option value="heat" selected>社区热度</option>
+          </select>
+        </div>
+
+        <!-- 标签云 -->
+        <div class="coll-tagbar flex-row gap-6 mb-8 flex-wrap" id="collTagBar"></div>
+
+        <div id="collList" class="coll-grid"></div>
+        <div id="collLoadMore" class="coll-loadmore-wrap mt-8"></div>
+      </div>
+    </div>
     </div>
   </div>
 
@@ -779,89 +860,6 @@
       </div>
     </div>
     <button id="albumPager" class="btn btn-sm btn-outline mt-8">📦 加载更多</button>
-  </div>
-
-  <!-- Tab: 统一收藏系统 (V8.2 合并模型收藏馆 + 收藏夹) -->
-  <div id="tab-collections" class="tab-content d-none" role="tabpanel" aria-labelledby="tab-btn-collections">
-    <div class="coll-layout">
-      <!-- 左侧：个性化分组侧栏 -->
-      <aside class="coll-sidebar" id="collSidebar">
-        <div class="coll-sidebar-head flex-row justify-between align-center">
-          <span data-i18n="collections.folders">分组</span>
-          <button id="collAddFolderBtn" class="btn btn-xs btn-outline" title="新建分组">＋</button>
-        </div>
-        <ul class="coll-folder-list" id="collFolderList">
-          <li class="coll-folder active" data-folder="all"><span data-i18n="collections.all">全部</span><span class="coll-folder-count" id="collCountAll">0</span></li>
-          <li class="coll-folder" data-folder="none"><span data-i18n="collections.ungrouped">未分组</span><span class="coll-folder-count" id="collCountNone">0</span></li>
-        </ul>
-      </aside>
-
-      <!-- 右侧：主区 -->
-      <div class="coll-main">
-        <div class="page-header">
-          <h2 data-i18n="nav.collections">📚 收藏</h2>
-          <div class="page-actions">
-            <button id="collWorldDiscoverBtn" class="btn btn-sm btn-outline">🌐 <span data-i18n="world_discover.title">世界发现</span></button>
-            <button id="collAddBtn" class="btn btn-sm btn-accent">➕ <span data-i18n="collections.add">添加收藏</span></button>
-            <button id="collScanMineBtn" class="btn btn-sm btn-outline admin-only">🔄 <span data-i18n="collections.recheck_all">复检全部</span></button>
-          </div>
-        </div>
-
-        <!-- 收藏类型切换 -->
-        <div class="coll-kind-bar" id="collKindBar">
-          <button class="coll-kind active" data-kind="avatar_model">🎭 <span data-i18n="nav.modelcoll">模型</span></button>
-          <button class="coll-kind" data-kind="world">🌐 <span data-i18n="nav.worlds">世界</span></button>
-          <button class="coll-kind" data-kind="avatar_favorite">🧑‍🦰 <span data-i18n="nav.avatars">头像</span></button>
-        </div>
-
-        <!-- 范围切换：我的 / 公开 -->
-        <div class="coll-scope-bar" id="collScopeBar">
-          <button class="coll-scope active" data-scope="mine" data-i18n="collections.mine">📁 我的收藏</button>
-          <button class="coll-scope" data-scope="public" data-i18n="collections.discover">🌐 公开发现</button>
-        </div>
-
-        <!-- 筛选栏 -->
-        <div class="coll-filters flex-row gap-8 mb-8 flex-wrap" id="collFilters">
-          <input type="text" id="collSearch" class="search-box m-0 flex-1" placeholder="搜索 ID / 名称 / 作者 / 描述..." data-i18n-placeholder="collections.search_placeholder" aria-label="搜索">
-          <select id="collStatusFilter" class="search-box m-0 coll-filter-sm" aria-label="按状态筛选">
-            <option value="">全部状态</option>
-            <option value="valid">有效</option>
-            <option value="invalid">已失效</option>
-            <option value="unknown">未检测</option>
-          </select>
-          <select id="collPlatformFilter" class="search-box m-0 coll-filter-sm" aria-label="按平台筛选">
-            <option value="">全部平台</option>
-            <option value="standalonewindows">PC / Windows</option>
-            <option value="android">安卓 Android</option>
-            <option value="ios">苹果 iOS</option>
-          </select>
-          <select id="collCategoryFilter" class="search-box m-0 coll-filter-sm" aria-label="按定位筛选">
-            <option value="">全部定位</option>
-            <option value="white">白模</option>
-            <option value="functional">功能模型</option>
-          </select>
-          <select id="collContentFilter" class="search-box m-0 coll-filter-sm" aria-label="按内容分级筛选">
-            <option value="">全部分级</option>
-            <option value="all">全年龄</option>
-            <option value="18+">18+</option>
-          </select>
-          <select id="collSort" class="search-box m-0 coll-filter-sm" aria-label="排序方式">
-            <option value="updated">最近更新</option>
-            <option value="favorite">收藏最多</option>
-            <option value="rating">评分最高</option>
-            <option value="created">最新发布</option>
-            <option value="name">名称</option>
-            <option value="heat" selected>社区热度</option>
-          </select>
-        </div>
-
-        <!-- 标签云 -->
-        <div class="coll-tagbar flex-row gap-6 mb-8 flex-wrap" id="collTagBar"></div>
-
-        <div id="collList" class="coll-grid"></div>
-        <div id="collLoadMore" class="coll-loadmore-wrap mt-8"></div>
-      </div>
-    </div>
   </div>
 
   <!-- 收藏详情弹窗 -->
@@ -2135,25 +2133,25 @@
 <!-- ===== Scripts ===== -->
 <!-- 核心基础设施：defer 后与其余模块同批次按文档顺序执行（core 仍在最前），
      移出解析阻塞路径，首屏可先完成首次绘制（P2-21） -->
-<script defer src="/js/core.js?v=20260903a"></script>
+<script defer src="/js/core.js?v=20260903b"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
-<script defer src="/js/i18n.js?v=20260903a"></script>
-<script defer src="/js/ui.js?v=20260903a"></script>
-<script defer src="/vendor/gsap/gsap.min.js?v=20260903a"></script>
-<script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260903a"></script>
-<script defer src="/js/motion.js?v=20260903a"></script>
-<script defer src="/js/reveal.js?v=20260903a"></script>
-<script defer src="/js/nav-scroller.js?v=20260903a"></script>
-<script defer src="/js/theme.js?v=20260903a"></script>
-<script defer src="/js/auth.js?v=20260903a"></script>
+<script defer src="/js/i18n.js?v=20260903b"></script>
+<script defer src="/js/ui.js?v=20260903b"></script>
+<script defer src="/vendor/gsap/gsap.min.js?v=20260903b"></script>
+<script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260903b"></script>
+<script defer src="/js/motion.js?v=20260903b"></script>
+<script defer src="/js/reveal.js?v=20260903b"></script>
+<script defer src="/js/nav-scroller.js?v=20260903b"></script>
+<script defer src="/js/theme.js?v=20260903b"></script>
+<script defer src="/js/auth.js?v=20260903b"></script>
 <!-- 路由模块懒加载器：包裹 switchTab，按需 / 空闲预载（见 loader.js）。
      当前语言包由 <head> 内联引导按偏好注入，其余语言包在切换时按需加载。 -->
-<script defer src="/js/loader.js?v=20260903a"></script>
+<script defer src="/js/loader.js?v=20260903b"></script>
 <!-- 全局命令面板（VN-9，VRCNext SmartSearch 借鉴）：依赖 core.js 的 api/esc 等 -->
-<script defer src="/js/smartsearch.js?v=20260903a"></script>
+<script defer src="/js/smartsearch.js?v=20260903b"></script>
 <!-- 引导启动：调用 initI18n / switchTab，必须在 loader.js 之后 -->
-<script defer src="/js/init.js?v=20260903a"></script>
-<script defer src="/js/main.js?v=20260903a"></script>
+<script defer src="/js/init.js?v=20260903b"></script>
+<script defer src="/js/main.js?v=20260903b"></script>
 
 <!-- ===== Event Bindings (migrated from inline handlers) ===== -->
 <script>

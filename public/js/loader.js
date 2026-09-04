@@ -52,7 +52,7 @@ var TAB_MODULES = {
   home: ['home.js'],
   members: ['members.js'],
   me: ['admin-users.js', 'profile.js', 'profile-page.js'],
-  vrc: ['group.js', 'members.js', 'map.js', 'vrc.js'],
+  vrc: ['group.js', 'members.js', 'map.js', 'vrc.js', 'collections.js'],
   announcements: ['announcements.js'],
   events: ['events.js'],
   album: ['album.js'],
@@ -60,7 +60,6 @@ var TAB_MODULES = {
   chat: ['chat.js'],
   birthday: ['birthday.js'],
   posts: ['posts.js'],
-  collections: ['collections.js'],
   friends: ['friends.js'],
   follows: ['follows.js'],
   'profile-user': ['profile.js', 'profile-page.js'],
@@ -76,7 +75,7 @@ function _loadScriptOnce(src) {
   if (_loadingMods[src]) return _loadingMods[src];
   var p = new Promise(function (resolve, reject) {
     var s = document.createElement('script');
-    s.src = '/js/' + src + '?v=20260903a';
+    s.src = '/js/' + src + '?v=20260903b';
     s.async = false; // 同批脚本保持插入顺序，保证模块间相对依赖
     s.onload = function () { _loadedMods[src] = true; resolve(); };
     s.onerror = function () { reject(new Error('Failed to load ' + src)); };
@@ -111,12 +110,11 @@ function _preloadRemaining() {
   var TAB_SEO_MAP = {
     'home':           { title: '境途同游首页',         path: '/',       description: '面向 VRChat 玩家的社群平台：群组相册、活动报名、动态分享、成员地图与实时聊天。' },
     'members':        { title: '成员总览',              path: '/members',description: '查看境途同游全部成员的活跃度、所在地与在线状态。' },
-    'vrc':            { title: 'VRC 社群',              path: '/vrc',    description: 'VRC 社群中心：群组在线成员一览与 VRChat 世界分布聚合。' },
+    'vrc':            { title: 'VRC 社群',              path: '/vrc',    description: 'VRC 社群中心：群组在线成员一览、VRChat 世界分布与成员收藏共享。' },
     'announcements':  { title: '群组公告',              path: '/announcements', description: '管理员发布的最新公告、活动通知与平台变动说明。' },
     'events':         { title: '活动报名',              path: '/events', description: '即将到来的 VRChat 主题活动：在线报名、签到、回顾。' },
     'birthday':       { title: '成员生日墙',            path: '/birthday',description: '境途同游成员生日日历：今天有谁过生日？' },
     'album':          { title: '公共相册',              path: '/album',  description: '海量 VRChat 截图作品：按分类浏览、点赞与评论。' },
-    'collections':    { title: '收藏的世界',            path: '/collections', description: '成员收藏的 VRChat 世界与模型，按热度与时间排序。' },
     'posts':          { title: '动态广场',              path: '/posts',  description: 'VRChat 玩家新鲜事：图文动态、互动评论、点赞。' },
     'map':            { title: '成员地图',              path: '/map',    description: '基于地理位置查看境途同游成员在全球的分布。' },
     'chat':           { title: '实时聊天',              path: '/chat',   description: '群组内实时聊天频道。' },

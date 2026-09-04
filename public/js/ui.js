@@ -227,7 +227,7 @@ function switchTab(tab, force) {
   });
   updateTabIndicator();
   // 页面标题随 Tab 切换（国际化）
-  const tabTitleKeys = { 'home': 'nav.home', 'members': 'nav.members', 'vrc': 'nav.vrc', 'announcements': 'nav.announcements', 'events': 'nav.events', 'album': 'nav.album', 'map': 'nav.map', 'chat': 'nav.chat', 'birthday': 'nav.birthday', 'admin': 'nav.admin', 'me': 'nav.me', 'profile-user': 'nav.profile', 'posts': 'nav.posts', 'collections': 'nav.collections', 'live': 'nav.live', 'friends': 'friends.title', 'follows': 'follows.title' };
+  const tabTitleKeys = { 'home': 'nav.home', 'members': 'nav.members', 'vrc': 'nav.vrc', 'announcements': 'nav.announcements', 'events': 'nav.events', 'album': 'nav.album', 'map': 'nav.map', 'chat': 'nav.chat', 'birthday': 'nav.birthday', 'admin': 'nav.admin', 'me': 'nav.me', 'profile-user': 'nav.profile', 'posts': 'nav.posts', 'live': 'nav.live', 'friends': 'friends.title', 'follows': 'follows.title' };
   document.title = `${__('page_title_prefix')} - ${__(tabTitleKeys[tab] || 'nav.home')}`;
   // Tab 内容入场动画：先重置动画再触发
   const contentEl = document.getElementById('tab-' + tab);
@@ -237,7 +237,7 @@ function switchTab(tab, force) {
   }
   if (tab === 'home') loadHome();
   else if (tab === 'members') loadMembers();
-  else if (tab === 'vrc') { if (typeof clearGroupBadge === 'function') clearGroupBadge(); loadGroupMembers(); if (typeof startGroupPolling === 'function') startGroupPolling(); if (typeof switchVrcView === 'function') switchVrcView('group'); }
+  else if (tab === 'vrc') { if (typeof clearGroupBadge === 'function') clearGroupBadge(); loadGroupMembers(); if (typeof startGroupPolling === 'function') startGroupPolling(); if (typeof switchVrcView === 'function') { switchVrcView(window.__vrcPendingView || 'group'); window.__vrcPendingView = null; } }
   else if (tab === 'announcements') { loadAnnouncements(); markAnnoSeen(); }
   else if (tab === 'events') { loadEvents(currentEvtStatus); markEvtSeen(); }
   else if (tab === 'album') loadAlbum();
@@ -245,7 +245,6 @@ function switchTab(tab, force) {
   else if (tab === 'chat') loadChatConversations(true);
   else if (tab === 'birthday') { loadBirthdays(); loadBirthdayParties(); }
   else if (tab === 'posts') loadPosts();
-  else if (tab === 'collections') { if (typeof window.loadCollections === 'function') window.loadCollections(); }
   else if (tab === 'live') { if (typeof loadLiveStreams === 'function') loadLiveStreams(); }
   else if (tab === 'friends') { if (typeof window.showFriends === 'function') window.showFriends(); }
   else if (tab === 'follows') { if (typeof window.showFollows === 'function') window.showFollows(); }
@@ -660,7 +659,6 @@ const TAB_ITEMS = [
   { id: 'events',        emoji: '📅', i18n: 'nav.events' },
   { id: 'birthday',      emoji: '🎂', i18n: 'nav.birthday' },
   { id: 'album',         emoji: '🖼️', i18n: 'nav.album' },
-  { id: 'collections',   emoji: '📚', i18n: 'nav.collections' },
   { id: 'posts',         emoji: '📝', i18n: 'nav.posts' },
   { id: 'live',          emoji: '📺', i18n: 'nav.live' },
   { id: 'map',           emoji: '🗺️', i18n: 'nav.map' },

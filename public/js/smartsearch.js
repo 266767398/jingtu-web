@@ -163,7 +163,6 @@
     { tab: 'events',       icon: '📅', key: 'nav.events', fallback: __('auto_smartsearch_6') },
     { tab: 'birthday',     icon: '🎂', key: 'nav.birthday', fallback: __('auto_smartsearch_7') },
     { tab: 'album',        icon: '🖼️', key: 'nav.album', fallback: __('auto_smartsearch_8') },
-    { tab: 'collections',  icon: '📚', key: 'nav.collections', fallback: __('auto_smartsearch_9') },
     { tab: 'posts',        icon: '📝', key: 'nav.posts', fallback: __('auto_smartsearch_10') },
     { tab: 'live',         icon: '📺', key: 'nav.live', fallback: __('auto_smartsearch_11') },
     { tab: 'map',          icon: '🗺️', key: 'nav.map', fallback: __('auto_smartsearch_12') },

@@ -57,7 +57,6 @@ const FEATURE_GROUPS = [
   { cat: 'discover', items: [
     { tab: 'map', icon: '🗺️' },
     { tab: 'birthday', icon: '🎂' },
-    { tab: 'collections', icon: '📚' },
   ]},
   { cat: 'personal', items: [
     { tab: 'notifications', icon: '🔔' },

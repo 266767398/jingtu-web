@@ -1,6 +1,6 @@
 /* 统一收藏系统 (V8.2) */
 
-#tab-collections .coll-layout {
+#vrcCollectionsView .coll-layout {
   display: grid;
   grid-template-columns: 220px 1fr;
   gap: 16px;
@@ -144,7 +144,7 @@
 .coll-badge.pubby { background: rgba(124,92,252,.12); color: #7c5cfc; border: 1px solid rgba(124,92,252,.3); }
 
 @media (max-width: 768px) {
-  #tab-collections .coll-layout { grid-template-columns: 1fr; }
+  #vrcCollectionsView .coll-layout { grid-template-columns: 1fr; }
   .coll-sidebar { position: static; max-height: 200px; }
   .coll-detail { flex-direction: column; overflow-x: auto; }
   .coll-detail-thumb { width: 100%; height: 200px; }
