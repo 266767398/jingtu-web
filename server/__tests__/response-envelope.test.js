@@ -86,7 +86,7 @@ describe('P2-6 fail() 错误包络', () => {
 });
 
 describe('P2-6 错误侧已迁移文件静态守卫', () => {
-  // 19 个错误侧迁移文件：16 个 routes + 2 个 middleware + server/auth.js。
+  // 21 个错误侧迁移文件：16 个 routes + 4 个 middleware + server/auth.js。
   // 「扁平形态」= error 值为字符串/模板字面量；嵌套 { error: { ... } }（collections.js、
   // sendError/handleError）与刻意扁平的 waf.js、sendVrcError 内部不在守卫范围，不受影响。
   const ERROR_MIGRATED_FILES = [
@@ -95,6 +95,7 @@ describe('P2-6 错误侧已迁移文件静态守卫', () => {
     'routes/logs.js', 'routes/migration.js', 'routes/permission_groups.js',
     'routes/permissions.js', 'routes/posts.js', 'routes/setup.js', 'routes/users.js',
     'routes/vrc_system.js', 'middleware/api_version.js', 'middleware/security.js',
+    'middleware/csrf.js', 'middleware/uploads_auth.js',
     'auth.js'
   ];
   const FLAT_ERROR_SHAPE = /res\.json\(\s*\{\s*(success:\s*false,\s*)?error:\s*['"`]/;

@@ -34,7 +34,6 @@ const express = require('express');
 const cors = require('cors');
 const session = require('express-session');
 const fs = require('fs');
-const crypto = require('crypto');
 const multer = require('multer');
 const sharp = require('sharp');
 const { rateLimit } = require('express-rate-limit');
@@ -62,11 +61,13 @@ const {
 } = require('./middleware/security');
 const notificationService = require('./notification-service');
 const logger = require('./logger');
-const { sharePathAllowed } = require('./share-auth-util');
 const securityAlert = require('./security_alert');
 const { apiVersionMiddleware } = require('./middleware/api_version');
 const { enableWaf } = require('./middleware/waf');
 const { metricsMiddleware } = require('./middleware/metrics');
+const { setupPanelProxy } = require('./panel_proxy');
+const { setupUploadsAuth } = require('./middleware/uploads_auth');
+const { setupCsrf } = require('./middleware/csrf');
 const cache = require('./cache');
 const cacheService = require('./cache_service');
 const mailer = require('./mailer');
@@ -183,68 +184,9 @@ app.use(compression({
 // 站点管理后台「运维面板」入口经此访问：主站 /ops/* → 127.0.0.1:3457/*（剥离前缀）。
 // 必须置于安全响应头（CSP/X-Frame-Options）之前，否则面板内联脚本会被主站 CSP 拦截；
 // 面板自身的 Bearer Token 鉴权保持不变。
-const PANEL_UPSTREAM = { host: '127.0.0.1', port: Number(process.env.PANEL_PORT || 3457) };
-let panelSpawnPending = false;
-function trySpawnPanelServer() {
-  // 快速探测面板是否在监听；不可达则自动拉起（避免入口打不开），10s 内去重
-  if (panelSpawnPending) return;
-  panelSpawnPending = true;
-  setTimeout(() => { panelSpawnPending = false; }, 10000);
-  const probe = http.request({ host: PANEL_UPSTREAM.host, port: PANEL_UPSTREAM.port, path: '/api/bootstrap', method: 'GET', timeout: 1200 }, (r) => { r.resume(); });
-  probe.on('timeout', () => { probe.destroy(); doSpawnPanel(); });
-  probe.on('error', () => doSpawnPanel());
-  probe.end();
-}
-function doSpawnPanel() {
-  try {
-    const cp = require('child_process');
-    const panelPath = path.join(ROOT_DIR, 'panel', 'panel-server.js');
-    if (!fs.existsSync(panelPath)) return;
-    const child = cp.spawn(process.execPath, [panelPath], {
-      cwd: path.join(ROOT_DIR, 'panel'),
-      detached: true,
-      stdio: 'ignore'
-    });
-    child.unref();
-    console.log('[ops] 运维面板未运行，已自动拉起 panel-server.js (pid=' + child.pid + ')');
-  } catch (e) {
-    console.error('[ops] 自动拉起运维面板失败:', e.message);
-  }
-}
-function proxyToPanel(req, res, isRetry) {
-  const parsed = new URL(req.url, 'http://' + (req.headers.host || '127.0.0.1'));
-  const upstreamPath = parsed.pathname.replace(/^\/ops/, '') || '/';
-  const q = parsed.search || '';
-  const proxyReq = http.request({
-    host: PANEL_UPSTREAM.host,
-    port: PANEL_UPSTREAM.port,
-    path: upstreamPath + q,
-    method: req.method,
-    headers: Object.assign({}, req.headers, { host: '127.0.0.1:' + PANEL_UPSTREAM.port }),
-    timeout: 8000
-  }, (proxyRes) => {
-    res.writeHead(proxyRes.statusCode, proxyRes.headers);
-    proxyRes.pipe(res);
-  });
-  proxyReq.on('timeout', () => proxyReq.destroy());
-  proxyReq.on('error', (e) => {
-    if (!isRetry && (req.method === 'GET' || req.method === 'HEAD')) {
-      // 首次失败：面板可能刚被杀/尚未启动，自动拉起后 3 秒重试一次（GET/HEAD 可安全重放）
-      setTimeout(() => proxyToPanel(req, res, true), 3000);
-    } else if (!res.headersSent) {
-      res.status(502).json({ ok: false, message: '运维面板不可达，请确认 panel-server.js 已启动（' + e.message + '）' });
-    } else {
-      res.end();
-    }
-  });
-  if (req.method === 'GET' || req.method === 'HEAD') proxyReq.end();
-  else req.pipe(proxyReq);
-}
-// 运维面板反向代理：先过管理员鉴权，避免把仅监听 localhost 的管理面板经公网入口暴露给匿名用户
-app.use('/ops', requireAdminCompat, (req, res) => {
-  trySpawnPanelServer();
-  proxyToPanel(req, res, false);
-});
+// 探测/自动拉起/代理/重试逻辑已抽至 panel_proxy.js；
+// 先过管理员鉴权，避免把仅监听 localhost 的管理面板经公网入口暴露给匿名用户。
+setupPanelProxy(app, { ROOT_DIR, requireAdminCompat });
 // ==================== 运维面板反向代理 END ====================
 
 // 安全响应头（CSP + X-Frame-Options + HSTS + X-Content-Type-Options）
@@ -419,56 +361,8 @@ app.use(session({
 // 放行条件：① 已登录（任意登录用户）；② 携带有效且未过期的公开分享令牌 ?share=<code>。
 // 分享链接由 routes/share.js 在返回内容时把 /uploads/... 改写为 /uploads/...?share=<code>，
 // 从而让匿名分享查看者仍能加载其媒体，但不暴露其它用户的上传。
-// 根据分享的 type/target_id 反查该分享内容关联的媒体路径集合（用于严格鉴权，防止用任一有效码访问全站私有媒体）
-async function getShareAuthPaths(pool, type, targetId) {
-  const paths = [];
-  const push = (v) => {
-    if (!v || typeof v !== 'string') return;
-    if (/^https?:/i.test(v)) return; // 跳过外链
-    paths.push(v.startsWith('/uploads/') ? v : '/uploads/' + v.replace(/^\/+/, ''));
-  };
-  if (type === 'album') {
-    const [rows] = await pool.query('SELECT photo_path, thumb_path FROM album_photo WHERE id = ?', [targetId]);
-    rows.forEach((r) => { push(r.photo_path); push(r.thumb_path); });
-  } else if (type === 'post') {
-    const [rows] = await pool.query('SELECT media_url, thumb_url FROM post_media WHERE post_id = ?', [targetId]);
-    rows.forEach((r) => { push(r.media_url); push(r.thumb_url); });
-  } else if (type === 'event') {
-    const [rows] = await pool.query('SELECT world_image_url FROM event WHERE id = ?', [targetId]);
-    if (rows[0]) push(rows[0].world_image_url);
-  }
-  return paths;
-}
-
-app.use('/uploads', async (req, res, next) => {
-  // 头像为用户公开资料图，允许公开访问（无需登录/分享令牌），避免游客视图头像回退为占位图
-  if (req.path.startsWith('/avatars/')) return next();
-  if (req.session && req.session.userId) return next();
-  const code = typeof req.query.share === 'string' ? req.query.share : '';
-  if (code) {
-    const pool = getPool();
-    if (pool) {
-      try {
-        // P0 修复：分享令牌必须与具体资源绑定，禁止用任一有效码访问全站私有媒体
-        const [links] = await pool.query(
-          'SELECT type, target_id FROM share_links WHERE share_code = ? AND expires_at > NOW() LIMIT 1',
-          [code]
-        );
-        if (links.length === 0) {
-          return fail(res, 401, '分享链接无效或已过期，需要登录后访问');
-        }
-        const authPaths = await getShareAuthPaths(pool, links[0].type, links[0].target_id);
-        // 严格边界匹配：精确相等，或为其子路径（防 /uploads/x.jpg 越权匹配 /uploads/x1.jpg）
-        const allowed = sharePathAllowed(req.path, authPaths);
-        if (allowed) return next();
-        return fail(res, 401, '分享链接无权访问该资源');
-      } catch (e) {
-        return fail(res, 401, '需要登录后才能访问该资源');
-      }
-    }
-  }
-  fail(res, 401, '需要登录后才能访问该资源');
-});
+// 鉴权逻辑已抽至 middleware/uploads_auth.js（分享令牌绑定具体资源 + 严格路径匹配）。
+setupUploadsAuth(app);
 app.use('/uploads', express.static(path.join(ROOT_DIR, 'uploads')));
 
 // Session 验证中间件 — 确保用户未被封禁且仍存在
@@ -519,83 +413,9 @@ app.use('/api/config', adminLimiter);
 app.use('/api/search', searchLimiter);
 
 // ==================== CSRF 保护 ====================
-const csrfTokens = new Map();
-const CSRF_EXPIRY = 60 * 60 * 1000;
-
-function generateCsrfToken() {
-  return crypto.randomBytes(32).toString('hex');
-}
-
-// 检查是否已有用户（用于控制初始化流程）
-app.get('/api/auth/check-init', async (req, res) => {
-  try {
-    let rows;
-    try {
-      [rows] = await getPool().query(`SELECT COUNT(*) AS count FROM users WHERE deleted_at IS NULL`);
-    } catch (e) {
-      if (e.code === 'ER_BAD_FIELD_ERROR') {
-        [rows] = await getPool().query(`SELECT COUNT(*) AS count FROM users`);
-      } else {
-        throw e;
-      }
-    }
-    res.json({ hasUser: rows[0].count > 0 });
-  } catch (e) { logger.error('[server]', e.message, e.stack); fail(res, 500, safeError(e.message)); }
-});
-
-// 获取 CSRF Token（绑定到当前 session，防止 token 被跨用户复用）
-app.get('/api/csrf-token', (req, res) => {
-  const token = generateCsrfToken();
-  const sid = req.sessionID || 'anon';
-  csrfTokens.set(token, { sid, createdAt: Date.now() });
-  // token 已在 csrfTokens Map 中绑定到当前 sessionID，校验时仅需验证 Map 中的 sid 匹配
-  res.json({ csrfToken: token });
-});
-
-// 定时清理过期 CSRF Token（每15分钟）
-const csrfCleanupInterval = setInterval(() => {
-  const now = Date.now();
-  const beforeSize = csrfTokens.size;
-  for (const [token, record] of csrfTokens) {
-    if (now - record.createdAt > CSRF_EXPIRY) csrfTokens.delete(token);
-  }
-  if (csrfTokens.size > 10000) {
-    // 防内存泄漏：超过上限强制清理一半最旧的
-    const sorted = [...csrfTokens.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
-    const toDelete = Math.floor(sorted.length / 2);
-    for (let i = 0; i < toDelete; i++) csrfTokens.delete(sorted[i][0]);
-  }
-}, 15 * 60 * 1000).unref();
-
-// CSRF 中间件（豁免 GET/HEAD/OPTIONS + 登录/初始化路径）
-app.use('/api', (req, res, next) => {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-  // ⚠️ Express app.use('/api', ...) 会裁剪 req.path，所以豁免路径使用相对于 /api 的路径
-  const exemptPaths = ['/vrchat-login', '/init',
-    '/auth/login', '/auth/init', '/csrf-token',
-    '/auth/logout', '/auth/vrchat-login',
-    '/auth/forgot-password', '/auth/verify-reset-code', '/auth/reset-password',
-    '/setup/test-db', '/setup/test-email', '/setup/save',
-    '/setup/state', '/setup/reset',
-    '/system/db-recover'];
-  if (exemptPaths.some(p => req.path === p)) return next();
-  const token = req.headers['x-csrf-token'];
-  if (!token || !csrfTokens.has(token)) return fail(res, 403, 'CSRF token 无效');
-  const record = csrfTokens.get(token);
-  if (Date.now() - record.createdAt > CSRF_EXPIRY) {
-    csrfTokens.delete(token);
-    return fail(res, 403, 'CSRF token 已过期，请刷新页面');
-  }
-  // session 绑定检查：校验 token 生成时所绑定的 sessionID 是否与当前请求一致
-  // 防止 token 被跨用户/跨会话复用（例如 CSRF token 泄露后攻击者用自己的 session 使用）
-  if (record.sid && record.sid !== 'anon' && record.sid !== req.sessionID) {
-    csrfTokens.delete(token);
-    return fail(res, 403, 'CSRF token 与当前会话不匹配');
-  }
-  // token 可重用：仅在过期（CSRF_EXPIRY）或会话不匹配时清除
-  // 解决并发 POST 请求竞争（A 消费 token 后 B 仍可使用同一 token）
-  next();
-});
+// CSRF token 签发/校验、/api/auth/check-init 与 /api/csrf-token 路由、过期清理定时器
+// 已抽至 middleware/csrf.js；中间件链位置必须保持在 auth/migration/database 等特权路由挂载之前。
+const { csrfCleanupInterval } = setupCsrf(app);
 
 // ==================== 系统 VRChat 登录状态 ====================
 let authState = { loggedIn: false, cookie: null, userId: null, displayName: null, cookieSetAt: null };
