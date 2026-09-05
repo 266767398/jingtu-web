@@ -671,6 +671,9 @@
 | `GET /api/friends/status/:userId` | 登录 | — | `{status,direction,blockedByThem}` |
 | `GET /api/friends/mutuals` | 登录 | — | `{counts}` |
 | `GET /api/friends/mutuals/:targetUserId` | 登录 | — | `{targetId,count,mutualFriends}` |
+| `GET /api/friends/history/:userId` | 登录 | 本人或已接受好友（否则 403） | `{items[{id,type,oldValue,newValue,time}],total,page,pageSize}`（F-13 好友变更历史，`friend_log` 表） |
+| `GET /api/friends/world-history/:userId` | 登录 | 本人或已接受好友（否则 403） | `{items,totalAvatars?}`（F-14 世界足迹，`world_visit_log` 表按 world_id 聚合） |
+| `GET /api/friends/avatar-history/:userId` | 登录 | 本人或已接受好友（否则 403） | `{items[{avatarId,avatarUrl,useCount,firstSeenAt,lastSeenAt}],totalAvatars,totalUses}`（F-16 头像使用历史，`avatar_history_log` 表，LIMIT 100） |
 
 ### 14.2 关注系统（`follows.js`，前缀 `/api/follows`，全部登录）
 
@@ -730,3 +733,16 @@ V8.2 起收藏统一为「收藏夹 + 收藏项」模型，合并原 `model-coll
 | `POST /api/system/db-recover` | 需 `RECOVERY_TOKEN` 请求头 | `{host,port,user,database,password,testOnly?}` | `{success,reinitialized}`；`testOnly` 为真时仅测试连接不重建 |
 
 > 该模块用于数据库配置损坏/连接失败时的紧急恢复；`RECOVERY_TOKEN` 与恢复口令相关，非普通会话鉴权。
+
+### 14.6 头像标签（`avatar_tags.js`，挂载 `/api/avatar-tags`，全部登录）
+
+> F-16 私有标签：`avatar_tags` 表按 `(owner_id, avatar_id)` 归属，标签仅对打标签者自己可见；`avatar_id` 须匹配 `avtr_` 前缀（否则 400）；最多 8 个标签、单个最长 50 字符。
+
+| 方法与路径 | 权限 | 请求 | 成功/业务响应 |
+|---|---|---|---|
+| `GET /api/avatar-tags/:avatarId` | 登录 | — | `{tags: string[]}` |
+| `POST /api/avatar-tags/:avatarId` | 登录 | `{tags: string[]}` | `{tags}`（覆盖式：事务先删后插，整体替换该头像标签；自动去重/去空/截断） |
+| `DELETE /api/avatar-tags/:avatarId` | 登录 | — | `{success,ok}`（清空该头像全部标签） |
+
+> F-16 头像收藏复用统一收藏馆 `collections.js` 的 `kind='avatar_model'`（见 §14.4，`target_id` 传 `avtr_xxx` 头像 ID，后端走 `vrchatGetAvatar` 拉元数据）；`kind='avatar_favorite'` 为「收藏用户」语义，不可混用。
+
