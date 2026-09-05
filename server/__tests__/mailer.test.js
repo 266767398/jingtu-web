@@ -127,9 +127,9 @@ describe('P2-4 邮件 transporter 收口静态守卫', () => {
     expect(source).toMatch(/mailer\.sendEmail\(/);
   });
 
-  test('routes/auth.js forgot-password 使用正确相对路径引入 mailer，且无残留死代码 transporter', () => {
-    const source = fs.readFileSync(path.join(serverDir, 'routes', 'auth.js'), 'utf8');
-    expect(source).toMatch(/require\(\s*['"]\.\.\/mailer['"]\s*\)/);
+  test('auth_reset_service.js forgot-password 使用正确相对路径引入 mailer，且无残留死代码 transporter', () => {
+    const source = fs.readFileSync(path.join(serverDir, 'auth_reset_service.js'), 'utf8');
+    expect(source).toMatch(/require\(\s*['"]\.\/mailer['"]\s*\)/);
     expect(source).not.toMatch(/require\(\s*['"]\.\.\/\.\.\/mailer['"]\s*\)/);
     expect(source).not.toContain('createTransport');
   });

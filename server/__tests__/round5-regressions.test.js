@@ -109,7 +109,7 @@ describe('VRChat cookie 失效后必须能降级到下一个候选', () => {
   const vrcAuthJs = srv('vrc_auth.js');
   const groupsJs = srv(path.join('routes', 'groups.js'));
   const eventsJs = srv(path.join('routes', 'events.js'));
-  const authJs = srv(path.join('routes', 'auth.js'));
+  const authJs = srv('auth_vrc_service.js');
 
   test('vrc_auth.js 提供 invalidateVRCCookie 并挂到 getVRCCookie 上，server.js 挂载该模块', () => {
     // P2-4 第二步第二批：VRC auth 块已从 server.js 抽至 vrc_auth.js，
@@ -562,7 +562,7 @@ describe('VRChat 绑定不能在拿不到账号 ID 时报成功', () => {
   //      还回了 success:true。
   //      同一个文件里 VRChat 登录那条路径写了 `vResult.user?.id || vrcUser.id` 的回退，
   //      绑定这条却一点没防 —— 典型的只修一半。
-  const authSrv = srv('routes/auth.js');
+  const authSrv = srv('auth_vrc_service.js');
   const profileJs = js('profile.js');
 
   test('写库前必须校验 vrchatId 存在，拿不到就返回错误', () => {

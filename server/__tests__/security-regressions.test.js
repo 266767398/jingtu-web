@@ -10,6 +10,8 @@ const files = {
   csrfMiddleware: read('server', 'middleware', 'csrf.js'),
   uploadsAuth: read('server', 'middleware', 'uploads_auth.js'),
   authRoute: read('server', 'routes', 'auth.js'),
+  localService: read('server', 'auth_local_service.js'),
+  vrcService: read('server', 'auth_vrc_service.js'),
   authMiddleware: read('server', 'auth.js'),
   securityMiddleware: read('server', 'middleware', 'security.js'),
   migrationRoute: read('server', 'routes', 'migration.js'),
@@ -91,12 +93,12 @@ describe('security regressions', () => {
 
   // VRChat 两步登录曾可能在验证码错误时先创建本地会话；必须先 verifyVrc2fa 成功后才 regenerate/buildSession。
   test('rejects an invalid VRChat 2FA code before creating a session', () => {
-    const inline2fa = sliceBetween(files.authRoute, 'if (loginToken && code) {', '// ══════════ 模式 A');
+    const inline2fa = sliceBetween(files.vrcService, 'if (loginToken && code) {', '// ══════════ 模式 A');
     expect(inline2fa).toMatch(/const vResult = await verifyVrc2fa\(code,\s*method,\s*cookie\)/);
     expect(inline2fa).toMatch(/if \(!vResult\.success\)[\s\S]*return (?:fail\(res,\s*401|res\.status\(401\)\.json)/);
     expectBefore(inline2fa, 'const vResult = await verifyVrc2fa', 'req.session.regenerate');
     expectBefore(inline2fa, 'if (!vResult.success)', 'req.session.regenerate');
-    const standalone2fa = sliceBetween(files.authRoute, "router.post('/vrchat-2fa'", '// ==================== VRChat 绑定');
+    const standalone2fa = sliceBetween(files.vrcService, "router.post('/vrchat-2fa'", '// ==================== VRChat 绑定');
     expect(standalone2fa).toMatch(/const vResult = await verifyVrc2fa\(code,\s*method,\s*cookie\)/);
     expectBefore(standalone2fa, 'const vResult = await verifyVrc2fa', 'req.session.regenerate');
   });
@@ -206,7 +208,7 @@ describe('security regressions', () => {
 
   // 首个超级管理员曾创建后仍待审核；初始化插入必须同时写入 super_admin 和 approved=1。
   test('creates the first super administrator as approved', () => {
-    const initRoute = sliceBetween(files.authRoute, "router.post('/init'", '/**\n * @swagger');
+    const initRoute = sliceBetween(files.localService, "router.post('/init'", '/**\n * @swagger');
     expect(initRoute).toMatch(/role,\s*avatar_type,\s*approved/);
     expect(initRoute).toMatch(/VALUES \(\?, \?, \?, 'super_admin', 'none', 1\)/);
     expect(initRoute).toMatch(/const user = \{[\s\S]*role:\s*'super_admin'/);
@@ -215,7 +217,7 @@ describe('security regressions', () => {
 
   // 初始化成功后曾再次走登录流程；后端已建立 session，前端应复用返回的用户并直接进入应用。
   test('uses the session created during initialization instead of logging in twice', () => {
-    const initRoute = sliceBetween(files.authRoute, "router.post('/init'", '/**\n * @swagger');
+    const initRoute = sliceBetween(files.localService, "router.post('/init'", '/**\n * @swagger');
     expect(initRoute).toMatch(/req\.session\.regenerate/);
     expect(initRoute).toMatch(/await buildSession\(req,\s*user\)/);
     expect(initRoute).toMatch(/ok\(res,\s*\{\s*user:\s*sessionUser\(req\.session\)/);
@@ -249,7 +251,7 @@ describe('security regressions', () => {
 
   // 非字符串登录字段曾进入 bcrypt 校验造成异常/绕过；类型验证必须在查库和密码比对之前返回。
   test('rejects non-string login credentials before password verification', () => {
-    const loginRoute = sliceBetween(files.authRoute, "router.post('/login'", '// (游客登录已移除');
+    const loginRoute = sliceBetween(files.localService, "router.post('/login'", '// (游客登录已移除');
     expect(loginRoute).toMatch(/typeof loginId !== 'string' \|\| typeof password !== 'string'/);
     expect(loginRoute).toMatch(/return sendError\(res,\s*400,\s*ErrorCodes\.BAD_REQUEST/);
     expectBefore(loginRoute, "typeof loginId !== 'string'", 'const normalizedLoginId = loginId.trim()');

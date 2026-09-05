@@ -23,7 +23,7 @@ const path = require('path');
 const utils = require('../utils');
 
 const MIGRATED_ROUTES = [
-  'admin', 'album', 'announcements', 'auth', 'backups', 'collections',
+  'admin', 'album', 'announcements', 'backups', 'collections',
   'config', 'db-recover', 'events', 'files', 'follows', 'friends', 'groups',
   'logs', 'migration', 'moderations', 'notifications', 'permission_groups',
   'posts', 'profile', 'security', 'setup', 'share', 'users', 'vrc_system',
@@ -62,6 +62,13 @@ describe('P2-6 已迁移路由静态守卫', () => {
     expect(src).toMatch(/const\s*\{[^}]*\bok\b[^}]*\}\s*=\s*require\('\.\/utils'\)/);
     expect(src).not.toMatch(/res\.json\(\s*\{\s*success:\s*true/);
   });
+
+  // P2-4 auth 路由按域拆分：原 routes/auth.js 的 ok 包络守卫随实现迁移到三个 service。
+  test.each(['auth_local_service.js', 'auth_vrc_service.js', 'auth_reset_service.js'])('%s：引入 ok 且不再直接写 success:true 平铺', (name) => {
+    const src = fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
+    expect(src).toMatch(/const\s*\{[^}]*\bok\b[^}]*\}\s*=\s*require\('\.\/utils'\)/);
+    expect(src).not.toMatch(/res\.json\(\s*\{\s*success:\s*true/);
+  });
 });
 
 describe('P2-6 fail() 错误包络', () => {
@@ -90,19 +97,19 @@ describe('P2-6 错误侧已迁移文件静态守卫', () => {
   // admin.js 留守块不再使用 fail()，改为守卫 admin_users.js 与 admin_content_live.js（引入 fail）。
   // admin.js 与 admin_name_change.js 不引入 fail，由下方「拆分后无扁平 error」反向守卫覆盖。
   const ERROR_MIGRATED_FILES = [
-    'routes/admin_users.js', 'routes/admin_content_live.js', 'routes/auth.js',
+    'routes/admin_users.js', 'routes/admin_content_live.js',
     'routes/avatar.js', 'routes/database.js',
     'routes/db-recover.js', 'routes/events.js', 'routes/export.js', 'routes/groups.js',
     'routes/logs.js', 'routes/migration.js', 'routes/permission_groups.js',
     'routes/permissions.js', 'routes/posts.js', 'routes/setup.js', 'routes/users.js',
     'routes/vrc_system.js', 'middleware/api_version.js', 'middleware/security.js',
     'middleware/csrf.js', 'middleware/uploads_auth.js',
-    'auth.js'
+    'auth.js', 'auth_local_service.js', 'auth_vrc_service.js', 'auth_reset_service.js'
   ];
   const FLAT_ERROR_SHAPE = /res\.json\(\s*\{\s*(success:\s*false,\s*)?error:\s*['"`]/;
   const failRequireRegex = (rel) => new RegExp(
     "const\\s*\\{[^}]*\\bfail\\b[^}]*\\}\\s*=\\s*require\\('" +
-    (rel === 'auth.js' ? './utils' : '../utils') + "'\\)"
+    (rel === 'auth.js' || rel === 'auth_local_service.js' || rel === 'auth_vrc_service.js' || rel === 'auth_reset_service.js' ? './utils' : '../utils') + "'\\)"
   );
 
   test.each(ERROR_MIGRATED_FILES)('%s：引入 fail 且不再直接写扁平 error 响应', (rel) => {
