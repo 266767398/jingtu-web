@@ -643,4 +643,67 @@ describe('VRChat 绑定不能在拿不到账号 ID 时报成功', () => {
   });
 });
 
+describe('P2-4 第三批 god-route 拆分：admin.js 按域子模块透传挂载守卫', () => {
+  // 症状背景：admin.js 曾是 33 条路由的 god-route。第三批拆分把用户管理（7 条）、
+  // 改名系统（5 条）、直播/内容管理（6 条）按域拆出为三个无参工厂子模块，
+  // admin.js 在原代码块位置透传挂载，路由路径与注册顺序保持不变。
+  // 守卫点：三个工厂仍导出且仍被挂载（漏装 = 18 条路由 404），admin.js 不再内联这些路由。
+  const adminSrv = srv(path.join('routes', 'admin.js'));
+  const usersSrv = srv(path.join('routes', 'admin_users.js'));
+  const nameChangeSrv = srv(path.join('routes', 'admin_name_change.js'));
+  const contentLiveSrv = srv(path.join('routes', 'admin_content_live.js'));
+
+  test('三个子模块均为无参工厂并导出', () => {
+    expect(usersSrv).toMatch(/module\.exports\s*=\s*function\s+createAdminUsersRouter\s*\(\s*\)/);
+    expect(nameChangeSrv).toMatch(/module\.exports\s*=\s*function\s+createAdminNameChangeRouter\s*\(\s*\)/);
+    expect(contentLiveSrv).toMatch(/module\.exports\s*=\s*function\s+createAdminContentLiveRouter\s*\(\s*\)/);
+  });
+
+  test('admin.js 三处透传挂载存在且工厂被调用', () => {
+    expect(adminSrv).toMatch(/router\.use\(require\('\.\/admin_users'\)\(\)\)/);
+    expect(adminSrv).toMatch(/router\.use\(require\('\.\/admin_name_change'\)\(\)\)/);
+    expect(adminSrv).toMatch(/router\.use\(require\('\.\/admin_content_live'\)\(\)\)/);
+  });
+
+  test('子路由逐条随实现迁移（每条路由定义钉在对应子模块里）', () => {
+    const userRoutes = [
+      "router.get('/admin/users'", "router.post('/admin/users'",
+      "router.post('/admin/users/:id/approve'", "router.post('/admin/users/:id/ban'",
+      "router.post('/admin/users/:id/unban'", "router.delete('/admin/users/:id'",
+      "router.post('/admin/users/:id/reset-password'"
+    ];
+    const nameRoutes = [
+      "router.post('/name-change/request'", "router.get('/name-change/my-requests'",
+      "router.get('/name-change/pending'", "router.get('/name-change/all'",
+      "router.post('/name-change/review'"
+    ];
+    const contentRoutes = [
+      "router.get('/admin/live'", "router.post('/admin/live/:id/end'",
+      "router.delete('/admin/live/:id'", "router.get('/admin/content'",
+      "router.delete('/admin/content/:type/:id'", "router.post('/admin/content/batch'"
+    ];
+    for (const r of userRoutes) {
+      expect({ route: r, found: usersSrv.includes(r) }).toEqual({ route: r, found: true });
+    }
+    for (const r of nameRoutes) {
+      expect({ route: r, found: nameChangeSrv.includes(r) }).toEqual({ route: r, found: true });
+    }
+    for (const r of contentRoutes) {
+      expect({ route: r, found: contentLiveSrv.includes(r) }).toEqual({ route: r, found: true });
+    }
+  });
+
+  test('admin.js 不再内联已拆出的路由定义（防止拆分后残留形成双份）', () => {
+    const retired = [
+      "router.get('/admin/users'", "router.post('/admin/users/:id/approve'",
+      "router.post('/admin/users/:id/ban'", "router.post('/name-change/request'",
+      "router.post('/name-change/review'", "router.get('/admin/live'",
+      "router.delete('/admin/content/:type/:id'", "router.post('/admin/content/batch'"
+    ];
+    for (const r of retired) {
+      expect({ route: r, leaked: adminSrv.includes(r) }).toEqual({ route: r, leaked: false });
+    }
+  });
+});
+
 

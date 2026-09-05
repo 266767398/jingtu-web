@@ -86,11 +86,12 @@ describe('P2-6 fail() 错误包络', () => {
 });
 
 describe('P2-6 错误侧已迁移文件静态守卫', () => {
-  // 21 个错误侧迁移文件：16 个 routes + 4 个 middleware + server/auth.js。
-  // 「扁平形态」= error 值为字符串/模板字面量；嵌套 { error: { ... } }（collections.js、
-  // sendError/handleError）与刻意扁平的 waf.js、sendVrcError 内部不在守卫范围，不受影响。
+  // P2-4 第三批 god-route 拆分：admin.js 的用户管理/改名/直播内容已按域拆出，
+  // admin.js 留守块不再使用 fail()，改为守卫 admin_users.js 与 admin_content_live.js（引入 fail）。
+  // admin.js 与 admin_name_change.js 不引入 fail，由下方「拆分后无扁平 error」反向守卫覆盖。
   const ERROR_MIGRATED_FILES = [
-    'routes/admin.js', 'routes/auth.js', 'routes/avatar.js', 'routes/database.js',
+    'routes/admin_users.js', 'routes/admin_content_live.js', 'routes/auth.js',
+    'routes/avatar.js', 'routes/database.js',
     'routes/db-recover.js', 'routes/events.js', 'routes/export.js', 'routes/groups.js',
     'routes/logs.js', 'routes/migration.js', 'routes/permission_groups.js',
     'routes/permissions.js', 'routes/posts.js', 'routes/setup.js', 'routes/users.js',
@@ -115,6 +116,15 @@ describe('P2-6 错误侧已迁移文件静态守卫', () => {
     expect(src).toMatch(/const\s*\{[^}]*\bfail\b[^}]*\}\s*=\s*require\('\.\/utils'\)/);
     expect(src).not.toMatch(FLAT_ERROR_SHAPE);
   });
+
+  test.each(['routes/admin.js', 'routes/admin_name_change.js'])(
+    'P2-4 第三批拆分后 %s：不引入 fail 且不再直接写扁平 error 响应',
+    (rel) => {
+      const src = fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+      expect(src).not.toMatch(failRequireRegex(rel));
+      expect(src).not.toMatch(FLAT_ERROR_SHAPE);
+    }
+  );
 
   test('utils.js：fail() 定义存在并导出，handleError 尾部保持嵌套形态', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'utils.js'), 'utf8');

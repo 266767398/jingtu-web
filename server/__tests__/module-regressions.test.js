@@ -150,10 +150,14 @@ describe('map module regressions', () => {
 describe('permission module regressions', () => {
   // P2-3 双写下线：旧版 user_permissions 写入路由已整体移除，
   // 防止旧路由或旧 upsert SQL 被无意恢复，与权限组写侧形成新的双写。
-  test('legacy user_permissions write routes stay retired from admin.js', () => {
-    const admin = readServer('routes', 'admin.js');
-    expect(admin).not.toMatch(/router\.(get|post)\(\s*['"]\/permissions/);
-    expect(admin).not.toMatch(/INSERT INTO user_permissions/);
+  // P2-4 第三批拆分：守卫范围扩展到 admin.js 拆出的三个按域子模块。
+  test('legacy user_permissions write routes stay retired from admin router family', () => {
+    const files = ['routes/admin.js', 'routes/admin_users.js', 'routes/admin_name_change.js', 'routes/admin_content_live.js'];
+    for (const rel of files) {
+      const src = readServer(...rel.split('/'));
+      expect(src).not.toMatch(/router\.(get|post)\(\s*['"]\/permissions/);
+      expect(src).not.toMatch(/INSERT INTO user_permissions/);
+    }
   });
 
   // 遗留表保留为历史快照：db_init 仍建表（含唯一键），权限查看器 legacy 展示仍 SELECT 它。
