@@ -14,9 +14,9 @@ const TWO_FACTOR_ENDPOINTS = Object.freeze({
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// VRChat ID 白名单正则：仅允许 wrld_/usr_/avtr_/grp_ 前缀 + 十六进制与连字符
-// 防止传入 ../../auth/user 等路径穿越至非预期 API 端点
-const VRC_ID_PATTERN = /^(wrld|usr|avtr|grp)_[0-9a-fA-F-]+$/;
+// VRChat ID 白名单正则：wrld_/usr_/avtr_/grp_ 主体 ID + gapp_(群公告)/gald_(群相册)/grol_(群角色) 子资源 ID
+// + 十六进制与连字符；防止传入 ../../auth/user 等路径穿越至非预期 API 端点
+const VRC_ID_PATTERN = /^(wrld|usr|avtr|grp|gapp|gald|grol)_[0-9a-fA-F-]+$/;
 
 /**
  * 校验并编码 VRChat ID，拒绝不符合格式的 ID（防止路径穿越至 /auth/user 等）
@@ -480,6 +480,232 @@ async function vrchatGetGroupMembers(groupId, cookie, n = 100, offset = 0) {
   return await vrchatRequest('GET', endpoint, null, cookie);
 }
 
+// ---------------------------------------------------------------------------
+// F-6 组完整内容管理 + F-23 细化（公告/相册/角色/审计日志/经济/黑名单/日历关注）
+// 写操作一律由调用方传入本人 VRC cookie，群管理权限由 VRChat 侧校验。
+// ---------------------------------------------------------------------------
+
+/**
+ * 群公告列表
+ * GET /groups/{groupId}/announcement
+ */
+async function vrchatGetGroupAnnouncements(groupId, cookie, n = 10, offset = 0) {
+  const safeId = sanitizeVrcId(groupId);
+  const endpoint = `/groups/${safeId}/announcement?apiKey=${VRC_API_KEY}&n=${n}&offset=${offset}`;
+  return await vrchatRequest('GET', endpoint, null, cookie);
+}
+
+/**
+ * 创建群公告
+ * POST /groups/{groupId}/announcement  body: { title, text, sendNotification }
+ */
+async function vrchatCreateGroupAnnouncement(groupId, cookie, body) {
+  const safeId = sanitizeVrcId(groupId);
+  const endpoint = `/groups/${safeId}/announcement?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('POST', endpoint, body, cookie);
+}
+
+/**
+ * 删除群公告
+ * DELETE /groups/{groupId}/announcement/{announcementId}
+ */
+async function vrchatDeleteGroupAnnouncement(groupId, announcementId, cookie) {
+  const safeId = sanitizeVrcId(groupId);
+  const safeAnn = sanitizeVrcId(announcementId);
+  const endpoint = `/groups/${safeId}/announcement/${safeAnn}?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('DELETE', endpoint, null, cookie);
+}
+
+/**
+ * 群相册列表
+ * GET /groups/{groupId}/gallery
+ */
+async function vrchatGetGroupGalleries(groupId, cookie) {
+  const safeId = sanitizeVrcId(groupId);
+  const endpoint = `/groups/${safeId}/gallery?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('GET', endpoint, null, cookie);
+}
+
+/**
+ * 创建群相册
+ * POST /groups/{groupId}/gallery  body: { name, description? }
+ */
+async function vrchatCreateGroupGallery(groupId, cookie, body) {
+  const safeId = sanitizeVrcId(groupId);
+  const endpoint = `/groups/${safeId}/gallery?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('POST', endpoint, body, cookie);
+}
+
+/**
+ * 群相册详情（含照片）
+ * GET /groups/{groupId}/gallery/{galleryId}
+ */
+async function vrchatGetGroupGallery(groupId, galleryId, cookie) {
+  const safeId = sanitizeVrcId(groupId);
+  const safeGallery = sanitizeVrcId(galleryId);
+  const endpoint = `/groups/${safeId}/gallery/${safeGallery}?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('GET', endpoint, null, cookie);
+}
+
+/**
+ * 更新群相册（改名/描述）
+ * PUT /groups/{groupId}/gallery/{galleryId}
+ */
+async function vrchatUpdateGroupGallery(groupId, galleryId, cookie, body) {
+  const safeId = sanitizeVrcId(groupId);
+  const safeGallery = sanitizeVrcId(galleryId);
+  const endpoint = `/groups/${safeId}/gallery/${safeGallery}?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('PUT', endpoint, body, cookie);
+}
+
+/**
+ * 删除群相册
+ * DELETE /groups/{groupId}/gallery/{galleryId}
+ */
+async function vrchatDeleteGroupGallery(groupId, galleryId, cookie) {
+  const safeId = sanitizeVrcId(groupId);
+  const safeGallery = sanitizeVrcId(galleryId);
+  const endpoint = `/groups/${safeId}/gallery/${safeGallery}?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('DELETE', endpoint, null, cookie);
+}
+
+/**
+ * 群角色列表
+ * GET /groups/{groupId}/roles
+ */
+async function vrchatGetGroupRoles(groupId, cookie) {
+  const safeId = sanitizeVrcId(groupId);
+  const endpoint = `/groups/${safeId}/roles?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('GET', endpoint, null, cookie);
+}
+
+/**
+ * 创建群角色
+ * POST /groups/{groupId}/roles  body: { name, description?, isSelfAssignable? }
+ */
+async function vrchatCreateGroupRole(groupId, cookie, body) {
+  const safeId = sanitizeVrcId(groupId);
+  const endpoint = `/groups/${safeId}/roles?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('POST', endpoint, body, cookie);
+}
+
+/**
+ * 更新群角色
+ * PUT /groups/{groupId}/roles/{groupIdRole}
+ */
+async function vrchatUpdateGroupRole(groupId, roleId, cookie, body) {
+  const safeId = sanitizeVrcId(groupId);
+  const safeRole = sanitizeVrcId(roleId);
+  const endpoint = `/groups/${safeId}/roles/${safeRole}?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('PUT', endpoint, body, cookie);
+}
+
+/**
+ * 删除群角色
+ * DELETE /groups/{groupId}/roles/{groupIdRole}
+ */
+async function vrchatDeleteGroupRole(groupId, roleId, cookie) {
+  const safeId = sanitizeVrcId(groupId);
+  const safeRole = sanitizeVrcId(roleId);
+  const endpoint = `/groups/${safeId}/roles/${safeRole}?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('DELETE', endpoint, null, cookie);
+}
+
+/**
+ * 给群成员添加角色
+ * PUT /groups/{groupId}/members/{userId}/roles/{groupIdRole}
+ */
+async function vrchatAddGroupMemberRole(groupId, userId, roleId, cookie) {
+  const safeId = sanitizeVrcId(groupId);
+  const safeUser = sanitizeVrcId(userId);
+  const safeRole = sanitizeVrcId(roleId);
+  const endpoint = `/groups/${safeId}/members/${safeUser}/roles/${safeRole}?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('PUT', endpoint, null, cookie);
+}
+
+/**
+ * 移除群成员角色
+ * DELETE /groups/{groupId}/members/{userId}/roles/{groupIdRole}
+ */
+async function vrchatRemoveGroupMemberRole(groupId, userId, roleId, cookie) {
+  const safeId = sanitizeVrcId(groupId);
+  const safeUser = sanitizeVrcId(userId);
+  const safeRole = sanitizeVrcId(roleId);
+  const endpoint = `/groups/${safeId}/members/${safeUser}/roles/${safeRole}?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('DELETE', endpoint, null, cookie);
+}
+
+/**
+ * 群审计日志
+ * GET /groups/{groupId}/auditLogs
+ */
+async function vrchatGetGroupAuditLogs(groupId, cookie, n = 50, offset = 0) {
+  const safeId = sanitizeVrcId(groupId);
+  const endpoint = `/groups/${safeId}/auditLogs?apiKey=${VRC_API_KEY}&n=${n}&offset=${offset}`;
+  return await vrchatRequest('GET', endpoint, null, cookie);
+}
+
+/**
+ * 群经济信息
+ * GET /groups/{groupId}/economy
+ */
+async function vrchatGetGroupEconomy(groupId, cookie) {
+  const safeId = sanitizeVrcId(groupId);
+  const endpoint = `/groups/${safeId}/economy?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('GET', endpoint, null, cookie);
+}
+
+/**
+ * 群黑名单列表
+ * GET /groups/{groupId}/bans
+ */
+async function vrchatGetGroupBans(groupId, cookie, n = 50, offset = 0) {
+  const safeId = sanitizeVrcId(groupId);
+  const endpoint = `/groups/${safeId}/bans?apiKey=${VRC_API_KEY}&n=${n}&offset=${offset}`;
+  return await vrchatRequest('GET', endpoint, null, cookie);
+}
+
+/**
+ * 加入群黑名单（封禁成员）
+ * POST /groups/{groupId}/bans  body: { userId }
+ */
+async function vrchatBanGroupMember(groupId, cookie, userId) {
+  const safeId = sanitizeVrcId(groupId);
+  const endpoint = `/groups/${safeId}/bans?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('POST', endpoint, { userId }, cookie);
+}
+
+/**
+ * 移出群黑名单（解封）
+ * DELETE /groups/{groupId}/bans/{userId}
+ */
+async function vrchatUnbanGroupMember(groupId, userId, cookie) {
+  const safeId = sanitizeVrcId(groupId);
+  const safeUser = sanitizeVrcId(userId);
+  const endpoint = `/groups/${safeId}/bans/${safeUser}?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('DELETE', endpoint, null, cookie);
+}
+
+/**
+ * 关注群日历
+ * POST /calendar/{groupId}/follow
+ */
+async function vrchatFollowGroupCalendar(groupId, cookie) {
+  const safeId = sanitizeVrcId(groupId);
+  const endpoint = `/calendar/${safeId}/follow?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('POST', endpoint, null, cookie);
+}
+
+/**
+ * 取消关注群日历
+ * DELETE /calendar/{groupId}/follow
+ */
+async function vrchatUnfollowGroupCalendar(groupId, cookie) {
+  const safeId = sanitizeVrcId(groupId);
+  const endpoint = `/calendar/${safeId}/follow?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('DELETE', endpoint, null, cookie);
+}
+
 /**
  * V6.5: 获取 VRChat 用户详情（含在线状态和位置）
  * GET /users/{userId}
@@ -696,6 +922,27 @@ module.exports = {
   vrchatUnmuteUser,
   vrchatGetGroup,
   vrchatGetGroupMembers,
+  vrchatGetGroupAnnouncements,
+  vrchatCreateGroupAnnouncement,
+  vrchatDeleteGroupAnnouncement,
+  vrchatGetGroupGalleries,
+  vrchatCreateGroupGallery,
+  vrchatGetGroupGallery,
+  vrchatUpdateGroupGallery,
+  vrchatDeleteGroupGallery,
+  vrchatGetGroupRoles,
+  vrchatCreateGroupRole,
+  vrchatUpdateGroupRole,
+  vrchatDeleteGroupRole,
+  vrchatAddGroupMemberRole,
+  vrchatRemoveGroupMemberRole,
+  vrchatGetGroupAuditLogs,
+  vrchatGetGroupEconomy,
+  vrchatGetGroupBans,
+  vrchatBanGroupMember,
+  vrchatUnbanGroupMember,
+  vrchatFollowGroupCalendar,
+  vrchatUnfollowGroupCalendar,
   vrchatGetFriends,
   vrchatGetAllFriends,
   vrchatGetFriendsOnlineMap,

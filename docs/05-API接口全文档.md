@@ -427,6 +427,31 @@
 | `POST /api/group/invites/:id/reject` | Session 且绑定 VRC ID 匹配 | — | `{success:true}` |
 | `GET /api/group/invites/my` | Session | — | `{invites}` |
 
+**F-6/F-23 群组内容管理（管理员直通 VRChat，写操作使用本人 VRC Cookie）**：
+
+| 方法与路径 | 权限 | 请求 | 成功响应 |
+|---|---|---|---|
+| `GET /api/group/announcements` | 管理员 + VRC Cookie | — | `{announcements}` |
+| `POST /api/group/announcements` | 管理员 + VRC Cookie | `{text,sendNotification?}` | `{announcement}` |
+| `DELETE /api/group/announcements/:announcementId` | 管理员 + VRC Cookie | — | `{ok:true}` |
+| `GET /api/group/galleries` | 管理员 + VRC Cookie | — | `{galleries}` |
+| `POST /api/group/galleries` | 管理员 + VRC Cookie | `{name,description?}` | `{gallery}` |
+| `PUT /api/group/galleries/:galleryId` | 管理员 + VRC Cookie | `{name,description?}` | `{gallery}` |
+| `DELETE /api/group/galleries/:galleryId` | 管理员 + VRC Cookie | — | `{ok:true}` |
+| `GET /api/group/roles` | 管理员 + VRC Cookie | — | `{roles}` |
+| `POST /api/group/roles` | 管理员 + VRC Cookie | `{name,description?}` | `{role}` |
+| `DELETE /api/group/roles/:roleId` | 管理员 + VRC Cookie | — | `{ok:true}` |
+| `PUT /api/group/members/:userId/roles/:roleId` | 管理员 + VRC Cookie | `{action:'add'\|'remove'}` | `{ok:true}` |
+| `GET /api/group/audit-logs` | 管理员 + VRC Cookie | `n?`，默认 50 | `{auditLogs}` |
+| `GET /api/group/bans` | 管理员 + VRC Cookie | `n?` | `{bans}` |
+| `POST /api/group/bans` | 管理员 + VRC Cookie | `{userId}` | `{ban}` |
+| `DELETE /api/group/bans/:userId` | 管理员 + VRC Cookie | — | `{ok:true}` |
+| `GET /api/group/economy` | 管理员 + VRC Cookie | — | `{economy}` |
+| `POST /api/group/calendar/follow` | 管理员 + VRC Cookie | — | `{ok:true}` |
+| `DELETE /api/group/calendar/follow` | 管理员 + VRC Cookie | — | `{ok:true}` |
+
+> 路径参数 `userId/roleId/galleryId/announcementId` 均经 `sanitizeVrcId` 白名单校验（`usr_/grol_/gald_` 前缀 + hex）；管理面板前端入口在「群组」Tab 的 admin-only 折叠面板（公告/相册/角色/审计日志/黑名单/经济/日历，见 `group.js` 的 `setupGroupAdminPanels`）。
+
 ### 7.1 模型收藏馆（`model-collections.js`，挂载 `/api/model-collections`）
 
 玩家收藏的 VRChat 头像/模型（`avtr_` 等 modelId）的增删改查、有效性检测、失效通知，以及「替换游戏内模型」（调 `vrchatSetAvatar`，严格使用本人 VRC Cookie，绝不回退系统账号）。数据表 `model_collections`（`UNIQUE(user_id, model_id)`）。前端入口：导航「🎭 模型收藏馆」Tab（`#tab-modelcoll`）与管理面板「模型收藏」专区（`#adminModelCollectionsSection`）。

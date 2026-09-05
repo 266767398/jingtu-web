@@ -39,6 +39,57 @@
   color: #fbbf24;
 }
 
+/* ==================== F-6/F-23 群组内容管理（管理员面板） ==================== */
+.group-admin-input {
+  flex: 1;
+  min-width: 160px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.group-admin-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(124,92,252,.1);
+}
+.group-admin-textarea {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  resize: vertical;
+  font-family: inherit;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.group-admin-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(124,92,252,.1);
+}
+.group-admin-select {
+  flex: 1;
+  min-width: 140px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+}
+.group-change-item .btn {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  font-size: 11px;
+}
+
 /* ===== 缇ょ粍鎴愬憳鍗＄墖锛氬彲鐐瑰嚮鎵撳紑鍚嶇墖璇︽儏 ===== */
 .group-member-card { cursor: pointer; }
 

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -631,6 +631,57 @@
       <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
     </div>
     <details id="groupChangesSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">成员变动记录 <span id="groupChangesCount" class="text-muted2 text-12"></span></summary><div id="groupChangesList" class="group-changes-list"></div></details>
+    <!-- F-6/F-23 群组内容管理（管理员） -->
+    <details id="groupAnnouncementsSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">📢 群公告管理</summary>
+      <div id="groupAnnouncementsList" class="group-changes-list"></div>
+      <div class="flex-row gap-6 mt-8 flex-wrap">
+        <input id="groupAnnTitle" class="group-admin-input" placeholder="公告标题" maxlength="120">
+        <label class="text-12"><input type="checkbox" id="groupAnnNotify" checked> 通知成员</label>
+        <button id="groupAnnPublishBtn" class="btn btn-sm btn-outline">📢 发布</button>
+      </div>
+      <textarea id="groupAnnText" class="group-admin-textarea" rows="3" placeholder="公告内容" maxlength="3000"></textarea>
+    </details>
+    <details id="groupGalleriesSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">🖼️ 群相册管理</summary>
+      <div id="groupGalleriesList" class="group-changes-list"></div>
+      <div class="flex-row gap-6 mt-8 flex-wrap">
+        <input id="groupGalName" class="group-admin-input" placeholder="相册名称" maxlength="60">
+        <input id="groupGalDesc" class="group-admin-input" placeholder="相册描述（可选）" maxlength="200">
+        <button id="groupGalCreateBtn" class="btn btn-sm btn-outline">➕ 创建相册</button>
+      </div>
+    </details>
+    <details id="groupRolesSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">🎭 群角色管理</summary>
+      <div id="groupRolesList" class="group-changes-list"></div>
+      <div class="flex-row gap-6 mt-8 flex-wrap">
+        <input id="groupRoleName" class="group-admin-input" placeholder="角色名称" maxlength="60">
+        <input id="groupRoleDesc" class="group-admin-input" placeholder="角色描述（可选）" maxlength="200">
+        <button id="groupRoleCreateBtn" class="btn btn-sm btn-outline">➕ 创建角色</button>
+      </div>
+      <div class="flex-row gap-6 mt-8 flex-wrap">
+        <input id="groupRoleUserId" class="group-admin-input" placeholder="成员 VRChat ID（usr_...）">
+        <select id="groupRoleSelect" class="group-admin-select" aria-label="选择群角色"></select>
+        <button id="groupRoleAddBtn" class="btn btn-sm btn-outline">授予</button>
+        <button id="groupRoleRemoveBtn" class="btn btn-sm btn-outline">移除</button>
+      </div>
+    </details>
+    <details id="groupAuditLogsSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">📋 群审计日志 <span id="groupAuditLogsCount" class="text-muted2 text-12"></span></summary>
+      <div id="groupAuditLogsList" class="group-changes-list"></div>
+    </details>
+    <details id="groupBansSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">🚫 群黑名单 <span id="groupBansCount" class="text-muted2 text-12"></span></summary>
+      <div id="groupBansList" class="group-changes-list"></div>
+      <div class="flex-row gap-6 mt-8 flex-wrap">
+        <input id="groupBanUserId" class="group-admin-input" placeholder="成员 VRChat ID（usr_...）">
+        <button id="groupBanBtn" class="btn btn-sm btn-outline">🚫 加入黑名单</button>
+      </div>
+    </details>
+    <details id="groupEconomySection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">💰 群经济</summary>
+      <div id="groupEconomyList" class="group-changes-list"></div>
+    </details>
+    <details id="groupCalendarSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">📅 群日历关注</summary>
+      <div class="flex-row gap-6 mt-8 flex-wrap">
+        <button id="groupCalFollowBtn" class="btn btn-sm btn-outline">➕ 关注群日历</button>
+        <button id="groupCalUnfollowBtn" class="btn btn-sm btn-outline">➖ 取消关注</button>
+      </div>
+    </details>
     </div>
     <div id="vrcWorldsView" class="d-none">
       <section class="worlds-panel mt-8" aria-label="VRChat 世界分布">

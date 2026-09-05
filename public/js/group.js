@@ -626,6 +626,338 @@ async function loadGroupChanges() {
   } catch {}
 }
 
+// ==================== F-6/F-23 群组内容管理（管理员面板） ====================
+// 面板均为 admin-only 折叠项：展开时懒加载列表，写操作走用户本人 VRChat cookie（后端强制）。
+function isAdminUser() {
+  return !!(currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin'));
+}
+
+// api() 对 401/403/429/5xx 已统一弹提示；这里只兜底 400 类静默失败，把后端错误文案吐出来
+async function groupAdminFail(res) {
+  try {
+    const d = await res.json();
+    const msg = (d.error && typeof d.error === 'object' && d.error.message) || (typeof d.error === 'string' ? d.error : '') || d.detail || '';
+    if (msg) toast(msg, 'error');
+  } catch {}
+}
+
+function bindGroupAdminPanel(id, loader) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('toggle', () => { if (el.open && isAdminUser()) loader(); });
+}
+
+function bindGroupAdminClick(id, fn) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', fn);
+}
+
+function setupGroupAdminPanels() {
+  if (!isAdminUser()) return;
+  bindGroupAdminPanel('groupAnnouncementsSection', loadGroupAnnouncements);
+  bindGroupAdminPanel('groupGalleriesSection', loadGroupGalleries);
+  bindGroupAdminPanel('groupRolesSection', loadGroupRoles);
+  bindGroupAdminPanel('groupAuditLogsSection', loadGroupAuditLogs);
+  bindGroupAdminPanel('groupBansSection', loadGroupBans);
+  bindGroupAdminPanel('groupEconomySection', loadGroupEconomy);
+  bindGroupAdminClick('groupAnnPublishBtn', publishGroupAnnouncement);
+  bindGroupAdminClick('groupGalCreateBtn', createGroupGallery);
+  bindGroupAdminClick('groupRoleCreateBtn', createGroupRole);
+  bindGroupAdminClick('groupRoleAddBtn', () => applyGroupMemberRole('add'));
+  bindGroupAdminClick('groupRoleRemoveBtn', () => applyGroupMemberRole('remove'));
+  bindGroupAdminClick('groupBanBtn', banGroupMemberAction);
+  bindGroupAdminClick('groupCalFollowBtn', () => groupCalendarAction('follow'));
+  bindGroupAdminClick('groupCalUnfollowBtn', () => groupCalendarAction('unfollow'));
+}
+
+// ---- 群公告 ----
+async function loadGroupAnnouncements() {
+  const list = document.getElementById('groupAnnouncementsList');
+  if (!list) return;
+  try {
+    const res = await api('/api/group/announcements');
+    if (!res.ok) { await groupAdminFail(res); return; }
+    const data = await res.json();
+    const items = data.announcements || [];
+    if (!items.length) { renderEmpty(list, { icon: '📢', text: __('group.no_announcements') }); return; }
+    list.innerHTML = items.map(a => {
+      const id = a.announcementId || a.id || '';
+      const title = a.title || __('group.untitled');
+      const text = a.text || '';
+      return `<div class="group-change-item" data-ann-id="${esc(id)}">
+        <span class="group-change-icon">📢</span>
+        <span class="group-change-name" title="${esc(text)}">${esc(title)}</span>
+        <span class="group-change-type">${esc(String(text).slice(0, 30))}</span>
+        <button class="btn btn-sm btn-outline" data-action="ann-del">${__('group.delete_btn')}</button>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('[data-action="ann-del"]').forEach(btn => {
+      btn.addEventListener('click', () => deleteGroupAnnouncement(btn.closest('[data-ann-id]').dataset.annId));
+    });
+  } catch {}
+}
+
+async function publishGroupAnnouncement() {
+  const titleEl = document.getElementById('groupAnnTitle');
+  const textEl = document.getElementById('groupAnnText');
+  const notifyEl = document.getElementById('groupAnnNotify');
+  if (!titleEl || !textEl) return;
+  const title = titleEl.value.trim();
+  const text = textEl.value.trim();
+  if (!title || !text) { toast(__('group.ann_required'), 'error'); return; }
+  const res = await api('/api/group/announcements', { method: 'POST', body: { title, text, sendNotification: notifyEl ? !!notifyEl.checked : true } });
+  if (!res.ok) { await groupAdminFail(res); return; }
+  titleEl.value = '';
+  textEl.value = '';
+  toast(__('group.ann_published'), 'success');
+  loadGroupAnnouncements();
+}
+
+async function deleteGroupAnnouncement(id) {
+  if (!id || !confirm(__('group.ann_del_confirm'))) return;
+  const res = await api('/api/group/announcements/' + encodeURIComponent(id), { method: 'DELETE' });
+  if (!res.ok) { await groupAdminFail(res); return; }
+  toast(__('group.op_done'), 'success');
+  loadGroupAnnouncements();
+}
+
+// ---- 群相册 ----
+async function loadGroupGalleries() {
+  const list = document.getElementById('groupGalleriesList');
+  if (!list) return;
+  try {
+    const res = await api('/api/group/galleries');
+    if (!res.ok) { await groupAdminFail(res); return; }
+    const data = await res.json();
+    const items = data.galleries || [];
+    if (!items.length) { renderEmpty(list, { icon: '🖼️', text: __('group.no_galleries') }); return; }
+    list.innerHTML = items.map(g => {
+      const id = g.galleryId || g.id || '';
+      const name = g.name || __('group.untitled');
+      const desc = g.description || '';
+      return `<div class="group-change-item" data-gal-id="${esc(id)}">
+        <span class="group-change-icon">🖼️</span>
+        <span class="group-change-name" title="${esc(desc)}">${esc(name)}</span>
+        <button class="btn btn-sm btn-outline" data-action="gal-rename">${__('group.rename_btn')}</button>
+        <button class="btn btn-sm btn-outline" data-action="gal-del">${__('group.delete_btn')}</button>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('[data-action="gal-rename"]').forEach(btn => {
+      btn.addEventListener('click', () => renameGroupGallery(btn.closest('[data-gal-id]').dataset.galId, btn.parentElement.querySelector('.group-change-name').textContent));
+    });
+    list.querySelectorAll('[data-action="gal-del"]').forEach(btn => {
+      btn.addEventListener('click', () => deleteGroupGallery(btn.closest('[data-gal-id]').dataset.galId));
+    });
+  } catch {}
+}
+
+async function createGroupGallery() {
+  const nameEl = document.getElementById('groupGalName');
+  const descEl = document.getElementById('groupGalDesc');
+  if (!nameEl) return;
+  const name = nameEl.value.trim();
+  if (!name) { toast(__('group.gal_required'), 'error'); return; }
+  const res = await api('/api/group/galleries', { method: 'POST', body: { name, description: descEl ? descEl.value.trim() : '' } });
+  if (!res.ok) { await groupAdminFail(res); return; }
+  nameEl.value = '';
+  if (descEl) descEl.value = '';
+  toast(__('group.op_done'), 'success');
+  loadGroupGalleries();
+}
+
+async function renameGroupGallery(id, oldName) {
+  if (!id) return;
+  const name = prompt(__('group.gal_rename_prompt'), oldName || '');
+  if (!name || !name.trim()) return;
+  const res = await api('/api/group/galleries/' + encodeURIComponent(id), { method: 'PUT', body: { name: name.trim() } });
+  if (!res.ok) { await groupAdminFail(res); return; }
+  toast(__('group.op_done'), 'success');
+  loadGroupGalleries();
+}
+
+async function deleteGroupGallery(id) {
+  if (!id || !confirm(__('group.gal_del_confirm'))) return;
+  const res = await api('/api/group/galleries/' + encodeURIComponent(id), { method: 'DELETE' });
+  if (!res.ok) { await groupAdminFail(res); return; }
+  toast(__('group.op_done'), 'success');
+  loadGroupGalleries();
+}
+
+// ---- 群角色 ----
+async function loadGroupRoles() {
+  const list = document.getElementById('groupRolesList');
+  const select = document.getElementById('groupRoleSelect');
+  if (!list) return;
+  try {
+    const res = await api('/api/group/roles');
+    if (!res.ok) { await groupAdminFail(res); return; }
+    const data = await res.json();
+    const items = data.roles || [];
+    // 同步"成员角色授予/移除"下拉框
+    if (select) {
+      select.innerHTML = items.map(r => `<option value="${esc(r.id || r.roleId || '')}">${esc(r.name || '-')}</option>`).join('');
+    }
+    if (!items.length) { renderEmpty(list, { icon: '🎭', text: __('group.no_roles') }); return; }
+    list.innerHTML = items.map(r => {
+      const id = r.id || r.roleId || '';
+      const name = r.name || '-';
+      const desc = r.description || '';
+      return `<div class="group-change-item" data-role-id="${esc(id)}">
+        <span class="group-change-icon">🎭</span>
+        <span class="group-change-name" title="${esc(desc)}">${esc(name)}</span>
+        <button class="btn btn-sm btn-outline" data-action="role-del">${__('group.delete_btn')}</button>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('[data-action="role-del"]').forEach(btn => {
+      btn.addEventListener('click', () => deleteGroupRole(btn.closest('[data-role-id]').dataset.roleId));
+    });
+  } catch {}
+}
+
+async function createGroupRole() {
+  const nameEl = document.getElementById('groupRoleName');
+  const descEl = document.getElementById('groupRoleDesc');
+  if (!nameEl) return;
+  const name = nameEl.value.trim();
+  if (!name) { toast(__('group.role_required'), 'error'); return; }
+  const res = await api('/api/group/roles', { method: 'POST', body: { name, description: descEl ? descEl.value.trim() : '' } });
+  if (!res.ok) { await groupAdminFail(res); return; }
+  nameEl.value = '';
+  if (descEl) descEl.value = '';
+  toast(__('group.op_done'), 'success');
+  loadGroupRoles();
+}
+
+async function deleteGroupRole(id) {
+  if (!id || !confirm(__('group.role_del_confirm'))) return;
+  const res = await api('/api/group/roles/' + encodeURIComponent(id), { method: 'DELETE' });
+  if (!res.ok) { await groupAdminFail(res); return; }
+  toast(__('group.op_done'), 'success');
+  loadGroupRoles();
+}
+
+async function applyGroupMemberRole(action) {
+  const userIdEl = document.getElementById('groupRoleUserId');
+  const select = document.getElementById('groupRoleSelect');
+  if (!userIdEl || !select) return;
+  const userId = userIdEl.value.trim();
+  const roleId = select.value;
+  if (!userId || !roleId) { toast(__('group.role_user_required'), 'error'); return; }
+  const res = await api('/api/group/members/' + encodeURIComponent(userId) + '/roles/' + encodeURIComponent(roleId), { method: 'PUT', body: { action } });
+  if (!res.ok) { await groupAdminFail(res); return; }
+  userIdEl.value = '';
+  toast(__('group.op_done'), 'success');
+}
+
+// ---- 群审计日志（F-23） ----
+async function loadGroupAuditLogs() {
+  const list = document.getElementById('groupAuditLogsList');
+  const countEl = document.getElementById('groupAuditLogsCount');
+  if (!list) return;
+  try {
+    const res = await api('/api/group/audit-logs');
+    if (!res.ok) { await groupAdminFail(res); return; }
+    const data = await res.json();
+    const items = data.auditLogs || [];
+    if (countEl) countEl.textContent = '(' + items.length + ')';
+    if (!items.length) { renderEmpty(list, { icon: '📋', text: __('group.no_audit_logs') }); return; }
+    list.innerHTML = items.map(l => {
+      const desc = l.description || l.action || '-';
+      const actor = (l.actor && (l.actor.displayName || l.actor.name)) || l.actorDisplayName || '';
+      const time = l.created_at || l.createdAt || '';
+      const timeText = time && typeof formatLastSeen === 'function' ? formatLastSeen(time) : '';
+      return `<div class="group-change-item">
+        <span class="group-change-icon">📋</span>
+        <span class="group-change-name" title="${esc(desc)}">${esc(actor ? actor + ' · ' + desc : desc)}</span>
+        <span class="group-change-time">${esc(timeText)}</span>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
+// ---- 群黑名单（F-23） ----
+async function loadGroupBans() {
+  const list = document.getElementById('groupBansList');
+  const countEl = document.getElementById('groupBansCount');
+  if (!list) return;
+  try {
+    const res = await api('/api/group/bans');
+    if (!res.ok) { await groupAdminFail(res); return; }
+    const data = await res.json();
+    const items = data.bans || [];
+    if (countEl) countEl.textContent = '(' + items.length + ')';
+    if (!items.length) { renderEmpty(list, { icon: '🚫', text: __('group.no_bans') }); return; }
+    list.innerHTML = items.map(b => {
+      const uid = b.userId || b.bannedUserId || '';
+      const name = b.displayName || b.username || uid || '-';
+      return `<div class="group-change-item" data-ban-id="${esc(uid)}">
+        <span class="group-change-icon">🚫</span>
+        <span class="group-change-name" title="${esc(uid)}">${esc(name)}</span>
+        <button class="btn btn-sm btn-outline" data-action="ban-lift">${__('group.unban_btn')}</button>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('[data-action="ban-lift"]').forEach(btn => {
+      btn.addEventListener('click', () => unbanGroupMember(btn.closest('[data-ban-id]').dataset.banId));
+    });
+  } catch {}
+}
+
+async function banGroupMemberAction() {
+  const el = document.getElementById('groupBanUserId');
+  if (!el) return;
+  const userId = el.value.trim();
+  if (!userId) { toast(__('group.ban_user_required'), 'error'); return; }
+  if (!confirm(__('group.ban_confirm'))) return;
+  const res = await api('/api/group/bans', { method: 'POST', body: { userId } });
+  if (!res.ok) { await groupAdminFail(res); return; }
+  el.value = '';
+  toast(__('group.op_done'), 'success');
+  loadGroupBans();
+}
+
+async function unbanGroupMember(userId) {
+  if (!userId || !confirm(__('group.unban_confirm'))) return;
+  const res = await api('/api/group/bans/' + encodeURIComponent(userId), { method: 'DELETE' });
+  if (!res.ok) { await groupAdminFail(res); return; }
+  toast(__('group.op_done'), 'success');
+  loadGroupBans();
+}
+
+// ---- 群经济（F-23） ----
+async function loadGroupEconomy() {
+  const list = document.getElementById('groupEconomyList');
+  if (!list) return;
+  try {
+    const res = await api('/api/group/economy');
+    if (!res.ok) { await groupAdminFail(res); return; }
+    const data = await res.json();
+    const econ = data.economy;
+    if (econ === null || econ === undefined || (typeof econ === 'object' && !Object.keys(econ).length)) {
+      renderEmpty(list, { icon: '💰', text: __('group.econ_none') });
+      return;
+    }
+    if (typeof econ === 'object') {
+      list.innerHTML = Object.entries(econ).map(([k, v]) => {
+        const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        return `<div class="group-change-item">
+          <span class="group-change-icon">💰</span>
+          <span class="group-change-name">${esc(k)}</span>
+          <span class="group-change-type">${esc(val)}</span>
+        </div>`;
+      }).join('');
+    } else {
+      list.innerHTML = `<div class="group-change-item"><span class="group-change-icon">💰</span><span class="group-change-name">${esc(String(econ))}</span></div>`;
+    }
+  } catch {}
+}
+
+// ---- 群日历关注（F-23） ----
+async function groupCalendarAction(action) {
+  const res = await api('/api/group/calendar/follow', { method: action === 'unfollow' ? 'DELETE' : 'POST' });
+  if (!res.ok) { await groupAdminFail(res); return; }
+  toast(action === 'unfollow' ? __('group.cal_unfollowed') : __('group.cal_followed'), 'success');
+}
+
 // ==================== WebSocket 实时更新处理 ====================
 function handleGroupStatsUpdate(data) {
   if (!data) return;
@@ -684,6 +1016,8 @@ function stopGroupPolling() {
 // ==================== 初始化 ====================
 document.addEventListener('DOMContentLoaded', () => {
   setupGroupSearch();
+  // F-6/F-23 管理面板绑定（内部有 isAdminUser 守卫，非管理员不绑定）
+  setupGroupAdminPanels();
   // 群组玩家卡片 hover 提示（事件委托，动态渲染的卡片也生效）
   document.addEventListener('mouseover', (e) => {
     const card = e.target && e.target.closest ? e.target.closest('.group-member-card') : null;
