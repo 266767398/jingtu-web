@@ -659,6 +659,67 @@ module.exports = function (notificationService) {
     }
   });
 
+  // ==================== F-16 GET /api/friends/avatar-history/:userId ====================
+  // 头像使用历史（使用过的头像 + 使用次数 + 首次/最近使用时间 + 最近观测缩略图），由定时任务写入 avatar_history_log 表。
+  router.get('/avatar-history/:userId', requireAuth, async (req, res) => {
+    try {
+      const me = req.session.userId;
+      const target = parseInt(req.params.userId);
+      if (!target || isNaN(target)) {
+        return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
+      }
+      const pool = getPool();
+
+      // 校验 target 是本人或已接受好友（与 F-13/F-14 历史接口一致）
+      if (target !== me) {
+        const [rel] = await pool.query(
+          `SELECT id FROM user_friends WHERE user_id = ? AND friend_id = ? AND status = 'accepted'`,
+          [me, target]
+        );
+        if (!rel.length) {
+          return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权查看该用户的头像历史');
+        }
+      }
+
+      // 取目标用户 vrchat_id（头像历史以 vrchat_id 为键）
+      const [urows] = await pool.query(
+        `SELECT vrchat_name FROM users WHERE id = ? AND deleted_at IS NULL`, [target]
+      );
+      if (!urows.length || !urows[0].vrchat_name) {
+        return res.json({ items: [], total: 0 });
+      }
+      const vrcid = urows[0].vrchat_name;
+
+      // 头像历史聚合：按 avatar_id 去重，返回使用次数与首次/最近使用时间，按最近使用倒序
+      const [items] = await pool.query(
+        `SELECT avatar_id, avatar_url, use_count, first_seen_at, last_seen_at
+         FROM avatar_history_log WHERE vrchat_id = ?
+         ORDER BY last_seen_at DESC, use_count DESC
+         LIMIT 100`,
+        [vrcid]
+      );
+
+      const [cntRows] = await pool.query(
+        `SELECT COUNT(*) AS c, COALESCE(SUM(use_count),0) AS uses FROM avatar_history_log WHERE vrchat_id = ?`,
+        [vrcid]
+      );
+
+      res.json({
+        items: items.map(r => ({
+          avatarId: r.avatar_id,
+          avatarUrl: r.avatar_url,
+          useCount: r.use_count,
+          firstSeenAt: r.first_seen_at,
+          lastSeenAt: r.last_seen_at
+        })),
+        totalAvatars: cntRows[0].c || 0,
+        totalUses: cntRows[0].uses || 0
+      });
+    } catch (e) {
+      handleError(res, e, '[friends/avatar-history]');
+    }
+  });
+
   // 指定好友的共同好友列表（点开详情）
   router.get('/mutuals/:targetUserId', requireAuth, async (req, res) => {
     try {

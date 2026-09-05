@@ -551,6 +551,9 @@ app.use('/api/avatar', require('./routes/avatar')());
 // 统一收藏系统 (V8.2)：合并模型收藏馆与收藏夹（含由孤儿 model-collections 模块迁移而来的 VRCX 匿名搜索）
 app.use('/api/collections', require('./routes/collections')(getVRCCookie));
 
+// F-16 头像标签（私有标签，owner 为当前登录用户）
+app.use('/api/avatar-tags', require('./routes/avatar_tags'));
+
 app.use('/api/event-teams', require('./routes/event_teams'));
 
 // 启动期路由冲突自检（P2-15 / B-3，只读）：扫描全部已注册路由，

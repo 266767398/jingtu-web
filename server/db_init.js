@@ -270,6 +270,7 @@ async function initDatabase() {
         vrchat_name VARCHAR(100) NOT NULL,
         display_name VARCHAR(255) DEFAULT '',
         avatar_url TEXT,
+        avatar_id VARCHAR(100) DEFAULT '' COMMENT 'VRChat Avatar ID（avtr_xxx），F-16 头像历史键',
         is_member TINYINT DEFAULT 1,
         is_friend TINYINT DEFAULT 0 COMMENT '是否有可信（好友视角）的在线状态来源：系统账号好友，或群友共享上报',
         is_online TINYINT DEFAULT 0 COMMENT '账号是否在线（含网页端登录 + 客户端游戏内）',
@@ -377,6 +378,43 @@ async function initDatabase() {
         UNIQUE KEY uk_vrc_world(vrchat_id, world_id),
         INDEX idx_vrchat_id(vrchat_id),
         INDEX idx_time(created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // F-16 头像使用历史：当前态表（avatar_history_current，跨轮次比较头像变化）+ 流水表（avatar_history_log，头像使用记录聚合）
+      // 定时任务对 group_roster 好友（is_friend=1）Diff avatar_id，检测到头像变化且新头像非空时 UPSERT 使用次数。
+      // avatar_id 存 VRChat Avatar ID（avtr_xxx）；avatar_url 冗余存该头像的缩略图 URL 便于展示。
+      `CREATE TABLE IF NOT EXISTS avatar_history_current (
+        vrchat_id VARCHAR(100) NOT NULL PRIMARY KEY,
+        avatar_id VARCHAR(100) DEFAULT '' COMMENT 'VRChat Avatar ID（avtr_xxx）',
+        avatar_url TEXT COMMENT '该头像的缩略图 URL',
+        synced_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      `CREATE TABLE IF NOT EXISTS avatar_history_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        vrchat_id VARCHAR(100) NOT NULL,
+        avatar_id VARCHAR(100) DEFAULT '' COMMENT 'VRChat Avatar ID（avtr_xxx）',
+        avatar_url TEXT COMMENT '该头像的缩略图 URL（展示用，取最近一次观测值）',
+        use_count INT DEFAULT 1 COMMENT '累计采样到使用该头像的轮次数（冗余聚合，便于历史排序）',
+        first_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_vrc_avatar(vrchat_id, avatar_id),
+        INDEX idx_vrchat_id(vrchat_id),
+        INDEX idx_time(created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // F-16 头像标签：私有标签（owner_id 为本站用户），一个头像可打多个标签，同一 (owner, avatar, tag) 唯一。
+      // 与 member_note 的私有语义一致：标签仅对打标签者自己可见。
+      `CREATE TABLE IF NOT EXISTS avatar_tags (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        owner_id INT NOT NULL COMMENT '标签所有者（本站用户 id，标签私有）',
+        avatar_id VARCHAR(100) NOT NULL COMMENT 'VRChat Avatar ID（avtr_xxx）',
+        tag VARCHAR(50) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_owner_avatar_tag(owner_id, avatar_id, tag),
+        INDEX idx_owner(owner_id),
+        INDEX idx_avatar(avatar_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
       // 群组同步日志表 (V6.5)
@@ -1161,6 +1199,9 @@ async function initDatabase() {
       // V9.2: 玩家加入当前实例的时刻（仅当 is_in_game=1 才有意义）
       // 与 joined_at(VRC 账号加入群组的时刻) 含义不同，故独立字段避免歧义
       `ALTER TABLE group_roster ADD COLUMN joined_instance_at DATETIME DEFAULT NULL`,
+      // V9.3: VRChat Avatar ID（avtr_xxx）——F-16 头像使用历史以 avatar_id 为键
+      // 定时任务主采样把 currentAvatar 写回本列，F-16 cron 再据此 diff 头像变化
+      `ALTER TABLE group_roster ADD COLUMN avatar_id VARCHAR(100) DEFAULT ''`,
     ];
     // MySQL 5.7 不支持 ADD COLUMN IF NOT EXISTS，用 try/catch 忽略已存在错误
     for (const sql of rosterCols) {

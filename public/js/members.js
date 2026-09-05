@@ -910,6 +910,7 @@ function renderVrcMemberCard(d, forId) {
           <img src="${escAttr(avatar)}" class="vrc-avatar" alt="${esc(d.displayName)}"
                onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
           <div class="vrc-avatar-fallback" style="display:none">${(d.displayName || '?').charAt(0).toUpperCase()}</div>
+          <button type="button" class="vrc-avatar-detail-badge" onclick="openAvatarDetail('${escJsStr(d.vrchatId || '')}','${escJsStr(d.avatarId || '')}','${escJsStr(d.displayName || '')}',${lu.bound ? (Number(lu.id) || 0) : 0},'${escJsStr(avatar)}')" title="${__('members.avatar_detail_btn')}" aria-label="${__('members.avatar_detail_btn')}">🖼️</button>
         </div>
         <div class="vrc-head-meta">
           <div class="vrc-name-row">
@@ -1025,6 +1026,174 @@ function renderVrcMemberCard(d, forId) {
 
       <div class="vrc-card-actions">
         <a href="${profileUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">在 VRChat 中查看</a>
+        <button type="button" class="btn btn-sm btn-outline" onclick="openAvatarDetail('${escJsStr(d.vrchatId || '')}','${escJsStr(d.avatarId || '')}','${escJsStr(d.displayName || '')}',${lu.bound ? (Number(lu.id) || 0) : 0},'${escJsStr(avatar)}')">🖼️ ${__('members.avatar_detail_btn')}</button>
       </div>
     </div>`;
+}
+
+// ==================== F-16 头像详情（使用历史 + 标签 + 收藏） ====================
+let currentAvatarDetail = null; // { vrchatId, avatarId, displayName, localUserId, avatarUrl }
+
+async function openAvatarDetail(vrchatId, avatarId, displayName, localUserId, avatarUrl) {
+  currentAvatarDetail = {
+    vrchatId: vrchatId || '',
+    avatarId: avatarId || '',
+    displayName: displayName || '',
+    localUserId: Number(localUserId) || 0,
+    avatarUrl: avatarUrl || ''
+  };
+  const modal = document.getElementById('avatarDetailModal');
+  if (!modal) {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="avatarDetailModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>🖼️ ${__('members.avatar_detail_title')}</h3>
+            <button class="modal-close" onclick="closeModal('avatarDetailModal')" aria-label="${__('common.close')}">✕</button>
+          </div>
+          <div id="avatarDetailBody" class="avatar-detail-body">
+            <div class="avatar-detail-loading">${__('common.loading')}</div>
+          </div>
+        </div>
+      </div>
+    `);
+  }
+  const body = document.getElementById('avatarDetailBody');
+  if (body) body.innerHTML = `<div class="avatar-detail-loading">${__('common.loading')}</div>`;
+  showModal('avatarDetailModal');
+  await loadAvatarDetail();
+}
+
+async function loadAvatarDetail() {
+  const d = currentAvatarDetail;
+  if (!d) return;
+  const body = document.getElementById('avatarDetailBody');
+  if (!body) return;
+  const hasAvatarId = /^avtr_/i.test(d.avatarId);
+  const results = await Promise.allSettled([
+    d.localUserId ? api(`/api/friends/avatar-history/${d.localUserId}`) : Promise.resolve(null),
+    hasAvatarId ? api(`/api/avatar-tags/${encodeURIComponent(d.avatarId)}`) : Promise.resolve(null)
+  ]);
+  let history = { items: [], totalAvatars: 0, totalUses: 0 };
+  let tags = [];
+  const histRes = results[0].status === 'fulfilled' ? results[0].value : null;
+  const tagRes = results[1].status === 'fulfilled' ? results[1].value : null;
+  if (histRes && histRes.ok) { try { history = await histRes.json(); } catch {} }
+  if (tagRes && tagRes.ok) { try { const td = await tagRes.json(); tags = td.tags || []; } catch {} }
+  renderAvatarDetail(history, tags);
+}
+
+function renderAvatarDetail(history, tags) {
+  const d = currentAvatarDetail;
+  if (!d) return;
+  const body = document.getElementById('avatarDetailBody');
+  if (!body) return;
+  const hasAvatarId = /^avtr_/i.test(d.avatarId);
+  const fmtT = (x) => x ? new Date(x).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+
+  const histItems = history.items || [];
+  const historyHtml = d.localUserId ? `
+    <div class="avatar-detail-block">
+      <span class="vrc-section-label">${__('members.avatar_history_label')}${history.totalAvatars ? `（${__('members.avatar_history_total').replace('{a}', history.totalAvatars).replace('{u}', history.totalUses)}）` : ''}</span>
+      ${histItems.length ? `<div class="avatar-hist-list">${histItems.map(it => `
+        <div class="avatar-hist-item">
+          <img class="avatar-hist-img" src="${escAttr(it.avatarUrl || '/api/avatar/default')}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+          <div class="avatar-hist-fallback" style="display:none">🖼️</div>
+          <div class="avatar-hist-meta">
+            <div class="avatar-hist-id" title="${escAttr(it.avatarId)}">${esc(it.avatarId)}</div>
+            <div class="avatar-hist-times">${__('members.avatar_uses').replace('{n}', it.useCount)} · ${__('members.avatar_first_seen')} ${fmtT(it.firstSeenAt)} · ${__('members.avatar_last_seen')} ${fmtT(it.lastSeenAt)}</div>
+          </div>
+        </div>`).join('')}</div>` : `<div class="avatar-detail-empty">${__('members.avatar_history_empty')}</div>`}
+    </div>` : `<div class="avatar-detail-empty">${__('members.avatar_not_bound')}</div>`;
+
+  const tagsHtml = hasAvatarId ? `
+    <div class="avatar-detail-block">
+      <span class="vrc-section-label">${__('members.avatar_tags_label')}</span>
+      <div class="avatar-tag-edit">
+        <input id="avatarTagInput" class="form-input" type="text" maxlength="255" placeholder="${__('members.avatar_tags_placeholder')}" value="${escAttr(tags.join(', '))}">
+        <div class="form-actions mt-2">
+          <button type="button" class="btn btn-sm btn-danger" onclick="clearAvatarTags()">${__('common.delete')}</button>
+          <button type="button" class="btn btn-sm btn-accent" onclick="saveAvatarTags()">${__('common.save')}</button>
+        </div>
+      </div>
+    </div>` : '';
+
+  const favBtn = hasAvatarId
+    ? `<button id="avatarFavoriteBtn" type="button" class="btn btn-sm btn-primary" onclick="favoriteAvatar()">♥ ${__('members.avatar_favorite_btn')}</button>`
+    : '';
+
+  body.innerHTML = `
+    <div class="avatar-detail-current">
+      <img class="avatar-detail-current-img" src="${escAttr(d.avatarUrl || '/api/avatar/default')}" alt="${escAttr(d.displayName)}" onerror="this.src='/api/avatar/default'">
+      <div class="avatar-detail-current-meta">
+        <div class="avatar-detail-current-name">${esc(d.displayName)}</div>
+        <div class="avatar-detail-current-id" title="${escAttr(d.avatarId)}">${esc(d.avatarId || __('members.avatar_no_id'))}</div>
+      </div>
+      <div class="avatar-detail-current-actions">${favBtn}</div>
+    </div>
+    ${tagsHtml}
+    ${historyHtml}
+  `;
+}
+
+async function favoriteAvatar() {
+  const d = currentAvatarDetail;
+  if (!d || !/^avtr_/i.test(d.avatarId)) return;
+  if (!isLoggedIn()) { toast(__('collections.login_required'), 'error'); return; }
+  try {
+    const res = await api('/api/collections', {
+      method: 'POST',
+      body: JSON.stringify({ kind: 'avatar_model', target_id: d.avatarId, folder_id: null, notes: '', booth_url: '', visibility: 'private' })
+    });
+    if (res.ok) {
+      toast(__('members.avatar_favorited'), 'success');
+      const btn = document.getElementById('avatarFavoriteBtn');
+      if (btn) { btn.disabled = true; btn.textContent = '✅ ' + __('members.avatar_favorited_label'); }
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast((err.error && err.error.message) || __('members.avatar_favorite_failed'), 'error');
+    }
+  } catch (e) {
+    toast(__('members.avatar_favorite_failed'), 'error');
+  }
+}
+
+async function saveAvatarTags() {
+  const d = currentAvatarDetail;
+  if (!d || !/^avtr_/i.test(d.avatarId)) return;
+  const input = document.getElementById('avatarTagInput');
+  if (!input) return;
+  const tags = input.value.split(',').map(s => s.trim()).filter(Boolean).slice(0, 8);
+  try {
+    const res = await api(`/api/avatar-tags/${encodeURIComponent(d.avatarId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ tags })
+    });
+    if (res.ok) {
+      toast(__('members.avatar_tags_saved'), 'success');
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast((err.error && err.error.message) || __('members.avatar_tags_save_failed'), 'error');
+    }
+  } catch (e) {
+    toast(__('members.avatar_tags_save_failed'), 'error');
+  }
+}
+
+async function clearAvatarTags() {
+  const d = currentAvatarDetail;
+  if (!d || !/^avtr_/i.test(d.avatarId)) return;
+  if (!confirm(__('members.avatar_tags_confirm_clear'))) return;
+  try {
+    const res = await api(`/api/avatar-tags/${encodeURIComponent(d.avatarId)}`, { method: 'DELETE' });
+    if (res.ok) {
+      toast(__('members.avatar_tags_cleared'), 'success');
+      const input = document.getElementById('avatarTagInput');
+      if (input) input.value = '';
+    } else {
+      toast(__('members.avatar_tags_clear_failed'), 'error');
+    }
+  } catch (e) {
+    toast(__('members.avatar_tags_clear_failed'), 'error');
+  }
 }

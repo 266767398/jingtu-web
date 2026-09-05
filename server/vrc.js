@@ -783,6 +783,8 @@ async function vrchatGetFriendsOnlineMap(cookie, options = {}) {
       // 头像：优先当前模型缩略图；自定义头像大图作为第二选择（用户自己上传的头像）。
       // 注意：不要把 userIcon 作为头像兜底，它是自定义小图标/徽章，不是头像。
       avatarUrl: f.currentAvatarThumbnailImageUrl || f.profilePicOverrideThumbnail || '',
+      // F-16: VRChat API 的 currentAvatar 字段即当前使用的头像 ID（avtr_xxx），头像历史的键
+      currentAvatar: f.currentAvatar || '',
       profilePicOverrideThumbnail: f.profilePicOverrideThumbnail || '',
       userIcon: f.userIcon || '',
       status,
@@ -859,6 +861,7 @@ async function vrchatResolveOnlineStatuses(cookie, userIds, options = {}) {
             vrchatId: id,
             displayName: userData.displayName || '',
             avatarUrl: userData.currentAvatarThumbnailImageUrl || userData.profilePicOverrideThumbnail || '',
+            currentAvatar: userData.currentAvatar || '',
             profilePicOverrideThumbnail: userData.profilePicOverrideThumbnail || '',
             userIcon: userData.userIcon || '',
             status,

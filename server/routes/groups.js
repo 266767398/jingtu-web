@@ -931,6 +931,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       // --- DB 基础信息（并行）---
       const [rows] = await pool.query(
         `SELECT vrchat_id AS vrchatId, display_name AS displayName, avatar_url AS avatarUrl,
+                avatar_id AS avatarId,
                 profile_pic_override_thumbnail AS profilePicOverrideThumbnail, user_icon AS userIcon,
                 vrchat_status AS vrchatStatus, status_description AS statusDescription,
                 world_name AS worldName, location, joined_instance_at AS joinedInstanceAt,
@@ -944,7 +945,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         [vrchatId]
       );
       const base = rows[0] || {
-        vrchatId, displayName: '', avatarUrl: '', profilePicOverrideThumbnail: '', userIcon: '',
+        vrchatId, displayName: '', avatarUrl: '', avatarId: '', profilePicOverrideThumbnail: '', userIcon: '',
         vrchatStatus: 'offline', isOnline: 0, isInGame: 0, isFriend: 0, isVrcPlus: 0, ageVerified: 0,
         ageVerificationStatus: '',
       };
@@ -1025,6 +1026,8 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         vrchatId: base.vrchatId,
         displayName: base.displayName || '',
         avatarUrl: v.avatarUrl || base.avatarUrl || '',
+        // F-16: 当前使用的头像 ID（avtr_xxx，来自定时任务写回的 group_roster.avatar_id），前端标签/收藏的键
+        avatarId: base.avatarId || '',
         profilePicOverrideThumbnail: v.profilePicOverrideThumbnail || base.profilePicOverrideThumbnail || '',
         bio: v.bio || '', bioLinks: Array.isArray(v.bioLinks) ? v.bioLinks : [],
         status: (base.vrchatStatus || 'offline'), statusDescription: base.statusDescription || '',
@@ -1043,7 +1046,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         bannerColor: v.bannerColor || '', bannerType: v.bannerType || '',
         joinedAt: base.joinedAt || null, activityLevel: activityLevel,
         localUser: localUser ? {
-          bound: true, loginId: localUser.login_id, displayName: localUser.display_name,
+          bound: true, id: localUser.id, loginId: localUser.login_id, displayName: localUser.display_name,
           role: localUser.role, registeredAt: localUser.created_at,
           totalCheckins: localUser.total_checkins || 0
         } : { bound: false },

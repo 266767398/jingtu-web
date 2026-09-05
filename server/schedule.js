@@ -378,6 +378,8 @@ function startSchedule() {
           touchOnly: false,
           displayName: info.displayName || m.vrchat_name || '',
           avatarUrl: info.avatarUrl || m.avatar_url || '',
+          // F-16: 头像 ID（avtr_xxx）随主采样一起落 group_roster，供头像历史 cron diff
+          avatarId: info.currentAvatar || m.avatar_id || '',
           isOnline: finalOnline,
           isInGame: finalInGame,
           status,
@@ -404,12 +406,12 @@ function startSchedule() {
           await pool.query(`UPDATE group_roster SET synced_at=NOW() WHERE vrchat_id=?`, [w.vrchatId]);
         } else {
           await pool.query(
-            `UPDATE group_roster SET display_name=?, avatar_url=?, is_online=?, is_in_game=?, vrchat_status=?, location=?, world_name=?, is_friend=?,
+            `UPDATE group_roster SET display_name=?, avatar_url=?, avatar_id=?, is_online=?, is_in_game=?, vrchat_status=?, location=?, world_name=?, is_friend=?,
                 is_vrc_plus=?, age_verified=?, age_verification_status=?, profile_pic_override_thumbnail=?, user_icon=?, trust_level=?,
                 status_description=?,
                 status_candidate=?, status_changed_at=?, status_trust=?, last_seen=NOW(), synced_at=NOW()
              WHERE vrchat_id=?`,
-            [w.displayName, w.avatarUrl, w.isOnline ? 1 : 0, w.isInGame ? 1 : 0, w.status, w.location, w.worldName, w.isFriend ? 1 : 0,
+            [w.displayName, w.avatarUrl, w.avatarId || '', w.isOnline ? 1 : 0, w.isInGame ? 1 : 0, w.status, w.location, w.worldName, w.isFriend ? 1 : 0,
              w.isVrcPlus, w.ageVerified, w.ageVerificationStatus, w.profilePicOverrideThumbnail, w.userIcon, w.trustLevel || '',
              w.statusDescription || '',
              w.candidate === null ? null : w.candidate, w.changedAt, w.trust, w.vrchatId]
@@ -661,6 +663,68 @@ function startSchedule() {
       }
     } catch (e) {
       console.warn('⚠️ [定时任务] 世界访问历史 diff 失败:', e.message);
+    }
+  }));
+
+  // 每分钟 — F-16 头像使用历史：对 group_roster 好友（is_friend=1）Diff avatar_id，
+  // 检测到头像变化且新头像非空时 UPSERT 使用次数（avatar_history_log），并刷新当前态快照（avatar_history_current）。
+  // avatar_id 由主采样（vrc.js 的 currentAvatar 字段）写回 group_roster；avatar_url 冗余存最近观测的缩略图便于展示。
+  jobs.push(schedule.scheduleJob('* * * * *', async () => {
+    try {
+      const pool = getPool();
+      const [rows] = await pool.query(
+        `SELECT vrchat_id, avatar_id, avatar_url FROM group_roster WHERE is_friend = 1 AND vrchat_id IS NOT NULL AND vrchat_id != ''`
+      );
+      if (!rows.length) return;
+
+      // 读当前态快照（跨轮次比较基准）
+      const [cur] = await pool.query(`SELECT * FROM avatar_history_current`);
+      const curMap = new Map(cur.map(r => [r.vrchat_id, r]));
+
+      const events = [];   // 头像发生变化且新头像非空 → 记一次使用
+      const currentUpserts = [];
+      for (const r of rows) {
+        const avatarId = (r.avatar_id || '').trim();
+        const avatarUrl = r.avatar_url || '';
+        const prev = curMap.get(r.vrchat_id);
+
+        // 首次出现：仅落当前态，不产生事件（无基准可 diff）
+        if (!prev) {
+          currentUpserts.push([r.vrchat_id, avatarId, avatarUrl]);
+          continue;
+        }
+
+        const prevAvatarId = (prev.avatar_id || '').trim();
+        // 头像变化（含从空→非空启用头像，或 A→B 切换头像）才记使用；当前无头像（非空→空）不记
+        if (avatarId && avatarId !== prevAvatarId) {
+          events.push({ vrchatId: r.vrchat_id, avatarId, avatarUrl });
+        }
+        currentUpserts.push([r.vrchat_id, avatarId, avatarUrl]);
+      }
+
+      // 批量写使用事件：同 (vrchat_id, avatar_id) 聚合使用次数，首次/最近使用时间
+      for (const ev of events) {
+        await pool.query(
+          `INSERT INTO avatar_history_log (vrchat_id, avatar_id, avatar_url, use_count, first_seen_at, last_seen_at)
+           VALUES (?,?,?,1,NOW(),NOW())
+           ON DUPLICATE KEY UPDATE use_count = use_count + 1, last_seen_at = NOW(), avatar_url = VALUES(avatar_url)`,
+          [ev.vrchatId, ev.avatarId, ev.avatarUrl]
+        );
+      }
+
+      // 批量 UPSERT 当前态快照
+      if (currentUpserts.length) {
+        for (const c of currentUpserts) {
+          await pool.query(
+            `INSERT INTO avatar_history_current (vrchat_id, avatar_id, avatar_url)
+             VALUES (?,?,?)
+             ON DUPLICATE KEY UPDATE avatar_id=VALUES(avatar_id), avatar_url=VALUES(avatar_url), synced_at=NOW()`,
+            c
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ [定时任务] 头像使用历史 diff 失败:', e.message);
     }
   }));
 
