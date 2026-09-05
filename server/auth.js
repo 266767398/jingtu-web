@@ -5,7 +5,7 @@
  */
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { getAvatarUrl } = require('./utils');
+const { fail, getAvatarUrl } = require('./utils');
 const { getPool } = require('./db');
 
 // ==================== 权限定义 ====================
@@ -80,7 +80,7 @@ function validatePasswordStrength(password) {
 // ==================== Session 中间件 ====================
 function requireAuth(req, res, next) {
   if (!req.session || req.session.userId === undefined) {
-    return res.status(401).json({ error: '请先登录' });
+    return fail(res, 401, '请先登录');
   }
   next();
 }
@@ -106,7 +106,7 @@ async function refreshRoleFromDb(session) {
 function requireRole(...roles) {
   return async (req, res, next) => {
     if (!req.session || req.session.userId === undefined) {
-      return res.status(401).json({ error: '请先登录' });
+      return fail(res, 401, '请先登录');
     }
     const requiredLevel = Math.max(...roles.map(r => ROLE_LEVEL[r] || 0));
     let userLevel = ROLE_LEVEL[req.session.role] || 0;
@@ -115,7 +115,7 @@ function requireRole(...roles) {
       if (freshRole) userLevel = ROLE_LEVEL[freshRole] || 0;
     }
     if (userLevel < requiredLevel) {
-      return res.status(403).json({ error: '权限不足' });
+      return fail(res, 403, '权限不足');
     }
     next();
   };
@@ -130,7 +130,7 @@ function getUserLevel(session) {
 // 兼容旧版：检查是否有管理员权限（admin 及以上）
 async function requireAdminCompat(req, res, next) {
   if (!req.session || req.session.userId === undefined) {
-    return res.status(401).json({ error: '请先登录' });
+    return fail(res, 401, '请先登录');
   }
   let level = ROLE_LEVEL[req.session.role] || 0;
   if (level < ROLE_LEVEL.admin) {
@@ -138,7 +138,7 @@ async function requireAdminCompat(req, res, next) {
     if (freshRole) level = ROLE_LEVEL[freshRole] || 0;
   }
   if (level < ROLE_LEVEL.admin) {
-    return res.status(403).json({ error: '需要管理员权限' });
+    return fail(res, 403, '需要管理员权限');
   }
   next();
 }
@@ -146,7 +146,7 @@ async function requireAdminCompat(req, res, next) {
 // 仅超级管理员可访问（roleLevel >= super_admin）
 async function requireSuperAdmin(req, res, next) {
   if (!req.session || req.session.userId === undefined) {
-    return res.status(401).json({ error: '请先登录' });
+    return fail(res, 401, '请先登录');
   }
   let level = ROLE_LEVEL[req.session.role] || 0;
   if (level < ROLE_LEVEL.super_admin) {
@@ -154,7 +154,7 @@ async function requireSuperAdmin(req, res, next) {
     if (freshRole) level = ROLE_LEVEL[freshRole] || 0;
   }
   if (level < ROLE_LEVEL.super_admin) {
-    return res.status(403).json({ error: '需要超级管理员权限' });
+    return fail(res, 403, '需要超级管理员权限');
   }
   next();
 }

@@ -9,7 +9,7 @@
  */
 const express = require('express');
 const sleep = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
-const { ok,  getPool, handleError , sendError, sendVrcError, ErrorCodes  } = require('../utils');;
+const { fail, ok,  getPool, handleError , sendError, sendVrcError, ErrorCodes  } = require('../utils');;
 const { requireAuth, requireAdminCompat } = require('../auth');
 const {
   vrchatRequest, vrchatGetCurrentUser, vrchatGetCurrentUserResult, vrchatGetGroupMembers,
@@ -137,7 +137,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
   // ==================== VRChat 用户查询 ====================
   router.post('/vrc/lookup', async (req, res) => {
-    if (!getVRCCookieFn(req)) return res.status(401).json({ error: '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', code: 'VRC_SYSTEM_OFFLINE' });
+    if (!getVRCCookieFn(req)) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const { query } = req.body;
       if (!query) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入搜索内容');
@@ -169,7 +169,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
   // ==================== 获取群组信息 ====================
   router.get('/group', async (req, res) => {
-    if (!getVRCCookieFn(req)) return res.status(401).json({ error: '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', code: 'VRC_SYSTEM_OFFLINE' });
+    if (!getVRCCookieFn(req)) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const { cookie: vrcCookie, result: groupRes } = await vrcWithFallback(req,
         (c) => vrchatRequest('GET', `/groups/${GROUP_ID}?apiKey=${VRC_API_KEY}`, null, c));
@@ -191,7 +191,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
   // ==================== VRChat World 详情 ====================
   router.get('/vrc/world/:worldId', async (req, res) => {
-    if (!getVRCCookieFn(req)) return res.status(401).json({ error: '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', code: 'VRC_SYSTEM_OFFLINE' });
+    if (!getVRCCookieFn(req)) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const { result: wr } = await vrcWithFallback(req, (c) => vrchatGetWorld(req.params.worldId, c));
       if (wr.status !== 200) return sendVrcError(res, wr, '获取世界详情');
@@ -201,7 +201,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
   // ==================== VRChat World 搜索 ====================
   router.get('/vrc/worlds/search', async (req, res) => {
-    if (!getVRCCookieFn(req)) return res.status(401).json({ error: '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', code: 'VRC_SYSTEM_OFFLINE' });
+    if (!getVRCCookieFn(req)) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const q = req.query.q || '';
       const n = parseInt(req.query.n) || 10;
@@ -214,7 +214,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
   // ==================== VRChat Avatar 搜索 ====================
   router.get('/vrc/avatars/search', async (req, res) => {
-    if (!getVRCCookieFn(req)) return res.status(401).json({ error: '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', code: 'VRC_SYSTEM_OFFLINE' });
+    if (!getVRCCookieFn(req)) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const q = req.query.q || '';
       const n = parseInt(req.query.n) || 10;
@@ -227,7 +227,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
   // ==================== VRChat Avatar 详情 ====================
   router.get('/vrc/avatar/:avatarId', async (req, res) => {
-    if (!getVRCCookieFn(req)) return res.status(401).json({ error: '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', code: 'VRC_SYSTEM_OFFLINE' });
+    if (!getVRCCookieFn(req)) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const { result: av } = await vrcWithFallback(req, (c) => vrchatGetAvatar(req.params.avatarId, c));
       if (av.status !== 200) return sendVrcError(res, av, '获取模型详情');
@@ -242,7 +242,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   // 而不是会回退系统账号的 getVRCCookieFn。
   router.post('/vrc/avatar/set', async (req, res) => {
     const vrcCookie = (typeof getUserVRCCookieFn === 'function' ? getUserVRCCookieFn : getVRCCookieFn)(req);
-    if (!vrcCookie) return res.status(401).json({ error: '请先在个人中心绑定VRChat账号', code: 'VRC_SYSTEM_OFFLINE' });
+    if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const { avatarId } = req.body;
       if (!avatarId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'avatarId 不能为空');
@@ -255,11 +255,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   // ==================== 全面同步群组成员 ====================
   router.post('/group/members/sync', requireAuth, async (req, res) => {
     if (!getVRCCookieFn(req)) {
-      return res.status(401).json({
-        error: '缺少可用的 VRChat 登录状态',
-        detail: '请先在个人中心绑定您的 VRChat 账号，或在管理面板的"系统 VRChat 账号"卡片中登录系统账号',
-        code: 'VRC_SYSTEM_OFFLINE'
-      });
+      return fail(res, 401, '缺少可用的 VRChat 登录状态', { detail: '请先在个人中心绑定您的 VRChat 账号，或在管理面板的"系统 VRChat 账号"卡片中登录系统账号', code: 'VRC_SYSTEM_OFFLINE' });
     }
     const pool = getPool();
     let conn;
@@ -270,22 +266,13 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     const lastUserSync = lastSyncByUser.get(syncUserKey) || 0;
     if (lastUserSync && nowMs - lastUserSync < SYNC_COOLDOWN_MS) {
       const retryAfterSec = Math.ceil((SYNC_COOLDOWN_MS - (nowMs - lastUserSync)) / 1000);
-      return res.status(429).json({
-        error: '同步冷却中',
-        detail: `距离上次群组同步还需约 ${Math.ceil(retryAfterSec / 60)} 分钟，请稍后再试`,
-        code: 'SYNC_COOLDOWN',
-        retryAfterSec
-      });
+      return fail(res, 429, '同步冷却中', { detail: `距离上次群组同步还需约 ${Math.ceil(retryAfterSec / 60)} 分钟，请稍后再试`, code: 'SYNC_COOLDOWN', retryAfterSec });
     }
     // 同一时刻只允许一次全量同步。前端曾因 api() 的 10 秒超时而看起来"没反应"，
     // 用户会反复点击；并发的同步会各自 `UPDATE ... is_member=0` 再补回，
     // 互相看到对方的中间态，往 group_member_changes 里写出大量假的"已离开群组"记录。
     if (syncInFlight) {
-      return res.status(409).json({
-        error: '同步正在进行中',
-        detail: '上一次群组同步还没结束，请等它完成后再试',
-        code: ErrorCodes.CONFLICT
-      });
+      return fail(res, 409, '同步正在进行中', { detail: '上一次群组同步还没结束，请等它完成后再试', code: ErrorCodes.CONFLICT });
     }
     syncInFlight = true;
     lastSyncByUser.set(syncUserKey, Date.now());
@@ -295,11 +282,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       // 401 = cookie 真的过期了；其它非 2xx = VRChat 上游故障（限流/维护），
       // 两者必须分开报，否则用户会被误导去重新绑定，而且上一版还会顺手清掉绑定。
       if (!meRes || meRes.status === 401) {
-        return res.status(401).json({
-          error: 'VRChat 登录已过期',
-          detail: '请在管理面板重新登录系统 VRChat 账号，或在个人中心重新绑定您的 VRChat 账号',
-          code: 'VRC_COOKIE_EXPIRED'
-        });
+        return fail(res, 401, 'VRChat 登录已过期', { detail: '请在管理面板重新登录系统 VRChat 账号，或在个人中心重新绑定您的 VRChat 账号', code: 'VRC_COOKIE_EXPIRED' });
       }
       if (meRes.status !== 200 || !meRes.data) {
         return sendVrcError(res, meRes, '校验 VRChat 登录状态');
@@ -446,7 +429,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       // VRChat 限流排队超时：这不是"服务器内部错误"，而是上游繁忙，返回 503 让前端明确提示稍后重试。
       if (e?.code === 'VRC_RATE_TIMEOUT') {
         logger.warn('groups', 'sync 遭遇 VRChat 限流排队超时，本次同步未执行');
-        return res.status(503).json({ success: false, code: 'VRC_RATE_LIMITED', error: 'VRChat 接口当前繁忙（限流），请稍后重试' });
+        return fail(res, 503, 'VRChat 接口当前繁忙（限流），请稍后重试', { code: 'VRC_RATE_LIMITED' });
       }
       handleError(res, e, 'groups/sync');
     } finally {
@@ -464,15 +447,10 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     const lastUserRefresh = lastRefreshByUser.get(refreshUserKey) || 0;
     if (lastUserRefresh && nowMs - lastUserRefresh < REFRESH_COOLDOWN_MS) {
       const retryAfterSec = Math.ceil((REFRESH_COOLDOWN_MS - (nowMs - lastUserRefresh)) / 1000);
-      return res.status(429).json({
-        error: '刷新太频繁',
-        detail: `在线状态刷新太频繁，请 ${retryAfterSec} 秒后再试`,
-        code: 'SYNC_COOLDOWN',
-        retryAfterSec
-      });
+      return fail(res, 429, '刷新太频繁', { detail: `在线状态刷新太频繁，请 ${retryAfterSec} 秒后再试`, code: 'SYNC_COOLDOWN', retryAfterSec });
     }
     if (!getVRCCookieFn(req)) {
-      return res.status(401).json({ error: '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', code: 'VRC_SYSTEM_OFFLINE' });
+      return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     }
     lastRefreshByUser.set(refreshUserKey, nowMs);
     const pool = getPool();
@@ -510,10 +488,10 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         });
 
         if (!vrcCookie) {
-          return res.status(401).json({ error: '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', code: 'VRC_SYSTEM_OFFLINE' });
+          return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
         }
         if (onlineResult?.status === 401) {
-          return res.status(401).json({ error: 'VRChat 账号登录已过期，请重新绑定或在管理面板重新登录系统账号', code: 'VRC_COOKIE_EXPIRED' });
+          return fail(res, 401, 'VRChat 账号登录已过期，请重新绑定或在管理面板重新登录系统账号', { code: 'VRC_COOKIE_EXPIRED' });
         }
         if (!onlineResult?.data) {
           return sendVrcError(res, onlineResult, '刷新在线状态');
@@ -645,7 +623,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         return { shared };
       });
       if (!cookie) {
-        return res.status(401).json({ success: false, error: 'VRChat 账号未绑定或已过期', code: 'VRC_SYSTEM_OFFLINE' });
+        return fail(res, 401, 'VRChat 账号未绑定或已过期', { code: 'VRC_SYSTEM_OFFLINE' });
       }
       const shared = result && result.shared !== undefined ? result.shared : 0;
       ok(res, { shared });

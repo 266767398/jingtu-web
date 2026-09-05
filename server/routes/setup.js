@@ -21,7 +21,7 @@ const crypto = require('crypto');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 
-const { ok,  handleError, sendError, ErrorCodes  } = require('../utils');;
+const { fail, ok, handleError, sendError, ErrorCodes } = require('../utils');
 const { requireRole } = require('../auth');
 const { applyDbConfig } = require('../db');
 const mailer = require('../mailer');
@@ -129,7 +129,7 @@ function requireNotInstalled(req, res, next) {
 function requireSuperAdminForReconfigure(req, res, next) {
   if (!fs.existsSync(getEnvPath())) return next(); // 首次安装：无超管账号可登录，放行
   if (req.session && req.session.role === 'super_admin') return next();
-  return res.status(403).json({ error: '仅超级管理员可重走建站引导（修改站点配置）' });
+  return fail(res, 403, '仅超级管理员可重走建站引导（修改站点配置）');
 }
 
 // §45：/setup/check 始终可访问（用于检测安装状态 + 引导完成态）
@@ -350,7 +350,7 @@ router.post('/setup/save', requireNotInstalled, requireSuperAdminForReconfigure,
       });
       // 数据库不存在则自动创建（首次安装 / 重走引导无需手工建库）
       if (!/^[a-zA-Z0-9_]{1,64}$/.test(config.dbName)) {
-        return res.json({ success: false, error: '数据库名仅允许 1-64 位字母/数字/下划线' });
+        return fail(res, 200, '数据库名仅允许 1-64 位字母/数字/下划线');
       }
       await conn.query('CREATE DATABASE IF NOT EXISTS `' + config.dbName + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
       await conn.changeUser({ database: config.dbName });
@@ -370,7 +370,7 @@ router.post('/setup/save', requireNotInstalled, requireSuperAdminForReconfigure,
           const initDatabase = require('../db_init');
           await initDatabase();
         } catch (initErr) {
-          return res.json({ success: false, error: '配置已保存，但数据库表初始化失败：' + initErr.message + '。可手动运行 `node db_init.js` 后重试' });
+          return fail(res, 200, '配置已保存，但数据库表初始化失败：' + initErr.message + '。可手动运行 `node db_init.js` 后重试');
         }
       }
 
@@ -398,7 +398,7 @@ router.post('/setup/save', requireNotInstalled, requireSuperAdminForReconfigure,
       } else {
         // 无超管则新建（重走模式下若未填密码则提示先填）
         if (!config.adminPass) {
-          return res.json({ success: false, error: '未找到现有超管账号，请填写管理员密码以创建新账号' });
+          return fail(res, 200, '未找到现有超管账号，请填写管理员密码以创建新账号');
         }
         const passwordHash = await bcrypt.hash(config.adminPass, 12);
         await conn.query(
@@ -410,7 +410,7 @@ router.post('/setup/save', requireNotInstalled, requireSuperAdminForReconfigure,
       }
     } catch (e) {
       // 合并模式：不删 .env，提示用户修正数据库配置后重试
-      return res.json({ success: false, error: `管理员账号处理失败：${e.message}（.env 已写入，可修正数据库配置后重试）` });
+      return fail(res, 200, `管理员账号处理失败：${e.message}（.env 已写入，可修正数据库配置后重试）`);
     } finally {
       if (conn) {
         try { await conn.end(); } catch (_) {}

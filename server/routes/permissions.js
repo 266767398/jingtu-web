@@ -15,7 +15,7 @@
  */
 const express = require('express');
 const router = express.Router();
-const { getPool, handleError, getAvatarUrl, sendError, ErrorCodes } = require('../utils');
+const { fail, getPool, handleError, getAvatarUrl, sendError, ErrorCodes } = require('../utils');
 const { requireAuth, requireRole, ROLE_LEVEL, ROLE_LABELS } = require('../auth');
 const { ALL_PERMISSIONS, PERMISSION_LABELS } = require('./permission_groups');
 
@@ -43,7 +43,7 @@ function resolveTarget(req, res, next) {
   if (!targetId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的用户ID');
   if (targetId === req.session.userId) return next();
   if ((ROLE_LEVEL[req.session.role] || 0) < ROLE_LEVEL.super_admin) {
-    return res.status(403).json({ error: '权限不足，仅可查看自己的权限' });
+    return fail(res, 403, '权限不足，仅可查看自己的权限');
   }
   next();
 }

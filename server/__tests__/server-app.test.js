@@ -49,7 +49,7 @@ describe('P2-1 server.js 整机集成（app 级 supertest）', () => {
     const res = await request(app).get('/api/definitely-not-a-route');
     expect(res.status).toBe(404);
     expect(res.headers['content-type']).toMatch(/application\/json/);
-    expect(res.body).toEqual({ error: '请求的资源不存在' });
+    expect(res.body).toEqual({ success: false, error: '请求的资源不存在' });
   });
 
   test('非 API 未匹配路径返回 404 中文 HTML 页面（P2-4 全局兜底，非 Express 默认英文）', async () => {
@@ -81,6 +81,6 @@ describe('P2-1 server.js 整机集成（app 级 supertest）', () => {
       .post('/api/definitely-not-a-route')
       .send({ foo: 'bar' });
     expect(res.status).toBe(403);
-    expect(res.body).toEqual({ error: 'CSRF token 无效' });
+    expect(res.body).toEqual({ success: false, error: 'CSRF token 无效' });
   });
 });

@@ -6,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const { onRateLimitTriggered, onSuspiciousRequest } = require('../security_alert');
 const { getLimits } = require('../settings');
+const { fail } = require('../utils');
 
 const FILE_SIGNATURES = {
   'image/jpeg': [0xFF, 0xD8, 0xFF],
@@ -106,7 +107,7 @@ const ddosLimiter = rateLimit({
   },
   handler: (req, res) => {
     onRateLimitTriggered(req.ip, req.path);
-    res.status(429).json({ error: '请求过于频繁，请稍后再试' });
+    fail(res, 429, '请求过于频繁，请稍后再试');
   }
 });
 
@@ -122,7 +123,7 @@ const loginBruteForceLimiter = rateLimit({
   },
   handler: (req, res) => {
     onRateLimitTriggered(req.ip, req.path);
-    res.status(429).json({ error: '登录尝试次数过多，请15分钟后再试' });
+    fail(res, 429, '登录尝试次数过多，请15分钟后再试');
   }
 });
 
@@ -134,7 +135,7 @@ const uploadLimiter = rateLimit({
   message: { error: '上传请求过于频繁，请稍后再试', retryAfter: 60 },
   handler: (req, res) => {
     onRateLimitTriggered(req.ip, req.path);
-    res.status(429).json({ error: '上传请求过于频繁，请稍后再试', retryAfter: 60 });
+    fail(res, 429, '上传请求过于频繁，请稍后再试', { retryAfter: 60 });
   }
 });
 
@@ -146,7 +147,7 @@ const adminLimiter = rateLimit({
   message: { error: '管理后台请求过于频繁，请稍后再试', retryAfter: 60 },
   handler: (req, res) => {
     onRateLimitTriggered(req.ip, req.path);
-    res.status(429).json({ error: '管理后台请求过于频繁，请稍后再试', retryAfter: 60 });
+    fail(res, 429, '管理后台请求过于频繁，请稍后再试', { retryAfter: 60 });
   }
 });
 
@@ -158,7 +159,7 @@ const searchLimiter = rateLimit({
   message: { error: '搜索请求过于频繁，请稍后再试', retryAfter: 30 },
   handler: (req, res) => {
     onRateLimitTriggered(req.ip, req.path);
-    res.status(429).json({ error: '搜索请求过于频繁，请稍后再试', retryAfter: 30 });
+    fail(res, 429, '搜索请求过于频繁，请稍后再试', { retryAfter: 30 });
   }
 });
 
@@ -172,16 +173,16 @@ function requestSizeLimiter(req, res, next) {
   const isUpload = req.path.includes('/upload') || req.path.includes('/photos') || req.path.includes('/videos');
   if (isUpload) {
     if (contentLength > uploadMaxBytes) {
-      return res.status(413).json({ error: '请求体过大' });
+      return fail(res, 413, '请求体过大');
     }
     return next();
   }
   if (contentLength > bodyMaxBytes) {
-    return res.status(413).json({ error: '请求体过大' });
+    return fail(res, 413, '请求体过大');
   }
   if (req.method === 'POST' || req.method === 'PUT') {
     if (contentLength > otherMaxBytes) {
-      return res.status(413).json({ error: '请求体过大' });
+      return fail(res, 413, '请求体过大');
     }
   }
   next();
@@ -201,13 +202,13 @@ function suspiciousRequestDetector(req, res, next) {
   if (rootBlocked.includes(firstSegment)) {
     console.log(`[SEC] Blocked suspicious request: ${req.method} ${req.url} from ${req.ip}`);
     onSuspiciousRequest(req.ip, `访问被阻止路径: /${firstSegment}`, req.path);
-    return res.status(404).json({ error: '资源不存在' });
+    return fail(res, 404, '资源不存在');
   }
   // 文件类探测（.env/.git）：应用不存在此类路由，无论嵌套都拦截
   if (urlPath.includes('/.env') || urlPath.includes('/.git')) {
     console.log(`[SEC] Blocked suspicious request: ${req.method} ${req.url} from ${req.ip}`);
     onSuspiciousRequest(req.ip, '访问被阻止路径: 配置文件/目录探测', req.path);
-    return res.status(404).json({ error: '资源不存在' });
+    return fail(res, 404, '资源不存在');
   }
   next();
 }

@@ -25,7 +25,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { getPool, applyDbConfig, DB_CONFIG } = require('../db');
-const { ok, handleError, sendError, ErrorCodes } = require('../utils');
+const { fail, ok, handleError, sendError, ErrorCodes } = require('../utils');
 const logger = require('../logger');
 
 const router = express.Router();
@@ -51,10 +51,7 @@ if (!RECOVERY_TOKEN) {
 let recoveryFailStreak = 0;
 function requireRecoveryToken(req, res, next) {
   if (!RECOVERY_TOKEN) {
-    return res.status(503).json({
-      error: '数据库恢复通道未启用：请管理员在服务器 .env 配置 RECOVERY_TOKEN 后重试。',
-      code: 'RECOVERY_DISABLED'
-    });
+    return fail(res, 503, '数据库恢复通道未启用：请管理员在服务器 .env 配置 RECOVERY_TOKEN 后重试。', { code: 'RECOVERY_DISABLED' });
   }
   const auth = req.headers['authorization'] || '';
   const fromBearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
@@ -74,7 +71,7 @@ function requireRecoveryToken(req, res, next) {
       try { securityAlert('db_recover_token_fail', { ip: req.ip, fails: recoveryFailStreak }); } catch (_) {}
     }
     logger && logger.warn('[db-recover]', '恢复令牌校验失败（疑似爆破）', { ip: req.ip, fails: recoveryFailStreak });
-    return res.status(401).json({ error: '恢复令牌无效', code: 'BAD_RECOVERY_TOKEN' });
+    return fail(res, 401, '恢复令牌无效', { code: 'BAD_RECOVERY_TOKEN' });
   }
   recoveryFailStreak = 0;
   next();

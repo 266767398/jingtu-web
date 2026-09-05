@@ -7,7 +7,7 @@
  *   description: 管理后台相关接口
  */
 const express = require('express');
-const { ok,  getPool, handleError, logOper , sendError, ErrorCodes  } = require('../utils');;
+const { fail, ok,  getPool, handleError, logOper , sendError, ErrorCodes  } = require('../utils');;
 const {
   requireAuth, requireAdminCompat, requireRole,
   hashPassword, validatePasswordStrength, verifyPassword,
@@ -255,7 +255,7 @@ module.exports = function (groupId, vrcCookieCfg) {
     const { loginId, displayName, password, role, email } = req.body;
     if (!loginId || !password) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '用户名和密码不能为空');
     const pwCheck = validatePasswordStrength(password);
-    if (!pwCheck.valid) return res.status(400).json({ error: pwCheck.errors.join('; ') });
+    if (!pwCheck.valid) return fail(res, 400, pwCheck.errors.join('; '));
     try {
       const [dup] = await getPool().query(`SELECT id FROM users WHERE login_id = ?`, [loginId]);
       if (dup.length > 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '用户名已存在');
@@ -320,7 +320,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       const selfOk = await verifySelfPassword(req.session.userId, confirmPassword);
       if (!selfOk) return sendError(res, 403, ErrorCodes.FORBIDDEN, '管理员密码验证失败，敏感操作已拒绝');
       const pwCheck = validatePasswordStrength(newPassword);
-      if (!pwCheck.valid) return res.status(400).json({ error: pwCheck.errors.join('; ') });
+      if (!pwCheck.valid) return fail(res, 400, pwCheck.errors.join('; '));
       const guard = await assertCanModifyTarget(req, res, req.params.id);
       if (!guard.ok) return;
       const hashed = await hashPassword(newPassword);
@@ -452,7 +452,7 @@ module.exports = function (groupId, vrcCookieCfg) {
   router.post('/admin/live/:id/end', requireAdminCompat, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      if (!id) return res.status(400).json({ error: 'invalid id' });
+      if (!id) return fail(res, 400, 'invalid id');
       await getPool().query(`UPDATE live_streams SET status = 'ended', ended_at = NOW() WHERE id = ?`, [id]);
       await logOper(req.session.userId, '强制结束直播', '直播ID: ' + id);
       ok(res);
@@ -462,7 +462,7 @@ module.exports = function (groupId, vrcCookieCfg) {
   router.delete('/admin/live/:id', requireAdminCompat, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      if (!id) return res.status(400).json({ error: 'invalid id' });
+      if (!id) return fail(res, 400, 'invalid id');
       await getPool().query(`DELETE FROM live_streams WHERE id = ?`, [id]);
       await logOper(req.session.userId, '删除直播', '直播ID: ' + id);
       ok(res);
@@ -548,9 +548,9 @@ module.exports = function (groupId, vrcCookieCfg) {
   router.delete('/admin/content/:type/:id', requireAdminCompat, async (req, res) => {
     try {
       const cfg = CONTENT_TYPES[req.params.type];
-      if (!cfg) return res.status(400).json({ error: 'invalid type' });
+      if (!cfg) return fail(res, 400, 'invalid type');
       const id = parseInt(req.params.id);
-      if (!id) return res.status(400).json({ error: 'invalid id' });
+      if (!id) return fail(res, 400, 'invalid id');
       if (req.params.type === 'events') {
         // 级联清理活动关联数据，避免孤儿记录（与 /api/events/:id 删除逻辑一致）
         await getPool().query(`UPDATE album_photo SET is_recycle=1, recycle_time=NOW() WHERE event_id=?`, [id]);
@@ -568,9 +568,9 @@ module.exports = function (groupId, vrcCookieCfg) {
   router.post('/admin/content/batch', requireAdminCompat, async (req, res) => {
     try {
       const cfg = CONTENT_TYPES[req.body.type];
-      if (!cfg) return res.status(400).json({ error: 'invalid type' });
+      if (!cfg) return fail(res, 400, 'invalid type');
       const ids = Array.isArray(req.body.ids) ? req.body.ids.map(function (x) { return parseInt(x); }).filter(function (x) { return x; }) : [];
-      if (!ids.length) return res.status(400).json({ error: 'empty ids' });
+      if (!ids.length) return fail(res, 400, 'empty ids');
       await getPool().query(`DELETE FROM ${cfg.table} WHERE ${cfg.id} IN (?)`, [ids]);
       await logOper(req.session.userId, '批量删除内容(' + req.body.type + ')', 'IDs: ' + ids.join(','));
       ok(res, { deleted: ids.length });

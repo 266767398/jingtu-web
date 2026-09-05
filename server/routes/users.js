@@ -17,7 +17,7 @@ const {
   encryptAES, decryptAES, requireAuth, requireRole,
   requireAdminCompat, getAvatarUrl
 } = require('../auth');
-const { ok,  getPool, safeError, validateFields, handleError, sendError, ErrorCodes, createErr, createFileFilter, secureUpload  } = require('../utils');;
+const { fail, ok,  getPool, safeError, validateFields, handleError, sendError, ErrorCodes, createErr, createFileFilter, secureUpload  } = require('../utils');;
 const { VRC_API, VRC_API_KEY } = require('../vrc');
 const logger = require('../logger');
 
@@ -310,7 +310,7 @@ router.post('/', requireRole('super_admin'), async (req, res) => {
     const strength = validatePasswordStrength(password);
     if (!strength.valid) {
       await conn.rollback();
-      return res.status(400).json({ error: '密码强度不足', details: strength.errors });
+      return fail(res, 400, '密码强度不足', { details: strength.errors });
     }
 
     const validRoles = ['super_admin', 'admin', 'member'];
@@ -672,7 +672,7 @@ router.post('/:id/reset-password', requireRole('admin'), async (req, res) => {
 
     const strength = validatePasswordStrength(newPassword);
     if (!strength.valid) {
-      return res.status(400).json({ error: '密码强度不足', details: strength.errors });
+      return fail(res, 400, '密码强度不足', { details: strength.errors });
     }
 
     const [target] = await getPool().query(
@@ -1328,7 +1328,7 @@ router.post('/me/change-password', requireAuth, async (req, res) => {
       if (!valid) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '旧密码错误');
     }
     const strength = validatePasswordStrength(newPassword);
-    if (!strength.valid) return res.status(400).json({ error: '新密码强度不足', details: strength.errors });
+    if (!strength.valid) return fail(res, 400, '新密码强度不足', { details: strength.errors });
     const newHash = await hashPassword(newPassword);
     await getPool().query('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, req.session.userId]);
     await logOper(req.session.userId, '修改密码', '用户修改了密码');

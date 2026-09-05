@@ -12,7 +12,7 @@
  * 内存占用与单行大小成常数级，不再随表行数线性增长。
  */
 const express = require('express');
-const { getPool, handleError , sendError, ErrorCodes } = require('../utils');
+const { fail, getPool, handleError , sendError, ErrorCodes } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 const { Parser } = require('json2csv');
 const logger = require('../logger');
@@ -176,7 +176,7 @@ router.post('/admin/export/batch', requireAdminCompat, async (req, res) => {
     const validTables = EXPORT_TABLES.map(t => t.name);
     const invalidTables = tables.filter(t => !validTables.includes(t));
     if (invalidTables.length > 0) {
-      return res.status(400).json({ error: `不支持的表: ${invalidTables.join(', ')}` });
+      return fail(res, 400, `不支持的表: ${invalidTables.join(', ')}`);
     }
 
     logger.warn('[export]', `管理员 ${req.session?.userId || 'unknown'} 批量导出表: ${tables.join(', ')}`);

@@ -16,7 +16,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { handleError } = require('../utils');
+const { fail, handleError } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 const mediaProviders = require('../media_providers');
 
@@ -204,13 +204,13 @@ module.exports = function () {
   // 代理 VRChat 头像：缓存到本地，源过期也不影响
   router.get('/proxy', async (req, res) => {
     const u = req.query.u;
-    if (!u || typeof u !== 'string') return res.status(400).json({ error: 'missing u' });
+    if (!u || typeof u !== 'string') return fail(res, 400, 'missing u');
 
     const host = safeHost(u);
     if (!ALLOWED_HOSTS.includes(host)) {
-      return res.status(400).json({ error: 'host not allowed: ' + host });
+      return fail(res, 400, 'host not allowed: ' + host);
     }
-    if (!/^https?:\/\//i.test(u)) return res.status(400).json({ error: 'bad url' });
+    if (!/^https?:\/\//i.test(u)) return fail(res, 400, 'bad url');
 
     ensureCacheDir();
     const key = cacheKeyFor(u);

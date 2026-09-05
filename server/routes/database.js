@@ -8,7 +8,7 @@
  */
 const express = require('express');
 const mysql = require('mysql2');
-const { getPool, safeError, logOper, handleError, sendError, ErrorCodes } = require('../utils');
+const { getPool, safeError, logOper, handleError, sendError, fail, ErrorCodes } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 const { DB_NAME } = require('../db');
 const logger = require('../logger');
@@ -55,7 +55,7 @@ router.get('/admin/db/status', requireAdminCompat, async (req, res) => {
     });
   } catch (e) {
     logger.error('database', e);
-    res.json({ success: false, error: safeError(e.message) });
+    fail(res, 200, safeError(e.message));
   }
 });
 
@@ -180,7 +180,7 @@ router.get('/admin/db/table/:name', requireAdminCompat, async (req, res) => {
 
     const [infoRes] = await getPool().query(`SHOW TABLE STATUS LIKE ?`, [tableName]);
     if (!infoRes || infoRes.length === 0) {
-      return res.status(404).json({ success: false, error: '表不存在' });
+      return fail(res, 404, '表不存在');
     }
     const info = infoRes[0];
 

@@ -12,7 +12,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { requireAuth } = require('../auth');
-const { ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, logOper  } = require('../utils');;
+const { fail, ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, logOper  } = require('../utils');;
 const cacheService = require('../cache_service');
 const webhook = require('../webhook');
 const logger = require('../logger');
@@ -351,7 +351,7 @@ router.post('/', requireAuth, (req, res, next) => {
   secureUpload(postUpload.array('media', 12))(req, res, (err) => {
     if (err) {
       if (err.code === 'LIMIT_FILE_SIZE') return sendError(res, 400, ErrorCodes.BAD_REQUEST, '文件大小超过限制（图片10MB/视频200MB）');
-      return res.status(400).json({ error: err.message || '上传失败' });
+      return fail(res, 400, err.message || '上传失败');
     }
     next();
   });
@@ -437,7 +437,7 @@ router.put('/:id', requireAuth, (req, res, next) => {
   secureUpload(postUpload.array('media', 12))(req, res, (err) => {
     if (err) {
       if (err.code === 'LIMIT_FILE_SIZE') return sendError(res, 400, ErrorCodes.BAD_REQUEST, '文件大小超过限制');
-      return res.status(400).json({ error: err.message || '上传失败' });
+      return fail(res, 400, err.message || '上传失败');
     }
     next();
   });

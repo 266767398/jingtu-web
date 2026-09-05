@@ -10,7 +10,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth, requireRole } = require('../auth');
-const { ok, getPool, handleError, validateFields , sendError, ErrorCodes } = require('../utils');
+const { fail, ok, getPool, handleError, validateFields , sendError, ErrorCodes } = require('../utils');
 
 // 所有已定义的权限键（用英文常量，前端映射中文显示）
 const ALL_PERMISSIONS = [
@@ -399,7 +399,7 @@ router.get('/my', requireAuth, async (req, res) => {
     res.json({ permissions: permMap, groupIds });
   } catch (e) {
     console.error('[permission-groups/my] 权限查询失败:', e.message);
-    return res.status(500).json({ error: '权限查询失败，请稍后重试', code: 'PERM_QUERY_FAILED' });
+    return fail(res, 500, '权限查询失败，请稍后重试', { code: 'PERM_QUERY_FAILED' });
   }
 });
 

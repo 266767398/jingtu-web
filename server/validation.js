@@ -1,4 +1,5 @@
 const { body, param, validationResult } = require('express-validator');
+const { fail } = require('./utils');
 
 const validateRequest = (validations) => {
   return async (req, res, next) => {
@@ -7,9 +8,7 @@ const validateRequest = (validations) => {
     if (errors.isEmpty()) {
       return next();
     }
-    res.status(400).json({
-      success: false,
-      error: '参数验证失败',
+    return fail(res, 400, '参数验证失败', {
       details: errors.array().map(e => ({ field: e.path, message: e.msg }))
     });
   };

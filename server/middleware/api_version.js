@@ -1,3 +1,5 @@
+const { fail } = require('../utils');
+
 function apiVersionMiddleware(req, res, next) {
   const match = req.path.match(/^\/api\/(v[12])(?=\/|$)/);
   let version = 'v1';
@@ -19,9 +21,7 @@ function apiVersionMiddleware(req, res, next) {
 function requireVersion(versions) {
   return function(req, res, next) {
     if (!versions.includes(req.version)) {
-      return res.status(400).json({ 
-        error: `此接口不支持当前API版本 ${req.version}，支持版本: ${versions.join(', ')}` 
-      });
+      return fail(res, 400, `此接口不支持当前API版本 ${req.version}，支持版本: ${versions.join(', ')}`);
     }
     next();
   };

@@ -9,7 +9,7 @@
  *   description: 活动管理相关接口
  */
 const express = require('express');
-const { ok,  getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes  } = require('../utils');;
+const { fail, ok,  getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes  } = require('../utils');;
 const { requireAuth, requireAdminCompat, getAvatarUrl, ROLE_LEVEL } = require('../auth');
 const { vrchatGetGroupEvents } = require('../vrc');
 const cacheService = require('../cache_service');
@@ -491,7 +491,7 @@ router.get('/', async (req, res) => {
   // ==================== 从 VRChat 同步活动 ====================
   router.post('/sync-vrchat', requireAdminCompat, async (req, res) => {
     const vrcCookie = getVRCCookieFn ? getVRCCookieFn(req) : null;
-    if (!vrcCookie) return res.status(401).json({ error: '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', code: 'VRC_SYSTEM_OFFLINE' });
+    if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       let ge = await vrchatGetGroupEvents(GROUP_ID, vrcCookie, 100, 0);
       // 用户绑定的 cookie 可能已过期；标记失效后降级到系统账号 cookie 重试一次

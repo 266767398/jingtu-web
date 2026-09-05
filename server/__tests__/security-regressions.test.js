@@ -86,7 +86,7 @@ describe('security regressions', () => {
   test('rejects an invalid VRChat 2FA code before creating a session', () => {
     const inline2fa = sliceBetween(files.authRoute, 'if (loginToken && code) {', '// ══════════ 模式 A');
     expect(inline2fa).toMatch(/const vResult = await verifyVrc2fa\(code,\s*method,\s*cookie\)/);
-    expect(inline2fa).toMatch(/if \(!vResult\.success\)[\s\S]*return res\.status\(401\)\.json/);
+    expect(inline2fa).toMatch(/if \(!vResult\.success\)[\s\S]*return (?:fail\(res,\s*401|res\.status\(401\)\.json)/);
     expectBefore(inline2fa, 'const vResult = await verifyVrc2fa', 'req.session.regenerate');
     expectBefore(inline2fa, 'if (!vResult.success)', 'req.session.regenerate');
     const standalone2fa = sliceBetween(files.authRoute, "router.post('/vrchat-2fa'", '// ==================== VRChat 绑定');

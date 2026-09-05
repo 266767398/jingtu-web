@@ -126,6 +126,17 @@ function ok(res, fields) {
 }
 
 /**
+ * 统一错误发射器（扁平兼容形态）：fail(res, 状态码, 消息串, 附加字段对象?)，与 ok() 对偶。
+ * - error 保持字符串：全站约 35 处页面脚本裸读 data.error，嵌套对象会渲染成 [object Object]；
+ * - 附加字段（code/detail/retryAfter/expired/details/lockMinutes）平铺顶层：core.js 401/403 拦截
+ *   依赖顶层 code 走 VRC_BUSINESS_CODES 路由，429/5xx 拦截与 group.js 依赖顶层 detail/retryAfter；
+ * - 协议统一为所有 JSON 响应均带 success 布尔；嵌套形态 sendError 保留给已适配嵌套读取方的路由。
+ */
+function fail(res, status, message, extra) {
+  return res.status(status).json(Object.assign({ success: false, error: message }, extra || {}));
+}
+
+/**
  * 统一错误响应
  * @param {object} res - Express response
  * @param {Error} e - 捕获的异常
@@ -140,10 +151,7 @@ function handleError(res, e, tag = 'utils', defaultStatus = 500) {
   if (e.code === 'VRC_RATE_TIMEOUT' && status === 500) status = 429;
   const code = e.code || ErrorCodes.INTERNAL_ERROR;
   const message = IS_DEV ? e.message : getSafeMessage(code, status);
-  res.status(status).json({
-    success: false,
-    error: { code, message }
-  });
+  res.status(status).json({ success: false, error: { code, message } });
 }
 
 function getSafeMessage(code, status) {
@@ -340,7 +348,7 @@ function secureUpload(multerMiddleware, opts = {}) {
         const result = await validateUploadFile(f, maxSize);
         if (!result.valid) {
           try { if (f.path) fs.unlinkSync(f.path); } catch (e) {}
-          return res.status(400).json({ error: '文件校验失败：' + result.errors.join('；') });
+          return fail(res, 400, '文件校验失败：' + result.errors.join('；'));
         }
       }
       next();
@@ -371,4 +379,4 @@ function getAvatarUrl(user) {
   return null;
 }
 
-module.exports = { getPool, IS_DEV, safeError, handleError, sendError, ok, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, validateFields, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar };
+module.exports = { getPool, IS_DEV, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, validateFields, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar };

@@ -3,7 +3,7 @@ const router = express.Router();
 const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
-const { ok,  safeError  } = require('../utils');;
+const { ok, fail, safeError } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 const { validateRequest, migrationValidations } = require('../validation');
 const logger = require('../logger');
@@ -59,7 +59,7 @@ router.get('/detect', async (req, res) => {
     
     ok(res, { results });
   } catch (e) {
-    res.json({ success: false, error: safeError(e.message), results: [] });
+    fail(res, 200, safeError(e.message), { results: [] });
   }
 });
 
@@ -68,7 +68,7 @@ router.post('/test-connection', validateRequest(migrationValidations.testConnect
     const { host, port, database, user, password } = req.body;
     
     if (!host || !port || !database || !user || !password) {
-      return res.status(400).json({ success: false, error: '参数不完整' });
+      return fail(res, 400, '参数不完整');
     }
     
     const conn = await mysql.createConnection({
@@ -101,7 +101,7 @@ router.post('/test-connection', validateRequest(migrationValidations.testConnect
       errorMsg = '连接超时';
     }
     
-    res.json({ success: false, error: errorMsg, errorType });
+    fail(res, 200, errorMsg, { errorType });
   }
 });
 
@@ -110,7 +110,7 @@ router.post('/get-databases', async (req, res) => {
     const { host, port, user, password } = req.body;
     
     if (!host || !port || !user || !password) {
-      return res.status(400).json({ success: false, error: '参数不完整' });
+      return fail(res, 400, '参数不完整');
     }
     
     const conn = await mysql.createConnection({
@@ -130,7 +130,7 @@ router.post('/get-databases', async (req, res) => {
     
     ok(res, { databases: filtered });
   } catch (e) {
-    res.json({ success: false, error: safeError(e.message) });
+    fail(res, 200, safeError(e.message));
   }
 });
 
@@ -139,7 +139,7 @@ router.post('/get-tables', async (req, res) => {
     const { host, port, database, user, password } = req.body;
     
     if (!host || !port || !database || !user || !password) {
-      return res.status(400).json({ success: false, error: '参数不完整' });
+      return fail(res, 400, '参数不完整');
     }
     
     const conn = await mysql.createConnection({
@@ -158,7 +158,7 @@ router.post('/get-tables', async (req, res) => {
     
     ok(res, { tables: tableNames });
   } catch (e) {
-    res.json({ success: false, error: safeError(e.message) });
+    fail(res, 200, safeError(e.message));
   }
 });
 
@@ -170,7 +170,7 @@ router.post('/migrate', requireAdminCompat, validateRequest(migrationValidations
     const { sourceDb, targetDb, tables } = req.body;
     
     if (!sourceDb || !targetDb) {
-      return res.status(400).json({ success: false, error: '源数据库和目标数据库配置不能为空' });
+      return fail(res, 400, '源数据库和目标数据库配置不能为空');
     }
     
     sourceConn = await mysql.createConnection({
@@ -204,10 +204,7 @@ router.post('/migrate', requireAdminCompat, validateRequest(migrationValidations
     const allowedTables = new Set(sourceTables.map(t => Object.values(t)[0]));
     const invalidTables = tableNames.filter(t => !allowedTables.has(t));
     if (invalidTables.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: `包含非法或不存在的表: ${invalidTables.join(', ')}`
-      });
+      return fail(res, 400, `包含非法或不存在的表: ${invalidTables.join(', ')}`);
     }
 
     logs.push(`[INFO] 待迁移表数量：${tableNames.length}`);
@@ -283,7 +280,7 @@ router.post('/migrate', requireAdminCompat, validateRequest(migrationValidations
       logger.error('migration', '[migration] 关闭连接失败:', closeErr);
     }
     
-    res.json({ success: false, error: safeError(e.message), logs: [`[ERROR] 迁移失败：${e.message}`] });
+    fail(res, 200, safeError(e.message), { logs: [`[ERROR] 迁移失败：${e.message}`] });
   }
 });
 
@@ -319,7 +316,7 @@ router.post('/scan-config', async (req, res) => {
     
     ok(res, { files: foundFiles });
   } catch (e) {
-    res.json({ success: false, error: safeError(e.message), files: [] });
+    fail(res, 200, safeError(e.message), { files: [] });
   }
 });
 
@@ -351,7 +348,7 @@ router.post('/replace-config', requireAdminCompat, validateRequest(migrationVali
     const { files, dbConfig } = req.body;
     
     if (!files || !dbConfig) {
-      return res.status(400).json({ success: false, error: '参数不完整' });
+      return fail(res, 400, '参数不完整');
     }
     
     const projectRoot = path.join(__dirname, '..', '..');
@@ -460,7 +457,7 @@ router.post('/replace-config', requireAdminCompat, validateRequest(migrationVali
     
     ok(res, { results });
   } catch (e) {
-    res.json({ success: false, error: safeError(e.message), results: [] });
+    fail(res, 200, safeError(e.message), { results: [] });
   }
 });
 

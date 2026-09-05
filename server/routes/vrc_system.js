@@ -15,7 +15,7 @@ const {
   vrchatVerifyTwoFactor,
   VRC_API_KEY
 } = require('../vrc');
-const { ok, handleError , sendError, ErrorCodes } = require('../utils');
+const { fail, ok, handleError , sendError, ErrorCodes } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 const logger = require('../logger');
 
@@ -28,7 +28,7 @@ module.exports = function (authStateRef, saveAuthStateFn) {
       const { username, password } = req.body;
       if (!username || !password) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入VRChat账号和密码');
       const loginRes = await vrchatBasicLogin(username, password);
-      if (loginRes.status !== 200) return res.status(401).json({ error: loginRes.data?.error?.message || '登录失败' });
+      if (loginRes.status !== 200) return fail(res, 401, loginRes.data?.error?.message || '登录失败');
       const vrcUser = loginRes.data;
       const needs2fa = loginRes.needs2fa;
       if (needs2fa) {

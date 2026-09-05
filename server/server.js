@@ -43,7 +43,7 @@ const { WebSocketServer } = require('ws');
 const compression = require('compression');
 const dbMod = require('./db');
 const wsService = require('./ws_service');
-const { getPool, safeError, logOper, encryptCookie, decryptCookie, createFileFilter, sendError, ErrorCodes, ok } = require('./utils');
+const { fail, getPool, safeError, logOper, encryptCookie, decryptCookie, createFileFilter, sendError, ErrorCodes, ok } = require('./utils');
 const startSchedule = require('./schedule');
 const {
   requireAuth, requireAdminCompat, requireRole,
@@ -455,19 +455,19 @@ app.use('/uploads', async (req, res, next) => {
           [code]
         );
         if (links.length === 0) {
-          return res.status(401).json({ error: '分享链接无效或已过期，需要登录后访问' });
+          return fail(res, 401, '分享链接无效或已过期，需要登录后访问');
         }
         const authPaths = await getShareAuthPaths(pool, links[0].type, links[0].target_id);
         // 严格边界匹配：精确相等，或为其子路径（防 /uploads/x.jpg 越权匹配 /uploads/x1.jpg）
         const allowed = sharePathAllowed(req.path, authPaths);
         if (allowed) return next();
-        return res.status(401).json({ error: '分享链接无权访问该资源' });
+        return fail(res, 401, '分享链接无权访问该资源');
       } catch (e) {
-        return res.status(401).json({ error: '需要登录后才能访问该资源' });
+        return fail(res, 401, '需要登录后才能访问该资源');
       }
     }
   }
-  res.status(401).json({ error: '需要登录后才能访问该资源' });
+  fail(res, 401, '需要登录后才能访问该资源');
 });
 app.use('/uploads', express.static(path.join(ROOT_DIR, 'uploads')));
 
@@ -480,13 +480,13 @@ app.use('/api', async (req, res, next) => {
         const [rows] = await pool.query('SELECT banned FROM users WHERE id=? AND deleted_at IS NULL', [req.session.userId]);
         if (rows.length === 0 || rows[0].banned) {
           req.session.destroy(() => {});
-          return res.status(401).json({ error: '账户已被禁用，请重新登录', code: 'ACCOUNT_DISABLED' });
+          return fail(res, 401, '账户已被禁用，请重新登录', { code: 'ACCOUNT_DISABLED' });
         }
       }
     } catch (e) {
       // 封禁状态校验依赖数据库；查询失败时按 fail-closed 拒绝，避免被封禁用户绕过校验。
       console.error('[session] 封禁状态校验失败:', e.message);
-      return res.status(503).json({ error: '服务暂时不可用，请稍后重试', code: 'SERVICE_UNAVAILABLE' });
+      return fail(res, 503, '服务暂时不可用，请稍后重试', { code: 'SERVICE_UNAVAILABLE' });
     }
   }
   next();
@@ -540,7 +540,7 @@ app.get('/api/auth/check-init', async (req, res) => {
       }
     }
     res.json({ hasUser: rows[0].count > 0 });
-  } catch (e) { logger.error('[server]', e.message, e.stack); res.status(500).json({ error: safeError(e.message) }); }
+  } catch (e) { logger.error('[server]', e.message, e.stack); fail(res, 500, safeError(e.message)); }
 });
 
 // 获取 CSRF Token（绑定到当前 session，防止 token 被跨用户复用）
@@ -580,17 +580,17 @@ app.use('/api', (req, res, next) => {
     '/system/db-recover'];
   if (exemptPaths.some(p => req.path === p)) return next();
   const token = req.headers['x-csrf-token'];
-  if (!token || !csrfTokens.has(token)) return res.status(403).json({ error: 'CSRF token 无效' });
+  if (!token || !csrfTokens.has(token)) return fail(res, 403, 'CSRF token 无效');
   const record = csrfTokens.get(token);
   if (Date.now() - record.createdAt > CSRF_EXPIRY) {
     csrfTokens.delete(token);
-    return res.status(403).json({ error: 'CSRF token 已过期，请刷新页面' });
+    return fail(res, 403, 'CSRF token 已过期，请刷新页面');
   }
   // session 绑定检查：校验 token 生成时所绑定的 sessionID 是否与当前请求一致
   // 防止 token 被跨用户/跨会话复用（例如 CSRF token 泄露后攻击者用自己的 session 使用）
   if (record.sid && record.sid !== 'anon' && record.sid !== req.sessionID) {
     csrfTokens.delete(token);
-    return res.status(403).json({ error: 'CSRF token 与当前会话不匹配' });
+    return fail(res, 403, 'CSRF token 与当前会话不匹配');
   }
   // token 可重用：仅在过期（CSRF_EXPIRY）或会话不匹配时清除
   // 解决并发 POST 请求竞争（A 消费 token 后 B 仍可使用同一 token）
@@ -915,7 +915,7 @@ app.get('/api/stats', requireAuth, async (req, res) => {
       postActivity: postActivity,
       recentUsers: recentUsers
     });
-  } catch (e) { logger.error('[stats]', e.message, e.stack); res.status(500).json({ error: safeError(e.message) }); }
+  } catch (e) { logger.error('[stats]', e.message, e.stack); fail(res, 500, safeError(e.message)); }
 });
 
 app.get('/api/public/stats', async (req, res) => {
@@ -1081,7 +1081,7 @@ try {
 
 // /api 未匹配路由统一返回中文 JSON 404（避免 Express 默认 HTML "Cannot GET"）
 app.use('/api', (req, res) => {
-  res.status(404).json({ error: '请求的资源不存在' });
+  fail(res, 404, '请求的资源不存在');
 });
 
 // Swagger 文档仅在非生产环境挂载（生产可省略 devDependencies）。
@@ -1128,7 +1128,7 @@ app.use((req, res) => {
 // ==================== 全局错误处理 ====================
 app.use((err, req, res, next) => {
   logger.error('[server]', '服务器错误:', err.message, err.stack);
-  res.status(500).json({ error: process.env.NODE_ENV === 'development' ? err.message : '服务器内部错误' });
+  fail(res, 500, process.env.NODE_ENV === 'development' ? err.message : '服务器内部错误');
 });
 
 // ==================== WebSocket 在线状态 + 通知推送 ====================

@@ -26,7 +26,7 @@ const {
   vrchatGetUser,
   vrchatVerifyTwoFactor
 } = require('../vrc');
-const { ok,  getPool, safeError, encryptCookie, handleError, sendError, ErrorCodes, createErr, getAvatarUrl  } = require('../utils');;
+const { fail, ok,  getPool, safeError, encryptCookie, handleError, sendError, ErrorCodes, createErr, getAvatarUrl  } = require('../utils');;
 const { passwordResetLimiter, createCustomLimiter } = require('../middleware/rate_limit');
 const logger = require('../logger');
 const mailer = require('../mailer');
@@ -202,7 +202,7 @@ router.post('/init', async (req, res) => {
     if (!loginId || !password) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入登录ID和密码');
     if (!displayName) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入显示名');
     const strength = validatePasswordStrength(password);
-    if (!strength.valid) return res.status(400).json({ error: '密码强度不足', details: strength.errors });
+    if (!strength.valid) return fail(res, 400, '密码强度不足', { details: strength.errors });
     const [dup] = await getPool().query(`SELECT id FROM users WHERE login_id = ?`, [loginId]);
     if (dup.length > 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '该登录ID已被使用');
     const pwdHash = await hashPassword(password);
@@ -315,7 +315,7 @@ router.post('/login', async (req, res) => {
       }
     }
 
-    if (users.length === 0) return res.status(401).json({ error: '登录失败，请检查账号或昵称和密码', code: 'LOGIN_FAILED' });
+    if (users.length === 0) return fail(res, 401, '登录失败，请检查账号或昵称和密码', { code: 'LOGIN_FAILED' });
 
     // 支持用「本地账户名字(display_name)」登录：大小写不敏感匹配。
     // 若存在同名账户，优先匹配 login_id 精确相等的记录；否则逐个校验密码以确定唯一账户。
@@ -330,18 +330,18 @@ router.post('/login', async (req, res) => {
     // 同名且密码均不匹配时，取首条走下方统一「密码错误」提示（避免泄露重名）
     if (!user) user = users[0];
 
-    if (user.banned) return res.status(401).json({ error: '账户已被封禁', code: 'ACCOUNT_BANNED' });
+    if (user.banned) return fail(res, 401, '账户已被封禁', { code: 'ACCOUNT_BANNED' });
 
     if (!user.approved || user.approved === 0) {
-      return res.status(401).json({ error: '账户待审核，请联系管理员', code: 'ACCOUNT_PENDING' });
+      return fail(res, 401, '账户待审核，请联系管理员', { code: 'ACCOUNT_PENDING' });
     }
 
     if (user.locked_until && new Date(user.locked_until) > new Date()) {
       const lockMinutes = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
-      return res.status(423).json({ error: `账户已被锁定，请${lockMinutes}分钟后再试`, code: 'ACCOUNT_LOCKED', lockMinutes });
+      return fail(res, 423, `账户已被锁定，请${lockMinutes}分钟后再试`, { code: 'ACCOUNT_LOCKED', lockMinutes });
     }
 
-    if (!user.password_hash) return res.status(401).json({ error: '该账号未设置密码，请联系管理员或使用初始化流程重新设置', code: 'NO_PASSWORD' });
+    if (!user.password_hash) return fail(res, 401, '该账号未设置密码，请联系管理员或使用初始化流程重新设置', { code: 'NO_PASSWORD' });
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) {
       const newAttempts = (user.failed_login_attempts || 0) + 1;
@@ -350,12 +350,12 @@ router.post('/login', async (req, res) => {
           await getPool().query(`UPDATE users SET failed_login_attempts = ?, locked_until = DATE_ADD(NOW(), INTERVAL 15 MINUTE) WHERE id = ?`, [newAttempts, user.id]);
         } catch {}
         logger.warn('auth', `[SEC] 账户 ${user.login_id} 已锁定（${newAttempts} 次失败）`);
-        return res.status(423).json({ error: '登录失败次数过多，账户已被锁定15分钟', code: 'ACCOUNT_LOCKED', lockMinutes: 15 });
+        return fail(res, 423, '登录失败次数过多，账户已被锁定15分钟', { code: 'ACCOUNT_LOCKED', lockMinutes: 15 });
       }
       try {
         await getPool().query(`UPDATE users SET failed_login_attempts = ? WHERE id = ?`, [newAttempts, user.id]);
       } catch {}
-      return res.status(401).json({ error: '登录失败，请检查登录ID和密码', code: 'LOGIN_FAILED' });
+      return fail(res, 401, '登录失败，请检查登录ID和密码', { code: 'LOGIN_FAILED' });
     }
 
     try {
@@ -455,7 +455,7 @@ router.post('/change-password', passwordResetLimiter, requireAuth, async (req, r
       if (!valid) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '旧密码错误');
     }
     const strength = validatePasswordStrength(newPassword);
-    if (!strength.valid) return res.status(400).json({ error: '新密码强度不足', details: strength.errors });
+    if (!strength.valid) return fail(res, 400, '新密码强度不足', { details: strength.errors });
     const newHash = await hashPassword(newPassword);
     await getPool().query(`UPDATE users SET password_hash = ? WHERE id = ?`, [newHash, req.session.userId]);
     // §44：改密后删除该用户所有其他 session 记录，强制其他会话失效
@@ -481,7 +481,7 @@ router.post('/vrchat-login', async (req, res) => {
       const state = loginTokens.get(loginToken);
       if (!state || state.expireAt < Date.now()) {
         if (state) loginTokens.delete(loginToken);
-        return res.status(400).json({ error: '登录会话已过期，请重新发送验证码', expired: true });
+        return fail(res, 400, '登录会话已过期，请重新发送验证码', { expired: true });
       }
       const { cookie, vrcUser, boundUser, methods } = state;
       if (!methods.includes(method)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '双重验证方式无效，请重新登录');
@@ -490,7 +490,7 @@ router.post('/vrchat-login', async (req, res) => {
       const vResult = await verifyVrc2fa(code, method, cookie);
       if (!vResult.success) {
         // 验证码错误不删除 token，允许重试
-        return res.status(401).json({ error: vResult.error });
+        return fail(res, 401, vResult.error);
       }
       loginTokens.delete(loginToken);
 
@@ -525,7 +525,7 @@ router.post('/vrchat-login', async (req, res) => {
 
     const login = await vrchatBasicLogin(username, password);
     if (login.status !== 200) {
-      return res.status(401).json({ error: login.data?.error?.message || 'VRChat登录失败' });
+      return fail(res, 401, login.data?.error?.message || 'VRChat登录失败');
     }
     const vrcUser = login.data;
     let cookie = login.cookie;
@@ -539,23 +539,18 @@ router.post('/vrchat-login', async (req, res) => {
 
     // 未绑定 → 明确引导用户先注册本地账号再绑定
     if (boundUsers.length === 0) {
-      return res.status(401).json({
-        needBind: true,
-        error: '该VRChat账号未绑定本站账号，无法直接登录',
-        message: '该VRChat账号未绑定本站账号，请先完成本地账号注册/登录，然后在个人中心绑定VRChat账号后再使用VRChat登录。',
-        vrchatUser: { id: vrcUser.id, displayName: vrcUser.displayName }
-      });
+      return fail(res, 401, '该VRChat账号未绑定本站账号，无法直接登录', { needBind: true, message: '该VRChat账号未绑定本站账号，请先完成本地账号注册/登录，然后在个人中心绑定VRChat账号后再使用VRChat登录。', vrchatUser: { id: vrcUser.id, displayName: vrcUser.displayName } });
     }
     const boundUser = boundUsers[0];
 
     // 账户锁定检查
     if (boundUser.locked_until && new Date(boundUser.locked_until) > new Date()) {
       const lockMinutes = Math.ceil((new Date(boundUser.locked_until) - new Date()) / 60000);
-      return res.status(423).json({ error: `账户已被锁定，请${lockMinutes}分钟后再试`, code: 'ACCOUNT_LOCKED', lockMinutes });
+      return fail(res, 423, `账户已被锁定，请${lockMinutes}分钟后再试`, { code: 'ACCOUNT_LOCKED', lockMinutes });
     }
 
     if (!boundUser.approved || boundUser.approved === 0) {
-      return res.status(401).json({ error: '账户待审核，请联系管理员', code: 'ACCOUNT_PENDING' });
+      return fail(res, 401, '账户待审核，请联系管理员', { code: 'ACCOUNT_PENDING' });
     }
 
     // 不需要2FA →直接登录
@@ -621,14 +616,14 @@ router.post('/vrchat-2fa', async (req, res) => {
     const state = loginTokens.get(loginToken);
     if (!state || state.expireAt < Date.now()) {
       if (state) loginTokens.delete(loginToken);
-      return res.status(400).json({ error: '登录会话已过期，请重新登录', expired: true });
+      return fail(res, 400, '登录会话已过期，请重新登录', { expired: true });
     }
     const { cookie, vrcUser, boundUser, methods } = state;
     if (!methods.includes(method)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '双重验证方式无效，请重新登录');
 
     const vResult = await verifyVrc2fa(code, method, cookie);
     if (!vResult.success) {
-      return res.status(401).json({ error: vResult.error });
+      return fail(res, 401, vResult.error);
     }
     loginTokens.delete(loginToken);
 
@@ -665,7 +660,7 @@ router.post('/vrchat-bind-verify', passwordResetLimiter, requireAuth, async (req
       const state = bindTokens.get(bindToken);
       if (!state || state.expireAt < Date.now()) {
         if (state) bindTokens.delete(bindToken);
-        return res.status(400).json({ error: '验证会话已过期，请重新输入账号密码', expired: true });
+        return fail(res, 400, '验证会话已过期，请重新输入账号密码', { expired: true });
       }
       // 安全检验：确保是同一个用户
       if (state.userId !== req.session.userId) {
@@ -680,7 +675,7 @@ router.post('/vrchat-bind-verify', passwordResetLimiter, requireAuth, async (req
       if (!username || !password) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入VRChat用户名和密码');
       const login = await vrchatBasicLogin(username, password);
       if (login.status !== 200) {
-        return res.status(401).json({ error: login.data?.error?.message || 'VRChat 验证失败，请检查用户名和密码' });
+        return fail(res, 401, login.data?.error?.message || 'VRChat 验证失败，请检查用户名和密码');
       }
       vrcUser = login.data;
       cookie = login.cookie;
@@ -691,7 +686,7 @@ router.post('/vrchat-bind-verify', passwordResetLimiter, requireAuth, async (req
     // 🚨 V6.12 安全检查：有 bindToken 但没 code → 拒绝（防止绕过 2FA）
     if (needs2fa && !code && bindToken) {
       bindTokens.delete(bindToken);
-      return res.status(400).json({ error: '请输入验证码以完成两步验证', expired: true });
+      return fail(res, 400, '请输入验证码以完成两步验证', { expired: true });
     }
 
     // 需要2FA 且还没有验证码→发邮件+ 返回 bindToken
@@ -730,7 +725,7 @@ router.post('/vrchat-bind-verify', passwordResetLimiter, requireAuth, async (req
       const vResult = await verifyVrc2fa(code, method, cookie);
       if (!vResult.success) {
         if (bindToken) bindTokens.delete(bindToken);
-        return res.status(401).json({ error: vResult.error });
+        return fail(res, 401, vResult.error);
       }
       cookie = vResult.cookie;
       if (vResult.user) Object.assign(vrcUser, vResult.user);
@@ -762,7 +757,7 @@ router.post('/vrchat-bind-verify', passwordResetLimiter, requireAuth, async (req
 
     // 检查该 VRChat ID 是否已被其他人绑定
     const [existing] = await getPool().query(`SELECT id, login_id FROM users WHERE vrchat_id = ? AND id != ? AND deleted_at IS NULL`, [vrchatId, req.session.userId]);
-    if (existing.length > 0) return res.status(400).json({ error: `该VRChat账号已被用户 ${existing[0].login_id} 绑定` });
+    if (existing.length > 0) return fail(res, 400, `该VRChat账号已被用户 ${existing[0].login_id} 绑定`);
 
     // 检查当前用户是否已绑定其他 VRChat
     const [self] = await getPool().query(`SELECT vrchat_id FROM users WHERE id = ? AND deleted_at IS NULL`, [req.session.userId]);
@@ -924,7 +919,7 @@ router.post('/verify-reset-code', passwordResetLimiter, async (req, res) => {
 
     const result = consumeResetCode(token, code);
     if (result.expired) {
-      return res.status(400).json({ error: '验证码已过期，请重新获取', expired: true });
+      return fail(res, 400, '验证码已过期，请重新获取', { expired: true });
     }
     if (result.mismatch) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '验证码错误');
@@ -943,7 +938,7 @@ router.post('/reset-password', passwordResetLimiter, async (req, res) => {
 
     const result = consumeResetCode(token, code);
     if (result.expired) {
-      return res.status(400).json({ error: '链接已过期，请重新获取', expired: true });
+      return fail(res, 400, '链接已过期，请重新获取', { expired: true });
     }
     if (result.mismatch) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '验证码错误');
@@ -952,7 +947,7 @@ router.post('/reset-password', passwordResetLimiter, async (req, res) => {
 
     const strength = validatePasswordStrength(newPassword);
     if (!strength.valid) {
-      return res.status(400).json({ error: '密码强度不足', details: strength.errors });
+      return fail(res, 400, '密码强度不足', { details: strength.errors });
     }
 
     const pwdHash = await hashPassword(newPassword);
