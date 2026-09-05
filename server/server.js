@@ -42,18 +42,9 @@ const { WebSocketServer } = require('ws');
 const compression = require('compression');
 const dbMod = require('./db');
 const wsService = require('./ws_service');
-const { fail, getPool, safeError, logOper, encryptCookie, decryptCookie, createFileFilter, sendError, ErrorCodes, ok } = require('./utils');
+const { fail, getPool, createFileFilter, sendError, ErrorCodes, ok } = require('./utils');
 const startSchedule = require('./schedule');
-const {
-  requireAuth, requireAdminCompat, requireRole,
-  hashPassword, validatePasswordStrength,
-  ROLE_LEVEL, getAvatarUrl
-} = require('./auth');
-const {
-  vrchatRequest, vrchatBasicLogin, vrchatGetCurrentUser,
-  vrchatGetGroupEvents,
-  vrchatGetWorld, vrchatSearchWorlds, vrchatGetUser, vrchatGetGroupMembers, VRC_API_KEY
-} = require('./vrc');
+const { requireAdminCompat } = require('./auth');
 const {
   ddosLimiter, loginBruteForceLimiter,
   uploadLimiter, adminLimiter, searchLimiter,
@@ -72,7 +63,8 @@ const cache = require('./cache');
 const cacheService = require('./cache_service');
 const mailer = require('./mailer');
 const tasks = require('./tasks');
-const VRCPipeline = require('./vrc_pipeline');
+const setupVrcAuth = require('./vrc_auth');
+const createStatsRouter = require('./routes/stats');
 
 // Swagger 文档不在此处静态引入：生产环境（NODE_ENV=production）不再加载，
 // 因此部署生产时可安全使用 `npm ci --omit=dev`；仅在非生产环境按需 lazy 引入。
@@ -114,7 +106,6 @@ if (!process.env.GROUP_ID) {
 }
 const GROUP_ID = process.env.GROUP_ID || defaultGroupId;
 const ROOT_DIR = path.join(__dirname, '..');
-const SESSION_FILE = path.join(__dirname, 'session.json');
 const ASSETS_DIR = path.join(ROOT_DIR, 'assets');
 const ALBUM_DIR = path.join(ASSETS_DIR, 'album');
 const PROFILE_PHOTOS_DIR = path.join(ROOT_DIR, 'uploads', 'profile', 'photos');
@@ -122,8 +113,6 @@ const PROFILE_VIDEOS_DIR = path.join(ROOT_DIR, 'uploads', 'profile', 'videos');
 for (const d of [PROFILE_PHOTOS_DIR, PROFILE_VIDEOS_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
-const VRC_API = require('./vrc').VRC_API || 'https://api.vrchat.cloud/api/1';
-
 // HTTP 服务器超时设置（防止空闲连接堆积）
 server.timeout = 120000;       // 请求超时 2 分钟
 server.keepAliveTimeout = 5000; // 空闲 Keep-Alive 5 秒
@@ -417,220 +406,14 @@ app.use('/api/search', searchLimiter);
 // 已抽至 middleware/csrf.js；中间件链位置必须保持在 auth/migration/database 等特权路由挂载之前。
 const { csrfCleanupInterval } = setupCsrf(app);
 
-// ==================== 系统 VRChat 登录状态 ====================
-let authState = { loggedIn: false, cookie: null, userId: null, displayName: null, cookieSetAt: null };
-global.__getVrcAuthState = () => authState; // 供后台 VRC 监控读取最新鉴权状态
-
-// V8.2: VRChat cookie 软性过期时间（天）。
-// 0 = 永不过期（默认）；其它值 = 该 cookie 自设置起超过 N 天即视为过期，
-// 让调用方自动降级/提示重新登录。单位：天；存于 system_config.vrc_cookie_expire_days。
-let vrcCookieExpireDays = 0;
-function getVRCCookieExpireDays() { return vrcCookieExpireDays; }
-function setVRCCookieExpireDays(days) {
-  const n = Math.max(0, parseInt(days, 10) || 0);
-  vrcCookieExpireDays = n;
-  return n;
-}
-// 判断某个 cookie（记录于 setAt 时间戳）是否已过配置的有效期
-function isCookieExpired(setAt) {
-  if (!vrcCookieExpireDays || !setAt) return false; // 永不过期或未记录设置时间 → 视为有效
-  return (Date.now() - setAt) > vrcCookieExpireDays * 86400000;
-}
-
-// ==================== VRChat Pipeline WebSocket ====================
-const vrcPipeline = new VRCPipeline();
-
-function updatePipelineAuth() {
-  if (authState.loggedIn && authState.cookie) {
-    const authTokenMatch = authState.cookie.match(/authcookie_[^;]+/);
-    if (authTokenMatch) {
-      vrcPipeline.setAuthToken(authTokenMatch[0]);
-      if (!vrcPipeline.isConnected) {
-        vrcPipeline.connect();
-      }
-    }
-  }
-}
-
-function broadcastGroupStats() {
-  (async () => {
-    try {
-      const pool = getPool();
-      if (!pool) return;
-      const [onlineRes] = await pool.query(`SELECT COUNT(*) as count FROM group_roster WHERE is_member=1 AND is_online=1`);
-      const [totalRes] = await pool.query(`SELECT COUNT(*) as count FROM group_roster WHERE is_member=1`);
-      const [worldRes] = await pool.query(`SELECT world_name AS worldName, COUNT(*) as count FROM group_roster WHERE is_member=1 AND is_online=1 AND world_name IS NOT NULL AND world_name != '' GROUP BY world_name ORDER BY count DESC LIMIT 5`);
-      
-      const stats = {
-        type: 'group_stats',
-        onlineCount: onlineRes[0].count,
-        totalMembers: totalRes[0].count,
-        onlineRate: totalRes[0].count > 0 ? Math.round((onlineRes[0].count / totalRes[0].count) * 100) : 0,
-        worldDistribution: worldRes.map(r => ({ worldName: r.worldName, count: r.count })),
-        timestamp: Date.now()
-      };
-      
-      wsService.broadcastAllExcept(null, stats);
-    } catch (e) { /* 静默失败 */ }
-  })();
-}
-
-vrcPipeline.on('connected', () => {
-  logger.info('[vrc-pipeline]', '已连接到 VRChat Pipeline');
-});
-
-vrcPipeline.on('disconnected', (data) => {
-  logger.info('[vrc-pipeline]', `断开连接: ${data.code}`);
-});
-
-vrcPipeline.on('error', (err) => {
-  logger.error('[vrc-pipeline]', `错误: ${err.message}`);
-});
-
-vrcPipeline.on('notification', (notification) => {
-  logger.info('[vrc-pipeline]', `新通知: ${notification.notificationType}`);
-  
-  wsService.broadcastAllExcept(null, {
-    type: 'vrc_notification',
-    notification: notification
-  });
-  
-  if (notification.notificationType === 'group.announcement') {
-    (async () => {
-      try {
-        const pool = getPool();
-        await pool.query(
-          `INSERT INTO announcement (title, content, create_admin, visibility) VALUES (?, ?, ?, 'members_only')`,
-          [notification.title, notification.message, 'VRChat']
-        );
-      } catch (e) { logger.error('[announcement]', '群组公告存储失败:', e.message); }
-    })();
-  }
-});
-
-vrcPipeline.on('user', (msg) => {
-  logger.debug('[VRC]', `用户事件: ${msg.type}`);
-});
-
-vrcPipeline.on('friend', (msg) => {
-  logger.debug('[VRC]', `好友事件: ${msg.type}`);
-  
-  wsService.broadcastAllExcept(null, {
-    type: 'friend_event',
-    eventType: msg.type,
-    timestamp: Date.now()
-  });
-});
-
-// 从加密存储读取系统 Cookie
-try {
-  if (fs.existsSync(SESSION_FILE)) {
-    const raw = fs.readFileSync(SESSION_FILE, 'utf8');
-    const saved = JSON.parse(raw);
-    if (saved && saved.cookie) {
-      // 解密存储的 cookie（兼容旧版未加密的 cookie）
-      const decrypted = decryptCookie(saved.cookie);
-      if (decrypted) {
-        authState = { ...saved, cookie: decrypted, loggedIn: true };
-      } else {
-        // 解密失败，尝试明文（旧版格式），重新加密存储
-        authState = { ...saved, loggedIn: true };
-        // 如果 cookie 没有 enc: 前缀，说明是旧明文，立即加密重写
-        if (!saved.cookie.startsWith('enc:')) {
-          const encrypted = encryptCookie(saved.cookie);
-          if (encrypted) {
-            authState.cookie = saved.cookie; // 保留内存中的明文
-            saved.cookie = encrypted;
-            const tmp = SESSION_FILE + '.tmp';
-            fs.writeFileSync(tmp, JSON.stringify(saved, null, 2), 'utf8');
-            fs.renameSync(tmp, SESSION_FILE);
-          }
-        }
-      }
-    }
-  }
-} catch (e) { logger.warn('[vrc-session]', '读取 VRChat session.json 失败（已损坏？），将重新登录:', e.message); }
-
-// 初始化 Pipeline 连接
-updatePipelineAuth();
-
-// 保存系统 VRChat 状态到文件（Cookie 加密存储）
-async function saveAuthState() {
-  const stateToSave = {
-    ...authState,
-    // cookie 加密后再写入文件
-    cookie: authState.cookie ? encryptCookie(authState.cookie) : null
-  };
-  const tmp = SESSION_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(stateToSave, null, 2), 'utf8');
-  fs.renameSync(tmp, SESSION_FILE);
-  updatePipelineAuth();
-}
-
-// 获取 VRChat cookie：优先用户绑定 -> 系统登录（自动解密用户 session 中的加密 cookie）
-// V8.2: 任一候选 cookie 超过配置的有效期（vrc_cookie_expire_days）即视为过期，
-// 自动跳过该候选（返回 null），让上游 vrcWithFallback 降级或提示重新登录。
-function getVRCCookie(req) {
-  // 用户 session cookie（加密存储，需解密）+ 记录的设置时间
-  const sessionCookie = req?.session?.vrchatCookie || req?.session?.vrcCookie;
-  const sessionSetAt = req?.session?.vrcCookieSetAt;
-  if (sessionCookie && !isCookieExpired(sessionSetAt)) {
-    return decryptCookie(sessionCookie) || sessionCookie;
-  }
-  // 系统 Cookie（内存中已是明文）+ 记录的设置时间
-  if (authState?.cookie && !isCookieExpired(authState.cookieSetAt)) {
-    return authState.cookie;
-  }
-  return null;
-}
-
-// 仅取「当前登录用户」自己绑定的 VRChat cookie，绝不回退到系统账号。
-// 用于 /vrc/avatar/set 这类「代表当前用户」的写操作，
-// 防止未绑定 VRChat 的会员拿到系统账号 cookie 去越权改写系统账号头像（系统 Cookie 降级风险）。
-function getVRCCookieUserOnly(req) {
-  const sessionCookie = req?.session?.vrchatCookie || req?.session?.vrcCookie;
-  if (sessionCookie) return decryptCookie(sessionCookie) || sessionCookie;
-  return null;
-}
-
-// 标记某个 VRChat cookie 已失效，使下一次 getVRCCookie 自动降级到下一个候选。
-// 场景：用户在个人中心绑定 VRChat 时存进 session 的 cookie 会过期，
-// 过期后所有 VRC 操作都会拿到这份死 cookie 而永远不会 fallback 到有效的系统账号 cookie，
-// 表现为「管理面板显示已登录，点同步却报登录已过期」。
-async function invalidateVRCCookie(req, deadCookie) {
-  let cleared = false;
-  if (req?.session) {
-    for (const key of ['vrchatCookie', 'vrcCookie']) {
-      const raw = req.session[key];
-      if (!raw) continue;
-      const plain = decryptCookie(raw) || raw;
-      if (!deadCookie || plain === deadCookie) {
-        req.session[key] = null;
-        cleared = true;
-      }
-    }
-    // 显式持久化：仅清内存不 save 的话，下一个请求 session 从存储重载会把死 cookie 恢复，
-    // 用户永远"看似已绑定"却每次都吃 401 → 降级系统 cookie，重绑引导永不触发。
-    if (cleared && typeof req.session.save === 'function') {
-      try {
-        await new Promise((resolve) => req.session.save((err) => {
-          if (err) logger.error('session', '保存失效 cookie 清除失败', { error: err.message });
-          resolve();
-        }));
-      } catch (e) {
-        logger.error('session', '保存失效 cookie 清除异常', { error: e.message });
-      }
-    }
-  }
-  // 重要：系统级 VRChat cookie 的注销不再在此处理。
-  // 原逻辑会在「用户未绑定 VRChat、getVRCCookie 回退到系统 cookie、且上游偶发 401」
-  // 时把整个系统账号注销 —— VRChat 因 2FA 复查间歇返回 401 是官方常态，
-  // 一次偶发 401 就会让全站实时同步 / 每日模型扫描 / 群组同步全部停摆且无人感知。
-  // 系统账号的登录 / 登出由管理面板（vrc_system.js + saveAuthState）独占负责。
-  return cleared;
-}
-// 挂在 getVRCCookie 上，供各路由模块（只接收 getVRCCookieFn）调用，避免改动 13 处调用签名
-getVRCCookie.invalidate = invalidateVRCCookie;
+// ==================== 系统 VRChat 登录状态 / Cookie 会话 / Pipeline ====================
+// 状态生命周期、session.json 加密读写、失效降级语义与 Pipeline 事件处理
+// 已抽至 vrc_auth.js（P2-4 第二步第二批）；此处仅取各工厂与路由所需的引用。
+const {
+  authState, saveAuthState,
+  getVRCCookie, getVRCCookieUserOnly,
+  getVRCCookieExpireDays, setVRCCookieExpireDays
+} = setupVrcAuth();
 
 // ==================== 权限路由 ====================
 app.use('/api/auth', require('./routes/auth'));
@@ -677,129 +460,20 @@ app.get('/api/health', (req, res) => {
     systemVrcLogin: authState.loggedIn,
     systemVrcUser: authState.loggedIn ? { id: authState.userId, displayName: authState.displayName } : null,
     // V8.2: 系统 VRChat cookie 软性过期配置与剩余有效期（供管理面板展示）
-    vrcCookieExpireDays: vrcCookieExpireDays,
+    vrcCookieExpireDays: getVRCCookieExpireDays(),
     vrcCookieSetAt: authState.cookieSetAt || null,
-    vrcCookieExpiresAt: (vrcCookieExpireDays && authState.cookieSetAt)
-      ? new Date(authState.cookieSetAt + vrcCookieExpireDays * 86400000).toISOString()
+    vrcCookieExpiresAt: (getVRCCookieExpireDays() && authState.cookieSetAt)
+      ? new Date(authState.cookieSetAt + getVRCCookieExpireDays() * 86400000).toISOString()
       : null
   });
 });
 
-// 前端运行环境配置：暴露可通过环境变量部署调整的客户端参数（如 WebSocket 地址）。
-// 前端 connectWebSocket 优先读取本接口返回的 wsUrl，否则按当前协议自动探测。
-app.get('/api/client-config', (req, res) => {
-  const wsUrl = process.env.WS_URL || '';
-  res.json({ wsUrl });
-});
-
-app.get('/api/stats', requireAuth, async (req, res) => {
-  try {
-    // 统计条上的「在线」点开是本站在线成员列表（WebSocket 实时名单），
-    // 数字必须和它同源。原来这里查的是 group_roster.is_online —— 那是
-    // VRChat 群组成员在游戏里的在线状态，语义完全不同；两个数写进同一个
-    // #dashOnline，谁后到谁赢，用户看到的数字会来回跳。
-    const onlineCount = wsService.onlineUsers.size;
-    const [
-      [memberRes], [photoRes], [eventRes], [postRes], [vrcOnlineRes],
-      [memberGrowth], [eventSignRate], [postActivity], [checkinStats], [recentUsers]
-    ] = await Promise.all([
-      getPool().query('SELECT COUNT(*) as count FROM users WHERE deleted_at IS NULL AND approved = 1 AND banned = 0'),
-      getPool().query('SELECT COUNT(*) as count FROM album_photo WHERE is_recycle=0'),
-      getPool().query('SELECT COUNT(*) as count FROM event WHERE is_archive=0'),
-      getPool().query('SELECT COUNT(*) as count FROM posts'),
-      getPool().query('SELECT COUNT(*) as count FROM group_roster WHERE is_member=1 AND is_online=1'),
-      getPool().query(`SELECT DATE(created_at) as date, COUNT(*) as count FROM users WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY DATE(created_at) ORDER BY date`),
-      getPool().query(`SELECT e.id, e.title, e.event_time as eventTime, COUNT(es.id) as signCount, e.max_sign as maxSign FROM event e LEFT JOIN event_sign es ON e.id = es.event_id WHERE e.is_archive=0 GROUP BY e.id ORDER BY e.event_time DESC LIMIT 10`),
-      getPool().query(`SELECT DATE(created_at) as date, COUNT(*) as posts, SUM(like_count) as likes, SUM(comment_count) as comments FROM posts WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) GROUP BY DATE(created_at) ORDER BY date`),
-      getPool().query(`SELECT COUNT(*) as total FROM event_checkin`),
-      getPool().query(`SELECT id, display_name, created_at FROM users ORDER BY created_at DESC LIMIT 10`)
-    ]);
-
-    res.json({
-      members: memberRes[0].count,
-      photos: photoRes[0].count,
-      events: eventRes[0].count,
-      posts: postRes[0].count,
-      online: onlineCount,
-      vrcOnline: vrcOnlineRes[0].count,
-      checkins: checkinStats[0].total,
-      memberGrowth: memberGrowth,
-      eventSignRate: eventSignRate.map(e => ({
-        id: e.id,
-        title: e.title,
-        eventTime: e.eventTime,
-        signCount: e.signCount,
-        maxSign: e.maxSign,
-        rate: e.maxSign > 0 ? Math.round((e.signCount / e.maxSign) * 100) : 0
-      })),
-      postActivity: postActivity,
-      recentUsers: recentUsers
-    });
-  } catch (e) { logger.error('[stats]', e.message, e.stack); fail(res, 500, safeError(e.message)); }
-});
-
-app.get('/api/public/stats', async (req, res) => {
-  try {
-    const [
-      [memberRes], [photoRes], [eventRes], [postRes], [onlineRes]
-    ] = await Promise.all([
-      getPool().query('SELECT COUNT(*) as count FROM users WHERE deleted_at IS NULL AND approved = 1 AND banned = 0'),
-      getPool().query('SELECT COUNT(*) as count FROM album_photo WHERE is_recycle=0'),
-      getPool().query('SELECT COUNT(*) as count FROM event WHERE is_archive=0'),
-      getPool().query('SELECT COUNT(*) as count FROM posts'),
-      getPool().query('SELECT COUNT(*) as count FROM group_roster WHERE is_member=1 AND is_online=1')
-    ]);
-
-    res.json({
-      totalUsers: memberRes[0].count,
-      totalPhotos: photoRes[0].count,
-      totalEvents: eventRes[0].count,
-      totalPosts: postRes[0].count,
-      // 与 /api/stats 保持同一语义：本站实时在线（WebSocket 名单），
-      // 而不是 VRChat 群成员在游戏里的在线状态。
-      onlineCount: wsService.onlineUsers.size,
-      vrcOnlineCount: onlineRes[0].count
-    });
-  } catch (e) {
-    logger.error('[public/stats]', e.message, e.stack);
-    res.json({
-      totalUsers: '-',
-      totalPhotos: '-',
-      totalEvents: '-',
-      totalPosts: '-',
-      onlineCount: 0
-    });
-  }
-});
-
-// ==================== 全局搜索 API ====================
-app.get('/api/search', requireAuth, async (req, res) => {
-  try {
-    const q = (req.query.q || '').trim();
-    if (q.length < 2) return res.json({ announcements: [], events: [], users: [] });
-    const like = `%${q}%`;
-
-    const [announcements] = await getPool().query(
-      `SELECT id, title, content FROM announcement WHERE title LIKE ? OR content LIKE ? ORDER BY create_time DESC LIMIT 5`,
-      [like, like]
-    );
-
-    const [events] = await getPool().query(
-      `SELECT id, title, description FROM event WHERE (title LIKE ? OR description LIKE ?) AND is_archive=0 ORDER BY event_time DESC LIMIT 5`,
-      [like, like]
-    );
-
-    const [users] = await getPool().query(
-      `SELECT id, login_id AS loginId, display_name AS displayName FROM users WHERE deleted_at IS NULL AND approved=1 AND banned=0 AND (login_id LIKE ? OR display_name LIKE ?) LIMIT 5`,
-      [like, like]
-    );
-
-    res.json({ announcements, events, users });
-  } catch (e) {
-    logger.error('[search]', e.message, e.stack);
-    res.json({ announcements: [], events: [], users: [] });
-  }
-});
+// ==================== 客户端配置 / 统计 / 搜索路由 ====================
+// /api/client-config、/api/stats、/api/public/stats、/api/search 四条内联路由
+// 已抽至 routes/stats.js（P2-4 第二步第二批）。
+// 注意：/api/search 的路径级限流（上方 app.use('/api/search', searchLimiter)）
+// 在挂载点之前生效，仍覆盖 router 内部路由。
+app.use('/api', createStatsRouter());
 
 // ==================== VRChat 群组路由（已提取到独立模块） ====================
 const groupsRouter = require('./routes/groups')(getVRCCookie, GROUP_ID, getVRCCookieUserOnly);
@@ -1046,7 +720,7 @@ async function init() {
       );
       if (rows && rows[0]) {
         setVRCCookieExpireDays(rows[0].config_value);
-        logger.info('[init]', `VRChat cookie 过期时间已载入: ${vrcCookieExpireDays} 天（0=永不过期）`);
+        logger.info('[init]', `VRChat cookie 过期时间已载入: ${getVRCCookieExpireDays()} 天（0=永不过期）`);
       }
     } catch (ee) { logger.warn('[init]', '载入 VRChat cookie 过期时间失败，使用默认(永不过期):', ee.message); }
 

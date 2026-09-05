@@ -106,19 +106,23 @@ describe('VRChat cookie 失效后必须能降级到下一个候选', () => {
   //       永远不会 fallback 到有效的系统账号 cookie；
   //       而绿点读的是 authState.loggedIn（系统账号），两者根本不是同一份凭据。
   const serverJs = srv('server.js');
+  const vrcAuthJs = srv('vrc_auth.js');
   const groupsJs = srv(path.join('routes', 'groups.js'));
   const eventsJs = srv(path.join('routes', 'events.js'));
   const authJs = srv(path.join('routes', 'auth.js'));
 
-  test('server.js 提供 invalidateVRCCookie 并挂到 getVRCCookie 上', () => {
-    expect(serverJs).toMatch(/function\s+invalidateVRCCookie\s*\(\s*req\s*,\s*deadCookie\s*\)/);
-    expect(serverJs).toMatch(/getVRCCookie\.invalidate\s*=\s*invalidateVRCCookie/);
+  test('vrc_auth.js 提供 invalidateVRCCookie 并挂到 getVRCCookie 上，server.js 挂载该模块', () => {
+    // P2-4 第二步第二批：VRC auth 块已从 server.js 抽至 vrc_auth.js，
+    // 守卫随实现迁移；server.js 侧钉住挂载点防止漏装。
+    expect(vrcAuthJs).toMatch(/function\s+invalidateVRCCookie\s*\(\s*req\s*,\s*deadCookie\s*\)/);
+    expect(vrcAuthJs).toMatch(/getVRCCookie\.invalidate\s*=\s*invalidateVRCCookie/);
+    expect(serverJs).toMatch(/setupVrcAuth\(\)/);
   });
 
   test('失效标记必须同时清理 vrchatCookie 和 vrcCookie 两个 key', () => {
     // 绑定流程写的是 vrcCookie，登录流程写的是 vrchatCookie，
     // 只清其中一个会留下另一份死 cookie 继续被 getVRCCookie 取到。
-    expect(serverJs).toMatch(/\['vrchatCookie',\s*'vrcCookie'\]/);
+    expect(vrcAuthJs).toMatch(/\['vrchatCookie',\s*'vrcCookie'\]/);
   });
 
   test('解绑 VRChat 时两个 cookie key 都要清掉', () => {
@@ -320,19 +324,23 @@ describe('"在线人数"必须全站同一个语义', () => {
   //      两个语义不同的数被写进同一个 #dashOnline，谁后到谁赢。
   //      统计条的「在线」点开展示的是本站在线名单，所以数字必须取本站口径。
   const serverJs = srv('server.js');
+  const statsJs = srv(path.join('routes', 'stats.js'));
 
   test('/api/stats 与 /api/public/stats 的在线数取自 WebSocket 在线名单', () => {
-    for (const route of ["app.get('/api/stats'", "app.get('/api/public/stats'"]) {
-      const i = serverJs.indexOf(route);
+    // P2-4 第二步第二批：两条路由已抽至 routes/stats.js，
+    // 守卫随实现迁移；server.js 侧钉住挂载点防止漏装。
+    expect(serverJs).toMatch(/createStatsRouter\(\)/);
+    for (const route of ["router.get('/stats'", "router.get('/public/stats'"]) {
+      const i = statsJs.indexOf(route);
       expect({ route, found: i > -1 }).toEqual({ route, found: true });
-      const body = serverJs.slice(i, i + 3000);
+      const body = statsJs.slice(i, i + 3000);
       expect(body).toMatch(/wsService\.onlineUsers\.size/);
     }
   });
 
   test('VRChat 群组的在线数仍然保留，只是换了字段名不再冒充本站在线', () => {
-    expect(serverJs).toMatch(/vrcOnline\s*:/);
-    expect(serverJs).toMatch(/vrcOnlineCount\s*:/);
+    expect(statsJs).toMatch(/vrcOnline\s*:/);
+    expect(statsJs).toMatch(/vrcOnlineCount\s*:/);
   });
 });
 
