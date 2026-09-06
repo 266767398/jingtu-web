@@ -616,7 +616,7 @@ window._LANG_JA = {
   "footer.kook": "💬 KOOK",
   "footer.oopz": "🔗 Oopz",
   "footer.vrc_status": "📊 VRC ステータス",
-  "footer.refresh": "<b>最後のリフレッシュ</b>",
+  "footer.refresh": "最後のリフレッシュ",
   "init.login_id_placeholder": "ログインIDを設定（3-20文字）",
   "init.display_name_placeholder": "表示名を設定",
   "init.password_placeholder": "大文字/小文字 + 数字、8文字以上",
