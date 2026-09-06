@@ -5,7 +5,7 @@
 //   ① 账号文件签发（管理端 super_admin，Session + CSRF）
 //   ② 游戏状态上报（客户端，X-JTT-* 头 + ED25519 签名认证，免 Session）
 //   ③ jt1:// 深链生成（Web 登录用户）
-//   ④ 客户端账号注册联动（仅客户端超管可创建账号文件，普通用户不可自助创建；凭一次性绑定码注册，TOFU 首次信任）
+//   ④ 客户端账号注册联动（仅超管可创建账号文件——客户端超管即网站 super_admin，为同一角色；普通用户不可自助创建；凭一次性绑定码注册，TOFU 首次信任）
 const express = require('express');
 const crypto = require('crypto');
 const { ok, getPool, handleError, sendError, ErrorCodes } = require('../utils');
