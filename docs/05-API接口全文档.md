@@ -746,3 +746,15 @@ V8.2 起收藏统一为「收藏夹 + 收藏项」模型，合并原 `model-coll
 
 > F-16 头像收藏复用统一收藏馆 `collections.js` 的 `kind='avatar_model'`（见 §14.4，`target_id` 传 `avtr_xxx` 头像 ID，后端走 `vrchatGetAvatar` 拉元数据）；`kind='avatar_favorite'` 为「收藏用户」语义，不可混用。
 
+### 14.7 世界标签（`world_tags.js`，挂载 `/api/world-tags`，全部登录）
+
+> F-17 私有标签：`world_tags` 表按 `(owner_id, world_id)` 归属，标签仅对打标签者自己可见；`world_id` 须匹配 `wrld_` 前缀（否则 400）；最多 8 个标签、单个最长 50 字符；与 `avatar_tags`（§14.6）同模式。
+
+| 方法与路径 | 权限 | 请求 | 成功/业务响应 |
+|---|---|---|---|
+| `GET /api/world-tags/:worldId` | 登录 | — | `{tags: string[]}` |
+| `POST /api/world-tags/:worldId` | 登录 | `{tags: string[]}` | `{tags}`（覆盖式：事务先删后插，整体替换该世界标签；自动去重/去空/截断） |
+| `DELETE /api/world-tags/:worldId` | 登录 | — | `{success,ok}`（清空该世界全部标签） |
+
+> F-17 世界收藏/分组复用统一收藏馆 `collections.js` 的 `kind='world'`（见 §14.4，`target_id` 传 `wrld_xxx` 世界 ID）；收藏 POST 走 `world_cache.js` 的 `getCachedWorld`（DB `vrc_worlds_cache` 权威 + Redis L2，miss 回源 `vrchatGetWorld` 并回写，24h 有效期，见 docs/04 §18.1）。
+
