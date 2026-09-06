@@ -58,7 +58,7 @@ echo -e "\n--- 4. 用户密码登录 ---"
 resp=$(api -X POST "$BASE/api/auth/login" \
   -H "Content-Type: application/json" \
   -H "X-CSRF-Token: $csrf" \
-  -d '{"loginId":"2667671398","password":"ding2667671398"}')
+  -d "{\"loginId\":\"${TEST_LOGIN_ID:?请设置 TEST_LOGIN_ID}\",\"password\":\"${TEST_LOGIN_PASSWORD:?请设置 TEST_LOGIN_PASSWORD}\"}")
 echo "    登录响应: $resp"
 success=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('success','?'))" 2>/dev/null)
 assert "用户登录成功" "true" "$success"
@@ -173,7 +173,7 @@ csrf=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).ge
 api -X POST "$BASE/api/auth/login" \
   -H "Content-Type: application/json" \
   -H "X-CSRF-Token: $csrf" \
-  -d '{"loginId":"2667671398","password":"ding2667671398"}' > /dev/null 2>&1
+  -d "{\"loginId\":\"${TEST_LOGIN_ID:?请设置 TEST_LOGIN_ID}\",\"password\":\"${TEST_LOGIN_PASSWORD:?请设置 TEST_LOGIN_PASSWORD}\"}" > /dev/null 2>&1
 
 resp=$(api "$BASE/api/csrf-token")
 csrf=$(echo "$resp" | python3 -c "import sys,json; print(json.load(sys.stdin).get('csrfToken',''))" 2>/dev/null)

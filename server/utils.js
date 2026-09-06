@@ -67,6 +67,9 @@ const ErrorCodes = {
   JTT_BIND_CODE_INVALID: 'JTT_BIND_CODE_INVALID',
   JTT_BIND_CODE_USED: 'JTT_BIND_CODE_USED',
   JTT_BIND_CODE_EXPIRED: 'JTT_BIND_CODE_EXPIRED',
+  // ==================== 境途联动：通用业务码（契约 04 §6.1） ====================
+  USER_NOT_FOUND: 'USER_NOT_FOUND',
+  USER_UNAVAILABLE: 'USER_UNAVAILABLE',
 };
 
 /**
