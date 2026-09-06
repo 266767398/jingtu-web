@@ -1754,6 +1754,13 @@ window._LANG_ZH = {
   "world_discover.load_failed": "加载失败",
   "world_discover.no_login_hint": "未登录时使用匿名数据，登录后可获取更精确结果",
 
+  // ===== F-17：世界收藏私有标签 =====
+  "world_tags.label": "我的标签",
+  "world_tags.placeholder": "用逗号分隔，最多 8 个，如：常驻, 社交",
+  "world_tags.saved": "标签已保存",
+  "world_tags.confirm_clear": "确定清空该世界的全部标签吗？",
+  "world_tags.cleared": "标签已清空",
+
   // ===== 第十五轮：补齐 i18n 键（硬编码转软编码） =====
   "auth.hide_password": "隐藏密码",
   "auth.show_password": "显示密码",

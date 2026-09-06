@@ -121,6 +121,13 @@
 .coll-detail-desc { background: var(--hover); border-radius: 8px; padding: 8px; font-size: 13px; color: var(--text); max-height: 120px; overflow: auto; }
 .coll-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .coll-detail-hint { line-height: 1.5; color: var(--text3); }
+.coll-detail-tag-edit { display: flex; flex-direction: column; gap: 8px; }
+.coll-detail-tag-edit input.search-box {
+  width: 100%; box-sizing: border-box;
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 13px; padding: 8px 10px;
+}
+.coll-detail-tag-edit input.search-box:focus { outline: none; border-color: var(--accent); }
 
 /* 公开状态"点亮选中"：醒目高亮 + 呼吸光晕，明确表示当前已公开可切换为私密 */
 .btn.is-public-on {

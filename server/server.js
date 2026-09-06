@@ -554,6 +554,9 @@ app.use('/api/collections', require('./routes/collections')(getVRCCookie));
 // F-16 头像标签（私有标签，owner 为当前登录用户）
 app.use('/api/avatar-tags', require('./routes/avatar_tags'));
 
+// F-17 世界标签（与头像标签同模式，私有标签）
+app.use('/api/world-tags', require('./routes/world_tags'));
+
 app.use('/api/event-teams', require('./routes/event_teams'));
 
 // 启动期路由冲突自检（P2-15 / B-3，只读）：扫描全部已注册路由，

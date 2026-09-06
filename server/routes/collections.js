@@ -6,10 +6,12 @@ const router = express.Router();
 const { ok,  getPool, handleError, createErr, proxyVrcAvatar, ErrorCodes  } = require('../utils');;
 const { requireAuth, requireAdminCompat } = require('../auth');
 const {
-  vrchatGetAvatar, vrchatGetWorld, vrchatGetUser, vrchatSetAvatar, vrchatCloneAvatar,
+  vrchatGetAvatar, vrchatGetUser, vrchatSetAvatar, vrchatCloneAvatar,
   vrchatListWorlds, vrchatGetPopularWorlds, vrchatGetFeaturedWorlds,
   sanitizeVrcId, USER_AGENT
 } = require('../vrc');
+// F-17 世界详情缓存服务：收藏世界时优先走缓存，减少对 VRChat API 的重复回源
+const { getCachedWorld } = require('../world_cache');
 
 const AVTR_ID_PATTERN = /^(avtr)_[0-9a-fA-F-]+$/;
 const WRID_ID_PATTERN = /^(wrld)_[0-9a-fA-F-]+$/;
@@ -498,7 +500,8 @@ router.post('/', requireAuth, async (req, res) => {
       rec.heat = computeHeat(rec.rating_avg, rec.rating_count, rec.favorite_count, 0, 0);
     } else if (kind === 'world') {
       try {
-        const w = await vrchatGetWorld(targetId, req.vrcCookie || null);
+        // F-17: 走世界详情缓存，命中直接返回、miss 才回源 VRChat 并回写缓存
+        const w = await getCachedWorld(targetId, req.vrcCookie || null);
         if (w) {
           rec.name = w.name || '';
           rec.author = w.authorName || '';

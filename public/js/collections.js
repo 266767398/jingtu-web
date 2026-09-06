@@ -344,6 +344,13 @@
       try { const d = await api('/api/collections/' + id); item = d.item || null; } catch (e) { /* 忽略，走回退 */ }
       if (!item) item = await fetchItem(id);
       if (!item) { toast(__('collections.not_found', __('auto_collections_34')), 'error'); return; }
+      // F-17: 世界收藏详情预取私有标签（仅本人视角展示/编辑）
+      if (item.kind === 'world' && state.scope !== 'public') {
+        try {
+          const td = await api('/api/world-tags/' + encodeURIComponent(item.target_id));
+          item.worldTags = td.tags || [];
+        } catch (e) { item.worldTags = []; }
+      }
       renderDetail(item);
       openModal('collDetailModal');
     } catch (e) { toast(e.message, 'error'); }
@@ -419,6 +426,16 @@
     const notesEl = isMineDetail ? `<div class="mt-8"><label>${__('collections.notes', __('auto_collections_60'))}</label>
       <textarea id="collDetailNotes" class="search-box" rows="2">${esc(it.notes || '')}</textarea>
       <button class="btn btn-outline mt-4" id="collDetailSaveNotes">${__('common.save', __('auto_collections_61'))}</button></div>` : '';
+    // F-17: 世界收藏私有标签编辑区（仅本人视角；公开视角沿用世界原始 tags 展示）
+    const worldTagEditHtml = (isMineDetail && it.kind === 'world') ? `
+      <div class="coll-detail-tag-edit mt-8">
+        <label>${__('world_tags.label', '我的标签')}</label>
+        <input id="collDetailWorldTags" class="search-box" type="text" maxlength="255" placeholder="${__('world_tags.placeholder', '用逗号分隔，最多 8 个，如：常驻, 社交')}" value="${esc((item.worldTags || []).join(', '))}">
+        <div class="flex-row gap-8 mt-4">
+          <button class="btn btn-outline" id="collDetailWorldTagSave">${__('common.save', __('auto_collections_61'))}</button>
+          <button class="btn btn-outline" id="collDetailWorldTagClear">${__('common.delete', '删除')}</button>
+        </div>
+      </div>` : '';
 
     body.innerHTML = `
       <div class="coll-detail flex-row gap-12">
@@ -430,6 +447,7 @@
           ${pubInfoHtml}
           ${folderSel}
           ${notesEl}
+          ${worldTagEditHtml}
           ${actions}
           ${pubHintHtml}
         </div>
@@ -470,6 +488,28 @@
     const saveNotes = $('collDetailSaveNotes');
     if (saveNotes) saveNotes.addEventListener('click', async () => {
       try { await api('/api/collections/' + it.id, { method: 'PUT', body: JSON.stringify({ notes: $('collDetailNotes').value }) }); toast(__('collections.saved', __('auto_collections_73'))); } catch (e) { toast(e.message, 'error'); }
+    });
+    // F-17: 世界收藏私有标签保存/清空
+    const wtSave = $('collDetailWorldTagSave');
+    if (wtSave) wtSave.addEventListener('click', async () => {
+      const input = $('collDetailWorldTags');
+      const tags = (input.value || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 8);
+      try {
+        await api('/api/world-tags/' + encodeURIComponent(it.target_id), { method: 'POST', body: JSON.stringify({ tags }) });
+        toast(__('world_tags.saved', '标签已保存'), 'success');
+        item.worldTags = tags;
+      } catch (e) { toast(e.message, 'error'); }
+    });
+    const wtClear = $('collDetailWorldTagClear');
+    if (wtClear) wtClear.addEventListener('click', async () => {
+      if (!confirm(__('world_tags.confirm_clear', '确定清空该世界的全部标签吗？'))) return;
+      try {
+        await api('/api/world-tags/' + encodeURIComponent(it.target_id), { method: 'DELETE' });
+        toast(__('world_tags.cleared', '标签已清空'), 'success');
+        const input = $('collDetailWorldTags');
+        if (input) input.value = '';
+        item.worldTags = [];
+      } catch (e) { toast(e.message, 'error'); }
     });
   }
 

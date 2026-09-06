@@ -417,6 +417,19 @@ async function initDatabase() {
         INDEX idx_avatar(avatar_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
+      // F-17 世界标签：与 avatar_tags 同模式，私有标签（owner_id 为本站用户），
+      // 一个世界可打多个标签，同一 (owner, world_id, tag) 唯一。
+      `CREATE TABLE IF NOT EXISTS world_tags (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        owner_id INT NOT NULL COMMENT '标签所有者（本站用户 id，标签私有）',
+        world_id VARCHAR(100) NOT NULL COMMENT 'VRChat World ID（wrld_xxx）',
+        tag VARCHAR(50) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_owner_world_tag(owner_id, world_id, tag),
+        INDEX idx_owner(owner_id),
+        INDEX idx_world(world_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
       // 群组同步日志表 (V6.5)
       `CREATE TABLE IF NOT EXISTS group_sync_log (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1221,6 +1234,22 @@ async function initDatabase() {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1061 || e.code === 'ER_DUP_KEYNAME') { /* index exists */ }
         else { console.warn('  ⚠️ roster index:', e.message); }
+      }
+    }
+
+    // V9.4: F-17 世界详情缓存补列（world_cache 服务需要完整信息以支撑前端详情展示、减少回源）
+    // vrc_worlds_cache 原表仅有展示基础字段，缺少 author_id/world_type/unity_package_url/asset_url/platform
+    const worldCacheCols = [
+      `ALTER TABLE vrc_worlds_cache ADD COLUMN author_id VARCHAR(100) DEFAULT ''`,
+      `ALTER TABLE vrc_worlds_cache ADD COLUMN world_type VARCHAR(50) DEFAULT ''`,
+      `ALTER TABLE vrc_worlds_cache ADD COLUMN unity_package_url VARCHAR(500) DEFAULT ''`,
+      `ALTER TABLE vrc_worlds_cache ADD COLUMN asset_url VARCHAR(500) DEFAULT ''`,
+      `ALTER TABLE vrc_worlds_cache ADD COLUMN platform VARCHAR(50) DEFAULT ''`,
+    ];
+    for (const sql of worldCacheCols) {
+      try { await holder.pool.query(sql); } catch (e) {
+        if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
+        else { console.warn('  ⚠️ world cache migration:', e.message); }
       }
     }
 
