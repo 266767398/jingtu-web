@@ -1,10 +1,11 @@
 // 境途 × 境途同游 联动接口骨架（挂载前缀 /api/jtt）
-// 依据：p2p/docs/04-jingtu-web-integration.md（契约 0.1 草案）
+// 依据：p2p/docs/04-jingtu-web-integration.md（契约 0.2 草案）
 // 本文件为代码骨架：端点、权限、签名规范已按契约落地；数据库写入与联调实现留 TODO。
-// 三个方向：
+// 四个方向：
 //   ① 账号文件签发（管理端 super_admin，Session + CSRF）
 //   ② 游戏状态上报（客户端，X-JTT-* 头 + ED25519 签名认证，免 Session）
 //   ③ jt1:// 深链生成（Web 登录用户）
+//   ④ 客户端账号注册联动（客户端自助创建账号，凭一次性绑定码注册，TOFU 首次信任）
 const express = require('express');
 const crypto = require('crypto');
 const { ok, getPool, handleError, sendError, ErrorCodes } = require('../utils');
@@ -247,6 +248,81 @@ router.post('/deeplink/generate', requireAuth, async (req, res) => {
       message: '骨架占位，联调实现'
     });
   } catch (e) { handleError(res, e, '[jtt/deeplink/generate]'); }
+});
+
+// ==================== 方向④：客户端账号注册联动（绑定码注册，TOFU 首次信任） ====================
+
+// POST /api/jtt/bind-codes — 生成一次性绑定码（契约 §3.8，管理端点：super_admin + Session + CSRF）
+// 原始绑定码仅本次响应返回一次；库中仅存 SHA-256 哈希，防存储侧泄漏（契约 §2.3）
+router.post('/bind-codes', requireRole('super_admin'), async (req, res) => {
+  try {
+    const { userId, displayName, role = 'member', expiresInDays = 7 } = req.body || {};
+    if (!userId || typeof userId !== 'number') {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'userId 必填且为数字');
+    }
+    if (!JTT_ROLE_WHITELIST.includes(role)) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'role 不在白名单 member/admin/super_admin');
+    }
+    if (!Number.isFinite(expiresInDays) || expiresInDays < 1 || expiresInDays > 30) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'expiresInDays 须为 1-30 天');
+    }
+    // TODO: 联调实现
+    //  1) 校验目标用户存在且未封禁/软删（users 表，失败 → 400 USER_NOT_FOUND / USER_UNAVAILABLE）
+    //  2) 生成绑定码：JTBC- 前缀 + 24 位随机大写字母数字；落库 jtt_bind_codes（code_hash=SHA-256(bindCode)）
+    //  3) expires_at = NOW() + expiresInDays 天；原始码仅本次返回，之后不可再查
+    const bindCode = 'JTBC-' + crypto.randomBytes(18).toString('hex').toUpperCase().slice(0, 24);
+    return ok(res, {
+      skeleton: true,
+      bindCode,
+      userId,
+      displayName: displayName || '',
+      role,
+      expiresInDays,
+      expiresAt: new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString(),
+      message: '骨架占位，原始码仅本次返回，联调后入库 jtt_bind_codes'
+    });
+  } catch (e) { handleError(res, e, '[jtt/bind-codes/create]'); }
+});
+
+// POST /api/jtt/accounts/register — 客户端账号注册联动（契约 §3.7，签名端点，已加入 CSRF 豁免，TOFU）
+// 注册时账号尚不存在，故不挂 jttAuth：用请求体 publicKey 验签（首次信任由一次性绑定码带外保证）
+router.post('/accounts/register', async (req, res) => {
+  try {
+    const { accountId, displayName, publicKey, bindCode } = req.body || {};
+    const timestamp = req.headers['x-jtt-timestamp'];
+    const nonce = req.headers['x-jtt-nonce'];
+    const signature = req.headers['x-jtt-signature'];
+    const accountIdPattern = new RegExp('^' + JTT_ACCOUNT_PREFIX + '[0-9a-f]{32}$');
+    if (!accountId || typeof accountId !== 'string' || !accountIdPattern.test(accountId)) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'accountId 非法（须为 ' + JTT_ACCOUNT_PREFIX + ' + 32 位 hex）');
+    }
+    if (!publicKey || typeof publicKey !== 'string' || !bindCode || typeof bindCode !== 'string') {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'publicKey/bindCode 必填且为字符串');
+    }
+    if (!timestamp || !nonce || !signature) {
+      return sendError(res, 401, ErrorCodes.JTT_SIGNATURE_INVALID, '缺少 JTT 签名请求头');
+    }
+    // TODO: 联调实现
+    //  1) 校验绑定码：查 jtt_bind_codes（code_hash=SHA-256(bindCode)）
+    //     - 无记录 → 400 JTT_BIND_CODE_INVALID；used_at 非空 → 409 JTT_BIND_CODE_USED；expires_at < NOW() → 409 JTT_BIND_CODE_EXPIRED
+    //  2) 时间戳窗口校验（±300s，超窗 → 401 JTT_TIMESTAMP_STALE）+ nonce 防重放（重复 → 401 JTT_SIGNATURE_INVALID）
+    //  3) TOFU 验签：buildSignatureString(METHOD, PATH, TIMESTAMP, NONCE, RAW_BODY)，用请求体 publicKey 验签（账号未入表）
+    //  4) 幂等：按 accountId 查 jtt_accounts，已存在 → 返回首次成功结果（success:true）
+    //  5) 落库 jtt_accounts：user_id=绑定码目标用户、issued_by=绑定码 created_by、fingerprint=公钥哈希、role=绑定码 role；
+    //     标记绑定码 used_at/used_by；返回 { success:true, accountId, userId, displayName, role, fingerprint, expiresAt, webUrl }
+    return ok(res, {
+      skeleton: true,
+      success: false,
+      accountId,
+      userId: null,
+      displayName: displayName || '',
+      role: null,
+      fingerprint: null,
+      expiresAt: null,
+      webUrl: null,
+      message: '骨架占位，联调实现后完成绑定码校验与 TOFU 注册'
+    });
+  } catch (e) { handleError(res, e, '[jtt/accounts/register]'); }
 });
 
 module.exports = router;

@@ -1209,6 +1209,24 @@ async function initDatabase() {
         INDEX idx_updated(updated_at),
         INDEX idx_visibility(visibility)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+
+      // 境途绑定码表（契约 04 §2.3，方向④：客户端账号注册联动；原始码仅生成时返回一次，库中存哈希）
+      `CREATE TABLE IF NOT EXISTS jtt_bind_codes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        code_hash VARCHAR(64) NOT NULL COMMENT '绑定码SHA-256哈希',
+        user_id INT NOT NULL COMMENT '目标站内用户ID(users.id)',
+        display_name VARCHAR(100) NULL COMMENT '注册时快照的显示名',
+        role VARCHAR(20) DEFAULT 'member' COMMENT '注册后境途侧角色',
+        expires_at DATETIME NOT NULL COMMENT '过期时间(默认7天)',
+        used_at DATETIME NULL COMMENT '使用时间(NULL=未使用)',
+        used_by VARCHAR(64) NULL COMMENT '使用方账号ID(jt_前缀)',
+        created_by INT NOT NULL COMMENT '生成人(users.id)',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_code_hash(code_hash),
+        INDEX idx_user(user_id),
+        INDEX idx_expires(expires_at),
+        INDEX idx_used(used_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
     ];
 
     for (const sql of tables) {

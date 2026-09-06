@@ -72,7 +72,7 @@ function setupCsrf(app) {
       '/setup/state', '/setup/reset',
       '/system/db-recover',
       // 境途联动（JTT）签名端点：请求不依赖 Cookie 会话，CSRF 安全由 ED25519 签名保证（契约 04 §6.2）
-      '/jtt/accounts/verify', '/jtt/states'];
+      '/jtt/accounts/verify', '/jtt/accounts/register', '/jtt/states'];
     if (exemptPaths.some(p => req.path === p)) return next();
     const token = req.headers['x-csrf-token'];
     if (!token || !csrfTokens.has(token)) return fail(res, 403, 'CSRF token 无效');
