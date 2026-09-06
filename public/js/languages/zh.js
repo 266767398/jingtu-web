@@ -587,6 +587,8 @@ window._LANG_ZH = {
   "home.feature_desc_friends": "查看好友列表，管理好友关系",
   "home.feature_desc_follows": "关注感兴趣的成员，追踪其动态",
   "home.feature_nav_hint": "点击任意入口，直达对应模块",
+  "home.featured_photos": "精选照片",
+  "home.view_all": "查看全部",
   "home.cta_title": "加入境途同游，与同好在虚拟世界相遇",
   "home.cta_desc": "浏览成员、参与活动、分享你的精彩瞬间",
   "home.cta_members": "浏览成员",

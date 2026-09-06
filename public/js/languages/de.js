@@ -571,6 +571,8 @@ window._LANG_DE = {
   "home.feature_desc_friends": "Freundesliste ansehen und Verbindungen verwalten",
   "home.feature_desc_follows": "Mitglieder folgen und Updates verfolgen",
   "home.feature_nav_hint": "Tippe auf einen Eintrag, um zum Modul zu springen",
+  "home.featured_photos": "Ausgewählte Fotos",
+  "home.view_all": "Alle anzeigen",
   "home.cta_title": "Mach mit bei JingTu Travel — triff Gleichgesinnte in der virtuellen Welt",
   "home.cta_desc": "Mitglieder ansehen, Events joinen, Momente teilen",
   "home.cta_members": "Mitglieder",

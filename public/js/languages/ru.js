@@ -570,6 +570,8 @@ window._LANG_RU = {
   "home.feature_desc_friends": "Список друзей и управление связями",
   "home.feature_desc_follows": "Подписка на участников и отслеживание активности",
   "home.feature_nav_hint": "Нажмите любой раздел, чтобы перейти к модулю",
+  "home.featured_photos": "Избранные фото",
+  "home.view_all": "Показать все",
   "home.cta_title": "Присоединяйтесь к JingTu Travel — встречайтесь в виртуальном мире",
   "home.cta_desc": "Смотрите участников, участвуйте в событиях, делитесь моментами",
   "home.cta_members": "Участники",

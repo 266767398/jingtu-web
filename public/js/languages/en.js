@@ -565,6 +565,8 @@ window._LANG_EN = {
   "home.feature_desc_friends": "View your friends and manage connections",
   "home.feature_desc_follows": "Follow members you like and track updates",
   "home.feature_nav_hint": "Tap any entry to jump straight to its module",
+  "home.featured_photos": "Featured Photos",
+  "home.view_all": "View All",
   "home.cta_title": "Join JingTu Travel — meet fellow travelers in the virtual world",
   "home.cta_desc": "Browse members, join events, and share your best moments",
   "home.cta_members": "Browse Members",

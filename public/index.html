@@ -78,7 +78,7 @@
         return 'zh';
       }
       // 解析期 document.write 外部脚本为阻塞式，保证在 i18n.js 之前就绪
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260906c"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260906d"><\/script>');
     })();
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
@@ -496,8 +496,8 @@
     <!-- 精选照片（P0: 首页照片展示） -->
     <div class="mt-16 mb-8 flex-row items-center gap-8">
       <span class="section-title-icon">🖼️</span>
-      <h3 class="section-title">精选照片</h3>
-      <button class="btn btn-sm btn-outline ml-auto" onclick="switchTab('album')">查看全部</button>
+      <h3 class="section-title" data-i18n="home.featured_photos">精选照片</h3>
+      <button class="btn btn-sm btn-outline ml-auto" onclick="switchTab('album')" data-i18n="home.view_all">查看全部</button>
     </div>
     <div id="homeFeaturedPhotos" class="featured-photos-grid">
       <div class="skeleton-card-grid"></div><div class="skeleton-card-grid"></div><div class="skeleton-card-grid"></div>
@@ -2208,7 +2208,7 @@
      移出解析阻塞路径，首屏可先完成首次绘制（P2-21） -->
 <script defer src="/js/core.js?v=20260906a"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
-<script defer src="/js/i18n.js?v=20260906c"></script>
+<script defer src="/js/i18n.js?v=20260906d"></script>
 <script defer src="/js/ui.js?v=20260906a"></script>
 <script defer src="/vendor/gsap/gsap.min.js?v=20260906a"></script>
 <script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260906a"></script>

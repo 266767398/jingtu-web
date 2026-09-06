@@ -571,6 +571,8 @@ window._LANG_JA = {
   "home.feature_desc_friends": "フレンドリストの確認と関係管理",
   "home.feature_desc_follows": "気になるメンバーをフォローして動向を追跡",
   "home.feature_nav_hint": "任意の入り口をタップすると各モジュールへ移動",
+  "home.featured_photos": "厳選写真",
+  "home.view_all": "すべて表示",
   "home.cta_title": "境途同游に参加し、仮想世界で仲間と出会おう",
   "home.cta_desc": "メンバーを探し、イベントに参加し、思い出を共有",
   "home.cta_members": "メンバーを見る",
