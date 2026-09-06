@@ -1,11 +1,11 @@
 // 境途 × 境途同游 联动接口骨架（挂载前缀 /api/jtt）
-// 依据：p2p/docs/04-jingtu-web-integration.md（契约 0.2 草案）
+// 依据：p2p/docs/04-jingtu-web-integration.md（契约 0.3 草案）
 // 本文件为代码骨架：端点、权限、签名规范已按契约落地；数据库写入与联调实现留 TODO。
 // 四个方向：
 //   ① 账号文件签发（管理端 super_admin，Session + CSRF）
 //   ② 游戏状态上报（客户端，X-JTT-* 头 + ED25519 签名认证，免 Session）
 //   ③ jt1:// 深链生成（Web 登录用户）
-//   ④ 客户端账号注册联动（客户端自助创建账号，凭一次性绑定码注册，TOFU 首次信任）
+//   ④ 客户端账号注册联动（仅客户端超管可创建账号文件，普通用户不可自助创建；凭一次性绑定码注册，TOFU 首次信任）
 const express = require('express');
 const crypto = require('crypto');
 const { ok, getPool, handleError, sendError, ErrorCodes } = require('../utils');
