@@ -1164,6 +1164,50 @@ async function initDatabase() {
         UNIQUE KEY uk_team_user(team_id, user_id),
         INDEX idx_team(team_id),
         INDEX idx_user(user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // ==================== 境途联动（JTT） ====================
+
+      // 境途账号文件签发记录表（契约 04-jingtu-web-integration.md §2.1）
+      `CREATE TABLE IF NOT EXISTS jtt_accounts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL COMMENT '站内用户ID(users.id)',
+        account_id VARCHAR(64) NOT NULL COMMENT '境途账号ID(jt_前缀+32位hex)',
+        display_name VARCHAR(100) NOT NULL COMMENT '签发时快照的显示名',
+        role VARCHAR(20) DEFAULT 'member' COMMENT '境途侧角色',
+        public_key TEXT NOT NULL COMMENT '客户端生成的ED25519公钥(Base64)',
+        permissions JSON NULL COMMENT '境途权限列表',
+        allowed_rooms JSON NULL COMMENT '允许进入的房间/会话白名单',
+        fingerprint VARCHAR(64) NOT NULL COMMENT '账号文件指纹(公钥哈希)',
+        issued_by INT NULL COMMENT '签发人(users.id)',
+        issued_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME NULL COMMENT '过期时间(NULL=长期有效)',
+        revoked TINYINT(1) DEFAULT 0,
+        revoked_at DATETIME NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_account_id(account_id),
+        UNIQUE KEY uk_fingerprint(fingerprint),
+        INDEX idx_user(user_id),
+        INDEX idx_revoked(revoked),
+        INDEX idx_expires(expires_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // 境途游戏状态表（契约 04 §2.2，每用户一条当前状态）
+      `CREATE TABLE IF NOT EXISTS jtt_game_states (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL COMMENT '站内用户ID(users.id)',
+        game_key VARCHAR(64) NOT NULL,
+        game_name VARCHAR(100) NOT NULL,
+        started_at DATETIME NULL,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        source VARCHAR(20) DEFAULT 'client' COMMENT 'client=客户端识别/manual=后台手工标记',
+        visibility ENUM('public','members_only','private') DEFAULT 'public',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_user(user_id),
+        INDEX idx_game_key(game_key),
+        INDEX idx_updated(updated_at),
+        INDEX idx_visibility(visibility)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
     ];
 
@@ -1250,6 +1294,17 @@ async function initDatabase() {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
         else { console.warn('  ⚠️ world cache migration:', e.message); }
+      }
+    }
+
+    // V9.5: F-18 审核远程动作结果落库（供审核队列回显 block/mute 是否成功、支持撤销）
+    const moderationCols = [
+      `ALTER TABLE moderations ADD COLUMN remote_result VARCHAR(500) DEFAULT ''`,
+    ];
+    for (const sql of moderationCols) {
+      try { await holder.pool.query(sql); } catch (e) {
+        if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
+        else { console.warn('  ⚠️ moderation migration:', e.message); }
       }
     }
 
