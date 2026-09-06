@@ -109,8 +109,8 @@ VRCX 的接口调用是一个清晰的四层结构，每层职责单一、向下
 | **inventory.js** | `inventory/{id}`、`inventory`、`user/{userId}/inventory/{invId}`、`inventory/{id}/consume`、`inventory/template/{id}`、`reward/redeem`、`inventory/global` | **克隆（`cloning/pedestal`）在 coordinator 里**、消费/装备/归档；写后 `refetchActiveInventoryQueries` | ✅ 已覆盖克隆（collections.js 借鉴 VRCX `cloning/pedestal`） |
 | **world.js** | `worlds/{id}`、`worlds/{option}`、`worlds/{id}/publish`、`file/image`（上传） | 世界查询/发布/取消；写后 `patchAndRefetchActiveQuery` | ⚠️ 本项目仅缓存 worldName，未做世界发布类操作 |
 | **notification.js** | `auth/user/notifications`、`notifications`、`invite/{userId}`、`requestInvite/{userId}`、`invite/{id}/response`、`.../accept`/`hide`/`see` | **邀请/请求加入/邀请响应**全链路；好友请求接受；通知已读/隐藏 | ❌ 未实现邀请/通知系统 |
-| **playerModeration.js** | `auth/user/playermoderations`（GET/POST）、`auth/user/unplayermoderate`（PUT） | 拉黑/解除拉黑（block/mute 等） | ❌ 未实现（群组场景暂不需要） |
-| **avatarModeration.js** | `auth/user/avatarmoderations`（GET/POST/DELETE） | 模型屏蔽/隐藏 | ❌ 未实现 |
+| **playerModeration.js** | `auth/user/playermoderations`（GET/POST）、`auth/user/unplayermoderate`（PUT） | 拉黑/解除拉黑（block/mute 等） | ✅ 已部分落地（F-18，09-06）：`moderations.js` resolve 通过时 block+mute 远程写入、revert 撤销（unblock/unmute）；仅审核队列触发，未做通用列表查询 |
+| **avatarModeration.js** | `auth/user/avatarmoderations`（GET/POST/DELETE） | 模型屏蔽/隐藏 | ❌ 未实现（VRChat 无「隐藏他人头像」官方写接口，F-18 avatar 类审核仅站内本地落库） |
 | **misc.js** | `file/{id}`、`userNotes`（POST）、`feedback/{userId}/user`（举报）、`analysis/...`、`economy/balance`、`instances/{location}`（关闭）、`users/{id}/{world}/persist`、`users/{id}/badges/{badgeId}`、`visits`、`users/{id}/boop` | **杂项聚合**：文件、备注、举报、信用、关房、持久数据、徽章、访问量、Boop | ⚠️ 仅用了 `file/{id}`（头像代理），其余未做 |
 | **inviteMessages.js** | `message/{userId}/{type}`（GET）、`message/{userId}/{type}/{slot}`（PUT） | 邀请消息模板读写（按类型+槽位） | ❌ 未实现 |
 | **cosmetics.js** | `cosmetics/index/profileEffect`、`cosmetics/index/iconFrame` | 资料页特效 / 头像框索引 | ❌ 未实现（名片未用特效/头像框） |

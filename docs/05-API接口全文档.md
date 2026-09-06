@@ -758,3 +758,14 @@ V8.2 起收藏统一为「收藏夹 + 收藏项」模型，合并原 `model-coll
 
 > F-17 世界收藏/分组复用统一收藏馆 `collections.js` 的 `kind='world'`（见 §14.4，`target_id` 传 `wrld_xxx` 世界 ID）；收藏 POST 走 `world_cache.js` 的 `getCachedWorld`（DB `vrc_worlds_cache` 权威 + Redis L2，miss 回源 `vrchatGetWorld` 并回写，24h 有效期，见 docs/04 §18.1）。
 
+### 14.8 审核队列（`moderations.js`，挂载 `/api/moderations`）
+
+> F-18 玩家/头像审核：`moderations` 表（`target_type` 为 `player`/`avatar`）。「通过」时按类型执行远程 VRChat 动作——player 屏蔽+静音（需管理员本人绑定 VRChat Cookie，graceful：无 ID/无 Cookie/远程失败均不阻断本地落库），avatar 仅站内处理（VRChat 无「隐藏他人头像」官方写接口）。远程结果写 `moderations.remote_result`（`{"applied":true,"block","mute"}` 或 `{"applied":false,"reason"}`）；已通过项可撤销（unblock/unmute），撤销后追加 `revoked:true` 与 `unblock`/`unmute` 状态（`skipped:*`/`error:*` 前缀表未执行/失败）。
+
+| 方法与路径 | 权限 | 请求 | 成功/业务响应 |
+|---|---|---|---|
+| `POST /api/moderations` | 登录 | `{targetType:'player'\|'avatar', targetUserId, reason}` | `{success,ok}`；非法类型/无效目标/空理由/超500字/自举 400；同人同目标待处理去重 409 |
+| `GET /api/moderations?status=pending&page=1&pageSize=20` | 管理员 | — | `{items,total,page,pageSize}`；`status` 限 `pending/approved/rejected`；`items[].remoteResult` 为 `remote_result` JSON 字符串（供队列回显 block/mute 状态） |
+| `POST /api/moderations/:id/resolve` | 管理员 | `{action:'approve'\|'reject', note?}` | `{status, remote}`；不存在 404；已处理 409；`approve` 触发远程 block+mute 并落库 `remote_result` |
+| `POST /api/moderations/:id/revert` | 管理员 | — | `{remote:{unblock,unmute}, revoked:true}`；不存在 404；非 `approved` 409；avatar 仅标 `revoked` 不调远程 |
+
