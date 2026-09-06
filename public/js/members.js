@@ -507,15 +507,21 @@ async function loadModerationQueue(status) {
       box.innerHTML = '<p class="text-muted2">' + __('members.report_queue_empty') + '</p>';
       return;
     }
-    box.innerHTML = data.items.map(it => `
+    box.innerHTML = data.items.map(it => {
+      const actionsHtml = it.status === 'pending'
+        ? `<button class="btn btn-sm btn-accent" onclick="resolveModeration(${it.id}, 'approve')">${__('common.approve')}</button>
+           <button class="btn btn-sm btn-outline" onclick="resolveModeration(${it.id}, 'reject')">${__('common.reject')}</button>`
+        : (it.status === 'approved'
+          ? `<button class="btn btn-sm btn-outline" onclick="revertModeration(${it.id})">${__('members.report_revert')}</button>`
+          : '');
+      return `
       <div class="moderation-item" data-id="${it.id}">
         <div class="moderation-meta"><b>${esc(it.targetName)}</b> · ${esc(it.targetType)} · ${esc(it.reporterName || '')}</div>
         <div class="moderation-reason">${esc(it.reason)}</div>
-        <div class="moderation-actions">
-          <button class="btn btn-sm btn-accent" onclick="resolveModeration(${it.id}, 'approve')">${__('common.approve')}</button>
-          <button class="btn btn-sm btn-outline" onclick="resolveModeration(${it.id}, 'reject')">${__('common.reject')}</button>
-        </div>
-      </div>`).join('');
+        ${renderModerationRemote(it)}
+        <div class="moderation-actions">${actionsHtml}</div>
+      </div>`;
+    }).join('');
   } catch {}
 }
 
@@ -528,6 +534,46 @@ async function resolveModeration(id, action) {
     if (res.ok) { toast(__('members.report_resolved'), 'success'); loadModerationQueue(); }
     else toast(__('members.report_resolve_failed'), 'error');
   } catch { toast(__('members.report_resolve_failed'), 'error'); }
+}
+
+// 渲染审核项的远程动作状态（block/mute 结果或撤销标记；remoteResult 为空则无显示）
+function renderModerationRemote(it) {
+  if (!it.remoteResult) return '';
+  let p = null;
+  try { p = JSON.parse(it.remoteResult); } catch (e) { return ''; }
+  if (!p || typeof p !== 'object') return '';
+  let text = '';
+  if (p.revoked) {
+    text = __('members.report_remote_revoked');
+  } else if (p.applied) {
+    const parts = [];
+    if (p.block !== undefined && p.block !== null) parts.push('block ' + p.block);
+    if (p.mute !== undefined && p.mute !== null) parts.push('mute ' + p.mute);
+    text = __('members.report_remote_applied', { detail: parts.join(' · ') || '-' });
+  } else {
+    const reasonMap = {
+      'avatar-local': __('members.report_remote_reason_avatar'),
+      'no-vrchat-id': __('members.report_remote_reason_no_vrc'),
+      'no-admin-cookie': __('members.report_remote_reason_no_admin')
+    };
+    text = __('members.report_remote_skipped') + '（' + (reasonMap[p.reason] || p.reason || '') + '）';
+  }
+  return '<div class="moderation-remote text-13">' + esc(text) + '</div>';
+}
+
+// 撤销已通过项的远程屏蔽/静音（unblock/unmute）
+async function revertModeration(id) {
+  try {
+    const res = await api('/api/moderations/' + id + '/revert', { method: 'POST' });
+    if (res.ok) { toast(__('members.report_reverted'), 'success'); reloadModerationQueue(); }
+    else toast(__('members.report_revert_failed'), 'error');
+  } catch { toast(__('members.report_revert_failed'), 'error'); }
+}
+
+// 按当前激活的审核状态标签刷新队列（撤销后保留在已通过视图）
+function reloadModerationQueue() {
+  const active = document.querySelector('#adminModerationSection [data-mqt].btn-accent');
+  loadModerationQueue(active ? active.getAttribute('data-mqt') : 'pending');
 }
 
 

@@ -1,10 +1,11 @@
 /**
  * 境途同游 — 玩家/头像审核（F-18）
- * 提交举报 + 管理员审核队列 + 通过/驳回。
+ * 提交举报 + 管理员审核队列 + 通过/驳回 + 撤销远程屏蔽/静音。
  * 「通过」时按 target_type 执行远程 VRChat 动作：
  *   - player：屏蔽（block）+ 静音（mute）目标玩家（需管理员本人绑定 VRChat）
  *   - avatar：头像下架无 VRChat 官方写接口，仅站内本地落库
  * 远程动作全部 graceful：未绑定 / 目标无 VRChat ID / 远程失败 均不阻断本地审核落库。
+ * 远程结果写入 moderations.remote_result，已通过项可再次撤销（unblock/unmute）。
  */
 const express = require('express');
 const {
@@ -12,7 +13,7 @@ const {
 } = require('../auth');
 const { ok, getPool, logOper, handleError, sendError, ErrorCodes } = require('../utils');
 const {
-  vrchatBlockUser, vrchatMuteUser
+  vrchatBlockUser, vrchatMuteUser, vrchatUnblockUser, vrchatUnmuteUser
 } = require('../vrc');
 
 const TARGET_TYPES = ['avatar', 'player'];
@@ -23,14 +24,16 @@ const RESOLUTIONS = ['approve', 'reject'];
  * @param {object} item - moderations 行（含 target_user_id / target_type）
  * @param {object} req - 请求（用于 getVRCCookieUserOnly 取管理员本人 Cookie）
  * @param {Function} getVRCCookieUserOnly - 仅取当前登录用户自己绑定的 VRChat cookie
- * @returns {Promise<object>} { targetType, remote, note }
+ * @returns {Promise<object>} { targetType, remote, note, remoteResult }
+ *   remoteResult 为 JSON 字符串，供 resolve 写入 moderations.remote_result
  */
 async function applyRemoteModeration(item, req, getVRCCookieUserOnly) {
-  const result = { targetType: item.target_type, remote: null, note: '' };
+  const result = { targetType: item.target_type, remote: null, note: '', remoteResult: '' };
 
   // 头像下架：VRChat 无「隐藏他人头像」官方写接口，仅站内处理
   if (item.target_type === 'avatar') {
     result.note = '头像审核为站内本地处理（VRChat 无对应写接口）';
+    result.remoteResult = JSON.stringify({ applied: false, reason: 'avatar-local' });
     return result;
   }
 
@@ -42,11 +45,13 @@ async function applyRemoteModeration(item, req, getVRCCookieUserOnly) {
   const vrchatId = targetRows[0] && targetRows[0].vrchat_id;
   if (!vrchatId) {
     result.note = '目标未绑定 VRChat 账号，跳过远程屏蔽/静音';
+    result.remoteResult = JSON.stringify({ applied: false, reason: 'no-vrchat-id' });
     return result;
   }
   const cookie = (typeof getVRCCookieUserOnly === 'function') ? getVRCCookieUserOnly(req) : null;
   if (!cookie) {
     result.note = '当前管理员未绑定 VRChat 账号，跳过远程屏蔽/静音';
+    result.remoteResult = JSON.stringify({ applied: false, reason: 'no-admin-cookie' });
     return result;
   }
 
@@ -63,6 +68,7 @@ async function applyRemoteModeration(item, req, getVRCCookieUserOnly) {
   } catch (e) {
     result.remote.mute = 'error:' + (e.message || 'unknown');
   }
+  result.remoteResult = JSON.stringify({ applied: true, block: result.remote.block, mute: result.remote.mute });
   return result;
 }
 
@@ -121,7 +127,7 @@ module.exports = (getVRCCookieUserOnly) => {
       }
       const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
       const [rows] = await getPool().query(
-        `SELECT m.id, m.target_type, m.reason, m.status, m.created_at, m.resolved_at, m.resolution_note,
+        `SELECT m.id, m.target_type, m.reason, m.status, m.created_at, m.resolved_at, m.resolution_note, m.remote_result,
                 r.display_name AS reporter_name, t.display_name AS target_name
          FROM moderations m
          LEFT JOIN users r ON r.id = m.reporter_id
@@ -144,6 +150,7 @@ module.exports = (getVRCCookieUserOnly) => {
           reporterName: r.reporter_name || '',
           targetName: r.target_name || '',
           resolutionNote: r.resolution_note || '',
+          remoteResult: r.remote_result || '',
           createdAt: r.created_at,
           resolvedAt: r.resolved_at
         })),
@@ -184,6 +191,11 @@ module.exports = (getVRCCookieUserOnly) => {
       if (status === 'approved') {
         const applied = await applyRemoteModeration(rows[0], req, getVRCCookieUserOnly);
         remote = applied.remote;
+        // 远程结果落库，供审核队列回显 block/mute 状态、支持后续撤销
+        await getPool().query(
+          'UPDATE moderations SET remote_result = ? WHERE id = ?',
+          [applied.remoteResult || '', id]
+        );
         if (applied.note) {
           await logOper(req.session.userId, '审核远程动作', `审核项: ${id}, ${applied.note}`);
         }
@@ -194,6 +206,79 @@ module.exports = (getVRCCookieUserOnly) => {
 
       ok(res, {status, remote});
     } catch (e) { handleError(res, e, '[moderations/resolve]'); }
+  });
+
+  // ==================== 管理员：撤销远程屏蔽/静音（unblock/unmute） ====================
+  router.post('/:id/revert', requireRole('admin'), async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [rows] = await getPool().query(
+        'SELECT id, target_user_id, target_type, status, remote_result FROM moderations WHERE id = ?',
+        [id]
+      );
+      if (rows.length === 0) {
+        return sendError(res, 404, ErrorCodes.NOT_FOUND, '审核项不存在');
+      }
+      const item = rows[0];
+      if (item.status !== 'approved') {
+        return sendError(res, 409, ErrorCodes.CONFLICT, '仅已通过的审核项可撤销远程动作');
+      }
+      const prevResult = (() => {
+        try { return JSON.parse(item.remote_result || '{}') || {}; } catch (e) { return {}; }
+      })();
+
+      // 头像审核无远程动作，仅标记已撤销
+      if (item.target_type === 'avatar') {
+        prevResult.revoked = true;
+        prevResult.revokeNote = '头像审核为站内处理，无远程动作可撤销';
+        await getPool().query(
+          'UPDATE moderations SET remote_result = ? WHERE id = ?',
+          [JSON.stringify(prevResult), id]
+        );
+        await logOper(req.session.userId, '撤销审核远程动作', `审核项: ${id}, 头像无远程动作`);
+        return ok(res, { remote: null, revoked: true });
+      }
+
+      // 玩家：查目标 VRChat ID + 管理员本人 Cookie
+      const [targetRows] = await getPool().query(
+        'SELECT id, vrchat_id FROM users WHERE id = ?',
+        [item.target_user_id]
+      );
+      const vrchatId = targetRows[0] && targetRows[0].vrchat_id;
+      const cookie = (typeof getVRCCookieUserOnly === 'function') ? getVRCCookieUserOnly(req) : null;
+
+      const remote = { unblock: null, unmute: null };
+      if (!vrchatId) {
+        remote.unblock = 'skipped:no-vrchat-id';
+        remote.unmute = 'skipped:no-vrchat-id';
+      } else if (!cookie) {
+        remote.unblock = 'skipped:no-admin-cookie';
+        remote.unmute = 'skipped:no-admin-cookie';
+      } else {
+        try {
+          const unblock = await vrchatUnblockUser(vrchatId, cookie);
+          remote.unblock = unblock.status;
+        } catch (e) {
+          remote.unblock = 'error:' + (e.message || 'unknown');
+        }
+        try {
+          const unmute = await vrchatUnmuteUser(vrchatId, cookie);
+          remote.unmute = unmute.status;
+        } catch (e) {
+          remote.unmute = 'error:' + (e.message || 'unknown');
+        }
+      }
+
+      prevResult.revoked = true;
+      prevResult.unblock = remote.unblock;
+      prevResult.unmute = remote.unmute;
+      await getPool().query(
+        'UPDATE moderations SET remote_result = ? WHERE id = ?',
+        [JSON.stringify(prevResult), id]
+      );
+      await logOper(req.session.userId, '撤销审核远程动作', `审核项: ${id}, remote: ${JSON.stringify(remote)}`);
+      ok(res, { remote, revoked: true });
+    } catch (e) { handleError(res, e, '[moderations/revert]'); }
   });
 
   return router;
