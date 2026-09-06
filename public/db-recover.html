@@ -3,7 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>境途同游 - 数据库连接恢复</title>
+<title data-i18n-prefix="page_title_prefix" data-i18n-suffix="db_recover.page_title_suffix">境途同游 - 数据库连接恢复</title>
+<script>
+  (function () {
+    var ORDER = ['zh', 'en', 'ja', 'fr', 'de', 'ru'];
+    function detectLang() {
+      try { var p = new URLSearchParams(location.search).get('lang'); if (p && ORDER.indexOf(p) >= 0) return p; } catch (e) {}
+      try { var s = localStorage.getItem('preferredLang'); if (s && ORDER.indexOf(s) >= 0) return s; } catch (e) {}
+      var b = (navigator.language || '').slice(0, 2);
+      if (ORDER.indexOf(b) >= 0) return b;
+      return 'zh';
+    }
+    document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260906f"><\/script>');
+  })();
+</script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(135deg,#0f0f1a 0%,#1a1a2e 100%);min-height:100vh;color:#e4e4f0}
@@ -12,7 +25,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .header h1{font-size:26px;color:#fff;margin-bottom:8px}
 .header p{color:#9898b0;font-size:14px}
 .warn-box{background:#2e2310;border:1px solid #f59e0b;color:#fbbf24;border-radius:12px;padding:16px 18px;font-size:13px;line-height:1.6;margin-bottom:24px}
-.warn-box strong{color:#fcd34d}
+.warn-box .warn-title{color:#fcd34d;font-weight:600;margin-bottom:8px}
+.warn-box div{margin-bottom:8px}
+.warn-box div:last-child{margin-bottom:0}
 .form-box{background:#141420;border-radius:16px;border:1px solid #2a2a3e;padding:28px;box-shadow:0 4px 32px rgba(0,0,0,.3)}
 .tab-title{font-size:18px;color:#fff;margin-bottom:6px;font-weight:600}
 .tab-desc{font-size:13px;color:#6a6a80;margin-bottom:22px}
@@ -43,65 +58,71 @@ a.back-link{display:block;text-align:center;margin-top:18px;color:#7c5cfc;text-d
 <body>
 <div class="container">
   <div class="header">
-    <h1>⚠️ 数据库连接恢复</h1>
-    <p>站点无法连接到 MySQL，已自动跳转至此</p>
+    <h1 data-i18n="db_recover.header_title">⚠️ 数据库连接恢复</h1>
+    <p data-i18n="db_recover.header_desc">站点无法连接到 MySQL，已自动跳转至此</p>
   </div>
 
   <div class="warn-box">
-    <strong>为什么会到这里？</strong><br>
-    站点启动时检测到数据库不可用（通常是 MySQL 服务未启动、密码被轮换后未同步，或地址/端口变更）。
-    此时所有页面都会报错、连管理员都无法登录，因此提供这个<strong>脱离登录</strong>的恢复通道。<br><br>
-    填写下方数据库连接信息并「保存并重连」后，配置会写入 <code>.env</code> 并<strong>立即热重连</strong>，无需重启服务。
+    <div data-i18n="db_recover.warn_title" class="warn-title">为什么会到这里？</div>
+    <div data-i18n="db_recover.warn_line1">站点启动时检测到数据库不可用（通常是 MySQL 服务未启动、密码被轮换后未同步，或地址/端口变更）。此时所有页面都会报错、连管理员都无法登录，因此提供这个脱离登录的恢复通道。</div>
+    <div data-i18n="db_recover.warn_line2">填写下方数据库连接信息并「保存并重连」后，配置会写入 .env 并立即热重连，无需重启服务。</div>
   </div>
 
   <div class="form-box">
-    <div class="tab-title">📦 数据库连接信息</div>
-    <div class="tab-desc">修改后系统会用新配置测试连接；仅当当前数据库不可用时才允许提交。</div>
+    <div class="tab-title" data-i18n="db_recover.tab_title">📦 数据库连接信息</div>
+    <div class="tab-desc" data-i18n="db_recover.tab_desc">修改后系统会用新配置测试连接；仅当当前数据库不可用时才允许提交。</div>
 
     <div class="form-group">
-      <label>数据库地址 <span>*</span></label>
-      <input type="text" id="dbHost" placeholder="例如: 127.0.0.1">
-      <div class="hint">本机部署通常为 127.0.0.1</div>
+      <label><span data-i18n="db_recover.label_host">数据库地址</span> <span>*</span></label>
+      <input type="text" id="dbHost" data-i18n-placeholder="db_recover.ph_host" placeholder="例如: 127.0.0.1">
+      <div class="hint" data-i18n="db_recover.hint_host">本机部署通常为 127.0.0.1</div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>端口 <span>*</span></label>
-        <input type="number" id="dbPort" placeholder="3306">
+        <label><span data-i18n="db_recover.label_port">端口</span> <span>*</span></label>
+        <input type="number" id="dbPort" data-i18n-placeholder="db_recover.ph_port" placeholder="3306">
       </div>
       <div class="form-group">
-        <label>数据库名 <span>*</span></label>
-        <input type="text" id="dbName" placeholder="例如: jingtu_group">
+        <label><span data-i18n="db_recover.label_name">数据库名</span> <span>*</span></label>
+        <input type="text" id="dbName" data-i18n-placeholder="db_recover.ph_name" placeholder="例如: jingtu_group">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>用户名 <span>*</span></label>
-        <input type="text" id="dbUser" placeholder="例如: root">
+        <label><span data-i18n="db_recover.label_user">用户名</span> <span>*</span></label>
+        <input type="text" id="dbUser" data-i18n-placeholder="db_recover.ph_user" placeholder="例如: root">
       </div>
       <div class="form-group">
-        <label>密码</label>
-        <input type="password" id="dbPass" placeholder="留空则沿用现有密码">
-        <div class="hint">仅改地址/端口时，密码可留空表示沿用现有值</div>
+        <label data-i18n="db_recover.label_pass">密码</label>
+        <input type="password" id="dbPass" data-i18n-placeholder="db_recover.ph_pass" placeholder="留空则沿用现有密码">
+        <div class="hint" data-i18n="db_recover.hint_pass">仅改地址/端口时，密码可留空表示沿用现有值</div>
       </div>
     </div>
 
     <div class="form-group">
-      <label>恢复令牌 (RECOVERY_TOKEN) <span>*</span></label>
-      <input type="password" id="recoveryToken" placeholder="服务端 .env 中配置的 RECOVERY_TOKEN">
-      <div class="hint">由服务器管理员在 <code>.env</code> 的 RECOVERY_TOKEN 提供。未配置则恢复通道不可用（返回 503）。本字段仅用于鉴权，不会随数据库配置写入。</div>
+      <label><span data-i18n="db_recover.label_token">恢复令牌 (RECOVERY_TOKEN)</span> <span>*</span></label>
+      <input type="password" id="recoveryToken" data-i18n-placeholder="db_recover.ph_token" placeholder="服务端 .env 中配置的 RECOVERY_TOKEN">
+      <div class="hint" data-i18n="db_recover.hint_token">由服务器管理员在 .env 的 RECOVERY_TOKEN 提供。未配置则恢复通道不可用（返回 503）。本字段仅用于鉴权，不会随数据库配置写入。</div>
     </div>
 
     <div class="test-result" id="testResult"></div>
 
     <div class="btn-group">
-      <button class="btn btn-secondary" id="testBtn">🔍 测试连接</button>
-      <button class="btn btn-primary" id="saveBtn">💾 保存并重连</button>
+      <button class="btn btn-secondary" id="testBtn" data-i18n="db_recover.btn_test">🔍 测试连接</button>
+      <button class="btn btn-primary" id="saveBtn" data-i18n="db_recover.btn_save">💾 保存并重连</button>
     </div>
   </div>
 
-  <a class="back-link" href="/">返回首页（若已恢复）</a>
+  <a class="back-link" href="/" data-i18n="db_recover.back_home">返回首页（若已恢复）</a>
 </div>
 
+<script src="/js/i18n.js?v=20260906f"></script>
 <script src="/js/db-recover.js"></script>
+<script>
+  (function () {
+    initI18n();
+    if (typeof applyStaticI18n === 'function') applyStaticI18n();
+  })();
+</script>
 </body>
 </html>

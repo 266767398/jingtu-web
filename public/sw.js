@@ -1,5 +1,5 @@
 // 境途同游 — Service Worker v2.12 (20260826: 网站 logo 恢复为 group-avatar.png，新版圆形「境途同游」头像；版本化资源 cache-first 秒开；HTML network-first；其余 stale-while-revalidate)
-const CACHE = 'jingtu-v2.13';
+const CACHE = 'jingtu-v2.14';
 const STATIC_ASSETS = [
   '/',
   '/offline.html',

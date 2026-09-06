@@ -3,7 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="0;url=/start-node.php">
-<title>境途同游 — 启动中</title>
+<title data-i18n-prefix="page_title_prefix" data-i18n-suffix="starting.page_title_suffix">境途同游 — 启动中</title>
+<script>
+  (function () {
+    var ORDER = ['zh', 'en', 'ja', 'fr', 'de', 'ru'];
+    function detectLang() {
+      try { var p = new URLSearchParams(location.search).get('lang'); if (p && ORDER.indexOf(p) >= 0) return p; } catch (e) {}
+      try { var s = localStorage.getItem('preferredLang'); if (s && ORDER.indexOf(s) >= 0) return s; } catch (e) {}
+      var b = (navigator.language || '').slice(0, 2);
+      if (ORDER.indexOf(b) >= 0) return b;
+      return 'zh';
+    }
+    document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260906f"><\/script>');
+  })();
+</script>
 <style>
 body {
   font-family: system-ui, sans-serif;
@@ -36,9 +49,18 @@ p { color: #888; font-size: 14px; margin: 0; }
 <body>
 <div class="box">
   <div class="spinner"></div>
-  <h2>正在启动境途同游服务...</h2>
-  <p>首次启动需要几秒，请稍候</p>
-  <noscript><p style="color:#ff6b6b;margin-top:16px">请启用 JavaScript 或<a href="/start-node.php" style="color:#7c5cfc">点击这里</a></p></noscript>
+  <h2 data-i18n="starting.status_title">正在启动境途同游服务...</h2>
+  <p data-i18n="starting.status_desc">首次启动需要几秒，请稍候</p>
+  <noscript><p style="color:#ff6b6b;margin-top:16px"><span data-i18n="starting.noscript_tip">请启用 JavaScript 或</span><a href="/start-node.php" style="color:#7c5cfc" data-i18n="starting.noscript_link">点击这里</a></p></noscript>
 </div>
+<script src="/js/i18n.js?v=20260906f"></script>
+<script>
+  (function () {
+    if (typeof initI18n === 'function') {
+      initI18n();
+      if (typeof applyStaticI18n === 'function') applyStaticI18n();
+    }
+  })();
+</script>
 </body>
 </html>

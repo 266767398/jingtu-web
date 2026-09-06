@@ -4,7 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex" />
-  <title>离线 · 境途同游</title>
+  <title data-i18n-prefix="page_title_prefix" data-i18n-suffix="offline.page_title_suffix">离线 · 境途同游</title>
+  <script>
+    (function () {
+      var ORDER = ['zh', 'en', 'ja', 'fr', 'de', 'ru'];
+      function detectLang() {
+        try { var p = new URLSearchParams(location.search).get('lang'); if (p && ORDER.indexOf(p) >= 0) return p; } catch (e) {}
+        try { var s = localStorage.getItem('preferredLang'); if (s && ORDER.indexOf(s) >= 0) return s; } catch (e) {}
+        var b = (navigator.language || '').slice(0, 2);
+        if (ORDER.indexOf(b) >= 0) return b;
+        return 'zh';
+      }
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260906f"><\/script>');
+    })();
+  </script>
   <style>
     :root {
       --bg: #121218;
@@ -62,13 +75,22 @@
 <body>
   <main class="card" role="alert" aria-live="assertive">
     <div class="logo">境</div>
-    <h1><span class="dot"></span>您当前处于离线状态</h1>
-    <p>页面已缓存的内容仍可正常浏览。需要联网的功能（如动态、相册、聊天）暂不可用。</p>
-    <p>请检查网络连接，恢复后点击下方按钮重试。</p>
+    <h1><span class="dot"></span><span data-i18n="offline.status_title">您当前处于离线状态</span></h1>
+    <p data-i18n="offline.desc_cached">页面已缓存的内容仍可正常浏览。需要联网的功能（如动态、相册、聊天）暂不可用。</p>
+    <p data-i18n="offline.desc_retry">请检查网络连接，恢复后点击下方按钮重试。</p>
     <div class="actions">
-      <button onclick="location.reload()">重新加载</button>
-      <a class="btn ghost" href="/">返回首页</a>
+      <button onclick="location.reload()" data-i18n="offline.btn_reload">重新加载</button>
+      <a class="btn ghost" href="/" data-i18n="offline.btn_home">返回首页</a>
     </div>
   </main>
+  <script src="/js/i18n.js?v=20260906f"></script>
+  <script>
+    (function () {
+      if (typeof initI18n === 'function') {
+        initI18n();
+        if (typeof applyStaticI18n === 'function') applyStaticI18n();
+      }
+    })();
+  </script>
 </body>
 </html>

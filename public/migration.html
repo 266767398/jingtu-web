@@ -3,7 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>境途同游 - 数据库迁移向导</title>
+<title data-i18n-prefix="page_title_prefix" data-i18n-suffix="migration.page_title_suffix">境途同游 - 数据库迁移向导</title>
+<script>
+  (function () {
+    var ORDER = ['zh', 'en', 'ja', 'fr', 'de', 'ru'];
+    function detectLang() {
+      try { var p = new URLSearchParams(location.search).get('lang'); if (p && ORDER.indexOf(p) >= 0) return p; } catch (e) {}
+      try { var s = localStorage.getItem('preferredLang'); if (s && ORDER.indexOf(s) >= 0) return s; } catch (e) {}
+      var b = (navigator.language || '').slice(0, 2);
+      if (ORDER.indexOf(b) >= 0) return b;
+      return 'zh';
+    }
+    document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260906f"><\/script>');
+  })();
+</script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(135deg,#0f0f1a 0%,#1a1a2e 100%);min-height:100vh;color:#e4e4f0}
@@ -83,30 +96,30 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <body>
 <div class="container">
   <div class="header">
-    <h1>🗄️ 数据库迁移向导</h1>
-    <p>跨服务器迁移数据库，支持自动探测与手动配置</p>
+    <h1 data-i18n="migration.header_title">🗄️ 数据库迁移向导</h1>
+    <p data-i18n="migration.header_desc">跨服务器迁移数据库，支持自动探测与手动配置</p>
   </div>
 
   <div class="steps">
     <div class="step" data-step="1">
       <div class="num active" id="step1-num">1</div>
-      <div class="text active" id="step1-text">源数据库</div>
+      <div class="text active" id="step1-text" data-i18n="migration.step_source">源数据库</div>
     </div>
     <div class="step" data-step="2">
       <div class="num" id="step2-num">2</div>
-      <div class="text" id="step2-text">选择表</div>
+      <div class="text" id="step2-text" data-i18n="migration.step_select">选择表</div>
     </div>
     <div class="step" data-step="3">
       <div class="num" id="step3-num">3</div>
-      <div class="text" id="step3-text">目标数据库</div>
+      <div class="text" id="step3-text" data-i18n="migration.step_target">目标数据库</div>
     </div>
     <div class="step" data-step="4">
       <div class="num" id="step4-num">4</div>
-      <div class="text" id="step4-text">执行迁移</div>
+      <div class="text" id="step4-text" data-i18n="migration.step_execute">执行迁移</div>
     </div>
     <div class="step" data-step="5">
       <div class="num" id="step5-num">5</div>
-      <div class="text" id="step5-text">配置更新</div>
+      <div class="text" id="step5-text" data-i18n="migration.step_config">配置更新</div>
     </div>
   </div>
 
@@ -116,90 +129,90 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
   <div class="form-box">
     <div class="tab active" id="tab1">
-      <div class="tab-title">📥 源数据库连接信息</div>
+      <div class="tab-title" data-i18n="migration.tab_source_title">📥 源数据库连接信息</div>
       
       <div class="form-group">
-        <label>服务器面板</label>
+        <label data-i18n="migration.label_panel">服务器面板</label>
         <select id="sourcePanel" data-migration-action="update-panel" data-type="source">
-          <option value="standalone">独立MySQL</option>
-          <option value="baota">宝塔面板</option>
+          <option value="standalone" data-i18n="migration.opt_standalone">独立MySQL</option>
+          <option value="baota" data-i18n="migration.opt_baota">宝塔面板</option>
           <option value="onepanel">1Panel</option>
           <option value="aapanel">aaPanel</option>
         </select>
-        <div class="hint">选择服务器面板类型，将自动填入默认配置</div>
+        <div class="hint" data-i18n="migration.hint_panel">选择服务器面板类型，将自动填入默认配置</div>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label>数据库地址 <span>*</span></label>
+          <label><span data-i18n="migration.label_host">数据库地址</span> <span>*</span></label>
           <input type="text" id="sourceHost" value="127.0.0.1" placeholder="例如: 127.0.0.1" data-i18n-placeholder="migration.source_host_placeholder">
-          <div class="error-hint" id="sourceHostError">请输入有效的IP地址</div>
+          <div class="error-hint" id="sourceHostError" data-i18n="migration.err_host">请输入有效的IP地址</div>
         </div>
         <div class="form-group">
-          <label>端口 <span>*</span></label>
+          <label><span data-i18n="migration.label_port">端口</span> <span>*</span></label>
           <input type="number" id="sourcePort" value="3306" placeholder="3306">
-          <div class="error-hint" id="sourcePortError">端口必须在1-65535之间</div>
+          <div class="error-hint" id="sourcePortError" data-i18n="migration.err_port">端口必须在1-65535之间</div>
         </div>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label>数据库名 <span>*</span></label>
+          <label><span data-i18n="migration.label_db">数据库名</span> <span>*</span></label>
           <input type="text" id="sourceDatabase" placeholder="例如: jingtu_group" data-i18n-placeholder="migration.source_db_placeholder">
-          <div class="error-hint" id="sourceDatabaseError">请输入数据库名</div>
+          <div class="error-hint" id="sourceDatabaseError" data-i18n="migration.err_db">请输入数据库名</div>
         </div>
         <div class="form-group">
-          <label>用户名 <span>*</span></label>
+          <label><span data-i18n="migration.label_user">用户名</span> <span>*</span></label>
           <input type="text" id="sourceUser" placeholder="例如: root" data-i18n-placeholder="migration.source_user_placeholder">
-          <div class="error-hint" id="sourceUserError">请输入用户名</div>
+          <div class="error-hint" id="sourceUserError" data-i18n="migration.err_user">请输入用户名</div>
         </div>
       </div>
 
       <div class="form-group">
-        <label>密码 <span>*</span></label>
+        <label><span data-i18n="migration.label_pass">密码</span> <span>*</span></label>
         <input type="password" id="sourcePassword" placeholder="输入数据库密码" data-i18n-placeholder="migration.source_pass_placeholder">
-        <div class="error-hint" id="sourcePasswordError">请输入密码</div>
+        <div class="error-hint" id="sourcePasswordError" data-i18n="migration.err_pass">请输入密码</div>
       </div>
 
       <div class="btn-group detect-btn">
-        <button class="btn btn-secondary btn-wide" data-migration-action="auto-detect">🔍 自动探测</button>
-        <button class="btn btn-primary btn-wide" data-migration-action="test-source">✅ 测试连接</button>
+        <button class="btn btn-secondary btn-wide" data-migration-action="auto-detect" data-i18n="migration.btn_auto_detect">🔍 自动探测</button>
+        <button class="btn btn-primary btn-wide" data-migration-action="test-source" data-i18n="migration.btn_test_conn">✅ 测试连接</button>
       </div>
       <div class="test-result" id="sourceTestResult"></div>
 
       <div class="detect-results" id="detectResults" style="display:none"></div>
 
       <div class="btn-group">
-        <button class="btn btn-secondary" data-migration-action="prev-step" disabled>上一步</button>
-        <button class="btn btn-primary" data-migration-action="next-step" data-step="1">下一步 →</button>
+        <button class="btn btn-secondary" data-migration-action="prev-step" disabled data-i18n="migration.btn_prev">上一步</button>
+        <button class="btn btn-primary" data-migration-action="next-step" data-step="1" data-i18n="migration.btn_next">下一步 →</button>
       </div>
     </div>
 
     <div class="tab" id="tab2">
-      <div class="tab-title">📋 选择迁移表</div>
-      <p style="color:#9898b0;font-size:13px;margin-bottom:16px">已连接到源数据库，请选择需要迁移的数据表：</p>
+      <div class="tab-title" data-i18n="migration.tab_tables_title">📋 选择迁移表</div>
+      <p style="color:#9898b0;font-size:13px;margin-bottom:16px" data-i18n="migration.tab_tables_desc">已连接到源数据库，请选择需要迁移的数据表：</p>
       
       <div class="table-list" id="tableList"></div>
       
       <div class="btn-group" style="margin-top:20px">
-        <button class="btn btn-secondary" data-migration-action="select-all">全选</button>
-        <button class="btn btn-secondary" data-migration-action="deselect-all">取消全选</button>
+        <button class="btn btn-secondary" data-migration-action="select-all" data-i18n="migration.btn_select_all">全选</button>
+        <button class="btn btn-secondary" data-migration-action="deselect-all" data-i18n="migration.btn_deselect_all">取消全选</button>
       </div>
 
       <div class="btn-group">
-        <button class="btn btn-secondary" data-migration-action="prev-step">← 上一步</button>
-        <button class="btn btn-primary" data-migration-action="next-step" data-step="2">下一步 →</button>
+        <button class="btn btn-secondary" data-migration-action="prev-step" data-i18n="migration.btn_prev_arrow">← 上一步</button>
+        <button class="btn btn-primary" data-migration-action="next-step" data-step="2" data-i18n="migration.btn_next">下一步 →</button>
       </div>
     </div>
 
     <div class="tab" id="tab3">
-      <div class="tab-title">📤 目标数据库配置</div>
+      <div class="tab-title" data-i18n="migration.tab_target_title">📤 目标数据库配置</div>
       
       <div class="form-group">
-        <label>服务器面板</label>
+        <label data-i18n="migration.label_panel">服务器面板</label>
         <select id="targetPanel" data-migration-action="update-panel" data-type="target">
-          <option value="standalone">独立MySQL</option>
-          <option value="baota">宝塔面板</option>
+          <option value="standalone" data-i18n="migration.opt_standalone">独立MySQL</option>
+          <option value="baota" data-i18n="migration.opt_baota">宝塔面板</option>
           <option value="onepanel">1Panel</option>
           <option value="aapanel">aaPanel</option>
         </select>
@@ -207,55 +220,55 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
       <div class="form-row">
         <div class="form-group">
-          <label>数据库地址 <span>*</span></label>
+          <label><span data-i18n="migration.label_host">数据库地址</span> <span>*</span></label>
           <input type="text" id="targetHost" value="127.0.0.1" placeholder="例如: 127.0.0.1" data-i18n-placeholder="migration.target_host_placeholder">
         </div>
         <div class="form-group">
-          <label>端口 <span>*</span></label>
+          <label><span data-i18n="migration.label_port">端口</span> <span>*</span></label>
           <input type="number" id="targetPort" value="3306" placeholder="3306">
         </div>
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label>数据库名 <span>*</span></label>
+          <label><span data-i18n="migration.label_db">数据库名</span> <span>*</span></label>
           <input type="text" id="targetDatabase" placeholder="例如: jingtu_group_new" data-i18n-placeholder="migration.target_db_placeholder">
         </div>
         <div class="form-group">
-          <label>用户名 <span>*</span></label>
+          <label><span data-i18n="migration.label_user">用户名</span> <span>*</span></label>
           <input type="text" id="targetUser" placeholder="例如: root" data-i18n-placeholder="migration.target_user_placeholder">
         </div>
       </div>
 
       <div class="form-group">
-        <label>密码 <span>*</span></label>
+        <label><span data-i18n="migration.label_pass">密码</span> <span>*</span></label>
         <input type="password" id="targetPassword" placeholder="输入数据库密码" data-i18n-placeholder="migration.target_pass_placeholder">
       </div>
 
-      <button class="btn btn-wide btn-secondary" data-migration-action="test-target">✅ 测试连接</button>
+      <button class="btn btn-wide btn-secondary" data-migration-action="test-target" data-i18n="migration.btn_test_conn">✅ 测试连接</button>
       <div class="test-result" id="targetTestResult"></div>
 
       <div class="btn-group">
-        <button class="btn btn-secondary" data-migration-action="prev-step">← 上一步</button>
-        <button class="btn btn-primary" data-migration-action="next-step" data-step="3">下一步 →</button>
+        <button class="btn btn-secondary" data-migration-action="prev-step" data-i18n="migration.btn_prev_arrow">← 上一步</button>
+        <button class="btn btn-primary" data-migration-action="next-step" data-step="3" data-i18n="migration.btn_next">下一步 →</button>
       </div>
     </div>
 
     <div class="tab" id="tab4">
-      <div class="tab-title">🚀 执行迁移</div>
-      <p style="color:#9898b0;font-size:13px;margin-bottom:16px">即将开始数据库迁移，请确认以下信息：</p>
+      <div class="tab-title" data-i18n="migration.tab_execute_title">🚀 执行迁移</div>
+      <p style="color:#9898b0;font-size:13px;margin-bottom:16px" data-i18n="migration.tab_execute_desc">即将开始数据库迁移，请确认以下信息：</p>
       
       <div style="background:#0a0a15;border-radius:10px;padding:16px;margin-bottom:16px">
         <div style="margin-bottom:12px">
-          <span style="color:#9898b0">源数据库：</span>
+          <span style="color:#9898b0" data-i18n="migration.summary_source">源数据库：</span>
           <span style="color:#fff" id="summarySource"></span>
         </div>
         <div style="margin-bottom:12px">
-          <span style="color:#9898b0">目标数据库：</span>
+          <span style="color:#9898b0" data-i18n="migration.summary_target">目标数据库：</span>
           <span style="color:#fff" id="summaryTarget"></span>
         </div>
         <div>
-          <span style="color:#9898b0">迁移表数：</span>
+          <span style="color:#9898b0" data-i18n="migration.summary_tables">迁移表数：</span>
           <span style="color:#fff" id="summaryTables"></span>
         </div>
       </div>
@@ -263,34 +276,35 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="log-window" id="migrateLog"></div>
 
       <div class="btn-group">
-        <button class="btn btn-secondary" data-migration-action="prev-step">← 上一步</button>
-        <button class="btn btn-primary" id="migrateBtn" data-migration-action="execute-migration">🚀 开始迁移</button>
-        <button class="btn btn-secondary" id="stopBtn" data-migration-action="stop-migration" disabled>⏹️ 终止</button>
+        <button class="btn btn-secondary" data-migration-action="prev-step" data-i18n="migration.btn_prev_arrow">← 上一步</button>
+        <button class="btn btn-primary" id="migrateBtn" data-migration-action="execute-migration" data-i18n="migration.btn_start_migrate">🚀 开始迁移</button>
+        <button class="btn btn-secondary" id="stopBtn" data-migration-action="stop-migration" disabled data-i18n="migration.btn_stop">⏹️ 终止</button>
       </div>
     </div>
 
     <div class="tab" id="tab5">
-      <div class="tab-title">⚙️ 配置文件更新</div>
-      <p style="color:#9898b0;font-size:13px;margin-bottom:16px">扫描项目配置文件并更新数据库连接参数：</p>
+      <div class="tab-title" data-i18n="migration.tab_config_title">⚙️ 配置文件更新</div>
+      <p style="color:#9898b0;font-size:13px;margin-bottom:16px" data-i18n="migration.tab_config_desc">扫描项目配置文件并更新数据库连接参数：</p>
       
-      <button class="btn btn-wide btn-secondary" data-migration-action="scan-config">🔍 扫描配置文件</button>
+      <button class="btn btn-wide btn-secondary" data-migration-action="scan-config" data-i18n="migration.btn_scan_config">🔍 扫描配置文件</button>
       
       <div class="scan-files" id="scanFiles"></div>
       
       <div class="btn-group" style="margin-top:20px">
-        <button class="btn btn-primary btn-wide" id="replaceBtn" data-migration-action="replace-config" disabled>✏️ 更新配置</button>
+        <button class="btn btn-primary btn-wide" id="replaceBtn" data-migration-action="replace-config" disabled data-i18n="migration.btn_update_config">✏️ 更新配置</button>
       </div>
 
       <div class="test-result" id="replaceResult"></div>
 
       <div class="btn-group" style="margin-top:20px">
-        <button class="btn btn-secondary" data-migration-action="prev-step">← 上一步</button>
-        <button class="btn btn-primary" data-migration-action="finish">✅ 完成</button>
+        <button class="btn btn-secondary" data-migration-action="prev-step" data-i18n="migration.btn_prev_arrow">← 上一步</button>
+        <button class="btn btn-primary" data-migration-action="finish" data-i18n="migration.btn_finish">✅ 完成</button>
       </div>
     </div>
   </div>
 </div>
 
+<script src="/js/i18n.js?v=20260906f"></script>
 <script>
 let currentStep = 1;
 let migrateAbort = false;
@@ -345,7 +359,7 @@ async function migrationFetch(url, options = {}) {
   const headers = new Headers(options.headers || {});
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
     const tokenResponse = await fetch('/api/csrf-token', { credentials: 'include' });
-    if (!tokenResponse.ok) throw new Error('无法获取 CSRF Token');
+    if (!tokenResponse.ok) throw new Error(__('migration.err_csrf_token'));
     const { csrfToken } = await tokenResponse.json();
     headers.set('X-CSRF-Token', csrfToken);
   }
@@ -469,7 +483,7 @@ function validateDbInput(type) {
 async function autoDetect() {
   const resultDiv = document.getElementById('detectResults');
   resultDiv.style.display = 'block';
-  resultDiv.innerHTML = '<div style="text-align:center;padding:20px"><span class="loading"></span> 正在探测本地MySQL服务...</div>';
+  resultDiv.innerHTML = '<div style="text-align:center;padding:20px"><span class="loading"></span> ' + __('migration.detecting_mysql') + '</div>';
   
   const response = await migrationFetch('/api/migration/detect');
   const data = await response.json();
@@ -480,15 +494,15 @@ async function autoDetect() {
       html += `<div class="detect-result ${r.success ? 'success' : 'error'}">
         <div class="result-header">
           <span class="result-host">${r.host}:${r.port}</span>
-          <span class="result-status ${r.success ? 'success' : 'error'}">${r.success ? '✓ 连接成功' : '✗ 连接失败'}</span>
+          <span class="result-status ${r.success ? 'success' : 'error'}">${r.success ? __('migration.conn_ok') : __('migration.conn_fail')}</span>
         </div>
         <div>${r.message}</div>
-        ${r.success && r.databases.length > 0 ? `<div class="result-dbs">发现数据库：${r.databases.join(', ')}</div>` : ''}
+        ${r.success && r.databases.length > 0 ? `<div class="result-dbs">${__('migration.found_databases')}${r.databases.join(', ')}</div>` : ''}
       </div>`;
     });
     resultDiv.innerHTML = html;
   } else {
-    resultDiv.innerHTML = `<div class="detect-result error"><div class="result-status error">✗ 探测失败</div><div>${data.error}</div></div>`;
+    resultDiv.innerHTML = `<div class="detect-result error"><div class="result-status error">${__('migration.detect_failed')}</div><div>${data.error}</div></div>`;
   }
 }
 
@@ -498,7 +512,7 @@ async function testSourceConnection() {
   const resultDiv = document.getElementById('sourceTestResult');
   resultDiv.style.display = 'block';
   resultDiv.className = 'test-result';
-  resultDiv.innerHTML = '<span class="loading"></span> 正在测试连接...';
+  resultDiv.innerHTML = '<span class="loading"></span> ' + __('migration.testing_conn');
   
   const response = await migrationFetch('/api/migration/test-connection', {
     method: 'POST',
@@ -515,7 +529,7 @@ async function testSourceConnection() {
   const data = await response.json();
   if (data.success) {
     resultDiv.className = 'test-result success';
-    resultDiv.innerHTML = '✓ 数据库连接成功！';
+    resultDiv.innerHTML = __('migration.conn_success');
   } else {
     resultDiv.className = 'test-result error';
     resultDiv.innerHTML = `✗ ${data.error}`;
@@ -526,7 +540,7 @@ async function testTargetConnection() {
   const resultDiv = document.getElementById('targetTestResult');
   resultDiv.style.display = 'block';
   resultDiv.className = 'test-result';
-  resultDiv.innerHTML = '<span class="loading"></span> 正在测试连接...';
+  resultDiv.innerHTML = '<span class="loading"></span> ' + __('migration.testing_conn');
   
   const response = await migrationFetch('/api/migration/test-connection', {
     method: 'POST',
@@ -543,7 +557,7 @@ async function testTargetConnection() {
   const data = await response.json();
   if (data.success) {
     resultDiv.className = 'test-result success';
-    resultDiv.innerHTML = '✓ 数据库连接成功！';
+    resultDiv.innerHTML = __('migration.conn_success');
   } else {
     resultDiv.className = 'test-result error';
     resultDiv.innerHTML = `✗ ${data.error}`;
@@ -573,7 +587,7 @@ async function nextStep(step) {
     });
     
     if (config.selectedTables.length === 0) {
-      alert('请至少选择一个数据表');
+      alert(__('migration.alert_select_table'));
       return;
     }
   } else if (step === 3) {
@@ -587,7 +601,7 @@ async function nextStep(step) {
     
     document.getElementById('summarySource').textContent = `${config.sourceDb.host}:${config.sourceDb.port}/${config.sourceDb.database}`;
     document.getElementById('summaryTarget').textContent = `${config.targetDb.host}:${config.targetDb.port}/${config.targetDb.database}`;
-    document.getElementById('summaryTables').textContent = config.selectedTables.length + ' 个表';
+    document.getElementById('summaryTables').textContent = __('migration.table_count', {count: config.selectedTables.length});
     
     document.getElementById('migrateLog').innerHTML = '';
     document.getElementById('migrateBtn').disabled = false;
@@ -606,7 +620,7 @@ function prevStep() {
 
 async function loadSourceTables() {
   const tableList = document.getElementById('tableList');
-  tableList.innerHTML = '<div style="text-align:center;padding:20px"><span class="loading"></span> 正在加载数据表...</div>';
+  tableList.innerHTML = '<div style="text-align:center;padding:20px"><span class="loading"></span> ' + __('migration.loading_tables') + '</div>';
   
   const response = await migrationFetch('/api/migration/get-tables', {
     method: 'POST',
@@ -625,7 +639,7 @@ async function loadSourceTables() {
     });
     tableList.innerHTML = html;
   } else {
-    tableList.innerHTML = `<div style="color:#f87171;text-align:center;padding:20px">加载失败：${data.error}</div>`;
+    tableList.innerHTML = `<div style="color:#f87171;text-align:center;padding:20px">${__('migration.load_failed')}${data.error}</div>`;
   }
 }
 
@@ -647,16 +661,13 @@ function addLog(msg, type = 'info') {
 }
 
 async function executeMigration() {
-  const confirmMsg = `确认开始数据库迁移？
-
-源数据库: ${config.sourceDb.host}:${config.sourceDb.port}/${config.sourceDb.database}
-目标数据库: ${config.targetDb.host}:${config.targetDb.port}/${config.targetDb.database}
-迁移表数量: ${config.selectedTables.length}
-
-⚠️ 迁移过程中将禁用目标数据库外键约束，迁移完成后自动恢复。
-⚠️ 如果目标表已存在，将会被覆盖。
-
-确定继续？`;
+  const confirmMsg = __('migration.confirm_migrate_title') + '\n\n' +
+    __('migration.confirm_source', {value: `${config.sourceDb.host}:${config.sourceDb.port}/${config.sourceDb.database}`}) + '\n' +
+    __('migration.confirm_target', {value: `${config.targetDb.host}:${config.targetDb.port}/${config.targetDb.database}`}) + '\n' +
+    __('migration.confirm_tables', {count: config.selectedTables.length}) + '\n\n' +
+    __('migration.confirm_warn1') + '\n' +
+    __('migration.confirm_warn2') + '\n\n' +
+    __('migration.confirm_ask');
   
   if (!confirm(confirmMsg)) {
     return;
@@ -666,7 +677,7 @@ async function executeMigration() {
   document.getElementById('stopBtn').disabled = false;
   migrateAbort = false;
   
-  addLog('[INFO] 开始数据库迁移...');
+  addLog(__('migration.log_start'));
   
   const response = await migrationFetch('/api/migration/migrate', {
     method: 'POST',
@@ -689,9 +700,9 @@ async function executeMigration() {
   }
   
   if (data.success) {
-    addLog('[SUCCESS] 数据库迁移完成！', 'success');
+    addLog(__('migration.log_done'), 'success');
   } else {
-    addLog(`[ERROR] 迁移失败：${data.error}`, 'error');
+    addLog(__('migration.log_failed', {error: data.error}), 'error');
   }
   
   document.getElementById('migrateBtn').disabled = false;
@@ -700,14 +711,14 @@ async function executeMigration() {
 
 function stopMigration() {
   migrateAbort = true;
-  addLog('[WARNING] 用户终止迁移', 'warning');
+  addLog(__('migration.log_stop'), 'warning');
   document.getElementById('migrateBtn').disabled = false;
   document.getElementById('stopBtn').disabled = true;
 }
 
 async function scanConfigFiles() {
   const scanFiles = document.getElementById('scanFiles');
-  scanFiles.innerHTML = '<div style="text-align:center;padding:20px"><span class="loading"></span> 正在扫描配置文件...</div>';
+  scanFiles.innerHTML = '<div style="text-align:center;padding:20px"><span class="loading"></span> ' + __('migration.scanning_config') + '</div>';
   
   const response = await migrationFetch('/api/migration/scan-config', { method: 'POST' });
   const data = await response.json();
@@ -719,21 +730,21 @@ async function scanConfigFiles() {
         <div>
           <input type="checkbox" class="file-check" value="${file.path}" ${file.hasDbConfig ? 'checked' : ''}>
           <span class="file-name">${file.path}</span>
-          <span class="${file.hasDbConfig ? 'has-db' : 'no-db'}">(${file.hasDbConfig ? '包含数据库配置' : '无数据库配置'})</span>
+          <span class="${file.hasDbConfig ? 'has-db' : 'no-db'}">(${file.hasDbConfig ? __('migration.has_db_config') : __('migration.no_db_config')})</span>
         </div>
         <span style="color:#6a6a80;font-size:12px">${file.size} bytes</span>
       </div>`;
     });
     
     if (data.files.length === 0) {
-      html = '<div style="color:#9898b0;text-align:center;padding:20px">未发现配置文件</div>';
+      html = '<div style="color:#9898b0;text-align:center;padding:20px">' + __('migration.no_config_files') + '</div>';
     } else {
       document.getElementById('replaceBtn').disabled = false;
     }
     
     scanFiles.innerHTML = html;
   } else {
-    scanFiles.innerHTML = `<div style="color:#f87171;text-align:center;padding:20px">扫描失败：${data.error}</div>`;
+    scanFiles.innerHTML = `<div style="color:#f87171;text-align:center;padding:20px">${__('migration.scan_failed', {error: data.error})}</div>`;
   }
 }
 
@@ -742,14 +753,14 @@ async function replaceConfigFiles() {
   const files = Array.from(checkboxes).map(cb => cb.value);
   
   if (files.length === 0) {
-    alert('请选择要更新的配置文件');
+    alert(__('migration.alert_select_config'));
     return;
   }
   
   const resultDiv = document.getElementById('replaceResult');
   resultDiv.style.display = 'block';
   resultDiv.className = 'test-result';
-  resultDiv.innerHTML = '<span class="loading"></span> 正在更新配置文件...';
+  resultDiv.innerHTML = '<span class="loading"></span> ' + __('migration.updating_config');
   
   const response = await migrationFetch('/api/migration/replace-config', {
     method: 'POST',
@@ -770,17 +781,23 @@ async function replaceConfigFiles() {
     });
     
     resultDiv.className = 'test-result success';
-    resultDiv.innerHTML = `✓ 更新完成！成功 ${successCount} 个，失败 ${errorCount} 个`;
+    resultDiv.innerHTML = __('migration.update_done', {success: successCount, error: errorCount});
   } else {
     resultDiv.className = 'test-result error';
-    resultDiv.innerHTML = `✗ 更新失败：${data.error}`;
+    resultDiv.innerHTML = __('migration.update_failed', {error: data.error});
   }
 }
 
 function finishMigration() {
-  alert('数据库迁移向导已完成！\n\n请重启Node.js服务使新配置生效。');
+  alert(__('migration.alert_migrate_done'));
   window.location.href = '/';
 }
+</script>
+<script>
+  (function () {
+    initI18n();
+    if (typeof applyStaticI18n === 'function') applyStaticI18n();
+  })();
 </script>
 </body>
 </html>
