@@ -352,7 +352,17 @@ app.use(session({
 // 从而让匿名分享查看者仍能加载其媒体，但不暴露其它用户的上传。
 // 鉴权逻辑已抽至 middleware/uploads_auth.js（分享令牌绑定具体资源 + 严格路径匹配）。
 setupUploadsAuth(app);
-app.use('/uploads', express.static(path.join(ROOT_DIR, 'uploads')));
+app.use('/uploads', express.static(path.join(ROOT_DIR, 'uploads'), {
+  maxAge: 0,
+  etag: true,
+  setHeaders: (res, filePath) => {
+    // 私人媒体（相册/帖子图等）：允许浏览器私有缓存以省重复下载，
+    // 但禁止共享缓存（代理/CDN）留存，防止把 A 用户的照片推给 B 用户；
+    // 头像本来就是公开资料图，可放宽为 public。
+    const isPublic = /(^|[\\/])avatars[\\/]/.test(filePath);
+    res.setHeader('Cache-Control', isPublic ? 'public, max-age=86400' : 'private, max-age=3600');
+  }
+}));
 
 // Session 验证中间件 — 确保用户未被封禁且仍存在
 app.use('/api', async (req, res, next) => {
@@ -630,6 +640,21 @@ app.use((req, res) => {
 
 // ==================== 全局错误处理 ====================
 app.use((err, req, res, next) => {
+  // 客户端输入问题不该记成 500，也不该把「服务器内部错误」误导给用户：
+  //   ① multer 文件超限（routes 里多为 10MB）→ 413；
+  //   ② body-parser JSON 请求体超限（express.json limit 20mb）→ 413；
+  //   ③ JSON 格式错误（SyntaxError: Unexpected token ...）→ 400；
+  //   ④ CSRF 校验失败 → 403（fail 已统一 JSON，保持可解析）。
+  if (err && (err.code === 'LIMIT_FILE_SIZE' || err.code === 'LIMIT_UNEXPECTED_FILE' ||
+      err.type === 'entity.too.large' || err.statusCode === 413)) {
+    return fail(res, 413, err.code === 'LIMIT_UNEXPECTED_FILE' ? '上传字段不符合要求' : '内容超过大小限制，请压缩后重试');
+  }
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return fail(res, 400, '请求体不是合法的 JSON');
+  }
+  if (err && err.code === 'EBADCSRFTOKEN') {
+    return fail(res, 403, '安全校验失败，请刷新页面后重试');
+  }
   logger.error('[server]', '服务器错误:', err.message, err.stack);
   fail(res, 500, process.env.NODE_ENV === 'development' ? err.message : '服务器内部错误');
 });

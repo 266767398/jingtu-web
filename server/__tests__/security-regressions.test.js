@@ -57,10 +57,11 @@ function expectBefore(source, earlier, later) {
 describe('security regressions', () => {
   // 备份 SQL 曾有被静态目录直接暴露的风险；这里只允许公开 uploads/assets/public，并要求备份下载走管理员路由。
   test('does not expose database backups as static files', () => {
-    // /uploads 鉴权已抽至 middleware/uploads_auth.js；server.js 必须保留「先鉴权、后静态」的挂载顺序
-    expect(files.server).toMatch(/setupUploadsAuth\(app\);[\s\S]*?app\.use\('\/uploads',\s*express\.static\(path\.join\(ROOT_DIR,\s*'uploads'\)\)\)/);
+    // /uploads 鉴权已抽至 middleware/uploads_auth.js；server.js 必须保留「先鉴权、后静态」的挂载顺序。
+    // 静态挂载允许带 options（如 Cache-Control setHeaders），但目标目录必须是 uploads 本身。
+    expect(files.server).toMatch(/setupUploadsAuth\(app\);[\s\S]*?app\.use\('\/uploads',\s*express\.static\(path\.join\(ROOT_DIR,\s*'uploads'\)/);
     expect(files.uploadsAuth).toMatch(/share_links WHERE share_code = \? AND expires_at > NOW\(\)/);
-    expect(files.server).toMatch(/app\.use\('\/uploads',\s*express\.static\(path\.join\(ROOT_DIR,\s*'uploads'\)\)\)/);
+    expect(files.server).toMatch(/app\.use\('\/uploads',\s*express\.static\(path\.join\(ROOT_DIR,\s*'uploads'\)/);
     expect(files.server).toMatch(/app\.use\('\/assets',\s*express\.static\(ASSETS_DIR,\s*\{/);
     expect(files.server).toMatch(/express\.static\(path\.join\(ROOT_DIR,\s*'public'\),\s*\{\s*maxAge:\s*0,\s*etag:\s*true,/);
     expect(files.server).not.toMatch(/express\.static\([^)]*(?:backups|backupDir)[^)]*\)/i);
