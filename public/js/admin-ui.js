@@ -6,6 +6,7 @@
   // 各 panel 的懒加载入口（首次进入时调用）
   var PANEL_LOADERS = {
     users: function () { if (typeof loadUsersAdmin === 'function') loadUsersAdmin(1); },
+    activation: function () { if (typeof loadActivationCodesPanel === 'function') loadActivationCodesPanel(); },
     admins: function () { if (typeof loadAdminMgrList === 'function') loadAdminMgrList(1); },
     vrc: function () { if (typeof checkSystemVrcStatus === 'function') checkSystemVrcStatus(); },
     'group-images': function () { /* 群组图片为纯上传表单，无需拉取 */ },
@@ -91,7 +92,7 @@
           return '<div class="card-list-item flex-row gap-8 items-center flex-wrap">' +
             '<div class="flex-1 min-w-0"><div class="text-14 fw-600">' + escapeHtml(s.title || __('auto_admin_ui_3')) + '</div>' +
             __('auto_admin_ui_4') + escapeHtml(s.displayName || s.username || '-') + __('auto_admin_ui_5') + (s.startedAt || '-') + '</div></div>' +
-            '<span class="badge ' + (live ? 'badge-live' : 'badge-ended') + '">' + (live ? '直播中' : __('auto_admin_ui_6')) + '</span>' +
+            '<span class="badge ' + (live ? 'badge-live' : 'badge-ended') + '">' + (live ? __('live.live_now') : __('auto_admin_ui_6')) + '</span>' +
             (live ? '<button class="btn btn-sm btn-danger" onclick="adminEndLive(\'' + s.id + '\')">⏹ ' + __('admin_ui.end_live') + '</button>' : '') +
             '<button class="btn btn-sm btn-outline" onclick="adminDeleteLive(\'' + s.id + __('auto_admin_ui_7') +
             '</div>';
@@ -479,7 +480,7 @@
             __('auto_admin_ui_75') + (p.successRate != null ? p.successRate + '%' : '-') + '</b></div>' +
             __('auto_admin_ui_76') + (p.maxResponseTime != null ? p.maxResponseTime : '-') + '</b></div>' +
             __('auto_admin_ui_77') + (p.slowRequests != null ? p.slowRequests : '-') + '</b></div>' +
-            __('auto_admin_ui_78') + (ch.enabled ? '是' : __('auto_admin_ui_79')) + '</b></div></div>';
+            __('auto_admin_ui_78') + (ch.enabled ? __('admin_ui.yes') : __('auto_admin_ui_79')) + '</b></div></div>';
         }
       })
       .catch(function () { grid.innerHTML = __('auto_admin_ui_80'); });
@@ -492,7 +493,7 @@
     if (status) status.innerHTML = __('auto_admin_ui_81');
     api('/api/vrc-monitor').then(function (r) { return r.json(); }).then(function (d) {
       d = d || {};
-      if (status) status.innerHTML = __('auto_admin_ui_82') + (d.online ? 'text-green' : 'text-red') + '">' + (d.online ? '在线' : __('auto_admin_ui_83')) + __('auto_admin_ui_84') + (d.friendCount != null ? d.friendCount : '-') + __('auto_admin_ui_85') + (d.lastSync || '-') + '</div>';
+      if (status) status.innerHTML = __('auto_admin_ui_82') + (d.online ? 'text-green' : 'text-red') + '">' + (d.online ? __('admin_ui.online') : __('auto_admin_ui_83')) + __('auto_admin_ui_84') + (d.friendCount != null ? d.friendCount : '-') + __('auto_admin_ui_85') + (d.lastSync || '-') + '</div>';
       if (detail) detail.innerHTML = escapeHtml(d.note) + (d.health ? __('auto_admin_ui_86') + escapeHtml(d.health) + '</div>' : '');
     }).catch(function () { if (status) status.innerHTML = __('auto_admin_ui_87'); });
   }
@@ -523,15 +524,15 @@
       if (d && d.error && d.error.message) return d.error.message;
       if (d && d.message) return d.message;
     } catch (_) {}
-    return '请求失败（HTTP ' + res.status + '）';
+    return __('admin_ui.ub_request_failed', { status: res.status });
   }
 
   // 单个用户导出
   async function ubExportUser() {
     var userId = (document.getElementById('ubUserIdInput') || {}).value || '';
     userId = String(userId).trim();
-    if (!userId) { ubResult('请输入用户 ID', true); return; }
-    ubResult('正在导出...');
+    if (!userId) { ubResult(__('admin_ui.ub_need_user_id'), true); return; }
+    ubResult(__('admin_ui.ub_exporting'));
     try {
       var res = await api('/api/admin/user-data/export/' + encodeURIComponent(userId), { method: 'GET' });
       if (!res.ok) { ubResult(await ubErrMsg(res), true); return; }
@@ -540,42 +541,42 @@
       var m = cd.match(/filename="?([^";]+)"?/i);
       var filename = m ? m[1] : ('user-' + userId + '.json');
       ubTriggerDownload(blob, filename);
-      ubResult('导出成功：' + filename);
-    } catch (e) { ubResult('导出失败：' + (e && e.message || e), true); }
+      ubResult(__('admin_ui.ub_export_success', { f: filename }));
+    } catch (e) { ubResult(__('admin_ui.ub_export_failed', { e: (e && e.message || e) }), true); }
   }
 
   // 单个用户导入（粘贴 JSON 或选择文件）
   async function ubImportUser() {
     var userId = (document.getElementById('ubUserIdInput') || {}).value || '';
     userId = String(userId).trim();
-    if (!userId) { ubResult('请输入用户 ID', true); return; }
-    var text = window.prompt('请粘贴该用户备份的 JSON 数据（或直接点「确定」跳过，稍后从文件导入）：', '');
+    if (!userId) { ubResult(__('admin_ui.ub_need_user_id'), true); return; }
+    var text = window.prompt(__('admin_ui.ub_paste_prompt'), '');
     if (text === null) return; // 用户取消
     var body;
     if (text && text.trim()) {
       try { body = JSON.parse(text); }
-      catch (_) { ubResult('JSON 解析失败，请检查格式', true); return; }
+      catch (_) { ubResult(__('admin_ui.ub_json_bad_format'), true); return; }
     } else {
-      ubResult('请使用「批量导入」选择 JSON 文件，或重新点击并粘贴数据', true);
+      ubResult(__('admin_ui.ub_use_batch_import'), true);
       return;
     }
-    ubResult('正在导入...');
+    ubResult(__('admin_ui.ub_importing'));
     try {
       var res = await api('/api/admin/user-data/import/' + encodeURIComponent(userId), { method: 'POST', body: body });
       if (!res.ok) { ubResult(await ubErrMsg(res), true); return; }
       var d = await res.json();
       var n = 0;
       if (d && d.imported) { n = Object.keys(d.imported).reduce(function (s, k) { return s + (d.imported[k] || 0); }, 0); }
-      ubResult('导入成功，共 ' + n + ' 条数据');
-    } catch (e) { ubResult('导入失败：' + (e && e.message || e), true); }
+      ubResult(__('admin_ui.ub_import_success', { n: n }));
+    } catch (e) { ubResult(__('admin_ui.ub_import_failed', { e: (e && e.message || e) }), true); }
   }
 
   // 批量导出
   async function ubBatchExport() {
     var raw = (document.getElementById('ubBatchIdsInput') || {}).value || '';
     var ids = raw.split(/[,，\s]+/).map(function (s) { return s.trim(); }).filter(Boolean);
-    if (!ids.length) { ubResult('请输入至少一个用户 ID', true); return; }
-    ubResult('正在批量导出 ' + ids.length + ' 个用户...');
+    if (!ids.length) { ubResult(__('admin_ui.ub_need_at_least_one_id'), true); return; }
+    ubResult(__('admin_ui.ub_batch_exporting', { n: ids.length }));
     try {
       var res = await api('/api/admin/user-data/batch-export', { method: 'POST', body: { ids: ids } });
       if (!res.ok) { ubResult(await ubErrMsg(res), true); return; }
@@ -584,24 +585,24 @@
       var m = cd.match(/filename="?([^";]+)"?/i);
       var filename = m ? m[1] : 'users-batch-export.json';
       ubTriggerDownload(blob, filename);
-      ubResult('批量导出成功：' + filename);
-    } catch (e) { ubResult('批量导出失败：' + (e && e.message || e), true); }
+      ubResult(__('admin_ui.ub_batch_export_success', { f: filename }));
+    } catch (e) { ubResult(__('admin_ui.ub_batch_export_failed', { e: (e && e.message || e) }), true); }
   }
 
   // 批量导入（读取 JSON 文件后提交）
   async function ubBatchImport() {
     var fileInput = document.getElementById('ubImportFile');
     if (!fileInput || !fileInput.files || !fileInput.files.length) {
-      ubResult('请先选择要导入的 JSON 文件', true);
+      ubResult(__('admin_ui.ub_need_file'), true);
       return;
     }
     var file = fileInput.files[0];
     var text;
     try { text = await file.text(); }
-    catch (_) { ubResult('读取文件失败', true); return; }
+    catch (_) { ubResult(__('admin_ui.ub_file_read_failed'), true); return; }
     var body;
     try { body = JSON.parse(text); }
-    catch (_) { ubResult('JSON 解析失败，请检查文件内容', true); return; }
+    catch (_) { ubResult(__('admin_ui.ub_json_bad_content'), true); return; }
     // 支持两种结构：批量导出产物（{users:{...}}）或单个用户备份（直接对象）
     var payload;
     if (body && body.users && typeof body.users === 'object') {
@@ -609,11 +610,11 @@
     } else {
       var userId = (document.getElementById('ubUserIdInput') || {}).value || '';
       userId = String(userId).trim();
-      if (!userId) { ubResult('批量导入需使用「批量导出」产出的 JSON 文件；若为单个用户备份，请先填写用户 ID', true); return; }
+      if (!userId) { ubResult(__('admin_ui.ub_batch_import_hint'), true); return; }
       payload = {};
       payload[userId] = body;
     }
-    ubResult('正在批量导入...');
+    ubResult(__('admin_ui.ub_batch_importing'));
     try {
       var res = await api('/api/admin/user-data/batch-import', { method: 'POST', body: { users: payload } });
       if (!res.ok) { ubResult(await ubErrMsg(res), true); return; }
@@ -626,9 +627,9 @@
         }, 0);
       }
       var failedKeys = (d && d.failed && typeof d.failed === 'object') ? Object.keys(d.failed) : [];
-      var failedMsg = failedKeys.length ? '；失败 ' + failedKeys.length + ' 个：' + failedKeys.join(', ') : '';
-      ubResult('批量导入成功 ' + (d && d.imported ? d.imported.length : 0) + ' 个用户，共 ' + total + ' 条数据' + failedMsg);
-    } catch (e) { ubResult('批量导入失败：' + (e && e.message || e), true); }
+      var failedMsg = failedKeys.length ? __('admin_ui.ub_failed_suffix', { n: failedKeys.length, ids: failedKeys.join(', ') }) : '';
+      ubResult(__('admin_ui.ub_batch_import_success', { u: (d && d.imported ? d.imported.length : 0), n: total }) + failedMsg);
+    } catch (e) { ubResult(__('admin_ui.ub_batch_import_failed', { e: (e && e.message || e) }), true); }
   }
 
   // 绑定备份还原面板事件（幂等）

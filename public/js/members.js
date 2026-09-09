@@ -842,7 +842,7 @@ function renderVrcMemberCard(d, forId) {
   const repGroup = d.representedGroup || null;
   // 结构化实例信息
   const inst = d.instance || null;
-  const instAccessLabel = inst ? (inst.accessTypeName === 'groupPlus' ? '群+（group+）' : (inst.accessTypeName || __('auto_members_48'))) : '';
+  const instAccessLabel = inst ? (inst.accessTypeName === 'groupPlus' ? __('members.vrc_access_group_plus') : (inst.accessTypeName || __('auto_members_48'))) : '';
   // 横幅色（profile bannerColor hex 不带 #）
   const bannerColor = (d.bannerColor && /^([0-9a-fA-F]{6})$/.test(d.bannerColor)) ? '#' + d.bannerColor : '';
 
@@ -857,22 +857,22 @@ function renderVrcMemberCard(d, forId) {
 
   const localUserHtml = lu.bound ? `
     <div class="vrc-localuser">
-      <span class="vrc-section-label">绑定本地账户</span>
+      <span class="vrc-section-label">${__('members.vrc_bind_label')}</span>
       <div class="vrc-localuser-row">
-        <span class="vrc-localuser-badge">✅ 已绑定</span>
+        <span class="vrc-localuser-badge">${__('members.vrc_bound')}</span>
         <span class="vrc-meta-v">${esc(lu.displayName || lu.loginId)}（@${esc(lu.loginId)}）</span>
         <span class="vrc-role-tag role-${(lu.role || 'member')}">${lu.role === 'super_admin' ? __('members.role_super_admin') : lu.role === 'admin' ? __('members.role_admin') : __('auto_members_52')}</span>
       </div>
       ${lu.registeredAt ? `<div class="text-13 text-muted2">${__('members.registered_at')} ${fmtDateTime(lu.registeredAt)}</div>` : ''}
     </div>` : `
     <div class="vrc-localuser">
-      <span class="vrc-section-label">绑定本地账户</span>
-      <div class="vrc-localuser-row"><span class="vrc-localuser-badge off">⚠️ 未绑定</span><span class="text-13 text-muted2">该 VRChat 用户尚未关联本站账户</span></div>
+      <span class="vrc-section-label">${__('members.vrc_bind_label')}</span>
+      <div class="vrc-localuser-row"><span class="vrc-localuser-badge off">${__('members.vrc_unbound')}</span><span class="text-13 text-muted2">${__('members.vrc_unbound_hint')}</span></div>
     </div>`;
 
   const recentHtml = recent.length ? `
     <div class="vrc-recent">
-      <span class="vrc-section-label">最近活动记录</span>
+      <span class="vrc-section-label">${__('members.vrc_recent_label')}</span>
       <ul class="vrc-recent-list">
         ${recent.map(r => `<li><span class="vrc-recent-type">${esc(r.type)}</span><span class="vrc-recent-title">${esc(r.title || '-')}</span><span class="vrc-recent-at">${fmtDateTime(r.at)}</span></li>`).join('')}
       </ul>
@@ -931,7 +931,7 @@ function renderVrcMemberCard(d, forId) {
     const vrcCount = pubModels.filter(m => m.source === 'vrchat').length;
     modelsHtml = `
     <div class="vrc-models">
-      <span class="vrc-section-label">${__('members.public_models_label')}${vrcCount ? `（VRChat 公开 · 共 ${pubModels.length}）` : __('auto_members_59')}</span>
+      <span class="vrc-section-label">${__('members.public_models_label')}${vrcCount ? `（${__('members.vrc_public_count_note', { n: pubModels.length })}）` : __('auto_members_59')}</span>
       <div class="vrc-model-list">
         ${pubModels.map(modelCard).join('')}
       </div>
@@ -939,11 +939,11 @@ function renderVrcMemberCard(d, forId) {
   } else {
     // 异常/缺失提示：区分「未查询」「查询过但无结果」「本站也无收藏」
     const tip = (d.hasVrcPublicModels === false)
-      ? '该玩家当前没有公开模型'
+      ? __('members.vrc_model_empty')
       : __('auto_members_60');
     modelsHtml = `
     <div class="vrc-models">
-      <span class="vrc-section-label">公开的模型</span>
+      <span class="vrc-section-label">${__('members.public_models_label')}</span>
       <div class="vrc-model-empty">${esc(tip)}</div>
     </div>`;
   }
@@ -960,16 +960,16 @@ function renderVrcMemberCard(d, forId) {
         </div>
         <div class="vrc-head-meta">
           <div class="vrc-name-row">
-            <h3 class="vrc-displayname" onclick="copyVrcName(this)" title=__('auto_members_61')>${esc(d.displayName || __('auto_members_62'))}</h3>
-            <span class="vrc-status-pill ${d.isOnline ? 'online' : 'offline'}" title=__('auto_members_63')>${statusLabel}</span>
+            <h3 class="vrc-displayname" onclick="copyVrcName(this)" title="${esc(__('auto_members_61'))}">${esc(d.displayName || __('auto_members_62'))}</h3>
+            <span class="vrc-status-pill ${d.isOnline ? 'online' : 'offline'}" title="${esc(__('auto_members_63'))}">${statusLabel}</span>
             ${d.isVrcPlus ? `<span class="vrc-plus-badge" title="VRC+ ${__('members.vrc_plus')}">⭐ ${__('members.vrc_plus')}</span>` : ''}
             ${d.ageVerified ? `<span class="vrc-age-badge" title="${esc(__('members.age_verified_tooltip').replace('{status}', d.ageVerificationStatus || '18+'))}">🔞 ${__('members.verified')}</span>` : ''}
-            ${d.userIcon ? `<img src="${escAttr(d.userIcon)}" class="vrc-usericon" alt=__('auto_members_64') title="${esc(badges.join('，'))}">` : ''}
-            <span class="vrc-friend-badge ${d.isFriend ? 'is-friend' : 'not-friend'}" title=__('auto_members_65')>${d.isFriend ? '🤝 好友' : __('auto_members_66')}</span>
+            ${d.userIcon ? `<img src="${escAttr(d.userIcon)}" class="vrc-usericon" alt="${esc(__('auto_members_64'))}" title="${esc(badges.join('，'))}">` : ''}
+            <span class="vrc-friend-badge ${d.isFriend ? 'is-friend' : 'not-friend'}" title="${esc(d.isFriend ? __('members.vrc_friend_tip') : __('members.vrc_not_friend_tip'))}">${d.isFriend ? '🤝 ' + __('members.vrc_friend') : __('auto_members_66')}</span>
           </div>
           <div class="vrc-subline">
-            <span class="vrc-trust" style="--trust:${trustColor}" title=__('auto_members_67')>
-              ${d.trustLevel ? '🛡️ ' : '🔒 '}信任：${esc(trustText)}
+            <span class="vrc-trust" style="--trust:${trustColor}" title="${esc(__('members.vrc_trust_tip'))}">
+              ${d.trustLevel ? '🛡️ ' : '🔒 '}${__('members.vrc_trust_label')}：${esc(trustText)}
             </span>
             ${d.developerType && d.developerType !== 'none' ? `<span class="vrc-dev">${esc(d.developerTypeCn || d.developerType)}</span>` : ''}
             ${customAvatar && currentAvatar && currentAvatar !== customAvatar ? `<span class="vrc-avatar-source" title="${esc(__('members.custom_avatar'))}">🖼️ ${__('members.custom_avatar')}</span>` : ''}
@@ -978,90 +978,90 @@ function renderVrcMemberCard(d, forId) {
       </div>
 
       ${badges.length ? `<div class="vrc-badges">
-        <span class="vrc-section-label">徽章</span>
+        <span class="vrc-section-label">${__('members.vrc_badges_label')}</span>
         <div class="vrc-badge-list">${badges.map(b => `<span class="vrc-badge">🏅 ${esc(b)}</span>`).join('')}</div>
       </div>` : ''}
 
       ${d.bio ? `<div class="vrc-bio">
-        <span class="vrc-section-label">简介</span>
+        <span class="vrc-section-label">${__('members.vrc_bio_label')}</span>
         <p class="vrc-bio-text">${esc(d.bio)}</p>
       </div>` : ''}
 
       ${bioLinks.length ? `<div class="vrc-links">
-        <span class="vrc-section-label">链接</span>
+        <span class="vrc-section-label">${__('members.vrc_links_label')}</span>
         <div class="vrc-link-list">${bioLinks.map(l => `<a href="${escAttr(l)}" target="_blank" rel="noopener" class="vrc-link">🔗 ${esc(l)}</a>`).join('')}</div>
       </div>` : ''}
 
       <div class="vrc-meta-grid">
         <div class="vrc-meta-item">
-          <span class="vrc-meta-k">当前世界</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_world')}</span>
           <span class="vrc-meta-v">${d.worldName ? '🌐 ' + esc(d.worldName) : '—'}</span>
         </div>
         <div class="vrc-meta-item">
-          <span class="vrc-meta-k">平台</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_platform')}</span>
           <span class="vrc-meta-v">${d.platform ? esc(d.platform) : '—'}</span>
         </div>
         <div class="vrc-meta-item">
-          <span class="vrc-meta-k">加入群组</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_group_join')}</span>
           <span class="vrc-meta-v">${d.joinedAt ? fmtDateTime(d.joinedAt) : '—'}</span>
         </div>
         <div class="vrc-meta-item">
-          <span class="vrc-meta-k">最近登录</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_last_login')}</span>
           <span class="vrc-meta-v">${joined}</span>
         </div>
         <div class="vrc-meta-item">
-          <span class="vrc-meta-k">活跃度</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_activity')}</span>
           <span class="vrc-meta-v">${activityLabel}</span>
         </div>
         <div class="vrc-meta-item">
-          <span class="vrc-meta-k">VRC 注册</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_registered')}</span>
           <span class="vrc-meta-v">${dateJoined || '—'}</span>
         </div>
         ${languagesText ? `<div class="vrc-meta-item">
-          <span class="vrc-meta-k">语言</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_language')}</span>
           <span class="vrc-meta-v">🗣️ ${esc(languagesText)}</span>
         </div>` : ''}
         ${d.pronouns ? `<div class="vrc-meta-item">
-          <span class="vrc-meta-k">代词</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_pronouns')}</span>
           <span class="vrc-meta-v">${esc(d.pronouns)}</span>
         </div>` : ''}
         <div class="vrc-meta-item">
-          <span class="vrc-meta-k">VRC 等级</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_trust_level')}</span>
           <span class="vrc-meta-v">${d.trustLevel ? `Lv.${d.trustRank || 0}（${trustText}）` : __('auto_members_68')}</span>
         </div>
         <div class="vrc-meta-item">
-          <span class="vrc-meta-k">贡献度</span>
-          <span class="vrc-meta-v">📦 ${ct.publicModels} 模型 · 🎟️ ${ct.eventSigns} 活动 · ✅ ${ct.totalCheckins} 签到</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_contribution')}</span>
+          <span class="vrc-meta-v">${__('members.vrc_contribution_summary', { m: ct.publicModels, e: ct.eventSigns, c: ct.totalCheckins })}</span>
         </div>
         ${repGroup && repGroup.name ? `<div class="vrc-meta-item vrc-meta-full">
-          <span class="vrc-meta-k">主页展示群</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_rep_group')}</span>
           <span class="vrc-meta-v">🏠 ${esc(repGroup.name)}${repGroup.id ? ` <span class="vrc-meta-sub">${esc(repGroup.id)}</span>` : ''}</span>
         </div>` : ''}
         ${d.allowAvatarCopying === true ? `<div class="vrc-meta-item">
-          <span class="vrc-meta-k">当前模型</span>
-          <span class="vrc-meta-v">✅ 允许复制</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_current_model')}</span>
+          <span class="vrc-meta-v">${__('members.vrc_copy_allowed')}</span>
         </div>` : (d.allowAvatarCopying === false ? `<div class="vrc-meta-item">
-          <span class="vrc-meta-k">当前模型</span>
-          <span class="vrc-meta-v">🔒 禁止复制</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_current_model')}</span>
+          <span class="vrc-meta-v">${__('members.vrc_copy_denied')}</span>
         </div>` : '')}
         ${inst && !inst.isOffline ? `<div class="vrc-meta-item vrc-meta-full">
-          <span class="vrc-meta-k">当前实例</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_instance')}</span>
           <span class="vrc-meta-v">🚪 ${esc(inst.instanceName || '—')}${instAccessLabel ? ` · ${esc(instAccessLabel)}` : ''}${inst.region ? ` · ${__('members.region_label')} ${esc(inst.region.toUpperCase())}` : ''}${inst.groupId ? ` · ${__('members.instance_owner_group')} ${esc(inst.groupId)}` : ''}</span>
         </div>` : ''}
         ${d.statusDescription ? `<div class="vrc-meta-item vrc-meta-full">
-          <span class="vrc-meta-k">状态说明</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_status_desc')}</span>
           <span class="vrc-meta-v">${esc(d.statusDescription)}</span>
         </div>` : ''}
         ${d.lastPlatform ? `<div class="vrc-meta-item">
-          <span class="vrc-meta-k">上次登录平台</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_last_platform')}</span>
           <span class="vrc-meta-v">${esc(d.lastPlatform)}</span>
         </div>` : ''}
         ${d.joinedInstanceAt && d.isInGame ? `<div class="vrc-meta-item">
-          <span class="vrc-meta-k">进入实例</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_enter_instance')}</span>
           <span class="vrc-meta-v">${fmtDateTime(d.joinedInstanceAt)}</span>
         </div>` : ''}
         ${(Array.isArray(d.previousDisplayNames) && d.previousDisplayNames.length) ? `<div class="vrc-meta-item vrc-meta-full">
-          <span class="vrc-meta-k">曾用名</span>
+          <span class="vrc-meta-k">${__('members.vrc_meta_prev_names')}</span>
           <span class="vrc-meta-v">${esc(d.previousDisplayNames.slice(0, 8).join(' · '))}${d.previousDisplayNames.length > 8 ? ' …' : ''}</span>
         </div>` : ''}
       </div>
@@ -1071,7 +1071,7 @@ function renderVrcMemberCard(d, forId) {
       ${recentHtml}
 
       <div class="vrc-card-actions">
-        <a href="${profileUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">在 VRChat 中查看</a>
+        <a href="${profileUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">${__('members.vrc_view_in_vrchat')}</a>
         <button type="button" class="btn btn-sm btn-outline" onclick="openAvatarDetail('${escJsStr(d.vrchatId || '')}','${escJsStr(d.avatarId || '')}','${escJsStr(d.displayName || '')}',${lu.bound ? (Number(lu.id) || 0) : 0},'${escJsStr(avatar)}')">🖼️ ${__('members.avatar_detail_btn')}</button>
       </div>
     </div>`;

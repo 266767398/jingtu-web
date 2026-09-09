@@ -17,12 +17,34 @@
   if (window.SITE_SEO && window.SITE_SEO.__inited) return;
 
   var DEFAULTS = {
-    siteName: '境途同游',
-    title: '境途同游 - VRChat Group',
-    description: '面向 VRChat 玩家的社群平台：群组相册、活动报名、动态分享、成员地图与实时聊天。',
+    siteName: 'seo.site_name',
+    title: 'seo.entry_title',
+    description: 'seo.entry_desc',
     image: '/assets/group-avatar.png',
     twitterSite: '@jingtu_vrchat'
   };
+
+  // 语言包由 index.html head 内 document.write 先行注入（早于本文件），
+  // 故此处实现微型翻译 _tr 直读语言包，不依赖 i18n.js 的 __（其加载晚于本文件）。
+  // 每次调用重新检测当前语言，语言切换后经 setPageSeo / getDefaults 可立即取到新语言。
+  function _currentLangCode() {
+    try {
+      var s = new URLSearchParams(window.location.search).get('lang');
+      if (s && window['_LANG_' + s.toUpperCase()]) return s;
+    } catch (e) {}
+    try {
+      var l = localStorage.getItem('preferredLang');
+      if (l && window['_LANG_' + l.toUpperCase()]) return l;
+    } catch (e) {}
+    var b = (navigator.language || 'zh').substring(0, 2);
+    if (window['_LANG_' + b.toUpperCase()]) return b;
+    return 'zh';
+  }
+  function _tr(key, fallback) {
+    var dict = window['_LANG_' + _currentLangCode().toUpperCase()] || window._LANG_ZH || {};
+    var v = dict[key];
+    return (v !== undefined && v !== null && v !== '') ? v : (fallback !== undefined ? fallback : key);
+  }
 
   function origin() {
     // location.origin 在 file:// 或异常环境下可能为空，做兜底
@@ -60,7 +82,7 @@
   // 基础 og:url + site_name
   var o = origin();
   if (o) setMeta('og:url', o + '/');
-  setMeta('og:site_name', DEFAULTS.siteName);
+  setMeta('og:site_name', _tr('seo.site_name', '境途同游'));
   setMeta('twitter:site', DEFAULTS.twitterSite);
   if (o) setCanonical(o + '/');
 
@@ -68,16 +90,16 @@
   upsertJsonLd('jsonld-org', {
     '@context': 'https://schema.org',
     '@type': 'Organization',
-    name: DEFAULTS.siteName,
+    name: _tr('seo.site_name', '境途同游'),
     url: o || '/',
     logo: (o || '') + '/assets/group-avatar.png',
     sameAs: [],
-    description: DEFAULTS.description
+    description: _tr('seo.entry_desc', '面向 VRChat 玩家的社群平台：群组相册、活动报名、动态分享、成员地图与实时聊天。')
   });
   upsertJsonLd('jsonld-site', {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
-    name: DEFAULTS.siteName,
+    name: _tr('seo.site_name', '境途同游'),
     url: o || '/',
     inLanguage: ['zh-CN', 'en', 'ja', 'fr', 'de', 'ru']
   });
@@ -105,7 +127,15 @@
     }
   }
 
-  function getDefaults() { return Object.assign({}, DEFAULTS); }
+  function getDefaults() {
+    return {
+      siteName: _tr('seo.site_name', '境途同游'),
+      title: _tr('seo.entry_title', '境途同游 - VRChat Group'),
+      description: _tr('seo.entry_desc', '面向 VRChat 玩家的社群平台：群组相册、活动报名、动态分享、成员地图与实时聊天。'),
+      image: DEFAULTS.image,
+      twitterSite: DEFAULTS.twitterSite
+    };
+  }
 
   window.SITE_SEO = {
     __inited: true,

@@ -852,6 +852,6 @@ window.addEventListener('error', (e) => {
   console.error('[global error]', e.message, e.error || '');
 });
 window.addEventListener('unhandledrejection', (e) => {
-  const reason = e && e.reason ? e.reason : '未知错误';
+  const reason = e && e.reason ? e.reason : __('core.unknown_error');
   console.error('[unhandledrejection]', reason && reason.message ? reason.message : reason);
 });

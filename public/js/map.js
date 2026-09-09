@@ -669,15 +669,15 @@ function handleLocationMessage(msg) {
 // V9.4：把原有"世界卡片网格"升级为带 KPI / 区域聚集 / 热门实例 Top 5 / 世界分布网格的
 // 完整面板，与 VRCX 的群组世界分布对齐。数据源仍是 /api/group/worlds（聚合的群成员在线状态）。
 //
-// region 中文映射（与 worlds-panel 旧版保持一致）
-const MAP_REGION_CN = {
-  JP: '日本', US: '美洲', EU: '欧洲', USW: '美西', USE: '美东',
-  AS: '亚洲', ASIA: '亚洲', AU: '大洋洲', KR: '韩国', IN: '印度'
+// region 多语言映射（与 worlds-panel 旧版保持一致，改走 i18n key）
+const MAP_REGION_KEYS = {
+  JP: 'map.region_jp', US: 'map.region_us', EU: 'map.region_eu', USW: 'map.region_usw', USE: 'map.region_use',
+  AS: 'map.region_as', ASIA: 'map.region_as', AU: 'map.region_au', KR: 'map.region_kr', IN: 'map.region_in'
 };
 function mapRegionCn(code) {
   if (!code) return __('map.region_unknown') || '未分类';
   const c = String(code).toUpperCase();
-  return MAP_REGION_CN[c] || c;
+  return MAP_REGION_KEYS[c] ? __(MAP_REGION_KEYS[c]) : c;
 }
 
 // 解析 "wrld_xxx:84292~group(g)~accessType(public)~region(jp)" → {instanceId, region, isPrivate}
@@ -781,7 +781,7 @@ function _renderMapRegions(regionMap) {
   if (!list) return;
   const entries = Object.keys(regionMap).map(k => ({ code: k, count: regionMap[k] })).sort((a, b) => b.count - a.count);
   if (entries.length === 0) {
-    list.innerHTML = `<div class="worlds-region-empty text-muted2 text-13" data-i18n="map.no_world_data">暂无数据</div>`;
+    list.innerHTML = `<div class="worlds-region-empty text-muted2 text-13" data-i18n="map.no_world_data">${esc(__('map.no_world_data'))}</div>`;
     return;
   }
   const max = entries[0].count || 1;
@@ -800,7 +800,7 @@ function _renderMapTop(top) {
   const list = document.getElementById('mapWorldsTopList');
   if (!list) return;
   if (top.length === 0) {
-    list.innerHTML = `<div class="worlds-top-empty text-muted2 text-13" data-i18n="map.no_world_data">暂无数据</div>`;
+    list.innerHTML = `<div class="worlds-top-empty text-muted2 text-13" data-i18n="map.no_world_data">${esc(__('map.no_world_data'))}</div>`;
     return;
   }
   const max = top[0].memberCount || 1;
@@ -810,7 +810,7 @@ function _renderMapTop(top) {
       <div class="worlds-top-main">
         <div class="worlds-top-line1">
           <span class="worlds-region-badge region-${(it.region || 'unknown').toLowerCase()}">${esc(mapRegionCn(it.region))}</span>
-          ${it.isPrivate ? '<span class="worlds-private-badge" title="私有实例">🔒</span>' : ''}
+          ${it.isPrivate ? '<span class="worlds-private-badge" title="' + esc(__('map.private_instance')) + '">🔒</span>' : ''}
           <span class="worlds-top-name">${esc(it.worldName || it.instanceId)}</span>
         </div>
         <div class="worlds-top-line2">
@@ -848,7 +848,7 @@ function _renderMapGrid(worlds) {
         ${instArr.length > 1 ? `<div class="world-instances-list">${instArr.map(it => `
           <div class="world-instance-row" title="${esc(it.instanceId)}">
             <span class="worlds-region-badge region-${(it.region || 'unknown').toLowerCase()}">${esc(mapRegionCn(it.region))}</span>
-            ${it.isPrivate ? '<span class="worlds-private-badge" title="私有实例">🔒</span>' : ''}
+            ${it.isPrivate ? '<span class="worlds-private-badge" title="' + esc(__('map.private_instance')) + '">🔒</span>' : ''}
             <span class="world-instance-id" onclick="copyToClipboard && copyToClipboard('${escJsStr(it.instanceId)}')" title="${__('map.copy_instance')}">${esc(it.instanceId.length > 30 ? it.instanceId.slice(0, 28) + '…' : it.instanceId)}</span>
             <span class="world-instance-count">${it.members.length}</span>
           </div>

@@ -188,7 +188,7 @@ function buildPostCard(post) {
   cardHtml += '<div class="post-user-info"><span class="post-username">' + esc(post.user ? post.user.name : __('posts.user')) + '</span><span class="post-time">' + esc(time) + '</span></div>';
   cardHtml += '<div class="post-actions-top">';
   if (post.isPinned) cardHtml += '<span class="post-pin-badge">' + __('posts.pin') + '</span>';
-  if (isOwner || isAdmin) cardHtml += '<span class="post-menu-btn" tabindex="0" role="button" aria-label="更多操作" onclick="showPostMenu(event,' + post.id + ')">⋯</span>';
+  if (isOwner || isAdmin) cardHtml += '<span class="post-menu-btn" tabindex="0" role="button" aria-label="' + esc(__('posts.aria_more_actions')) + '" onclick="showPostMenu(event,' + post.id + ')">⋯</span>';
   cardHtml += '</div></div>';
 
   if (post.content) cardHtml += '<div class="post-content">' + esc(post.content) + '</div>';

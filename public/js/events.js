@@ -182,7 +182,7 @@ function updateBatchBar() {
   const hasManageable = document.querySelector('#eventsList .evt-select-cb');
   bar.classList.toggle('d-none', !hasManageable); // 无管理权限（列表里无勾选框）则隐藏工具条
   const n = selectedEventIds.size;
-  if (countEl) countEl.textContent = `已选 ${n} 项`;
+  if (countEl) countEl.textContent = __('events.selected_n_items', { n: n });
   if (delBtn) delBtn.disabled = n === 0;
   const archBtn = document.getElementById('evtBatchArchiveBtn');
   if (archBtn) archBtn.disabled = n === 0;

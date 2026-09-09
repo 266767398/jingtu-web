@@ -168,7 +168,7 @@ function memberStatusMeta(isOnline, isFriend, vrchatStatus, isInGame, statusDesc
   else if (vrchatStatus === 'ask me') dc = 'askme';
   else if (vrchatStatus === 'join me') dc = 'joinme';
   else dc = isInGame ? 'online' : 'web';
-  return { dotClass: dc, text: desc, title: desc ? (desc + (isInGame ? ' · 游戏内' : __('auto_group_8'))) : (isInGame ? '游戏内在线' : __('auto_group_9')) };
+  return { dotClass: dc, text: desc, title: desc ? (desc + (isInGame ? ' · ' + __('group.ingame_label') : __('auto_group_8'))) : (isInGame ? __('group.ingame_online') : __('auto_group_9')) };
 }
 
 // 【hover 提示】圆点类型 → 状态名（用于卡片悬停提示第一行）
