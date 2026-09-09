@@ -14,6 +14,7 @@ node_modules/
 
 # 运行时数据
 server/session.json
+server/data/activation-codes.json
 *.json.bak
 
 # 备份

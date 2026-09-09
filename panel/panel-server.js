@@ -238,6 +238,18 @@ let _mysql = null;
 try { _mysql = require(path.join(ROOT, 'server', 'node_modules', 'mysql2', 'promise')); } catch (e) { _mysql = null; }
 let _bcrypt = null;
 try { _bcrypt = require(path.join(ROOT, 'server', 'node_modules', 'bcryptjs')); } catch (e) { _bcrypt = null; }
+let _actCodes = null;
+try { _actCodes = require(path.join(ROOT, 'server', 'activation_code_service')); } catch (e) { _actCodes = null; }
+
+/* 面板操作审计：与 panel-api.ps1 的 Write-Audit 同格式，写入 logs/panel-audit.log */
+function auditPanel(msg) {
+  try {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    const line = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) + ' | web-panel | ' + msg + '\n';
+    fs.appendFile(path.join(ROOT, 'logs', 'panel-audit.log'), line, () => {});
+  } catch (e) {}
+}
 
 function envValue(key) {
   try {
@@ -628,6 +640,45 @@ async function handleApi(req, res, token) {
   if (pathName === '/api/reset-init') {
     const r = await runPs('reset');
     return sendJson(res, 200, { ok: true, message: r.message });
+  }
+
+  /* ---- 激活码管理（复用主站激活码服务，文件离线存储） ---- */
+  if (pathName === '/api/activation-codes' && req.method === 'GET') {
+    if (!_actCodes) return sendErr(res, 500, '激活码服务不可用');
+    try {
+      const list = await _actCodes.listCodes();
+      return sendJson(res, 200, { ok: true, data: { total: list.total, used: list.used, unused: list.unused, revoked: list.revoked, codes: list.codes } });
+    } catch (e) { return sendErr(res, 500, '读取激活码失败：' + e.message); }
+  }
+  if (pathName === '/api/activation-codes/generate' && req.method === 'POST') {
+    if (!_actCodes) return sendErr(res, 500, '激活码服务不可用');
+    const count = Math.min(100, Math.max(1, parseInt(body.count, 10) || 1));
+    const note = typeof body.note === 'string' ? body.note.slice(0, 200) : '';
+    try {
+      const created = await _actCodes.generateCodes(count, 'panel-admin', note);
+      auditPanel('生成激活码 ' + created.length + ' 枚' + (note ? '（备注：' + note + '）' : ''));
+      return sendJson(res, 200, { ok: true, data: { count: created.length, codes: created.map(function (c) { return c.code; }) } });
+    } catch (e) { return sendErr(res, 500, '生成失败：' + e.message); }
+  }
+  if (pathName === '/api/activation-codes/revoke' && req.method === 'POST') {
+    if (!_actCodes) return sendErr(res, 500, '激活码服务不可用');
+    const code = typeof body.code === 'string' ? body.code.trim() : '';
+    const reason = typeof body.reason === 'string' ? body.reason.slice(0, 200) : '';
+    if (!code) return sendErr(res, 400, '请提供要作废的激活码');
+    try {
+      const result = await _actCodes.revokeCode(code, 'panel-admin', reason);
+      if (!result.ok) {
+        const msgs = {
+          INVALID_FORMAT: '激活码格式不正确',
+          NOT_FOUND: '激活码不存在',
+          ALREADY_USED: '该激活码已被使用，无法作废',
+          ALREADY_REVOKED: '该激活码已作废，无需重复操作'
+        };
+        return sendErr(res, 400, msgs[result.reason] || '作废失败');
+      }
+      auditPanel('作废激活码 ' + result.entry.code + (reason ? '（原因：' + reason + '）' : ''));
+      return sendJson(res, 200, { ok: true, message: '已作废 ' + result.entry.code, data: { code: result.entry.code } });
+    } catch (e) { return sendErr(res, 500, '作废失败：' + e.message); }
   }
 
   /* ---- 网站管理 ---- */

@@ -9,10 +9,11 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { fail, ok, getPool, handleError, sendError, ErrorCodes, getAvatarUrl } = require('./utils');
-const { passwordResetLimiter, createCustomLimiter } = require('./middleware/rate_limit');
+const { passwordResetLimiter, registerLimiter, createCustomLimiter } = require('./middleware/rate_limit');
 const { hashPassword, verifyPassword, validatePasswordStrength, requireAuth } = require('./auth');
 const logger = require('./logger');
 const { buildSession, sessionUser } = require('./auth_session');
+const activationCodes = require('./activation_code_service');
 
 // 路由注册委托：routes/auth.js 原位调用，六个端点连中间件一并注册
 function registerLocalRoutes(router) {
@@ -118,6 +119,105 @@ router.post('/init', async (req, res) => {
   } catch (e) {
     if (e.code === 'ER_DUP_ENTRY') return sendError(res, 400, ErrorCodes.CONFLICT, '该登录ID已被使用');
     handleError(res, e, '[auth/init]');
+  }
+});
+
+// ==================== 激活码自助注册 ====================
+// 普通用户凭「用户名 + 密码 + 激活码」注册：激活码由超管后台或离线工具预先生成，
+// 存于 server/data/activation-codes.json。校验+消耗在文件锁内原子完成，一码一号。
+router.post('/register', registerLimiter, async (req, res) => {
+  try {
+    const { username, password, activationCode } = req.body;
+    if (typeof username !== 'string' || !username.trim()) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入用户名');
+    if (typeof password !== 'string' || !password) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入密码');
+    if (typeof activationCode !== 'string' || !activationCode.trim()) return fail(res, 400, '请输入激活码', { code: 'ACTIVATION_CODE_REQUIRED' });
+    const trimmedUsername = username.trim();
+    const trimmedCode = activationCode.trim();
+    if (trimmedUsername.length < 2 || trimmedUsername.length > 32) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '用户名长度需在 2-32 字符之间');
+    }
+    const strength = validatePasswordStrength(password);
+    if (!strength.valid) return fail(res, 400, '密码强度不足', { details: strength.errors });
+
+    // 建号前先查重名：失败早返回，避免白白消耗激活码
+    const [dup] = await getPool().query(
+      `SELECT id FROM users WHERE LOWER(login_id) = ? AND (deleted_at IS NULL OR deleted_at = '')`,
+      [trimmedUsername.toLowerCase()]
+    );
+    if (dup.length > 0) return sendError(res, 400, ErrorCodes.CONFLICT, '该用户名已被使用');
+
+    // 用户创建放在激活码标记之前（文件锁内）：任一环节失败激活码都不会被消耗
+    let createdUserId = null;
+    let consume;
+    try {
+      consume = await activationCodes.validateAndConsume(trimmedCode, trimmedUsername, async () => {
+        const [dupInLock] = await getPool().query(
+          `SELECT id FROM users WHERE LOWER(login_id) = ? AND (deleted_at IS NULL OR deleted_at = '')`,
+          [trimmedUsername.toLowerCase()]
+        );
+        if (dupInLock.length > 0) {
+          const err = new Error('该用户名已被使用');
+          err.abortCode = 'USERNAME_TAKEN';
+          throw err;
+        }
+        const pwdHash = await hashPassword(password);
+        const [result] = await getPool().query(
+          `INSERT INTO users (login_id, display_name, password_hash, role, avatar_type, approved)
+           VALUES (?, ?, ?, 'member', 'none', 1)`,
+          [trimmedUsername, trimmedUsername, pwdHash]
+        );
+        createdUserId = result.insertId;
+        await getPool().query(
+          `INSERT IGNORE INTO user_group_membership (user_id, group_id) VALUES (?, 3)`,
+          [createdUserId]
+        );
+      });
+    } catch (e) {
+      if (e instanceof activationCodes.ActivationCodeError) {
+        return fail(res, e.reason === 'LOCK_TIMEOUT' ? 503 : 500, e.message, { code: e.reason });
+      }
+      throw e;
+    }
+
+    if (!consume.ok) {
+      // 建号成功但激活码文件写回失败：补偿删除刚建的账号，保证「码未消耗 ↔ 账号不存在」一致
+      if (createdUserId && consume.reason === 'WRITE_FAILED') {
+        try {
+          await getPool().query(`DELETE FROM user_group_membership WHERE user_id = ?`, [createdUserId]);
+          await getPool().query(`DELETE FROM users WHERE id = ?`, [createdUserId]);
+        } catch (e) {
+          logger.error('auth/register', `[SEC] 激活码写回失败且补偿删除账号 #${createdUserId} 失败: ${e.message}`);
+        }
+        createdUserId = null;
+      }
+      const hookErr = consume.error;
+      if (hookErr && hookErr.abortCode === 'USERNAME_TAKEN') {
+        return sendError(res, 400, ErrorCodes.CONFLICT, '该用户名已被使用');
+      }
+      const msgMap = {
+        INVALID_FORMAT: '激活码格式不正确',
+        NOT_FOUND: '激活码无效',
+        ALREADY_USED: '激活码已被使用',
+        REVOKED: '激活码已被作废，请联系管理员',
+        WRITE_FAILED: '注册失败，请稍后重试'
+      };
+      return fail(res, 400, msgMap[consume.reason] || '注册失败，请稍后重试', { code: consume.reason || 'REGISTER_FAILED' });
+    }
+
+    // 建号 + 激活码消耗均成功：写操作日志（保留激活码原文，已作废仅作排查留痕）
+    const user = { id: createdUserId, login_id: trimmedUsername, display_name: trimmedUsername, vrchat_id: null, vrchat_name: null, vrchat_verified: 0, role: 'member', avatar_type: 'none', vrchat_avatar_url: null, custom_avatar_path: null };
+    try {
+      await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '用户注册', ?)`,
+        [trimmedUsername, `激活码注册: ${trimmedUsername}，激活码 ${consume.code} 已消耗作废`]);
+    } catch {}
+    req.session.regenerate(async (err) => {
+      if (err) { handleError(res, err, 'auth'); return; }
+      await buildSession(req, user);
+      await req.session.save();
+      ok(res, { user: sessionUser(req.session), message: '注册成功' });
+    });
+  } catch (e) {
+    handleError(res, e, '[auth/register]');
   }
 });
 

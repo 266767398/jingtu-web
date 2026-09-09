@@ -123,3 +123,29 @@
   height: 48px;
   background: var(--border-color, rgba(255,255,255,0.1));
 }
+
+/* 激活码生成结果列表（超管后台模态框） */
+.gen-code-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 10px;
+  background: rgba(0,0,0,.12);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.gen-code-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.gen-code-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: var(--accent2);
+}

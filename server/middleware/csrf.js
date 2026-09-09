@@ -65,7 +65,7 @@ function setupCsrf(app) {
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
     // ⚠️ Express app.use('/api', ...) 会裁剪 req.path，所以豁免路径使用相对于 /api 的路径
     const exemptPaths = ['/vrchat-login', '/init',
-      '/auth/login', '/auth/init', '/csrf-token',
+      '/auth/login', '/auth/register', '/auth/init', '/csrf-token',
       '/auth/logout', '/auth/vrchat-login',
       '/auth/forgot-password', '/auth/verify-reset-code', '/auth/reset-password',
       '/setup/test-db', '/setup/test-email', '/setup/save',

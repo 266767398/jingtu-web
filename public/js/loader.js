@@ -63,7 +63,7 @@ var TAB_MODULES = {
   friends: ['friends.js'],
   follows: ['follows.js'],
   'profile-user': ['profile.js', 'profile-page.js'],
-  admin: ['admin-users.js', 'admin-perms.js', 'admin-vrc.js', 'admin-model-collections.js', 'admin-ui.js']
+  admin: ['admin-users.js', 'admin-activation.js', 'admin-perms.js', 'admin-vrc.js', 'admin-model-collections.js', 'admin-ui.js']
   // notifications 由 ui.js 提供，无需额外模块
 };
 
@@ -107,23 +107,25 @@ function _preloadRemaining() {
   // og:title / og:description / og:url / canonical，避免搜索引擎收录全站相同 description。
   // 策略：集中在 loader.js 维护一张 TAB_SEO_MAP，包裹器渲染完成后调用一次。
   // 业务模块若需要更精细的 SEO（如打开某个动态详情），可在自己内部再调用一次 SITE_SEO.setPageSeo 覆盖。
+  // title/description 存 i18n 键名，由 _afterSwitchTab 在切换时翻译，
+  // 保证语言切换（reloadDynamicI18n force 重渲染）后 SEO 同步刷新。
   var TAB_SEO_MAP = {
-    'home':           { title: '境途同游首页',         path: '/',       description: '面向 VRChat 玩家的社群平台：群组相册、活动报名、动态分享、成员地图与实时聊天。' },
-    'members':        { title: '成员总览',              path: '/members',description: '查看境途同游全部成员的活跃度、所在地与在线状态。' },
-    'vrc':            { title: 'VRC 社群',              path: '/vrc',    description: 'VRC 社群中心：群组在线成员一览、VRChat 世界分布与成员收藏共享。' },
-    'announcements':  { title: '群组公告',              path: '/announcements', description: '管理员发布的最新公告、活动通知与平台变动说明。' },
-    'events':         { title: '活动报名',              path: '/events', description: '即将到来的 VRChat 主题活动：在线报名、签到、回顾。' },
-    'birthday':       { title: '成员生日墙',            path: '/birthday',description: '境途同游成员生日日历：今天有谁过生日？' },
-    'album':          { title: '公共相册',              path: '/album',  description: '海量 VRChat 截图作品：按分类浏览、点赞与评论。' },
-    'posts':          { title: '动态广场',              path: '/posts',  description: 'VRChat 玩家新鲜事：图文动态、互动评论、点赞。' },
-    'map':            { title: '成员地图',              path: '/map',    description: '基于地理位置查看境途同游成员在全球的分布。' },
-    'chat':           { title: '实时聊天',              path: '/chat',   description: '群组内实时聊天频道。' },
-    'friends':        { title: '我的好友',              path: '/friends',description: '境途同游好友列表、互相关注与近期动态。' },
-    'follows':        { title: '我的关注',              path: '/follows',description: '我关注的成员与最新动态。' },
-    'notifications':  { title: '通知中心',              path: '/notifications', description: '我的互动通知：回复、点赞、关注、系统提醒。' },
-    'me':             { title: '个人资料',              path: '/me',     description: '我的个人资料、设置与成就。' },
-    'profile-user':   { title: '成员资料',              path: '/u',      description: '查看成员的公开资料、动态与作品集。' },
-    'admin':          { title: '管理后台',              path: '/admin',  description: '管理员后台：用户、权限、模型收藏、界面与审计日志。' }
+    'home':           { title: 'seo.tab_home_title',           path: '/',       description: 'seo.tab_home_desc' },
+    'members':        { title: 'seo.tab_members_title',        path: '/members',description: 'seo.tab_members_desc' },
+    'vrc':            { title: 'seo.tab_vrc_title',            path: '/vrc',    description: 'seo.tab_vrc_desc' },
+    'announcements':  { title: 'seo.tab_announcements_title',  path: '/announcements', description: 'seo.tab_announcements_desc' },
+    'events':         { title: 'seo.tab_events_title',         path: '/events', description: 'seo.tab_events_desc' },
+    'birthday':       { title: 'seo.tab_birthday_title',       path: '/birthday',description: 'seo.tab_birthday_desc' },
+    'album':          { title: 'seo.tab_album_title',          path: '/album',  description: 'seo.tab_album_desc' },
+    'posts':          { title: 'seo.tab_posts_title',          path: '/posts',  description: 'seo.tab_posts_desc' },
+    'map':            { title: 'seo.tab_map_title',            path: '/map',    description: 'seo.tab_map_desc' },
+    'chat':           { title: 'seo.tab_chat_title',           path: '/chat',   description: 'seo.tab_chat_desc' },
+    'friends':        { title: 'seo.tab_friends_title',        path: '/friends',description: 'seo.tab_friends_desc' },
+    'follows':        { title: 'seo.tab_follows_title',        path: '/follows',description: 'seo.tab_follows_desc' },
+    'notifications':  { title: 'seo.tab_notifications_title',  path: '/notifications', description: 'seo.tab_notifications_desc' },
+    'me':             { title: 'seo.tab_me_title',             path: '/me',     description: 'seo.tab_me_desc' },
+    'profile-user':   { title: 'seo.tab_profile_user_title',   path: '/u',      description: 'seo.tab_profile_user_desc' },
+    'admin':          { title: 'seo.tab_admin_title',          path: '/admin',  description: 'seo.tab_admin_desc' }
     // 'live' 已被 DISABLED_FEATURES 屏蔽，切换路径走 _isDisabled 分支，不会进入此处
   };
   function _afterSwitchTab(tab) {
@@ -133,8 +135,8 @@ function _preloadRemaining() {
       if (!conf) return; // 未知 Tab：保留上一次的 SEO
       var defaults = window.SITE_SEO.getDefaults ? window.SITE_SEO.getDefaults() : {};
       window.SITE_SEO.setPageSeo({
-        title: conf.title,
-        description: conf.description || defaults.description || '',
+        title: __(conf.title),
+        description: __(conf.description) || defaults.description || '',
         path: conf.path,
         image: defaults.image
       });

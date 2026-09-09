@@ -78,7 +78,7 @@
         return 'zh';
       }
       // 解析期 document.write 外部脚本为阻塞式，保证在 i18n.js 之前就绪
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260906f"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260906g"><\/script>');
     })();
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
@@ -152,6 +152,9 @@
       <button class="login-tab-btn" id="loginModeVrc">
         <span class="login-tab-icon">🎮</span><span data-i18n="login.vrchat_tab">VRChat</span>
       </button>
+      <button class="login-tab-btn" id="loginModeRegister">
+        <span class="login-tab-icon">📝</span><span data-i18n="login.register_tab">注册</span>
+      </button>
       <button class="login-tab-btn d-none" id="loginModeInit">
         <span class="login-tab-icon">⚙️</span><span data-i18n="login.init_tab">初始化</span>
       </button>
@@ -196,6 +199,34 @@
       </div>
       <button class="login-btn" id="loginPwdBtn">
         <span class="login-btn-text">登录</span>
+        <span class="login-btn-shimmer"></span>
+      </button>
+    </div>
+    <!-- 注册 -->
+    <div class="form-group d-none" id="loginRegisterFields">
+      <div class="login-input-group">
+        <input type="text" id="regUsername" placeholder="请输入用户名" class="login-input" autocomplete="username" data-i18n-placeholder="register.username_ph">
+        <label for="regUsername" class="login-input-label">用户名</label>
+        <div class="login-input-underline"></div>
+      </div>
+      <div class="login-input-group mt-16">
+        <div class="pwd-wrap">
+          <input type="password" id="regPassword" placeholder="请输入密码" class="login-input" autocomplete="new-password" data-i18n-placeholder="register.pwd_ph">
+          <button type="button" class="pwd-toggle" title="显示密码" aria-label="显示密码" aria-pressed="false" id="pwdToggleReg"></button>
+          <label for="regPassword" class="login-input-label">密码</label>
+          <div class="login-input-underline"></div>
+        </div>
+      </div>
+      <div class="pwd-strength" id="regPwdMeter"><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div></div>
+      <div class="pwd-strength-text" id="regPwdStrength"></div>
+      <div class="login-input-group mt-16">
+        <input type="text" id="regActivationCode" placeholder="请输入激活码" class="login-input" autocomplete="off" data-i18n-placeholder="register.code_ph">
+        <label for="regActivationCode" class="login-input-label">激活码</label>
+        <div class="login-input-underline"></div>
+      </div>
+      <p class="login-hint-text mt-12" data-i18n="register.code_hint">激活码由管理员发放，每个激活码仅可注册一个账号</p>
+      <button class="login-btn mt-16" id="registerBtn">
+        <span class="login-btn-text">注册</span>
         <span class="login-btn-shimmer"></span>
       </button>
     </div>
@@ -1046,12 +1077,34 @@
           <option value="banned">已封禁</option>
         </select>
         <button id="adminAddUserBtn" class="btn btn-accent btn-sm">+ 创建用户</button>
+        <button id="adminGenCodesBtn" class="btn btn-sm btn-outline">🎟 生成激活码</button>
         <button id="adminRefreshUsersBtn" class="btn btn-sm btn-outline">🔄 刷新</button>
       </div>
       <div id="adminUsersList"></div>
       <div id="adminUserPagination" class="pagination-bar mt-8 flex-row gap-4 justify-center flex-wrap"></div>
     </div>
 
+          </section>
+
+          <!-- 激活码管理（仅超管可见的 API 权限，普通管理员进入会收到 403 提示） -->
+          <section class="admin-panel d-none" data-panel="activation">
+            <div class="card p-16 mt-16" id="activationCodesSection">
+              <div class="admin-card-header"><span class="admin-section-icon">🎟</span><h3>激活码管理</h3></div>
+              <p class="text-13 text-muted2 mb-8">激活码保存在服务器本地文件（离线可用）。生成后分发给用户注册使用；已使用的码永久绑定，未使用的码可作废。</p>
+              <div class="admin-dashboard mb-8" id="activationCodeStats"></div>
+              <div class="flex-row gap-8 mb-8 flex-wrap">
+                <input type="text" id="activationCodeSearch" class="search-box m-0 flex-1" placeholder="搜索激活码 / 备注 / 创建人..." aria-label="搜索激活码">
+                <select id="activationCodeStatusFilter" class="search-box m-0 admin-filter-sm" aria-label="按状态筛选激活码">
+                  <option value="">全部状态</option>
+                  <option value="unused">未使用</option>
+                  <option value="used">已使用</option>
+                  <option value="revoked">已作废</option>
+                </select>
+                <button id="activationGenCodesBtn" class="btn btn-accent btn-sm">🎟 生成激活码</button>
+                <button id="activationRefreshBtn" class="btn btn-sm btn-outline">🔄 刷新</button>
+              </div>
+              <div id="activationCodesList"></div>
+            </div>
           </section>
 
           <!-- 管理员管理（超级管理员专区；loadAdminMgrList 根据角色控制显隐） -->
@@ -1719,22 +1772,22 @@
       <div id="profileStats" class="profile-stats-extra"></div>
       <div id="profileActions" class="profile-actions mt-8"></div>
       <div id="profileMotto" class="profile-motto"></div>
-      <div class="profile-stats"><span>📷 <span id="profilePhotoCount">0</span> 照片</span><span>🎬 <span id="profileVideoCount">0</span> 视频</span></div>
+      <div class="profile-stats"><span>📷 <span id="profilePhotoCount">0</span> <span data-i18n="profile.stat_photos">照片</span></span><span>🎬 <span id="profileVideoCount">0</span> <span data-i18n="profile.stat_videos">视频</span></span></div>
     </div>
-    <div id="profileBio" class="card p-16 mt-8 d-none"><h4>📝 个人简介</h4><div id="profileBioContent"></div></div>
-    <div class="card p-16 mt-8"><h4>📷 相册</h4><div id="albumActions"></div><div id="profileAlbums" class="profile-albums-grid"></div></div>
-    <div class="card p-16 mt-8"><h4>🎬 视频</h4><div id="videoActions"></div><div id="profileVideos" class="profile-videos-grid"></div></div>
+    <div id="profileBio" class="card p-16 mt-8 d-none"><h4 data-i18n="profile.bio_heading">📝 个人简介</h4><div id="profileBioContent"></div></div>
+    <div class="card p-16 mt-8"><h4 data-i18n="profile.albums_heading">📷 相册</h4><div id="albumActions"></div><div id="profileAlbums" class="profile-albums-grid"></div></div>
+    <div class="card p-16 mt-8"><h4 data-i18n="profile.videos_heading">🎬 视频</h4><div id="videoActions"></div><div id="profileVideos" class="profile-videos-grid"></div></div>
     <div id="albumDetail" class="d-none mt-8">
-      <button id="backToAlbumsBtn" class="btn btn-sm btn-outline mb-8">← 返回相册</button>
+      <button id="backToAlbumsBtn" class="btn btn-sm btn-outline mb-8" data-i18n="album.back_to_albums">← 返回相册</button>
       <h3 id="albumDetailName"></h3>
       <div id="albumDetailGrid" class="album-grid"></div>
     </div>
-      <input type="file" id="profileVideoUpload" accept="video/*" class="d-none" aria-label="上传个人主页视频">
+      <input type="file" id="profileVideoUpload" accept="video/*" class="d-none" data-i18n-aria="profile.upload_video_aria" aria-label="上传个人主页视频">
   </div>
 </main>
 
 <!-- 返回顶部按钮 -->
-<button id="scrollTopBtn" class="scroll-top-btn" onclick="scrollToTop()" aria-label="返回顶部" title="返回顶部">↑</button>
+<button id="scrollTopBtn" class="scroll-top-btn" onclick="scrollToTop()" data-i18n-aria="ui.back_to_top" data-i18n-title="ui.back_to_top" aria-label="返回顶部" title="返回顶部">↑</button>
 
 <!-- ===== Footer（管理员需在 .env 中配置社交链接） ===== -->
 <footer class="d-none" id="appFooter">
@@ -1752,44 +1805,44 @@
 <!-- 公告编辑 -->
 <div id="announceModal" class="modal">
   <div class="modal-content">
-    <div class="modal-header"><h3 id="annModalTitle">📢 发布公告</h3><button  id="annModalCloseBtn" class="modal-close" aria-label="关闭">✕</button></div>
-    <div class="form-group"><label for="annTitle">标题</label><input type="text" id="annTitle" class="form-input" placeholder="公告标题"></div>
-    <div class="form-group"><label for="annContent">内容</label><textarea id="annContent" class="form-input" rows="6" placeholder="公告内容..."></textarea></div>
-    <div class="form-group"><label><input type="checkbox" id="annPinned"> 置顶公告</label></div>
-    <div class="form-group"><label for="annVisibility">可见性</label><select id="annVisibility" class="form-input"><option value="members_only">🔒 成员专属</option><option value="public">🌐 公开</option></select></div>
-    <div class="form-actions"><button type="button" id="annCancelBtn" class="btn btn-outline" data-modal-close="announceModal">取消</button><button id="annSaveBtn" class="btn btn-accent">发布</button></div>
+    <div class="modal-header"><h3 id="annModalTitle">📢 发布公告</h3><button  id="annModalCloseBtn" class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label for="annTitle" data-i18n="modal.field_title">标题</label><input type="text" id="annTitle" class="form-input" data-i18n-placeholder="modal.ann_title_ph" placeholder="公告标题"></div>
+    <div class="form-group"><label for="annContent" data-i18n="modal.field_content">内容</label><textarea id="annContent" class="form-input" rows="6" data-i18n-placeholder="modal.ann_content_ph" placeholder="公告内容..."></textarea></div>
+    <div class="form-group"><label><input type="checkbox" id="annPinned"> <span data-i18n="modal.ann_pinned">置顶公告</span></label></div>
+    <div class="form-group"><label for="annVisibility" data-i18n="modal.visibility">可见性</label><select id="annVisibility" class="form-input"><option value="members_only" data-i18n="modal.members_only_opt">🔒 成员专属</option><option value="public" data-i18n="modal.public_opt">🌐 公开</option></select></div>
+    <div class="form-actions"><button type="button" id="annCancelBtn" class="btn btn-outline" data-modal-close="announceModal" data-i18n="ui.cancel">取消</button><button id="annSaveBtn" class="btn btn-accent" data-i18n="announcements.publish_btn">发布</button></div>
     <input type="hidden" id="annEditId" value="">
   </div>
 </div>
 
 <!-- 创建活动 -->
 <div id="eventModal" class="modal">
-  <div class="modal-content"><div class="modal-header"><h3>📅 创建活动</h3><button id="evtModalCloseBtn" class="modal-close" aria-label="关闭">✕</button></div>
-    <div class="form-group"><label for="evtTitle">活动名称</label><input type="text" id="evtTitle" class="form-input" placeholder="活动名称"></div>
-    <div class="form-group"><label>关联 World</label><div class="flex gap-4"><input type="text" id="evtWorld" class="form-input flex-1" placeholder="World 名称" readonly aria-label="活动 World 名称"><button  id="evtWorldSearchBtn" class="btn btn-sm btn-outline">🌐 搜索</button><button  id="evtWorldClearBtn" class="btn btn-sm btn-outline">✕ 清除</button></div><input type="hidden" id="evtWorldId"><input type="hidden" id="evtWorldImage"><input type="hidden" id="evtWorldName"><input type="hidden" id="evtWorldImageUrl"><div id="evtWorldPreview" class="evt-det-world-info mt-8 d-none"><div class="evt-det-world-thumb-wrap"><img id="evtWorldThumb" class="evt-det-world-thumb" alt="World"></div><div><span id="evtWorldNameDisplay"></span></div></div></div>
-    <div class="form-group"><label for="evtTime">活动时间</label><input type="datetime-local" id="evtTime" class="form-input"></div>
-    <div class="form-group"><label for="evtEndsAt">结束时间（选填）</label><input type="datetime-local" id="evtEndsAt" class="form-input"></div>
-    <div class="form-group"><label for="evtPlace">地点（选填）</label><input type="text" id="evtPlace" class="form-input" placeholder="活动地点"></div>
-    <div class="form-group"><label for="evtDesc">描述</label><textarea id="evtDesc" class="form-input" rows="4" placeholder="活动描述..."></textarea></div>
-    <div class="form-group"><label for="evtMax">人数上限</label><input type="number" id="evtMax" class="form-input" placeholder="0 = 不限" min="0"></div>
-    <div class="form-group"><label for="evtVisibility">可见性</label><select id="evtVisibility" class="form-input"><option value="members_only">🔒 成员专属</option><option value="public">🌐 公开</option></select></div>
-    <div class="form-actions"><button type="button" id="evtModalCancelBtn" class="btn btn-outline" data-modal-close="eventModal">取消</button><button  id="evtModalSaveBtn" class="btn btn-accent">创建</button></div>
+  <div class="modal-content"><div class="modal-header"><h3 data-i18n="modal.event_create_title">📅 创建活动</h3><button id="evtModalCloseBtn" class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label for="evtTitle" data-i18n="modal.evt_name_label">活动名称</label><input type="text" id="evtTitle" class="form-input" data-i18n-placeholder="modal.evt_name_label" placeholder="活动名称"></div>
+    <div class="form-group"><label data-i18n="modal.evt_world_label">关联 World</label><div class="flex gap-4"><input type="text" id="evtWorld" class="form-input flex-1" data-i18n-placeholder="modal.evt_world_ph" placeholder="World 名称" readonly data-i18n-aria="modal.evt_world_aria" aria-label="活动 World 名称"><button  id="evtWorldSearchBtn" class="btn btn-sm btn-outline" data-i18n="modal.search_btn">🌐 搜索</button><button  id="evtWorldClearBtn" class="btn btn-sm btn-outline" data-i18n="modal.clear_btn">✕ 清除</button></div><input type="hidden" id="evtWorldId"><input type="hidden" id="evtWorldImage"><input type="hidden" id="evtWorldName"><input type="hidden" id="evtWorldImageUrl"><div id="evtWorldPreview" class="evt-det-world-info mt-8 d-none"><div class="evt-det-world-thumb-wrap"><img id="evtWorldThumb" class="evt-det-world-thumb" alt="World"></div><div><span id="evtWorldNameDisplay"></span></div></div></div>
+    <div class="form-group"><label for="evtTime" data-i18n="modal.evt_time_label">活动时间</label><input type="datetime-local" id="evtTime" class="form-input"></div>
+    <div class="form-group"><label for="evtEndsAt" data-i18n="modal.evt_end_label">结束时间（选填）</label><input type="datetime-local" id="evtEndsAt" class="form-input"></div>
+    <div class="form-group"><label for="evtPlace" data-i18n="modal.evt_place_label">地点（选填）</label><input type="text" id="evtPlace" class="form-input" data-i18n-placeholder="modal.evt_place_ph" placeholder="活动地点"></div>
+    <div class="form-group"><label for="evtDesc" data-i18n="modal.evt_desc_label">描述</label><textarea id="evtDesc" class="form-input" rows="4" data-i18n-placeholder="modal.evt_desc_ph" placeholder="活动描述..."></textarea></div>
+    <div class="form-group"><label for="evtMax" data-i18n="modal.evt_max_label">人数上限</label><input type="number" id="evtMax" class="form-input" data-i18n-placeholder="modal.evt_max_ph" placeholder="0 = 不限" min="0"></div>
+    <div class="form-group"><label for="evtVisibility" data-i18n="modal.visibility">可见性</label><select id="evtVisibility" class="form-input"><option value="members_only" data-i18n="modal.members_only_opt">🔒 成员专属</option><option value="public" data-i18n="modal.public_opt">🌐 公开</option></select></div>
+    <div class="form-actions"><button type="button" id="evtModalCancelBtn" class="btn btn-outline" data-modal-close="eventModal" data-i18n="ui.cancel">取消</button><button  id="evtModalSaveBtn" class="btn btn-accent" data-i18n="admin.create">创建</button></div>
     <input type="hidden" id="evtEditId" value="">
   </div>
 </div>
 
 <!-- World 搜索 -->
 <div id="worldSearchModal" class="modal">
-  <div class="modal-content modal-sm"><div class="modal-header"><h3>🌐 搜索 VRChat World</h3><button id="worldSearchCloseBtn" class="modal-close" aria-label="关闭">&times;</button></div>
-    <div class="form-group"><input type="text" id="worldSearchInput" class="form-input" placeholder="输入关键词搜索..." aria-label="搜索 World"></div>
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.world_search_title">🌐 搜索 VRChat World</h3><button id="worldSearchCloseBtn" class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">&times;</button></div>
+    <div class="form-group"><input type="text" id="worldSearchInput" class="form-input" data-i18n-placeholder="modal.search_kw_ph" placeholder="输入关键词搜索..." data-i18n-aria="modal.world_search_aria" aria-label="搜索 World"></div>
     <div id="worldSearchResults" class="world-search-results"></div>
   </div>
 </div>
 
 <!-- Avatar 搜索 -->
 <div id="avatarSearchModal" class="modal">
-  <div class="modal-content modal-sm"><div class="modal-header"><h3>🧑‍🦰 搜索 VRChat Avatar</h3><button id="avatarSearchCloseBtn" class="modal-close" aria-label="关闭">&times;</button></div>
-    <div class="form-group"><input type="text" id="avatarSearchInput" class="form-input" placeholder="输入关键词搜索..." aria-label="搜索 Avatar"></div>
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.avatar_search_title">🧑‍🦰 搜索 VRChat Avatar</h3><button id="avatarSearchCloseBtn" class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">&times;</button></div>
+    <div class="form-group"><input type="text" id="avatarSearchInput" class="form-input" data-i18n-placeholder="modal.search_kw_ph" placeholder="输入关键词搜索..." data-i18n-aria="modal.avatar_search_aria" aria-label="搜索 Avatar"></div>
     <div id="avatarSearchResults" class="world-search-results"></div>
   </div>
 </div>
@@ -1797,8 +1850,8 @@
 <!-- 回收站 -->
 <div id="recycleModal" class="modal">
   <div class="modal-content modal-sm">
-    <div class="modal-header"><h3>🗑️ 回收站</h3><button  id="recycleModalCloseBtn" class="modal-close" aria-label="关闭">✕</button></div>
-    <p class="text-12 text-muted2 mb-8">照片删除后进入回收站，7天后自动永久删除</p>
+    <div class="modal-header"><h3 data-i18n="modal.recycle_title">🗑️ 回收站</h3><button  id="recycleModalCloseBtn" class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">✕</button></div>
+    <p class="text-12 text-muted2 mb-8" data-i18n="modal.recycle_hint">照片删除后进入回收站，7天后自动永久删除</p>
     <div id="recycleList"></div>
   </div>
 </div>
@@ -1807,8 +1860,8 @@
 <div id="memberModal" class="modal">
   <div class="modal-content modal-sm modal-nopad">
     <div id="memberModalCloseBtn" class="member-card-header">
-      <button class="modal-close-circle" aria-label="关闭">✕</button>
-      <div id="ucAvatarWrap" class="member-avatar-wrap"><img id="ucAvatar" src="/assets/group-avatar.svg" class="object-cover" alt="头像" loading="lazy"></div>
+      <button class="modal-close-circle" data-i18n-aria="ui.close" aria-label="关闭">✕</button>
+      <div id="ucAvatarWrap" class="member-avatar-wrap"><img id="ucAvatar" src="/assets/group-avatar.svg" class="object-cover" data-i18n="modal.avatar_alt" alt="头像" loading="lazy"></div>
       <div id="ucName" class="member-card-name"></div>
       <div id="ucRole" class="member-card-role"></div>
       <div id="ucMotto" class="member-card-motto"></div>
@@ -1826,45 +1879,61 @@
 
 <!-- 两步验证 -->
 <div id="vrc2faModal" class="modal">
-  <div class="modal-content modal-sm"><div class="modal-header"><h3>🔐 两步验证</h3><button id="vrc2faCloseBtn" class="modal-close" aria-label="关闭">&times;</button></div>
-    <p class="mb-8">请输入 VRChat 两步验证码</p>
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.2fa_title">🔐 两步验证</h3><button id="vrc2faCloseBtn" class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">&times;</button></div>
+    <p class="mb-8" data-i18n="modal.2fa_hint">请输入 VRChat 两步验证码</p>
     <div id="vrc2faHint" class="text-13 text-muted mb-4"></div>
     <div id="vrc2faError" class="text-13 text-red d-none mb-4"></div>
-    <input type="text" id="vrc2faCode" class="form-input" placeholder="验证码" aria-label="VRChat 两步验证码">
-    <div class="form-actions mt-8"><button type="button" id="vrc2faCancelBtn" class="btn btn-outline">取消</button><button  id="vrc2faSubmitBtn" class="btn btn-accent">验证</button></div>
+    <input type="text" id="vrc2faCode" class="form-input" data-i18n-placeholder="modal.2fa_code_ph" placeholder="验证码" data-i18n-aria="modal.2fa_code_aria" aria-label="VRChat 两步验证码">
+    <div class="form-actions mt-8"><button type="button" id="vrc2faCancelBtn" class="btn btn-outline" data-i18n="ui.cancel">取消</button><button  id="vrc2faSubmitBtn" class="btn btn-accent" data-i18n="modal.verify_btn">验证</button></div>
   </div>
 </div>
 
 <!-- 创建用户 -->
 <div id="addUserModal" class="modal">
-  <div class="modal-content modal-sm"><div class="modal-header"><h3>+ 创建用户</h3><button id="addUserModalCloseBtn" class="modal-close" aria-label="关闭">✕</button></div>
-    <div class="form-group"><label for="newUserLoginId">登录ID</label><input type="text" id="newUserLoginId" class="form-input" placeholder="用于登录"></div>
-    <div class="form-group"><label for="newUserDisplayName">显示名称</label><input type="text" id="newUserDisplayName" class="form-input" placeholder="对外显示的名称"></div>
-    <div class="form-group"><label for="newUserEmail">邮箱（选填）</label><input type="email" id="newUserEmail" class="form-input" placeholder="选填，用于接收通知"></div>
-    <div class="form-group"><label for="newUserPassword">密码</label><input type="password" id="newUserPassword" placeholder="至少8位，含大小写+数字" class="flex-1"><div class="pwd-strength" id="newUserPwdMeter"><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div></div><div class="pwd-strength-text" id="newUserPwdStrength"></div></div>
-    <div class="form-group"><label for="newUserRole">角色</label><select id="newUserRole" class="form-input"><option value="member">成员</option><option value="admin">管理员</option><option value="super_admin">超级管理员</option></select></div>
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.create_user_title">+ 创建用户</h3><button id="addUserModalCloseBtn" class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label for="newUserLoginId" data-i18n="admin.login_id">登录ID</label><input type="text" id="newUserLoginId" class="form-input" data-i18n-placeholder="modal.login_id_ph" placeholder="用于登录"></div>
+    <div class="form-group"><label for="newUserDisplayName" data-i18n="admin.display_name">显示名称</label><input type="text" id="newUserDisplayName" class="form-input" data-i18n-placeholder="modal.display_name_ph" placeholder="对外显示的名称"></div>
+    <div class="form-group"><label for="newUserEmail" data-i18n="modal.email_optional">邮箱（选填）</label><input type="email" id="newUserEmail" class="form-input" data-i18n-placeholder="modal.email_notify_ph" placeholder="选填，用于接收通知"></div>
+    <div class="form-group"><label for="newUserPassword" data-i18n="admin.password">密码</label><input type="password" id="newUserPassword" data-i18n-placeholder="modal.pwd_rule_ph" placeholder="至少8位，含大小写+数字" class="flex-1"><div class="pwd-strength" id="newUserPwdMeter"><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div></div><div class="pwd-strength-text" id="newUserPwdStrength"></div></div>
+    <div class="form-group"><label for="newUserRole" data-i18n="admin.role">角色</label><select id="newUserRole" class="form-input"><option value="member" data-i18n="members.role_member">成员</option><option value="admin" data-i18n="members.role_admin">管理员</option><option value="super_admin" data-i18n="members.role_super_admin">超级管理员</option></select></div>
     <div id="addUserError" class="text-13 text-red d-none"></div>
-    <div class="form-actions"><button type="button" id="addUserModalCancelBtn" class="btn btn-outline" data-modal-close="addUserModal">取消</button><button  id="addUserModalSubmitBtn" class="btn btn-accent">创建</button></div>
+    <div class="form-actions"><button type="button" id="addUserModalCancelBtn" class="btn btn-outline" data-modal-close="addUserModal" data-i18n="ui.cancel">取消</button><button  id="addUserModalSubmitBtn" class="btn btn-accent" data-i18n="admin.create">创建</button></div>
+  </div>
+</div>
+
+<!-- 生成激活码 -->
+<div id="generateCodesModal" class="modal">
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.gen_codes_title">🎟 生成激活码</h3><button id="genCodesModalCloseBtn" class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">✕</button></div>
+    <p class="text-13 text-muted mb-8" data-i18n="modal.gen_codes_hint">生成的激活码保存在服务器本地文件中，可直接分发给用户用于注册。</p>
+    <div class="form-group"><label for="genCodesCount" data-i18n="modal.gen_count_label">生成数量</label><input type="number" id="genCodesCount" class="form-input" min="1" max="200" value="1"></div>
+    <div class="form-group"><label for="genCodesNote" data-i18n="modal.gen_note_label">备注（选填）</label><input type="text" id="genCodesNote" class="form-input" maxlength="100" data-i18n-placeholder="modal.gen_note_ph" placeholder="例如：2026年9月批次"></div>
+    <div id="genCodesError" class="text-13 text-red d-none"></div>
+    <div id="genCodesResultWrap" class="d-none">
+      <label class="text-13" data-i18n="modal.gen_codes_result">生成的激活码</label>
+      <div id="genCodesResult" class="gen-code-list"></div>
+      <button type="button" id="genCodesCopyAllBtn" class="btn btn-sm btn-outline mt-8" data-i18n="admin.copy_all">📋 复制全部</button>
+    </div>
+    <div class="form-actions mt-8"><button type="button" class="btn btn-outline" data-modal-close="generateCodesModal" data-i18n="ui.cancel">取消</button><button  id="genCodesModalSubmitBtn" class="btn btn-accent" data-i18n="modal.gen_codes_submit">生成</button></div>
   </div>
 </div>
 
 <!-- 编辑用户 -->
 <div id="editUserModal" class="modal">
-  <div class="modal-content modal-sm"><div class="modal-header"><h3>✏️ 编辑用户</h3><button id="editUserModalCloseBtn" class="modal-close" aria-label="关闭">✕</button></div>
-    <div class="form-group"><label for="editUserDisplayName">显示名称</label><input type="text" id="editUserDisplayName" class="form-input"></div>
-    <div class="form-group"><label for="editUserRole">角色</label><select id="editUserRole" class="form-input"><option value="member">成员</option><option value="admin">管理员</option><option value="super_admin">超级管理员</option></select></div>
-    <div class="form-actions"><button type="button" id="editUserModalCancelBtn" class="btn btn-outline" data-modal-close="editUserModal">取消</button><button  id="editUserModalSaveBtn" class="btn btn-accent">保存</button></div>
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.edit_user_title">✏️ 编辑用户</h3><button id="editUserModalCloseBtn" class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label for="editUserDisplayName" data-i18n="admin.display_name">显示名称</label><input type="text" id="editUserDisplayName" class="form-input"></div>
+    <div class="form-group"><label for="editUserRole" data-i18n="admin.role">角色</label><select id="editUserRole" class="form-input"><option value="member" data-i18n="members.role_member">成员</option><option value="admin" data-i18n="members.role_admin">管理员</option><option value="super_admin" data-i18n="members.role_super_admin">超级管理员</option></select></div>
+    <div class="form-actions"><button type="button" id="editUserModalCancelBtn" class="btn btn-outline" data-modal-close="editUserModal" data-i18n="ui.cancel">取消</button><button  id="editUserModalSaveBtn" class="btn btn-accent" data-i18n="ui.save">保存</button></div>
     <input type="hidden" id="editUserId">
   </div>
 </div>
 
 <!-- 重置密码 -->
 <div id="resetPwdModal" class="modal">
-  <div class="modal-content modal-sm"><div class="modal-header"><h3>🔑 重置密码</h3><button id="resetPwdModalCloseBtn" class="modal-close" aria-label="关闭">✕</button></div>
-    <div class="form-group"><label for="resetPwdNew">新密码</label><input type="password" id="resetPwdNew" class="form-input" placeholder="新密码"></div>
-    <div class="form-group"><label for="resetPwdConfirm">当前管理员密码</label><input type="password" id="resetPwdConfirm" class="form-input" placeholder="用于确认敏感操作"></div>
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.reset_pwd_title">🔑 重置密码</h3><button id="resetPwdModalCloseBtn" class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label for="resetPwdNew" data-i18n="modal.new_pwd_label">新密码</label><input type="password" id="resetPwdNew" class="form-input" data-i18n-placeholder="modal.new_pwd_label" placeholder="新密码"></div>
+    <div class="form-group"><label for="resetPwdConfirm" data-i18n="modal.confirm_admin_pwd">当前管理员密码</label><input type="password" id="resetPwdConfirm" class="form-input" data-i18n-placeholder="modal.sensitive_confirm_ph" placeholder="用于确认敏感操作"></div>
     <div id="resetPwdError" class="text-13 text-red d-none"></div>
-    <div class="form-actions"><button type="button" id="resetPwdModalCancelBtn" class="btn btn-outline" data-modal-close="resetPwdModal">取消</button><button  id="resetPwdModalSubmitBtn" class="btn btn-accent">重置</button></div>
+    <div class="form-actions"><button type="button" id="resetPwdModalCancelBtn" class="btn btn-outline" data-modal-close="resetPwdModal" data-i18n="ui.cancel">取消</button><button  id="resetPwdModalSubmitBtn" class="btn btn-accent" data-i18n="ui.reset">重置</button></div>
     <input type="hidden" id="resetPwdUserId">
   </div>
 </div>
@@ -1872,92 +1941,92 @@
 <!-- 忘记密码（P3-5：接线 auth.js 既有三步逻辑，后端三路由已存在） -->
 <div id="forgotPasswordModal" class="modal">
   <div class="modal-content modal-sm">
-    <div class="modal-header"><h3 id="forgotModalTitle">找回密码</h3><button type="button" class="modal-close" data-modal-close="forgotPasswordModal" aria-label="关闭">✕</button></div>
+    <div class="modal-header"><h3 id="forgotModalTitle">找回密码</h3><button type="button" class="modal-close" data-modal-close="forgotPasswordModal" data-i18n-aria="ui.close" aria-label="关闭">✕</button></div>
     <!-- Step 1: 输入邮箱 -->
     <div id="forgotStep1">
-      <div class="form-group"><label for="forgotEmail">邮箱</label><input type="email" id="forgotEmail" class="form-input" placeholder="请输入注册邮箱" autocomplete="email"></div>
+      <div class="form-group"><label for="forgotEmail" data-i18n="admin.email">邮箱</label><input type="email" id="forgotEmail" class="form-input" data-i18n-placeholder="modal.reg_email_ph" placeholder="请输入注册邮箱" autocomplete="email"></div>
       <div id="forgotEmailError" class="text-13 text-red"></div>
-      <div class="form-actions"><button type="button" id="forgotSendCodeBtn" class="btn btn-accent">发送验证码</button></div>
+      <div class="form-actions"><button type="button" id="forgotSendCodeBtn" class="btn btn-accent" data-i18n="modal.send_code_btn">发送验证码</button></div>
     </div>
     <!-- Step 2: 输入验证码 -->
     <div id="forgotStep2" class="d-none">
-      <div class="form-group"><label for="forgotCode">验证码</label><input type="text" id="forgotCode" class="form-input" placeholder="请输入6位验证码" maxlength="6" autocomplete="one-time-code"></div>
+      <div class="form-group"><label for="forgotCode" data-i18n="modal.code_label">验证码</label><input type="text" id="forgotCode" class="form-input" data-i18n-placeholder="modal.code6_ph" placeholder="请输入6位验证码" maxlength="6" autocomplete="one-time-code"></div>
       <div id="forgotCodeError" class="text-13 text-red"></div>
-      <div class="form-actions"><button type="button" id="forgotBackToStep1Btn" class="btn btn-outline">返回</button><button type="button" id="forgotVerifyCodeBtn" class="btn btn-accent">验证</button></div>
+      <div class="form-actions"><button type="button" id="forgotBackToStep1Btn" class="btn btn-outline" data-i18n="chat.back">返回</button><button type="button" id="forgotVerifyCodeBtn" class="btn btn-accent" data-i18n="modal.verify_btn">验证</button></div>
     </div>
     <!-- Step 3: 设置新密码 -->
     <div id="forgotStep3" class="d-none">
-      <div class="form-group"><label for="forgotNewPassword">新密码</label><input type="password" id="forgotNewPassword" class="form-input" placeholder="至少8位，含大小写和数字" autocomplete="new-password"></div>
+      <div class="form-group"><label for="forgotNewPassword" data-i18n="modal.new_pwd_label">新密码</label><input type="password" id="forgotNewPassword" class="form-input" data-i18n-placeholder="modal.pwd_rule_ph" placeholder="至少8位，含大小写和数字" autocomplete="new-password"></div>
       <div id="forgotPasswordError" class="text-13 text-red"></div>
-      <div class="form-actions"><button type="button" id="forgotBackToStep2Btn" class="btn btn-outline">返回</button><button type="button" id="forgotResetBtn" class="btn btn-accent">重置密码</button></div>
+      <div class="form-actions"><button type="button" id="forgotBackToStep2Btn" class="btn btn-outline" data-i18n="chat.back">返回</button><button type="button" id="forgotResetBtn" class="btn btn-accent" data-i18n="modal.reset_pwd_btn">重置密码</button></div>
     </div>
   </div>
 </div>
 
 <!-- 创建管理员（此前缺失，导致"创建管理员"按钮空引用报错） -->
 <div id="addAdminModal" class="modal">
-  <div class="modal-content modal-sm"><div class="modal-header"><h3>+ 创建管理员</h3><button id="addAdminModalCloseBtn" class="modal-close" aria-label="关闭">✕</button></div>
-    <div class="form-group"><label for="newAdminLoginId">登录ID</label><input type="text" id="newAdminLoginId" class="form-input" placeholder="用于登录"></div>
-    <div class="form-group"><label for="newAdminDisplayName">显示名称</label><input type="text" id="newAdminDisplayName" class="form-input" placeholder="对外显示的名称"></div>
-    <div class="form-group"><label for="newAdminPassword">密码</label><input type="password" id="newAdminPassword" class="form-input" placeholder="至少8位，含大小写+数字"></div>
-    <div class="form-group"><label for="newAdminRole">角色</label><select id="newAdminRole" class="form-input"><option value="admin">管理员</option><option value="super_admin">超级管理员</option><option value="member">成员</option></select></div>
-    <div class="form-group"><label for="newAdminEmail">邮箱（选填）</label><input type="email" id="newAdminEmail" class="form-input" placeholder="admin@example.com"></div>
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.create_admin_title">+ 创建管理员</h3><button id="addAdminModalCloseBtn" class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label for="newAdminLoginId" data-i18n="admin.login_id">登录ID</label><input type="text" id="newAdminLoginId" class="form-input" data-i18n-placeholder="modal.login_id_ph" placeholder="用于登录"></div>
+    <div class="form-group"><label for="newAdminDisplayName" data-i18n="admin.display_name">显示名称</label><input type="text" id="newAdminDisplayName" class="form-input" data-i18n-placeholder="modal.display_name_ph" placeholder="对外显示的名称"></div>
+    <div class="form-group"><label for="newAdminPassword" data-i18n="admin.password">密码</label><input type="password" id="newAdminPassword" class="form-input" data-i18n-placeholder="modal.pwd_rule_ph" placeholder="至少8位，含大小写+数字"></div>
+    <div class="form-group"><label for="newAdminRole" data-i18n="admin.role">角色</label><select id="newAdminRole" class="form-input"><option value="admin" data-i18n="members.role_admin">管理员</option><option value="super_admin" data-i18n="members.role_super_admin">超级管理员</option><option value="member" data-i18n="members.role_member">成员</option></select></div>
+    <div class="form-group"><label for="newAdminEmail" data-i18n="modal.email_optional">邮箱（选填）</label><input type="email" id="newAdminEmail" class="form-input" placeholder="admin@example.com"></div>
     <div id="addAdminError" class="text-13 text-red d-none"></div>
-    <div class="form-actions"><button type="button" id="addAdminModalCancelBtn" class="btn btn-outline" data-modal-close="addAdminModal">取消</button><button id="addAdminModalSubmitBtn" class="btn btn-accent">创建</button></div>
+    <div class="form-actions"><button type="button" id="addAdminModalCancelBtn" class="btn btn-outline" data-modal-close="addAdminModal" data-i18n="ui.cancel">取消</button><button id="addAdminModalSubmitBtn" class="btn btn-accent" data-i18n="admin.create">创建</button></div>
   </div>
 </div>
 
 <!-- 编辑管理员（此前缺失，导致"编辑管理员"按钮空引用报错） -->
 <div id="editAdminModal" class="modal">
-  <div class="modal-content modal-sm"><div class="modal-header"><h3>✏️ 编辑管理员</h3><button id="editAdminModalCloseBtn" class="modal-close" aria-label="关闭">✕</button></div>
-    <div class="form-group"><label for="editAdminDisplayName">显示名称</label><input type="text" id="editAdminDisplayName" class="form-input"></div>
-    <div class="form-group"><label for="editAdminRole">角色</label><select id="editAdminRole" class="form-input"><option value="member">成员</option><option value="admin">管理员</option><option value="super_admin">超级管理员</option></select></div>
-    <div class="form-group"><label for="editAdminEmail">邮箱（选填）</label><input type="email" id="editAdminEmail" class="form-input" placeholder="admin@example.com"></div>
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.edit_admin_title">✏️ 编辑管理员</h3><button id="editAdminModalCloseBtn" class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">✕</button></div>
+    <div class="form-group"><label for="editAdminDisplayName" data-i18n="admin.display_name">显示名称</label><input type="text" id="editAdminDisplayName" class="form-input"></div>
+    <div class="form-group"><label for="editAdminRole" data-i18n="admin.role">角色</label><select id="editAdminRole" class="form-input"><option value="member" data-i18n="members.role_member">成员</option><option value="admin" data-i18n="members.role_admin">管理员</option><option value="super_admin" data-i18n="members.role_super_admin">超级管理员</option></select></div>
+    <div class="form-group"><label for="editAdminEmail" data-i18n="modal.email_optional">邮箱（选填）</label><input type="email" id="editAdminEmail" class="form-input" placeholder="admin@example.com"></div>
     <div id="editAdminError" class="text-13 text-red d-none"></div>
-    <div class="form-actions"><button type="button" id="editAdminModalCancelBtn" class="btn btn-outline" data-modal-close="editAdminModal">取消</button><button id="editAdminModalSaveBtn" class="btn btn-accent">保存</button></div>
+    <div class="form-actions"><button type="button" id="editAdminModalCancelBtn" class="btn btn-outline" data-modal-close="editAdminModal" data-i18n="ui.cancel">取消</button><button id="editAdminModalSaveBtn" class="btn btn-accent" data-i18n="ui.save">保存</button></div>
     <input type="hidden" id="editAdminId">
   </div>
 </div>
 
 <!-- 生日派对 -->
 <div id="birthdayEventModal" class="modal">
-  <div class="modal-content modal-sm"><div class="modal-header"><h3 id="bdayModalTitle">🎂 创建生日派对</h3><button id="bdayModalCloseBtn" class="modal-close" aria-label="关闭">✕</button></div>
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 id="bdayModalTitle">🎂 创建生日派对</h3><button id="bdayModalCloseBtn" class="modal-close" data-i18n-aria="ui.close">✕</button></div>
     <input type="hidden" id="bdayEditId">
-    <div class="form-group"><label for="bdayTitle">派对名称</label><input type="text" id="bdayTitle" class="form-input" placeholder="派对名称"></div>
+    <div class="form-group"><label for="bdayTitle" data-i18n="modal.bday_name_label">派对名称</label><input type="text" id="bdayTitle" class="form-input" data-i18n-placeholder="modal.bday_name_ph" placeholder="派对名称"></div>
     <div class="form-row gap-8">
-      <div class="form-group flex-1"><label for="bdayTime">开始时间</label><input type="datetime-local" id="bdayTime" class="form-input"></div>
-      <div class="form-group flex-1"><label for="bdayEndsAt">结束时间</label><input type="datetime-local" id="bdayEndsAt" class="form-input"></div>
+      <div class="form-group flex-1"><label for="bdayTime" data-i18n="modal.bday_start_label">开始时间</label><input type="datetime-local" id="bdayTime" class="form-input"></div>
+      <div class="form-group flex-1"><label for="bdayEndsAt" data-i18n="modal.bday_end_label">结束时间</label><input type="datetime-local" id="bdayEndsAt" class="form-input"></div>
     </div>
-    <div class="form-group"><label for="bdayDesc">描述（选填）</label><textarea id="bdayDesc" class="form-input" rows="3" placeholder="派对描述..."></textarea></div>
+    <div class="form-group"><label for="bdayDesc" data-i18n="modal.bday_desc_label">描述（选填）</label><textarea id="bdayDesc" class="form-input" rows="3" data-i18n-placeholder="modal.bday_desc_ph" placeholder="派对描述..."></textarea></div>
     <div class="form-row gap-8">
-      <div class="form-group flex-1"><label for="bdayMax">最大参与人数</label><input type="number" id="bdayMax" class="form-input" value="30" min="0"></div>
+      <div class="form-group flex-1"><label for="bdayMax" data-i18n="modal.bday_max_label">最大参与人数</label><input type="number" id="bdayMax" class="form-input" value="30" min="0"></div>
       <div class="form-group flex-1">
-        <label for="bdayVisibility">可见性</label>
+        <label for="bdayVisibility" data-i18n="modal.visibility">可见性</label>
         <select id="bdayVisibility" class="form-input">
-          <option value="members_only">仅成员</option>
-          <option value="public">公开</option>
-          <option value="private">私密</option>
+          <option value="members_only" data-i18n="modal.members_only_plain_opt">仅成员</option>
+          <option value="public" data-i18n="modal.public_plain_opt">公开</option>
+          <option value="private" data-i18n="modal.private_plain_opt">私密</option>
         </select>
       </div>
     </div>
-    <div class="form-actions"><button type="button" class="btn btn-outline" data-modal-close="birthdayEventModal">取消</button><button id="bdaySaveBtn" class="btn btn-accent">创建</button></div>
+    <div class="form-actions"><button type="button" class="btn btn-outline" data-modal-close="birthdayEventModal" data-i18n="ui.cancel">取消</button><button id="bdaySaveBtn" class="btn btn-accent" data-i18n="admin.create">创建</button></div>
   </div>
 </div>
 
 <!-- 申请改名 -->
 <div id="nameChangeModal" class="modal">
-  <div class="modal-content modal-sm"><div class="modal-header"><h3>✏️ 申请改名</h3><button id="ncModalCloseBtn" class="modal-close" aria-label="关闭">✕</button></div>
-    <div class="form-group"><label for="ncCurrentName">当前名称</label><input type="text" id="ncCurrentName" class="form-input" disabled></div>
-    <div class="form-group"><label for="ncNewName">新名称</label><input type="text" id="ncNewName" class="form-input" placeholder="你想改成什么名字？"></div>
-    <div class="form-group"><label for="ncReason">改名原因</label><textarea id="ncReason" class="form-input" rows="3" placeholder="请简单说明改名原因（选填）"></textarea></div>
-    <div class="form-actions"><button type="button" class="btn btn-outline" data-modal-close="nameChangeModal">取消</button><button  id="ncModalSubmitBtn" class="btn btn-accent">提交申请</button></div>
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.name_change_title">✏️ 申请改名</h3><button id="ncModalCloseBtn" class="modal-close" data-i18n-aria="ui.close">✕</button></div>
+    <div class="form-group"><label for="ncCurrentName" data-i18n="modal.nc_current_label">当前名称</label><input type="text" id="ncCurrentName" class="form-input" disabled></div>
+    <div class="form-group"><label for="ncNewName" data-i18n="modal.nc_new_label">新名称</label><input type="text" id="ncNewName" class="form-input" data-i18n-placeholder="modal.nc_new_ph" placeholder="你想改成什么名字？"></div>
+    <div class="form-group"><label for="ncReason" data-i18n="modal.nc_reason_label">改名原因</label><textarea id="ncReason" class="form-input" rows="3" data-i18n-placeholder="modal.nc_reason_ph" placeholder="请简单说明改名原因（选填）"></textarea></div>
+    <div class="form-actions"><button type="button" class="btn btn-outline" data-modal-close="nameChangeModal" data-i18n="ui.cancel">取消</button><button  id="ncModalSubmitBtn" class="btn btn-accent" data-i18n="modal.nc_submit_btn">提交申请</button></div>
   </div>
 </div>
 
 <!-- 改名审核 -->
 <div id="nameReviewModal" class="modal">
   <div class="modal-content modal-sm">
-    <div class="modal-header"><h3>📋 改名审核</h3><button  id="nrModalCloseBtn" class="modal-close" aria-label="关闭">&times;</button></div>
+    <div class="modal-header"><h3 data-i18n="modal.name_review_title">📋 改名审核</h3><button  id="nrModalCloseBtn" class="modal-close" data-i18n-aria="ui.close">&times;</button></div>
     <div id="nameReviewList"><div class="skeleton-card-list"></div><div class="skeleton-card-list"></div></div>
   </div>
 </div>
@@ -1966,7 +2035,7 @@
 <div id="eventDetailModal" class="modal">
   <div class="modal-content modal-content-w600">
     <div id="evtDetHeader" class="evt-det-header">
-      <button id="evtDetCloseBtn" class="modal-close-circle-lg close-top-right" aria-label="关闭">✕</button>
+      <button id="evtDetCloseBtn" class="modal-close-circle-lg close-top-right" data-i18n-aria="ui.close">✕</button>
       <div id="evtDetVisBadge" class="mb-8"></div>
       <h2 id="evtDetTitle" class="evt-det-title"></h2>
     </div>
@@ -1986,7 +2055,7 @@
       </div>
     </div>
     <div id="evtDetCheckinBar" class="evt-det-checkin-bar d-none">
-      <button  id="evtDetCheckinQrBtn" class="btn btn-sm btn-outline">✅ 生成签到码</button>
+      <button  id="evtDetCheckinQrBtn" class="btn btn-sm btn-outline" data-i18n="modal.evt_checkin_qr_btn">✅ 生成签到码</button>
       <div id="evtDetCheckinArea"></div>
     </div>
     <div id="evtDetDesc" class="evt-det-desc"></div>
@@ -1995,14 +2064,14 @@
       <div id="evtDetTeams" class="evt-det-teams"></div>
     </div>
     <div id="evtDetUploadBtn" class="d-none mt-8">
-      <input type="file" id="evtPhotoUpload" accept="image/*,video/*" multiple class="d-none" aria-label="上传活动照片或视频">
-      <button id="evtDetPhotoUploadBtn" class="btn btn-sm btn-outline">📷 上传活动照片</button>
+      <input type="file" id="evtPhotoUpload" accept="image/*,video/*" multiple class="d-none" data-i18n-aria="modal.evt_photo_upload_aria">
+      <button id="evtDetPhotoUploadBtn" class="btn btn-sm btn-outline" data-i18n="modal.evt_photo_upload_btn">📷 上传活动照片</button>
     </div>
     <div id="evtDetPhotos" class="evt-det-photos mt-8"></div>
     <div id="evtDetComments" class="evt-det-comments mt-12">
-      <h4>💬 评论</h4>
+      <h4 data-i18n="modal.evt_comments_heading">💬 评论</h4>
       <div id="evtDetCommentList"></div>
-      <div class="evt-det-comment-input"><textarea id="evtDetCommentInput" class="form-input" rows="2" placeholder="写下你的评论..." aria-label="活动评论内容"></textarea><button  id="evtDetCommentSendBtn" class="btn btn-accent btn-sm mt-4">发送</button></div>
+      <div class="evt-det-comment-input"><textarea id="evtDetCommentInput" class="form-input" rows="2" data-i18n-placeholder="events.write_comment" placeholder="写下你的评论..." data-i18n-aria="modal.evt_comment_aria"></textarea><button  id="evtDetCommentSendBtn" class="btn btn-accent btn-sm mt-4" data-i18n="chat.send">发送</button></div>
     </div>
   </div>
 </div>
@@ -2010,15 +2079,15 @@
 <!-- 编辑活动 -->
 <div id="editEventModal" class="modal">
   <div id="editEventModalCloseBtn" class="modal-content">
-    <div class="modal-header"><h3>✏️ 编辑活动</h3><button class="modal-close" aria-label="关闭">&times;</button></div>
-    <div class="form-group"><label for="eeTitle">标题</label><input type="text" id="eeTitle" class="form-input"></div>
-    <div class="form-group"><label for="eeTime">时间</label><input type="datetime-local" id="eeTime" class="form-input"></div>
-    <div class="form-group"><label for="eeEndsAt">结束时间</label><input type="datetime-local" id="eeEndsAt" class="form-input"></div>
-    <div class="form-group"><label for="eePlace">地点</label><input type="text" id="eePlace" class="form-input"></div>
-    <div class="form-group"><label for="eeDesc">描述</label><textarea id="eeDesc" class="form-input" rows="4"></textarea></div>
-    <div class="form-group"><label for="eeMaxSign">人数上限</label><input type="number" id="eeMaxSign" class="form-input" min="0"></div>
-    <div class="form-group"><label for="eeVisibility">可见性</label><select id="eeVisibility" class="form-input"><option value="members_only">🔒 成员专属</option><option value="public">🌐 公开</option></select></div>
-    <div class="form-group"><label><input type="checkbox" id="eeIsArchive"> 标记为归档活动</label></div>
+    <div class="modal-header"><h3 data-i18n="modal.edit_event_title">✏️ 编辑活动</h3><button class="modal-close" data-i18n-aria="ui.close">&times;</button></div>
+    <div class="form-group"><label for="eeTitle" data-i18n="modal.field_title">标题</label><input type="text" id="eeTitle" class="form-input"></div>
+    <div class="form-group"><label for="eeTime" data-i18n="modal.ee_time_label">时间</label><input type="datetime-local" id="eeTime" class="form-input"></div>
+    <div class="form-group"><label for="eeEndsAt" data-i18n="modal.ee_end_label">结束时间</label><input type="datetime-local" id="eeEndsAt" class="form-input"></div>
+    <div class="form-group"><label for="eePlace" data-i18n="modal.ee_place_label">地点</label><input type="text" id="eePlace" class="form-input"></div>
+    <div class="form-group"><label for="eeDesc" data-i18n="modal.evt_desc_label">描述</label><textarea id="eeDesc" class="form-input" rows="4"></textarea></div>
+    <div class="form-group"><label for="eeMaxSign" data-i18n="modal.evt_max_label">人数上限</label><input type="number" id="eeMaxSign" class="form-input" min="0"></div>
+    <div class="form-group"><label for="eeVisibility" data-i18n="modal.visibility">可见性</label><select id="eeVisibility" class="form-input"><option value="members_only" data-i18n="modal.members_only_opt">🔒 成员专属</option><option value="public" data-i18n="modal.public_opt">🌐 公开</option></select></div>
+    <div class="form-group"><label><input type="checkbox" id="eeIsArchive"> <span data-i18n="modal.ee_archive_label">标记为归档活动</span></label></div>
     <div id="eeWorldPreview" class="evt-det-world-info mt-8 d-none">
       <div class="evt-det-world-thumb-wrap"><img id="eeWorldThumb" class="evt-det-world-thumb" alt="World"></div>
       <div><span id="eeWorldNameDisplay"></span></div>
@@ -2026,14 +2095,14 @@
       <input type="hidden" id="eeWorldName">
       <input type="hidden" id="eeWorldImageUrl">
     </div>
-    <div class="form-actions"><button type="button" class="btn btn-outline" data-modal-close="editEventModal">取消</button><button type="button" id="eeSaveBtn" class="btn btn-accent">保存</button></div>
+    <div class="form-actions"><button type="button" class="btn btn-outline" data-modal-close="editEventModal" data-i18n="ui.cancel">取消</button><button type="button" id="eeSaveBtn" class="btn btn-accent" data-i18n="ui.save">保存</button></div>
   </div>
 </div>
 
 <!-- 归档 -->
 <div id="archiveModal" class="modal">
   <div id="archiveModalCloseBtn" class="modal-content modal-xl">
-    <div class="modal-header"><h3>📦 历史活动</h3><button class="modal-close" aria-label="关闭">✕</button></div>
+    <div class="modal-header"><h3 data-i18n="modal.archive_title">📦 历史活动</h3><button class="modal-close" data-i18n-aria="ui.close">✕</button></div>
     <div id="archiveList"><div class="skeleton-card"></div><div class="skeleton-card"></div></div>
   </div>
 </div>
@@ -2042,75 +2111,75 @@
 <div id="confirmModal" class="modal">
   <div class="confirm-dialog">
     <div class="confirm-msg" id="confirmMsg"></div>
-    <div class="confirm-actions"><button type="button" id="confirmCancelBtn" class="btn btn-outline">取消</button><button id="confirmOkBtn" class="btn btn-accent">确定</button></div>
+    <div class="confirm-actions"><button type="button" id="confirmCancelBtn" class="btn btn-outline" data-i18n="ui.cancel">取消</button><button id="confirmOkBtn" class="btn btn-accent" data-i18n="ui.ok">确定</button></div>
   </div>
 </div>
 
 <!-- 权限组 -->
-<div id="createPermGroupModal" class="modal"><div class="modal-content modal-sm"><div class="modal-header"><h3>+ 新建权限组</h3><button class="modal-close" aria-label="关闭">✕</button></div><div class="form-group"><label for="cpgName">名称</label><input type="text" id="cpgName" class="form-input"></div><div class="form-group"><label for="cpgDesc">描述</label><textarea id="cpgDesc" class="form-input" rows="2"></textarea></div><div class="form-group"><label for="cpgParentId">父权限组</label><select id="cpgParentId" class="form-input"><option value="">无</option></select></div><div id="cpgError" class="text-13 text-red d-none"></div><div class="form-actions"><button type="button" id="cpgModalCloseBtn" class="btn btn-outline" data-modal-close="createPermGroupModal">取消</button><button id="cpgModalSubmitBtn" class="btn btn-accent">创建</button></div></div></div>
-<div id="editPermGroupModal" class="modal"><div class="modal-content modal-sm"><div class="modal-header"><h3>✏️ 编辑权限组</h3><button class="modal-close" aria-label="关闭">✕</button></div><div class="form-group"><label for="epgName">名称</label><input type="text" id="epgName" class="form-input"></div><div class="form-group"><label for="epgDesc">描述</label><textarea id="epgDesc" class="form-input" rows="2"></textarea></div><div class="form-group"><label for="epgParentId">父权限组</label><select id="epgParentId" class="form-input"><option value="">无</option></select></div><div id="epgError" class="text-13 text-red d-none"></div><div class="form-actions"><button type="button" id="epgModalCloseBtn" class="btn btn-outline" data-modal-close="editPermGroupModal">取消</button><button id="epgModalSubmitBtn" class="btn btn-accent">保存</button></div><input type="hidden" id="epgId"></div></div>
-<div id="permGroupEditPermsModal" class="modal"><div class="modal-content modal-sm"><div class="modal-header"><h3>🔐 编辑权限 <span id="pgPermGroupName"></span></h3><button class="modal-close" aria-label="关闭">&times;</button></div><div id="pgPermList"></div><div class="form-actions mt-8"><button  id="pgpModalCloseBtn" class="btn btn-outline">关闭</button></div><input type="hidden" id="pgEditPermsGroupId"></div></div>
-<div id="pgUserGroupModal" class="modal"><div class="modal-content modal-sm"><div class="modal-header"><h3>管理用户权限组</h3><button id="pguModalCloseBtn" class="modal-close" aria-label="关闭">✕</button></div><div id="pgUserGroupUserName" class="text-13 font-600 mb-4"></div><div id="pgUserCurrentGroups" class="mb-4"></div><div class="text-12 text-muted mb-2">可添加的权限组：</div><div id="pgUserAvailableGroups"></div><div id="pgUserPermView" class="mt-8 perm-inspect-box"></div><div id="pgUserGroupError" class="text-13 text-red d-none"></div><input type="hidden" id="pgUserGroupUserId"></div></div>
+<div id="createPermGroupModal" class="modal"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.create_perm_group_title">+ 新建权限组</h3><button class="modal-close" data-i18n-aria="ui.close">✕</button></div><div class="form-group"><label for="cpgName" data-i18n="modal.pg_name_label">名称</label><input type="text" id="cpgName" class="form-input"></div><div class="form-group"><label for="cpgDesc" data-i18n="modal.field_content">描述</label><textarea id="cpgDesc" class="form-input" rows="2"></textarea></div><div class="form-group"><label for="cpgParentId" data-i18n="modal.pg_parent_label">父权限组</label><select id="cpgParentId" class="form-input"><option value="" data-i18n="modal.pg_none_opt">无</option></select></div><div id="cpgError" class="text-13 text-red d-none"></div><div class="form-actions"><button type="button" id="cpgModalCloseBtn" class="btn btn-outline" data-modal-close="createPermGroupModal" data-i18n="ui.cancel">取消</button><button id="cpgModalSubmitBtn" class="btn btn-accent" data-i18n="admin.create">创建</button></div></div></div>
+<div id="editPermGroupModal" class="modal"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.edit_perm_group_title">✏️ 编辑权限组</h3><button class="modal-close" data-i18n-aria="ui.close">✕</button></div><div class="form-group"><label for="epgName" data-i18n="modal.pg_name_label">名称</label><input type="text" id="epgName" class="form-input"></div><div class="form-group"><label for="epgDesc" data-i18n="modal.field_content">描述</label><textarea id="epgDesc" class="form-input" rows="2"></textarea></div><div class="form-group"><label for="epgParentId" data-i18n="modal.pg_parent_label">父权限组</label><select id="epgParentId" class="form-input"><option value="" data-i18n="modal.pg_none_opt">无</option></select></div><div id="epgError" class="text-13 text-red d-none"></div><div class="form-actions"><button type="button" id="epgModalCloseBtn" class="btn btn-outline" data-modal-close="editPermGroupModal" data-i18n="ui.cancel">取消</button><button id="epgModalSubmitBtn" class="btn btn-accent" data-i18n="ui.save">保存</button></div><input type="hidden" id="epgId"></div></div>
+<div id="permGroupEditPermsModal" class="modal"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.edit_perms_title">🔐 编辑权限 <span id="pgPermGroupName"></span></h3><button class="modal-close" data-i18n-aria="ui.close">&times;</button></div><div id="pgPermList"></div><div class="form-actions mt-8"><button  id="pgpModalCloseBtn" class="btn btn-outline" data-i18n="ui.close">关闭</button></div><input type="hidden" id="pgEditPermsGroupId"></div></div>
+<div id="pgUserGroupModal" class="modal"><div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.manage_user_pg_title">管理用户权限组</h3><button id="pguModalCloseBtn" class="modal-close" data-i18n-aria="ui.close">✕</button></div><div id="pgUserGroupUserName" class="text-13 font-600 mb-4"></div><div id="pgUserCurrentGroups" class="mb-4"></div><div class="text-12 text-muted mb-2" data-i18n="modal.pg_available_label">可添加的权限组：</div><div id="pgUserAvailableGroups"></div><div id="pgUserPermView" class="mt-8 perm-inspect-box"></div><div id="pgUserGroupError" class="text-13 text-red d-none"></div><input type="hidden" id="pgUserGroupUserId"></div></div>
 
 <!-- 编辑个人资料弹窗 -->
 <div id="editProfileModal" class="modal">
   <div class="modal-content modal-sm">
-    <div class="modal-header"><h3>✏️ 编辑个人资料</h3><button id="epModalCloseBtn" class="modal-close" aria-label="关闭">×</button></div>
+    <div class="modal-header"><h3 data-i18n="modal.edit_profile_title">✏️ 编辑个人资料</h3><button id="epModalCloseBtn" class="modal-close" data-i18n-aria="ui.close">×</button></div>
     <div class="form-group">
-      <label>头像</label>
+      <label data-i18n="modal.avatar_label">头像</label>
       <div class="avatar-edit-row">
         <img id="editAvatarPreview" src="/api/avatar/default" class="avatar-edit-preview" alt="" loading="lazy">
-        <button  id="epAvatarUploadBtn" class="btn btn-sm btn-accent">📷 上传头像</button>
-        <input type="file" id="editAvatarInput" accept="image/*" class="d-none" aria-label="选择新的头像图片">
+        <button  id="epAvatarUploadBtn" class="btn btn-sm btn-accent" data-i18n="modal.avatar_upload_btn">📷 上传头像</button>
+        <input type="file" id="editAvatarInput" accept="image/*" class="d-none" data-i18n-aria="modal.avatar_input_aria">
       </div>
     </div>
-    <div class="form-group"><label for="editMotto">个性签名</label><input type="text" id="editMotto" class="form-input" maxlength="100"></div>
-    <div class="form-group"><label for="editBio">个人简介</label><textarea id="editBio" class="form-input" rows="4" maxlength="2000"></textarea></div>
-    <div class="form-group"><label for="editBirthday">生日</label><input type="date" id="editBirthday" class="form-input"></div>
-    <div class="form-group"><label for="editLocation">所在地</label><input type="text" id="editLocation" class="form-input"></div>
-    <div class="form-group"><label for="editWebsite">个人网站</label><input type="text" id="editWebsite" class="form-input" placeholder="https://"></div>
-    <div class="form-group"><label for="editSocialBilibili">B站主页</label><input type="text" id="editSocialBilibili" class="form-input" placeholder="https://space.bilibili.com/xxxxxxxx"></div>
-    <div class="form-group"><label for="editSocialWeibo">微博主页</label><input type="text" id="editSocialWeibo" class="form-input" placeholder="https://weibo.com/xxxxxxxx"></div>
+    <div class="form-group"><label for="editMotto" data-i18n="modal.motto_label">个性签名</label><input type="text" id="editMotto" class="form-input" maxlength="100"></div>
+    <div class="form-group"><label for="editBio" data-i18n="profile.bio_heading">个人简介</label><textarea id="editBio" class="form-input" rows="4" maxlength="2000"></textarea></div>
+    <div class="form-group"><label for="editBirthday" data-i18n="modal.birthday_label">生日</label><input type="date" id="editBirthday" class="form-input"></div>
+    <div class="form-group"><label for="editLocation" data-i18n="modal.location_label">所在地</label><input type="text" id="editLocation" class="form-input"></div>
+    <div class="form-group"><label for="editWebsite" data-i18n="modal.website_label">个人网站</label><input type="text" id="editWebsite" class="form-input" placeholder="https://"></div>
+    <div class="form-group"><label for="editSocialBilibili" data-i18n="modal.bilibili_label">B站主页</label><input type="text" id="editSocialBilibili" class="form-input" placeholder="https://space.bilibili.com/xxxxxxxx"></div>
+    <div class="form-group"><label for="editSocialWeibo" data-i18n="modal.weibo_label">微博主页</label><input type="text" id="editSocialWeibo" class="form-input" placeholder="https://weibo.com/xxxxxxxx"></div>
     <div class="form-group"><label for="editSocialGithub">GitHub</label><input type="text" id="editSocialGithub" class="form-input" placeholder="https://github.com/xxxxxxxx"></div>
-    <div class="form-group"><label for="editCoverImage">封面图片 URL</label><input type="text" id="editCoverImage" class="form-input" placeholder="https://"></div>
-    <div class="form-actions"><button type="button" id="epModalCancelBtn" class="btn btn-outline" data-modal-close="editProfileModal">取消</button><button id="epModalSaveBtn" class="btn btn-accent">保存</button></div>
+    <div class="form-group"><label for="editCoverImage" data-i18n="modal.cover_url_label">封面图片 URL</label><input type="text" id="editCoverImage" class="form-input" placeholder="https://"></div>
+    <div class="form-actions"><button type="button" id="epModalCancelBtn" class="btn btn-outline" data-modal-close="editProfileModal" data-i18n="ui.cancel">取消</button><button id="epModalSaveBtn" class="btn btn-accent" data-i18n="ui.save">保存</button></div>
   </div>
 </div>
 
 <!-- 数据导出/导入 Modal (F-4) -->
 <div id="dataExportModal" class="modal">
   <div class="modal-content modal-lg">
-    <div class="modal-header"><h3>💾 数据导出 / 导入</h3><button id="dataExportCloseBtn" class="modal-close" aria-label="关闭">×</button></div>
+    <div class="modal-header"><h3 data-i18n="modal.data_export_title">💾 数据导出 / 导入</h3><button id="dataExportCloseBtn" class="modal-close" data-i18n-aria="ui.close">×</button></div>
     <div class="data-tabs">
-      <button id="dataExportTabBtn" class="data-tab active" type="button">📤 导出</button>
-      <button id="dataImportTabBtn" class="data-tab" type="button">📥 导入</button>
+      <button id="dataExportTabBtn" class="data-tab active" type="button" data-i18n="modal.export_tab">📤 导出</button>
+      <button id="dataImportTabBtn" class="data-tab" type="button" data-i18n="modal.import_tab">📥 导入</button>
     </div>
     <div id="dataExportPane" class="data-pane">
       <div class="form-group">
-        <label>导出格式</label>
+        <label data-i18n="modal.export_format_label">导出格式</label>
         <div class="data-format-row">
-          <button id="exportJsonBtn" class="btn btn-accent btn-sm" type="button">JSON 完整备份</button>
-          <button id="exportCsvBtn" class="btn btn-outline btn-sm" type="button">CSV 好友列表</button>
+          <button id="exportJsonBtn" class="btn btn-accent btn-sm" type="button" data-i18n="modal.export_json_btn">JSON 完整备份</button>
+          <button id="exportCsvBtn" class="btn btn-outline btn-sm" type="button" data-i18n="modal.export_csv_btn">CSV 好友列表</button>
         </div>
-        <div class="text-12 text-muted2 mt-4">JSON 包含标签、备注、关注、收藏、分组等完整数据；CSV 为 VRChat 好友格式（UserID,DisplayName,Memo）。</div>
+        <div class="text-12 text-muted2 mt-4" data-i18n="modal.export_format_desc">JSON 包含标签、备注、关注、收藏、分组等完整数据；CSV 为 VRChat 好友格式（UserID,DisplayName,Memo）。</div>
       </div>
       <div class="form-group">
-        <label for="dataExportText">导出内容（可复制）</label>
-        <textarea id="dataExportText" class="form-input" rows="12" readonly placeholder="点击上方按钮生成导出数据"></textarea>
+        <label for="dataExportText" data-i18n="modal.export_content_label">导出内容（可复制）</label>
+        <textarea id="dataExportText" class="form-input" rows="12" readonly data-i18n-placeholder="modal.export_content_ph" placeholder="点击上方按钮生成导出数据"></textarea>
       </div>
       <div class="form-actions">
-        <button id="dataExportCopyBtn" class="btn btn-outline btn-sm" type="button">📋 复制</button>
-        <button id="dataExportDownloadBtn" class="btn btn-accent btn-sm" type="button">⬇️ 下载文件</button>
+        <button id="dataExportCopyBtn" class="btn btn-outline btn-sm" type="button" data-i18n="modal.copy_btn">📋 复制</button>
+        <button id="dataExportDownloadBtn" class="btn btn-accent btn-sm" type="button" data-i18n="modal.download_btn">⬇️ 下载文件</button>
       </div>
     </div>
     <div id="dataImportPane" class="data-pane d-none">
       <div class="form-group">
-        <label for="dataImportText">粘贴导出的 JSON 数据</label>
-        <textarea id="dataImportText" class="form-input" rows="12" placeholder='粘贴之前导出的 JSON 备份内容（如 {"tags":[...],"notes":[...],...}）'></textarea>
+        <label for="dataImportText" data-i18n="modal.import_label">粘贴导出的 JSON 数据</label>
+        <textarea id="dataImportText" class="form-input" rows="12" data-i18n-placeholder="modal.import_ph" placeholder='粘贴之前导出的 JSON 备份内容（如 {"tags":[...],"notes":[...],...}）'></textarea>
       </div>
-      <div class="text-12 text-muted2 mt-4">导入将合并到现有数据（标签/收藏/分组按唯一键去重，不会覆盖已有内容）。</div>
+      <div class="text-12 text-muted2 mt-4" data-i18n="modal.import_merge_desc">导入将合并到现有数据（标签/收藏/分组按唯一键去重，不会覆盖已有内容）。</div>
       <div class="form-actions">
-        <button id="dataImportBtn" class="btn btn-accent btn-sm" type="button">📥 开始导入</button>
+        <button id="dataImportBtn" class="btn btn-accent btn-sm" type="button" data-i18n="modal.import_btn">📥 开始导入</button>
       </div>
     </div>
     <div id="dataExportMsg" class="text-13 d-none mt-8"></div>
@@ -2119,86 +2188,86 @@
 
 <!-- 相册 Modal -->
 <div id="albumModal" class="modal">
-  <div class="modal-content modal-sm"><div class="modal-header"><h3 id="albumModalTitle">📷 新建相册</h3><button id="albumModalCloseBtn" class="modal-close" aria-label="关闭">×</button></div>
-    <div class="form-group"><label for="albumName">相册名称</label><input type="text" id="albumName" class="form-input" placeholder="相册名称"></div>
-    <div class="form-group"><label for="albumDesc">相册描述</label><textarea id="albumDesc" class="form-input" rows="2" placeholder="相册描述（选填）"></textarea></div>
-    <div class="form-group"><label for="albumPrivacy">隐私设置</label><select id="albumPrivacy" class="form-input"><option value="public">🌍 公开</option><option value="members_only">👥 成员</option><option value="private">🔒 私密</option></select></div>
-    <div id="albumFileArea" class="form-group"><label for="albumPhotoInput">上传照片/视频</label><input type="file" id="albumPhotoInput" accept="image/*,video/*" multiple class="form-input"><div class="text-12 text-muted2 mt-4">支持图片和视频混合上传，最多 200MB/个</div></div>
-    <div class="form-actions"><button type="button" class="btn btn-outline" data-modal-close="albumModal">取消</button><button  id="albumModalSaveBtn" class="btn btn-accent">保存</button></div>
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 id="albumModalTitle">📷 新建相册</h3><button id="albumModalCloseBtn" class="modal-close" data-i18n-aria="ui.close">×</button></div>
+    <div class="form-group"><label for="albumName" data-i18n="modal.album_name_label">相册名称</label><input type="text" id="albumName" class="form-input" data-i18n-placeholder="modal.album_name_label" placeholder="相册名称"></div>
+    <div class="form-group"><label for="albumDesc" data-i18n="modal.album_desc_label">相册描述</label><textarea id="albumDesc" class="form-input" rows="2" data-i18n-placeholder="modal.album_desc_ph" placeholder="相册描述（选填）"></textarea></div>
+    <div class="form-group"><label for="albumPrivacy" data-i18n="modal.album_privacy_label">隐私设置</label><select id="albumPrivacy" class="form-input"><option value="public" data-i18n="modal.album_public_opt">🌍 公开</option><option value="members_only" data-i18n="modal.album_members_opt">👥 成员</option><option value="private" data-i18n="modal.album_private_opt">🔒 私密</option></select></div>
+    <div id="albumFileArea" class="form-group"><label for="albumPhotoInput" data-i18n="modal.album_upload_label">上传照片/视频</label><input type="file" id="albumPhotoInput" accept="image/*,video/*" multiple class="form-input"><div class="text-12 text-muted2 mt-4" data-i18n="modal.album_upload_hint">支持图片和视频混合上传，最多 200MB/个</div></div>
+    <div class="form-actions"><button type="button" class="btn btn-outline" data-modal-close="albumModal" data-i18n="ui.cancel">取消</button><button  id="albumModalSaveBtn" class="btn btn-accent" data-i18n="ui.save">保存</button></div>
     <input type="hidden" id="albumEditId">
   </div>
 </div>
 
 <!-- 相册分类管理 -->
 <div id="albumCategoryModal" class="modal">
-  <div class="modal-content modal-sm"><div class="modal-header"><h3>📂 管理分类</h3><button id="albumCateModalCloseBtn" class="modal-close" aria-label="关闭">✕</button></div>
-    <div class="form-group"><label for="newCategoryName">分类名称</label><input type="text" id="newCategoryName" class="form-input" placeholder="输入新分类名称"><button id="albumCateAddBtn2" class="btn btn-accent btn-sm mt-4">+ 添加</button></div>
+  <div class="modal-content modal-sm"><div class="modal-header"><h3 data-i18n="modal.manage_categories_title">📂 管理分类</h3><button id="albumCateModalCloseBtn" class="modal-close" data-i18n-aria="ui.close">✕</button></div>
+    <div class="form-group"><label for="newCategoryName" data-i18n="modal.category_name_label">分类名称</label><input type="text" id="newCategoryName" class="form-input" data-i18n-placeholder="modal.category_name_ph" placeholder="输入新分类名称"><button id="albumCateAddBtn2" class="btn btn-accent btn-sm mt-4" data-i18n="modal.add_btn">+ 添加</button></div>
     <div id="categoryList"></div>
   </div>
 </div>
 
 <!-- ===== Lightbox ===== -->
 <div class="lightbox" id="lightbox">
-  <button id="lightboxCloseBtn" class="lightbox-close" aria-label="关闭图片">✕</button>
+  <button id="lightboxCloseBtn" class="lightbox-close" data-i18n-aria="lightbox.close_aria">✕</button>
   <div class="lightbox-img-area">
     <div id="lightboxImgContainer">
       <img id="lightboxImg" src="" alt="">
     </div>
     <div id="lbCounter" class="lightbox-counter">1/1</div>
     <div id="lbDesc" class="lightbox-desc"></div>
-    <button id="lbSlideBtn" class="lightbox-slide-btn">▶ 幻灯片</button>
-    <button id="lbPrevBtn" class="lightbox-nav lightbox-prev" aria-label="上一张">‹</button>
-    <button id="lbNextBtn" class="lightbox-nav lightbox-next" aria-label="下一张">›</button>
+    <button id="lbSlideBtn" class="lightbox-slide-btn" data-i18n="lightbox.slide_btn">▶ 幻灯片</button>
+    <button id="lbPrevBtn" class="lightbox-nav lightbox-prev" data-i18n-aria="ui.prev_image">‹</button>
+    <button id="lbNextBtn" class="lightbox-nav lightbox-next" data-i18n-aria="ui.next_image">›</button>
     <div id="lbThumbs" class="lightbox-thumbs"></div>
   </div>
   <div class="lightbox-actions">
     <button class="like-btn" id="likeBtn">❤️ <span id="likeCount">0</span></button>
-    <button id="lbEditDescBtn" class="btn btn-sm d-none">✏️ 编辑描述</button>
-    <button  id="lbDeleteBtn" class="btn btn-sm">🗑 删除</button>
-    <button  id="lbShareBtn" class="btn btn-sm">🔗 分享</button>
+    <button id="lbEditDescBtn" class="btn btn-sm d-none" data-i18n="lightbox.edit_desc_btn">✏️ 编辑描述</button>
+    <button  id="lbDeleteBtn" class="btn btn-sm" data-i18n="lightbox.delete_btn">🗑 删除</button>
+    <button  id="lbShareBtn" class="btn btn-sm" data-i18n="lightbox.share_btn">🔗 分享</button>
   </div>
   <div class="lightbox-comments">
     <div id="lbComments" class="lightbox-comments-list"></div>
-    <div class="lightbox-comment-input"><textarea id="commentInput" placeholder="写下评论..." aria-label="评论内容"></textarea><button  id="lbCommentSendBtn" class="btn btn-accent btn-sm">发送</button></div>
+    <div class="lightbox-comment-input"><textarea id="commentInput" data-i18n-placeholder="lightbox.comment_ph" placeholder="写下评论..." data-i18n-aria="lightbox.comment_aria"></textarea><button  id="lbCommentSendBtn" class="btn btn-accent btn-sm" data-i18n="chat.send">发送</button></div>
   </div>
 </div>
 
 <!-- ===== 移动端底部Tab栏 (V7.00) ===== -->
-<nav id="mobileTabBar" class="mobile-tab-bar" aria-label="移动端导航">
+<nav id="mobileTabBar" class="mobile-tab-bar" data-i18n-aria="mobile.nav_aria">
   <!-- 移动端「更多」溢出菜单：补齐手机端不可达的 7 个 tab（成员/群组/公告/生日/相册/收藏/地图） -->
-  <div class="mobile-more-menu" id="mobileMoreMenu" role="menu" aria-label="更多功能"></div>
+  <div class="mobile-more-menu" id="mobileMoreMenu" role="menu" data-i18n-aria="mobile.more_menu_aria"></div>
   <div class="mobile-tab-bar-inner">
     <button class="mobile-tab-bar-item active" data-tab="home">
-      <span class="tab-emoji">🏠</span><span>首页</span>
+      <span class="tab-emoji">🏠</span><span data-i18n="nav.home">首页</span>
     </button>
     <button class="mobile-tab-bar-item" data-tab="events">
-      <span class="tab-emoji">📅</span><span>活动</span>
+      <span class="tab-emoji">📅</span><span data-i18n="nav.events">活动</span>
     </button>
     <button class="mobile-tab-bar-item" data-tab="live" data-feature-disabled="live">
-      <span class="tab-emoji">📺</span><span>直播</span>
+      <span class="tab-emoji">📺</span><span data-i18n="nav.live">直播</span>
     </button>
     <button class="mobile-tab-bar-item" data-tab="posts">
-      <span class="tab-emoji">📝</span><span>动态</span>
+      <span class="tab-emoji">📝</span><span data-i18n="nav.posts">动态</span>
     </button>
     <button class="mobile-tab-bar-item" data-tab="chat">
-      <span class="tab-emoji">💬</span><span>聊天</span>
+      <span class="tab-emoji">💬</span><span data-i18n="nav.chat">聊天</span>
       <span class="tab-badge d-none" id="mobileChatBadge"></span>
     </button>
     <button class="mobile-tab-bar-item" data-tab="friends">
-      <span class="tab-emoji">🤝</span><span>好友</span>
+      <span class="tab-emoji">🤝</span><span data-i18n="nav.friends">好友</span>
     </button>
     <button class="mobile-tab-bar-item" data-tab="follows">
-      <span class="tab-emoji">➕</span><span>关注</span>
+      <span class="tab-emoji">➕</span><span data-i18n="nav.follows">关注</span>
     </button>
     <button class="mobile-tab-bar-item admin-only" data-tab="admin">
-      <span class="tab-emoji">⚙️</span><span>管理</span>
+      <span class="tab-emoji">⚙️</span><span data-i18n="nav.admin">管理</span>
     </button>
     <button class="mobile-tab-bar-item" data-tab="notifications">
-      <span class="tab-emoji">🔔</span><span>通知</span>
+      <span class="tab-emoji">🔔</span><span data-i18n="nav.notifications">通知</span>
       <span class="tab-badge d-none" id="mobileNotifBadge"></span>
     </button>
-    <button class="mobile-more-btn" id="mobileMoreBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-label="更多功能">
-      <span class="tab-emoji">⋯</span><span>更多</span>
+    <button class="mobile-more-btn" id="mobileMoreBtn" type="button" aria-haspopup="true" aria-expanded="false" data-i18n-aria="mobile.more_menu_aria">
+      <span class="tab-emoji">⋯</span><span data-i18n="mobile.more">更多</span>
     </button>
   </div>
 </nav>
@@ -2208,7 +2277,7 @@
      移出解析阻塞路径，首屏可先完成首次绘制（P2-21） -->
 <script defer src="/js/core.js?v=20260906a"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
-<script defer src="/js/i18n.js?v=20260906f"></script>
+<script defer src="/js/i18n.js?v=20260906g"></script>
 <script defer src="/js/ui.js?v=20260906a"></script>
 <script defer src="/vendor/gsap/gsap.min.js?v=20260906a"></script>
 <script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260906a"></script>
@@ -2256,6 +2325,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // ===== 登录模态框 =====
   // Login tab switching
   bindClick('loginModePassword', function() { switchLoginMode('password'); });
+  bindClick('loginModeRegister', function() { switchLoginMode('register'); });
   bindClick('loginModeVrc', function() { switchLoginMode('vrchat'); });
   bindClick('loginModeInit', function() { switchLoginMode('init'); });
 
@@ -2266,6 +2336,15 @@ document.addEventListener('DOMContentLoaded', function() {
   bindClick('pwdToggle', function() { togglePwd('loginPassword', 'pwdToggle'); });
   bindClick('loginPwdBtn', function() { doPasswordLogin(); });
   bindInput('loginId', debounce(function() { if (typeof previewLoginAvatar === 'function') previewLoginAvatar(this.value); }, 400));
+
+  // Register area
+  bindInput('regPassword', function() {
+    updatePwdMeter('regPassword', 'regPwdMeter', 'regPwdStrength');
+  });
+  bindClick('pwdToggleReg', function() { togglePwd('regPassword', 'pwdToggleReg'); });
+  bindClick('registerBtn', function() { doRegister(); });
+  bindKeydown('regUsername', function(e) { if (e.key === 'Enter') { e.preventDefault(); doRegister(); } });
+  bindKeydown('regActivationCode', function(e) { if (e.key === 'Enter') { e.preventDefault(); doRegister(); } });
 
   // Forgot password flow (P3-5)
   bindClick('forgotPwdLink', function() { showForgotPassword(); });
@@ -2575,6 +2654,7 @@ document.addEventListener('DOMContentLoaded', function() {
   bindChange('adminUserRoleFilter', function() { onAdminUserFilter(); });
   bindChange('adminUserStatusFilter', function() { onAdminUserFilter(); });
   bindClick('adminAddUserBtn', function() { showAddUserModal(); });
+  bindClick('adminGenCodesBtn', function() { showGenerateCodesModal(); });
   bindClick('adminRefreshUsersBtn', function() { loadUsersAdmin(); });
 
   // System VRChat
@@ -2764,6 +2844,12 @@ document.addEventListener('DOMContentLoaded', function() {
   // Add User Modal
   bindClick('addUserModalCloseBtn', function() { closeModal('addUserModal'); });
   bindClick('addUserModalSubmitBtn', function() { createUser(); });
+
+  // Generate Activation Codes Modal
+  bindClick('genCodesModalCloseBtn', function() { closeModal('generateCodesModal'); });
+  bindClick('genCodesModalSubmitBtn', function() { generateCodes(); });
+  bindClick('genCodesCopyAllBtn', function() { copyGeneratedCodes(); });
+
   var newUserPassword = byId('newUserPassword');
   if (newUserPassword) {
     newUserPassword.addEventListener('input', function() {
@@ -2916,7 +3002,7 @@ document.addEventListener('DOMContentLoaded', function() {
   <div class="modal-content modal-md">
     <div class="modal-header">
       <h3 data-i18n="group.member_card_title">成员名片</h3>
-      <button class="modal-close" aria-label="关闭" onclick="closeModal('vrcMemberModal')">&times;</button>
+      <button class="modal-close" data-i18n-aria="ui.close" aria-label="关闭">&times;</button>
     </div>
     <div id="vrcMemberBody"></div>
   </div>

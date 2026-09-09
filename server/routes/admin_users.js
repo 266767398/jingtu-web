@@ -14,6 +14,7 @@ const {
   hashPassword, validatePasswordStrength, verifyPassword,
   getAvatarUrl, ROLE_LEVEL
 } = require('../auth');
+const activationCodes = require('../activation_code_service');
 
 module.exports = function createAdminUsersRouter() {
   const router = express.Router();
@@ -160,6 +161,74 @@ module.exports = function createAdminUsersRouter() {
       ok(res);
     }
     catch (e) { handleError(res, e, '[admin/users/reset-password]'); }
+  });
+
+  // ==================== 激活码管理（仅超管） ====================
+  // 网页后台生成激活码：写入本地 JSON 文件，与离线工具共用文件锁
+  router.post('/admin/activation-codes/generate', requireRole('super_admin'), async (req, res) => {
+    try {
+      const count = parseInt(req.body?.count, 10) || 1;
+      const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 100) : '';
+      const operator = req.session.displayName || req.session.loginId || String(req.session.userId || 'super_admin');
+      const created = await activationCodes.generateCodes(count, operator, note);
+      await logOper(req.session.userId, '生成激活码', `生成 ${created.length} 个激活码（${created.map(c => c.code).join(', ')}）`);
+      ok(res, { codes: created.map(c => c.code), count: created.length, message: `已生成 ${created.length} 个激活码` });
+    } catch (e) {
+      if (e instanceof activationCodes.ActivationCodeError) return fail(res, 500, e.message, { code: e.reason });
+      handleError(res, e, '[admin/activation-codes/generate]');
+    }
+  });
+
+  // 激活码列表（含已用状态，便于超管排查）
+  router.get('/admin/activation-codes', requireRole('super_admin'), async (req, res) => {
+    try {
+      const list = await activationCodes.listCodes();
+      ok(res, { total: list.total, used: list.used, unused: list.unused, revoked: list.revoked, codes: list.codes });
+    } catch (e) {
+      if (e instanceof activationCodes.ActivationCodeError) return fail(res, 500, e.message, { code: e.reason });
+      handleError(res, e, '[admin/activation-codes/list]');
+    }
+  });
+
+  // 本地软件启动时推送激活码（超管会话认证；幂等合并：已存在码原样跳过）
+  router.post('/admin/activation-codes/sync', requireRole('super_admin'), async (req, res) => {
+    try {
+      const codes = Array.isArray(req.body?.codes) ? req.body.codes : null;
+      if (!codes || codes.length === 0) return fail(res, 400, 'codes 为空或格式非法', { code: 'EMPTY_BATCH' });
+      const result = await activationCodes.importCodes(codes, 'p2p-sync');
+      if (!result.ok) return fail(res, 400, '激活码导入失败', { code: result.reason, invalid: result.invalid });
+      await logOper(req.session.userId, '推送激活码（本地）',
+        `导入 ${result.imported.length} 个，跳过 ${result.skipped.length} 个，无效 ${result.invalid.length} 个`);
+      ok(res, { imported: result.imported, skipped: result.skipped, invalid: result.invalid, alreadySynced: result.imported.length === 0 });
+    } catch (e) {
+      if (e instanceof activationCodes.ActivationCodeError) return fail(res, 500, e.message, { code: e.reason });
+      handleError(res, e, '[admin/activation-codes/sync]');
+    }
+  });
+
+  // 作废激活码（未使用且未作废的码才可作废，作废后永久失效）
+  router.post('/admin/activation-codes/revoke', requireRole('super_admin'), async (req, res) => {
+    try {
+      const code = typeof req.body?.code === 'string' ? req.body.code : '';
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 200) : '';
+      if (!code) return fail(res, 400, '请提供要作废的激活码', { code: 'EMPTY_CODE' });
+      const operator = req.session.displayName || req.session.loginId || String(req.session.userId || 'super_admin');
+      const result = await activationCodes.revokeCode(code, operator, reason);
+      if (!result.ok) {
+        const msgs = {
+          INVALID_FORMAT: '激活码格式不正确',
+          NOT_FOUND: '激活码不存在',
+          ALREADY_USED: '该激活码已被使用，无法作废',
+          ALREADY_REVOKED: '该激活码已作废，无需重复操作'
+        };
+        return fail(res, 400, msgs[result.reason] || '作废失败', { code: result.reason, used_by: result.used_by, used_at: result.used_at });
+      }
+      await logOper(req.session.userId, '作废激活码', `作废激活码 ${result.entry.code}${reason ? `（原因：${reason}）` : ''}`);
+      ok(res, { code: result.entry.code, revoked_at: result.entry.revoked_at, message: `已作废 ${result.entry.code}` });
+    } catch (e) {
+      if (e instanceof activationCodes.ActivationCodeError) return fail(res, 500, e.message, { code: e.reason });
+      handleError(res, e, '[admin/activation-codes/revoke]');
+    }
   });
 
   return router;

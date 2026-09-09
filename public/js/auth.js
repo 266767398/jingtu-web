@@ -202,10 +202,10 @@ async function doLogout() { await logout(true); }
 
 // ==================== 登录辅助函数 ====================
 function switchLoginMode(mode) {
-  const modeIdMap = { password: 'Password', vrchat: 'Vrc', init: 'Init' };
+  const modeIdMap = { password: 'Password', register: 'Register', vrchat: 'Vrc', init: 'Init' };
   const modeId = 'loginMode' + modeIdMap[mode];
   document.querySelectorAll('.login-tab-btn').forEach(btn => btn.classList.toggle('active', btn.id === modeId));
-  const fieldMap = { password: 'loginPasswordFields', vrchat: 'loginVrcFields', init: 'loginInitFields' };
+  const fieldMap = { password: 'loginPasswordFields', register: 'loginRegisterFields', vrchat: 'loginVrcFields', init: 'loginInitFields' };
   Object.entries(fieldMap).forEach(([key, id]) => document.getElementById(id)?.classList.toggle('d-none', key !== mode));
   // 移动滑块指示器
   const slider = document.getElementById('loginTabSlider');
@@ -230,6 +230,43 @@ async function doPasswordLogin() {
     } else {
       setTimeout(() => promptVrcBind(), 700);
     }
+  }
+}
+
+// 激活码注册：提交用户名/密码/激活码，后端校验消耗激活码并建立会话，成功后直接进入应用
+async function doRegister() {
+  const username = document.getElementById('regUsername')?.value?.trim();
+  const password = document.getElementById('regPassword')?.value || '';
+  const activationCode = document.getElementById('regActivationCode')?.value?.trim() || '';
+  if (!username || !password || !activationCode) { toast(__('register.fill_all'), 'error'); return; }
+  const regBtn = document.getElementById('registerBtn');
+  const btnText = regBtn?.querySelector('.login-btn-text');
+  if (regBtn) regBtn.disabled = true;
+  if (btnText) btnText.textContent = __('register.submitting');
+  try {
+    const res = await api('/api/auth/register', {
+      method: 'POST',
+      body: { username, password, activationCode }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      // 后端注册成功即已建立会话，补拉完整档案与 CSRF 令牌后进入应用
+      currentUser = data.user;
+      try { await loadMe(); } catch (e) { /* 失败则保留注册返回的基础字段 */ }
+      await ensureCsrf();
+      sessionStorage.removeItem('manual_logout');
+      const loginIdInput = document.getElementById('loginId');
+      if (loginIdInput) loginIdInput.value = username;
+      toast(__('register.ok'), 'success');
+      showApp();
+    } else {
+      toast(data.error || __('register.failed'), 'error');
+    }
+  } catch (err) {
+    if (!isApiHandledError(err)) toast(__('auth.network_error') + ': ' + err.message, 'error');
+  } finally {
+    if (regBtn) regBtn.disabled = false;
+    if (btnText) btnText.textContent = __('register.submit_btn');
   }
 }
 

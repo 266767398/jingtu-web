@@ -688,8 +688,88 @@ function Show-Menu {
     Write-Line '    [7] 重启运维面板   [8] 全部启动       [9] 全部停止' $Cfg.C_Menu
     Write-Line '    [M] 启动 MySQL     [N] 停止 MySQL     [G] 启动 Nginx' $Cfg.C_Menu
     Write-Line '    [H] 停止 Nginx     [E] 导出网站包     [O] 打开日志目录' $Cfg.C_Menu
-    Write-Line '    [R] 刷新状态       [K] 清理卡死 cmd                          [0] 退出' $Cfg.C_Menu
+    Write-Line '    [R] 刷新状态       [K] 清理卡死 cmd       [A] 激活码管理     [0] 退出' $Cfg.C_Menu
     Write-Host ''
+}
+
+# ---------- 激活码管理（离线：直接调用 server/scripts 下的 CLI，不依赖数据库和网站运行） ----------
+function Invoke-NodeScript {
+    # $ScriptArgs 为参数数组：第 1 个是 server/scripts 下的脚本名，其余原样传给脚本
+    param([string[]]$ScriptArgs)
+    $node = Assert-Node
+    if (-not $node) { return }
+    Write-Host ''
+    & $node (Join-Path (Join-Path $Root 'server') 'scripts') @ScriptArgs 2>&1 | ForEach-Object { Write-Host $_ }
+    Write-Host ''
+}
+
+function Read-Int {
+    param([string]$Prompt, [int]$Min, [int]$Max, [int]$Default)
+    while ($true) {
+        Write-Host -NoNewline ('  ' + $Prompt)
+        $v = (Read-Host).Trim()
+        if ($v -eq '') { return $Default }
+        $n = 0
+        if ([int]::TryParse($v, [ref]$n) -and $n -ge $Min -and $n -le $Max) { return $n }
+        Write-Line ("  请输入 " + $Min + " 到 " + $Max + " 之间的整数") $Cfg.C_Warn
+    }
+}
+
+function Activation-Menu {
+    while ($true) {
+        Write-Host ''
+        Write-Line '  ===== 激活码管理 =====' $Cfg.C_Title
+        Write-Line '  激活码保存在服务器本地文件，完全离线可用（不需要数据库、不需要联网）' $Cfg.C_Info
+        Write-Line '    [1] 查看激活码清单' $Cfg.C_Menu
+        Write-Line '    [2] 生成激活码' $Cfg.C_Menu
+        Write-Line '    [3] 验证激活码' $Cfg.C_Menu
+        Write-Line '    [4] 作废激活码' $Cfg.C_Menu
+        Write-Line '    [5] 激活码存储位置' $Cfg.C_Menu
+        Write-Line '    [0] 返回主菜单' $Cfg.C_Menu
+        $sel = (Read-Host '  请选择').Trim()
+        switch ($sel) {
+            '1' {
+                $st = (Read-Host '  筛选状态 [1]全部 [2]未使用 [3]已使用 [4]已作废（回车=全部）').Trim()
+                $cliArgs = @('list-activation-codes.js')
+                if ($st -eq '2') { $cliArgs += @('--status', 'unused') }
+                elseif ($st -eq '3') { $cliArgs += @('--status', 'used') }
+                elseif ($st -eq '4') { $cliArgs += @('--status', 'revoked') }
+                Invoke-NodeScript $cliArgs
+            }
+            '2' {
+                $n = Read-Int -Prompt '生成数量（1-200，回车=10）: ' -Min 1 -Max 200 -Default 10
+                $note = (Read-Host '  备注（可回车跳过）').Trim()
+                $cliArgs = @('generate-activation-codes.js', [string]$n)
+                if ($note -ne '') { $cliArgs += @('--note', $note) }
+                Invoke-NodeScript $cliArgs
+            }
+            '3' {
+                $code = (Read-Host '  要验证的激活码').Trim()
+                if ($code -eq '') { Write-Line '  已取消' $Cfg.C_Warn; continue }
+                Invoke-NodeScript @('verify-activation-code.js', $code)
+            }
+            '4' {
+                $code = (Read-Host '  要作废的激活码').Trim()
+                if ($code -eq '') { Write-Line '  已取消' $Cfg.C_Warn; continue }
+                $reason = (Read-Host '  作废原因（可回车跳过）').Trim()
+                $cliArgs = @('revoke-activation-code.js', $code, 'jingtu-menu')
+                if ($reason -ne '') { $cliArgs += @('--reason', $reason) }
+                Invoke-NodeScript $cliArgs
+            }
+            '5' {
+                Write-Host ''
+                if ($env:ACTIVATION_CODES_FILE) {
+                    Write-Line ('  当前存储位置（环境变量 ACTIVATION_CODES_FILE 已设置）: ' + $env:ACTIVATION_CODES_FILE) $Cfg.C_Info
+                } else {
+                    Write-Line ('  默认存储位置: ' + (Join-Path (Join-Path $Root 'server') 'data\activation-codes.json')) $Cfg.C_Info
+                }
+                Write-Line '  可通过环境变量 ACTIVATION_CODES_FILE 或 CLI 的 --file 参数重定向' $Cfg.C_Info
+                Write-Host ''
+            }
+            '0' { return }
+            default { Write-Line '  输入无效，请重新选择' $Cfg.C_Warn }
+        }
+    }
 }
 
 function Clear-InputBuffer {
@@ -732,6 +812,8 @@ function Menu-Loop {
             'k' { Clean-StrayCmdWindows; Pause; }
             'R' { }
             'r' { }
+            'A' { Activation-Menu }
+            'a' { Activation-Menu }
             '0' { Write-Line '再见。' $Cfg.C_Title; return }
             default { Write-Line '输入无效，请重新输入' $Cfg.C_Warn; Start-Sleep -Seconds 1 }
         }

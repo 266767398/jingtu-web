@@ -271,6 +271,76 @@ async function createUser() {
   }
 }
 
+// ========== 生成激活码弹窗 ==========
+let _generatedCodes = [];
+
+function showGenerateCodesModal() {
+  const countEl = document.getElementById('genCodesCount');
+  const noteEl = document.getElementById('genCodesNote');
+  const errEl = document.getElementById('genCodesError');
+  const wrapEl = document.getElementById('genCodesResultWrap');
+  const listEl = document.getElementById('genCodesResult');
+  if (countEl) countEl.value = '1';
+  if (noteEl) noteEl.value = '';
+  if (errEl) { errEl.textContent = ''; errEl.classList.add('d-none'); }
+  if (wrapEl) wrapEl.classList.add('d-none');
+  if (listEl) listEl.innerHTML = '';
+  _generatedCodes = [];
+  showModal('generateCodesModal');
+}
+
+async function generateCodes() {
+  const count = Math.min(200, Math.max(1, parseInt(document.getElementById('genCodesCount')?.value, 10) || 1));
+  const note = document.getElementById('genCodesNote')?.value?.trim() || '';
+  const errEl = document.getElementById('genCodesError');
+  const wrapEl = document.getElementById('genCodesResultWrap');
+  const listEl = document.getElementById('genCodesResult');
+  const btn = document.getElementById('genCodesModalSubmitBtn');
+  const showErr = (msg) => {
+    if (errEl) { errEl.textContent = msg; errEl.classList.remove('d-none'); }
+    else toast(msg, 'error');
+  };
+  if (errEl) errEl.classList.add('d-none');
+  if (wrapEl) wrapEl.classList.add('d-none');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api('/api/admin/activation-codes/generate', {
+      method: 'POST',
+      body: { count, note }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      _generatedCodes = data.codes || [];
+      if (listEl) {
+        listEl.innerHTML = _generatedCodes.map(code =>
+          '<div class="gen-code-row"><code class="gen-code-text">' + code + '</code>' +
+          '<button type="button" class="btn btn-sm btn-outline gen-code-copy" data-code="' + code + '">' + __('admin.copy') + '</button></div>'
+        ).join('');
+        listEl.querySelectorAll('.gen-code-copy').forEach(function(b) {
+          b.addEventListener('click', function() {
+            copyToClipboard(this.getAttribute('data-code')).then(function() { toast(__('admin.copied'), 'success'); });
+          });
+        });
+      }
+      if (wrapEl) wrapEl.classList.remove('d-none');
+      toast(__('admin_users.codes_generated', { count: _generatedCodes.length }), 'success');
+      return;
+    }
+    const errData = await res.json().catch(() => ({}));
+    showErr(errData.error || errData.message || __('admin_users.codes_gen_failed') + ' (' + res.status + ')');
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    showErr(err.message || __('admin_users.codes_gen_failed'));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function copyGeneratedCodes() {
+  if (!_generatedCodes.length) return;
+  copyToClipboard(_generatedCodes.join('\r\n')).then(function() { toast(__('admin.copied'), 'success'); });
+}
+
 // ========== 编辑用户弹窗 ==========
 function showEditUser(userId, displayName, role) {
   document.getElementById('editUserId').value = userId;
