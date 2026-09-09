@@ -384,15 +384,27 @@ describe('form control accessible names', () => {
     const labelled = new Set(
       [...d.querySelectorAll('label[for]')].map(l => l.getAttribute('for'))
     );
+    // data-i18n-aria 的键会在运行时翻译成 aria-label，若键缺失，
+    // 屏幕阅读器会直接朗读键名（和 __() 缺键显示键名是同一类问题）。
+    const zh = read('js', 'languages', 'zh.js');
+    const missingAriaKeys = [];
     const unnamed = [];
     for (const el of d.querySelectorAll('input, select, textarea')) {
       if (el.type === 'hidden') continue;
       if (el.getAttribute('aria-label') || el.getAttribute('aria-labelledby')) continue;
+      const ariaKey = el.getAttribute('data-i18n-aria');
+      if (ariaKey) {
+        if (!new RegExp(`["']${ariaKey.replace(/\./g, '\\.')}["']\\s*:`).test(zh)) {
+          missingAriaKeys.push(ariaKey);
+        }
+        continue;
+      }
       if (el.getAttribute('title') || el.getAttribute('placeholder')) continue;
       if (el.id && labelled.has(el.id)) continue;
       if (el.closest('label')) continue;
       unnamed.push(el.id || el.name || el.outerHTML.slice(0, 60));
     }
+    expect(missingAriaKeys).toEqual([]);
     expect(unnamed).toEqual([]);
   });
 
