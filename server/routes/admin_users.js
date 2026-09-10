@@ -169,10 +169,13 @@ module.exports = function createAdminUsersRouter() {
     try {
       const count = parseInt(req.body?.count, 10) || 1;
       const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 100) : '';
+      const expiresDays = Math.max(0, Math.min(3650, parseInt(req.body?.expiresDays, 10) || 0));
       const operator = req.session.displayName || req.session.loginId || String(req.session.userId || 'super_admin');
-      const created = await activationCodes.generateCodes(count, operator, note);
-      await logOper(req.session.userId, '生成激活码', `生成 ${created.length} 个激活码（${created.map(c => c.code).join(', ')}）`);
-      ok(res, { codes: created.map(c => c.code), count: created.length, message: `已生成 ${created.length} 个激活码` });
+      const created = await activationCodes.generateCodes(count, operator, note, expiresDays);
+      // 安全：操作日志不记录码原文（未使用的码等同现金，防止日志页/数据库泄露即得全部有效码），明细走激活码面板查看
+      await logOper(req.session.userId, '生成激活码',
+        `生成 ${created.length} 个激活码${expiresDays > 0 ? `（有效期 ${expiresDays} 天）` : ''}${note ? `（备注：${note}）` : ''}`);
+      ok(res, { codes: created.map(c => c.code), count: created.length, expiresAt: created[0]?.expires_at || null, message: `已生成 ${created.length} 个激活码` });
     } catch (e) {
       if (e instanceof activationCodes.ActivationCodeError) return fail(res, 500, e.message, { code: e.reason });
       handleError(res, e, '[admin/activation-codes/generate]');
@@ -182,8 +185,10 @@ module.exports = function createAdminUsersRouter() {
   // 激活码列表（含已用状态，便于超管排查）
   router.get('/admin/activation-codes', requireRole('super_admin'), async (req, res) => {
     try {
+      // 安全：未使用的码等同凭据，禁止浏览器/代理缓存
+      res.set('Cache-Control', 'no-store');
       const list = await activationCodes.listCodes();
-      ok(res, { total: list.total, used: list.used, unused: list.unused, revoked: list.revoked, codes: list.codes });
+      ok(res, { total: list.total, used: list.used, unused: list.unused, revoked: list.revoked, expired: list.expired || 0, codes: list.codes });
     } catch (e) {
       if (e instanceof activationCodes.ActivationCodeError) return fail(res, 500, e.message, { code: e.reason });
       handleError(res, e, '[admin/activation-codes/list]');

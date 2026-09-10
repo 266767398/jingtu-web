@@ -670,16 +670,16 @@ p.innerHTML=`<div class="page-head"><h2>激活码管理</h2><p>激活码保存�
 <div class="grid g4" id="acStats"><div class="empty">加载中…</div></div>
 <div class="card"><div class="card-title">${IC.ac} 激活码列表</div>
 <div class="form-row"><input type="text" id="acKw" placeholder="搜索激活码 / 备注 / 创建人" value="${esc(AC.kw)}" onkeydown="if(event.key==='Enter')activationSearch()"><button class="btn btn-brand" onclick="activationSearch()">搜索</button>
-<select id="acFilter" onchange="renderAcList()"><option value="">全部状态</option><option value="unused">未使用</option><option value="used">已使用</option><option value="revoked">已作废</option></select>
+<select id="acFilter" onchange="renderAcList()"><option value="">全部状态</option><option value="unused">未使用</option><option value="used">已使用</option><option value="revoked">已作废</option><option value="expired">已过期</option></select>
 <button class="btn btn-warn" onclick="acGenerateModal()">生成激活码</button></div>
 <div id="acList"><div class="empty">加载中…</div></div></div>`;
 loadActivation();}
 async function loadActivation(){const st=$('acStats'),el=$('acList');if(!st)return;
 try{const r=await api('/api/activation-codes');AC.codes=r.data.codes||[];
-const items=[{num:r.data.total,lbl:'总计'},{num:r.data.unused,lbl:'未使用'},{num:r.data.used,lbl:'已使用'},{num:r.data.revoked,lbl:'已作废'}];
+const items=[{num:r.data.total,lbl:'总计'},{num:r.data.unused,lbl:'未使用'},{num:r.data.used,lbl:'已使用'},{num:r.data.revoked,lbl:'已作废'},{num:r.data.expired||0,lbl:'已过期'}];
 st.innerHTML=items.map(x=>`<div class="card"><div class="stat"><div class="ic">${IC.ac}</div><div><div class="num">${x.num}</div><div class="lbl">${x.lbl}</div></div></div></div>`).join('');
 renderAcList();}catch(e){if(el)el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
-function acState(c){return c.used?'used':(c.revoked?'revoked':'unused')}
+function acState(c){if(c.used)return'used';if(c.revoked)return'revoked';if(c.expires_at&&new Date(c.expires_at).getTime()<=Date.now())return'expired';return'unused'}
 function renderAcList(){const el=$('acList');if(!el)return;
 const kw=AC.kw.toLowerCase(),f=$('acFilter')?$('acFilter').value:'';
 const rows=AC.codes.slice().reverse().filter(c=>{const st=acState(c);
@@ -690,8 +690,8 @@ if(!rows.length){el.innerHTML='<div class="empty">无匹配激活码</div>';retu
 const fmt=t=>esc(String(t||'').replace('T',' ').slice(0,19));
 el.innerHTML='<table><tr><th>激活码</th><th>状态</th><th>备注</th><th>创建人</th><th>创建时间</th><th>使用 / 作废信息</th><th>操作</th></tr>'+
 rows.map(c=>{const st=acState(c);
-const tag={unused:'<span style="color:#4ade80">未使用</span>',used:'<span style="color:#fbbf24">已使用</span>',revoked:'<span style="color:#f87171">已作废</span>'}[st];
-const info=c.used?('由 <b>'+esc(c.used_by||'?')+'</b> 于 '+fmt(c.used_at)+' 使用'):(c.revoked?('由 '+esc(c.revoked_by||'?')+' 于 '+fmt(c.revoked_at)+' 作废'+(c.revoked_reason?'（'+esc(c.revoked_reason)+'）':'')):'-');
+const tag={unused:'<span style="color:#4ade80">未使用</span>',used:'<span style="color:#fbbf24">已使用</span>',revoked:'<span style="color:#f87171">已作废</span>',expired:'<span style="color:#f97316">已过期</span>'}[st];
+const info=c.used?('由 <b>'+esc(c.used_by||'?')+'</b> 于 '+fmt(c.used_at)+' 使用'):(c.revoked?('由 '+esc(c.revoked_by||'?')+' 于 '+fmt(c.revoked_at)+' 作废'+(c.revoked_reason?'（'+esc(c.revoked_reason)+'）':'')):(c.expires_at?('有效期至 <b class="mono">'+fmt(c.expires_at)+'</b>'+(st==='expired'?'<span style="color:#f97316">（已过期）</span>':'')):'-'));
 return `<tr><td class="mono">${esc(c.code)}</td><td>${tag}</td><td>${esc(c.note||'-')}</td><td>${esc(c.created_by||'-')}</td><td class="mono">${fmt(c.created_at)}</td><td>${info}</td>
 <td><button class="btn btn-ghost btn-sm" onclick="acCopy('${esc(c.code)}')">复制</button>${st==='unused'?' <button class="btn btn-danger btn-sm" onclick="acRevoke(\''+esc(c.code)+'\')">作废</button>':''}</td></tr>`;}).join('')+'</table>';}
 function activationSearch(){AC.kw=$('acKw').value.trim();renderAcList();}
@@ -699,16 +699,17 @@ function acCopy(code){navigator.clipboard.writeText(code).then(()=>toast('已复
 function acRevoke(code){confirmModal('作废激活码',`确定要作废激活码 <b class="mono">${esc(code)}</b> 吗？<br>作废后立即失效且不可恢复；已被使用的码无法作废。`,'btn-danger','作废',(reason)=>{
 api('/api/activation-codes/revoke',{method:'POST',body:JSON.stringify({code,reason})}).then(r=>{toast(r.message);opLog(r.message,'ok');loadActivation();}).catch(e=>toast(e.message,'err'));},'输入作废原因（必填）');}
 function acGenerateModal(){const mask=$('modalMask'),box=$('modalBox');
-box.innerHTML=`<h3>生成激活码</h3><div class="modal-body">激活码保存在服务器本地文件，生成后可复制分发给用户注册使用。
-<div class="form-row" style="margin-top:10px"><input type="number" id="acGenCount" min="1" max="100" value="5" placeholder="数量" style="flex:0 0 120px"><input type="text" id="acGenNote" placeholder="备注（可选）" style="flex:1"></div></div>
+box.innerHTML=`<h3>生成激活码</h3><div class="modal-body">激活码保存在服务器本地文件，生成后可复制分发给用户注册使用；可设置有效期，过期后注册将提示已过期。
+<div class="form-row" style="margin-top:10px"><input type="number" id="acGenCount" min="1" max="200" value="5" placeholder="数量" style="flex:0 0 110px" title="数量（1-200）"><input type="number" id="acGenExpires" min="0" max="3650" value="0" placeholder="有效期天数（0=永久）" style="flex:0 0 180px" title="有效期天数，0 = 永久"><input type="text" id="acGenNote" placeholder="备注（可选）" style="flex:1" maxlength="100"></div></div>
 <div class="modal-actions"><button class="btn btn-ghost" id="mCancel">取消</button><button class="btn btn-brand" id="mOk">生成</button></div>`;
 mask.classList.add('show');const close=()=>{mask.classList.remove('show');box.innerHTML='';};
 box.querySelector('#mCancel').onclick=close;
-box.querySelector('#mOk').onclick=async()=>{const count=parseInt(box.querySelector('#acGenCount').value,10)||0;const note=box.querySelector('#acGenNote').value.trim();
-if(count<1||count>100)return toast('数量需在 1-100 之间','warn');
-try{const r=await api('/api/activation-codes/generate',{method:'POST',body:JSON.stringify({count,note})});
+box.querySelector('#mOk').onclick=async()=>{const count=parseInt(box.querySelector('#acGenCount').value,10)||0;const expiresDays=Math.max(0,Math.min(3650,parseInt(box.querySelector('#acGenExpires').value,10)||0));const note=box.querySelector('#acGenNote').value.trim();
+if(count<1||count>200)return toast('数量需在 1-200 之间','warn');
+try{const r=await api('/api/activation-codes/generate',{method:'POST',body:JSON.stringify({count,note,expiresDays})});
 close();opLog('生成激活码 '+r.data.count+' 枚','ok');
-box.innerHTML=`<h3>生成成功（${r.data.count} 枚）</h3><div class="modal-body"><div class="logbox" style="max-height:260px">${r.data.codes.map(esc).join('\n')}</div><p class="muted" style="margin-top:8px">请立即复制保存；之后仍可在列表中查看。</p></div>
+const expLine=r.data.expiresAt?`<p class="muted" style="margin:6px 0 0">有效期至：<b class="mono">${esc(String(r.data.expiresAt).replace('T',' ').slice(0,19))}</b></p>`:'';
+box.innerHTML=`<h3>生成成功（${r.data.count} 枚）</h3><div class="modal-body"><div class="logbox" style="max-height:260px">${r.data.codes.map(esc).join('\n')}</div>${expLine}<p class="muted" style="margin-top:8px">请立即复制保存；之后仍可在列表中查看。</p></div>
 <div class="modal-actions"><button class="btn btn-ghost" id="mCancel2">关闭</button><button class="btn btn-brand" id="mCopyAll">复制全部</button></div>`;
 mask.classList.add('show');const close2=()=>{mask.classList.remove('show');box.innerHTML='';};
 box.querySelector('#mCancel2').onclick=close2;

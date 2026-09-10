@@ -542,6 +542,8 @@ window._LANG_RU = {
   "register.failed": "Ошибка регистрации",
   "modal.gen_codes_title": "🎟 Создать коды активации",
   "modal.gen_codes_hint": "Созданные коды сохраняются в локальный файл на сервере и могут быть выданы пользователям для регистрации.",
+  "modal.gen_expires_label": "Срок действия (дней, 0 = бессрочно)",
+  "modal.gen_expires_until": "Действует до: {date}",
   "modal.gen_count_label": "Количество",
   "modal.gen_note_label": "Примечание (необязательно)",
   "modal.gen_note_ph": "напр.: партия сентября 2026",

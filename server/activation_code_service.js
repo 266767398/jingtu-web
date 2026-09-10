@@ -34,7 +34,7 @@ const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 const CODE_PATTERN = /^JT-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/;
 
 const LOCK_WAIT_MS = 10000;  // 获取跨进程文件锁的最长等待
-const LOCK_STALE_MS = 5000;  // 锁文件超过此时长视为残留死锁，可接管
+const LOCK_STALE_MS = 15000; // 锁文件超过此时长视为残留死锁，可接管（须大于大文件一次读改写的最长耗时，防止误接管导致并发写覆盖）
 const RENAME_RETRY = 3;      // Windows 下 rename 可能被杀软短暂占用，重试几次
 
 class ActivationCodeError extends Error {
@@ -153,10 +153,13 @@ function isValidCodeFormat(code) {
  * @param {number} count 生成数量（1~200）
  * @param {string} operator 操作者（离线工具传 'offline-cli'，后台传超管 login_id）
  * @param {string} note 备注（批次用途等，可选）
- * @returns {Promise<Array<{code, created_at, created_by, note, used, used_by, used_at}>>}
+ * @param {number} [expiresDays] 有效期天数（1~3650；0/缺省 = 永久有效）
+ * @returns {Promise<Array<{code, created_at, created_by, note, expires_at, used, used_by, used_at}>>}
  */
-async function generateCodes(count, operator, note) {
+async function generateCodes(count, operator, note, expiresDays) {
   const n = Math.max(1, Math.min(200, parseInt(count, 10) || 1));
+  const days = Math.max(0, Math.min(3650, parseInt(expiresDays, 10) || 0));
+  const expiresAt = days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null;
   return withProcessMutex(() => withFileLock(async () => {
     const data = readData();
     const now = new Date().toISOString();
@@ -171,6 +174,7 @@ async function generateCodes(count, operator, note) {
         created_at: now,
         created_by: operator || 'unknown',
         note: String(note || ''),
+        expires_at: expiresAt,
         used: false,
         used_by: null,
         used_at: null
@@ -181,6 +185,11 @@ async function generateCodes(count, operator, note) {
     await writeData(data);
     return created;
   }));
+}
+
+// 是否已过有效期（无 expires_at 或未过期返回 false；已使用/已作废的码过期与否无意义）
+function isEntryExpired(entry) {
+  return !!(entry && entry.expires_at && new Date(entry.expires_at).getTime() <= Date.now());
 }
 
 /**
@@ -202,6 +211,7 @@ async function validateAndConsume(code, username, beforeMark) {
     if (!entry) return { ok: false, reason: 'NOT_FOUND' };
     if (entry.used) return { ok: false, reason: 'ALREADY_USED', used_by: entry.used_by, used_at: entry.used_at };
     if (entry.revoked) return { ok: false, reason: 'REVOKED', revoked_by: entry.revoked_by, revoked_at: entry.revoked_at };
+    if (isEntryExpired(entry)) return { ok: false, reason: 'EXPIRED', expired_at: entry.expires_at };
     if (typeof beforeMark === 'function') {
       try {
         await beforeMark(normalized);
@@ -232,6 +242,7 @@ async function listCodes() {
       used: data.codes.filter(c => c.used).length,
       unused: data.codes.filter(c => !c.used && !c.revoked).length,
       revoked: data.codes.filter(c => c.revoked).length,
+      expired: data.codes.filter(c => !c.used && !c.revoked && isEntryExpired(c)).length,
       codes: data.codes
     };
   }));
@@ -252,8 +263,8 @@ async function checkCode(code) {
       return { valid: false, reason: 'NOT_FOUND', exists: false, used: false, code: normalized };
     }
     return {
-      valid: !entry.used && !entry.revoked,
-      reason: entry.used ? 'ALREADY_USED' : (entry.revoked ? 'REVOKED' : undefined),
+      valid: !entry.used && !entry.revoked && !isEntryExpired(entry),
+      reason: entry.used ? 'ALREADY_USED' : (entry.revoked ? 'REVOKED' : (isEntryExpired(entry) ? 'EXPIRED' : undefined)),
       exists: true,
       used: !!entry.used,
       used_by: entry.used_by,
@@ -261,6 +272,8 @@ async function checkCode(code) {
       revoked: !!entry.revoked,
       revoked_by: entry.revoked_by,
       revoked_at: entry.revoked_at,
+      expired: isEntryExpired(entry),
+      expires_at: entry.expires_at || null,
       code: normalized,
       note: entry.note
     };
@@ -320,6 +333,7 @@ async function importCodes(incoming, operator) {
       created_at: (item && typeof item.created_at === 'string' && item.created_at) || new Date().toISOString(),
       created_by: (item && typeof item.created_by === 'string' && item.created_by) || operator || 'unknown',
       note: (item && typeof item.note === 'string') ? item.note.slice(0, 100) : '',
+      expires_at: (item && typeof item.expires_at === 'string' && item.expires_at) || null,
       used: !!(item && item.used),
       used_by: (item && typeof item.used_by === 'string' && item.used_by) || null,
       used_at: (item && typeof item.used_at === 'string' && item.used_at) || null,
@@ -363,5 +377,6 @@ module.exports = {
   getCodeFilePath,
   normalizeCode,
   isValidCodeFormat,
+  isEntryExpired,
   ActivationCodeError
 };

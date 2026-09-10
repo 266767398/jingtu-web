@@ -277,11 +277,13 @@ let _generatedCodes = [];
 function showGenerateCodesModal() {
   const countEl = document.getElementById('genCodesCount');
   const noteEl = document.getElementById('genCodesNote');
+  const expiresEl = document.getElementById('genCodesExpires');
   const errEl = document.getElementById('genCodesError');
   const wrapEl = document.getElementById('genCodesResultWrap');
   const listEl = document.getElementById('genCodesResult');
   if (countEl) countEl.value = '1';
   if (noteEl) noteEl.value = '';
+  if (expiresEl) expiresEl.value = '0';
   if (errEl) { errEl.textContent = ''; errEl.classList.add('d-none'); }
   if (wrapEl) wrapEl.classList.add('d-none');
   if (listEl) listEl.innerHTML = '';
@@ -292,6 +294,7 @@ function showGenerateCodesModal() {
 async function generateCodes() {
   const count = Math.min(200, Math.max(1, parseInt(document.getElementById('genCodesCount')?.value, 10) || 1));
   const note = document.getElementById('genCodesNote')?.value?.trim() || '';
+  const expiresDays = Math.min(3650, Math.max(0, parseInt(document.getElementById('genCodesExpires')?.value, 10) || 0));
   const errEl = document.getElementById('genCodesError');
   const wrapEl = document.getElementById('genCodesResultWrap');
   const listEl = document.getElementById('genCodesResult');
@@ -306,7 +309,7 @@ async function generateCodes() {
   try {
     const res = await api('/api/admin/activation-codes/generate', {
       method: 'POST',
-      body: { count, note }
+      body: { count, note, expiresDays }
     });
     if (res.ok) {
       const data = await res.json();
@@ -322,7 +325,23 @@ async function generateCodes() {
           });
         });
       }
-      if (wrapEl) wrapEl.classList.remove('d-none');
+      if (wrapEl) {
+        const exp = data.expiresAt;
+        let expEl = document.getElementById('genCodesExpiresInfo');
+        if (exp) {
+          if (!expEl) {
+            expEl = document.createElement('p');
+            expEl.id = 'genCodesExpiresInfo';
+            expEl.className = 'text-13 text-muted mt-8';
+            wrapEl.insertBefore(expEl, wrapEl.firstChild);
+          }
+          expEl.textContent = __('modal.gen_expires_until', { date: String(exp).replace('T', ' ').slice(0, 19) });
+          expEl.classList.remove('d-none');
+        } else if (expEl) {
+          expEl.classList.add('d-none');
+        }
+        wrapEl.classList.remove('d-none');
+      }
       toast(__('admin_users.codes_generated', { count: _generatedCodes.length }), 'success');
       return;
     }

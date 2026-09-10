@@ -543,6 +543,8 @@ window._LANG_DE = {
   "register.failed": "Registrierung fehlgeschlagen",
   "modal.gen_codes_title": "🎟 Aktivierungscodes erstellen",
   "modal.gen_codes_hint": "Die erstellten Codes werden in einer lokalen Datei auf dem Server gespeichert und können zur Registrierung an Benutzer verteilt werden.",
+  "modal.gen_expires_label": "Gültigkeitsdauer (Tage, 0 = dauerhaft)",
+  "modal.gen_expires_until": "Gültig bis: {date}",
   "modal.gen_count_label": "Anzahl",
   "modal.gen_note_label": "Notiz (optional)",
   "modal.gen_note_ph": "z. B. Charge September 2026",

@@ -537,6 +537,8 @@ window._LANG_EN = {
   "register.failed": "Registration failed",
   "modal.gen_codes_title": "🎟 Generate activation codes",
   "modal.gen_codes_hint": "Generated codes are saved to a local file on the server and can be distributed to users for registration.",
+  "modal.gen_expires_label": "Validity period (days, 0 = permanent)",
+  "modal.gen_expires_until": "Valid until: {date}",
   "modal.gen_count_label": "Quantity",
   "modal.gen_note_label": "Note (optional)",
   "modal.gen_note_ph": "e.g. September 2026 batch",

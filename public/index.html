@@ -1090,7 +1090,7 @@
           <section class="admin-panel d-none" data-panel="activation">
             <div class="card p-16 mt-16" id="activationCodesSection">
               <div class="admin-card-header"><span class="admin-section-icon">🎟</span><h3>激活码管理</h3></div>
-              <p class="text-13 text-muted2 mb-8">激活码保存在服务器本地文件（离线可用）。生成后分发给用户注册使用；已使用的码永久绑定，未使用的码可作废。</p>
+              <p class="text-13 text-muted2 mb-8">激活码保存在服务器本地文件（离线可用）。生成后分发给用户注册使用；支持设置有效期，过期后注册将提示已过期；已使用的码永久绑定，未使用的码可作废。</p>
               <div class="admin-dashboard mb-8" id="activationCodeStats"></div>
               <div class="flex-row gap-8 mb-8 flex-wrap">
                 <input type="text" id="activationCodeSearch" class="search-box m-0 flex-1" placeholder="搜索激活码 / 备注 / 创建人..." aria-label="搜索激活码">
@@ -1099,6 +1099,7 @@
                   <option value="unused">未使用</option>
                   <option value="used">已使用</option>
                   <option value="revoked">已作废</option>
+                  <option value="expired">已过期</option>
                 </select>
                 <button id="activationGenCodesBtn" class="btn btn-accent btn-sm">🎟 生成激活码</button>
                 <button id="activationRefreshBtn" class="btn btn-sm btn-outline">🔄 刷新</button>
@@ -1907,6 +1908,7 @@
     <p class="text-13 text-muted mb-8" data-i18n="modal.gen_codes_hint">生成的激活码保存在服务器本地文件中，可直接分发给用户用于注册。</p>
     <div class="form-group"><label for="genCodesCount" data-i18n="modal.gen_count_label">生成数量</label><input type="number" id="genCodesCount" class="form-input" min="1" max="200" value="1"></div>
     <div class="form-group"><label for="genCodesNote" data-i18n="modal.gen_note_label">备注（选填）</label><input type="text" id="genCodesNote" class="form-input" maxlength="100" data-i18n-placeholder="modal.gen_note_ph" placeholder="例如：2026年9月批次"></div>
+    <div class="form-group"><label for="genCodesExpires" data-i18n="modal.gen_expires_label">有效期（天，0 = 永久）</label><input type="number" id="genCodesExpires" class="form-input" min="0" max="3650" value="0"></div>
     <div id="genCodesError" class="text-13 text-red d-none"></div>
     <div id="genCodesResultWrap" class="d-none">
       <label class="text-13" data-i18n="modal.gen_codes_result">生成的激活码</label>

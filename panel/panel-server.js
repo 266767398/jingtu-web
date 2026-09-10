@@ -647,17 +647,18 @@ async function handleApi(req, res, token) {
     if (!_actCodes) return sendErr(res, 500, '激活码服务不可用');
     try {
       const list = await _actCodes.listCodes();
-      return sendJson(res, 200, { ok: true, data: { total: list.total, used: list.used, unused: list.unused, revoked: list.revoked, codes: list.codes } });
+      return sendJson(res, 200, { ok: true, data: { total: list.total, used: list.used, unused: list.unused, revoked: list.revoked, expired: list.expired || 0, codes: list.codes } });
     } catch (e) { return sendErr(res, 500, '读取激活码失败：' + e.message); }
   }
   if (pathName === '/api/activation-codes/generate' && req.method === 'POST') {
     if (!_actCodes) return sendErr(res, 500, '激活码服务不可用');
-    const count = Math.min(100, Math.max(1, parseInt(body.count, 10) || 1));
-    const note = typeof body.note === 'string' ? body.note.slice(0, 200) : '';
+    const count = Math.min(200, Math.max(1, parseInt(body.count, 10) || 1));
+    const note = typeof body.note === 'string' ? body.note.slice(0, 100) : '';
+    const expiresDays = Math.max(0, Math.min(3650, parseInt(body.expiresDays, 10) || 0));
     try {
-      const created = await _actCodes.generateCodes(count, 'panel-admin', note);
-      auditPanel('生成激活码 ' + created.length + ' 枚' + (note ? '（备注：' + note + '）' : ''));
-      return sendJson(res, 200, { ok: true, data: { count: created.length, codes: created.map(function (c) { return c.code; }) } });
+      const created = await _actCodes.generateCodes(count, 'panel-admin', note, expiresDays);
+      auditPanel('生成激活码 ' + created.length + ' 枚' + (expiresDays ? '（有效期 ' + expiresDays + ' 天）' : '') + (note ? '（备注：' + note + '）' : ''));
+      return sendJson(res, 200, { ok: true, data: { count: created.length, codes: created.map(function (c) { return c.code; }), expiresAt: (created[0] && created[0].expires_at) || null } });
     } catch (e) { return sendErr(res, 500, '生成失败：' + e.message); }
   }
   if (pathName === '/api/activation-codes/revoke' && req.method === 'POST') {

@@ -543,6 +543,8 @@ window._LANG_JA = {
   "register.failed": "登録に失敗しました",
   "modal.gen_codes_title": "🎟 アクティベーションコード生成",
   "modal.gen_codes_hint": "生成されたコードはサーバーのローカルファイルに保存され、ユーザーへの配布に使用できます。",
+  "modal.gen_expires_label": "有効期間（日数、0 = 無期限）",
+  "modal.gen_expires_until": "有効期限：{date}",
   "modal.gen_count_label": "生成数",
   "modal.gen_note_label": "メモ（任意）",
   "modal.gen_note_ph": "例：2026年9月バッチ",

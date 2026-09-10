@@ -5,6 +5,10 @@
 let _activationCodes = [];
 let _activationPanelBound = false;
 
+function isActivationCodeExpired(c) {
+  return !!(c && c.expires_at && !c.used && !c.revoked && new Date(c.expires_at).getTime() <= Date.now());
+}
+
 function initActivationPanelEvents() {
   if (_activationPanelBound) return;
   _activationPanelBound = true;
@@ -60,7 +64,8 @@ function renderActivationStats(data) {
     ['总计', data.total],
     ['未使用', data.unused],
     ['已使用', data.used],
-    ['已作废', data.revoked || 0]
+    ['已作废', data.revoked || 0],
+    ['已过期', data.expired || 0]
   ];
   el.innerHTML = items.map(function (it) {
     return '<div class="stat-card"><div class="stat-value">' + it[1] + '</div><div class="stat-label">' + it[0] + '</div></div>';
@@ -76,6 +81,7 @@ function renderActivationCodes() {
   if (status === 'unused') list = list.filter(function (c) { return !c.used && !c.revoked; });
   else if (status === 'used') list = list.filter(function (c) { return c.used; });
   else if (status === 'revoked') list = list.filter(function (c) { return c.revoked; });
+  else if (status === 'expired') list = list.filter(isActivationCodeExpired);
   if (kw) {
     list = list.filter(function (c) {
       return c.code.indexOf(kw) !== -1
@@ -91,6 +97,7 @@ function renderActivationCodes() {
     let statusLabel = '未使用';
     if (c.used) statusLabel = '已使用';
     else if (c.revoked) statusLabel = '已作废';
+    else if (isActivationCodeExpired(c)) statusLabel = '已过期';
     const codeEsc = escAttr(c.code);
     const notePart = c.note ? ' · ' + esc(c.note) : '';
     const usedInfo = c.used
@@ -99,6 +106,9 @@ function renderActivationCodes() {
     const revokedInfo = c.revoked
       ? '<div class="admin-user-status">作废者: ' + esc(c.revoked_by || '-') + ' · ' + fmtTime(c.revoked_at)
         + (c.revoked_reason ? ' · 原因: ' + esc(c.revoked_reason) : '') + '</div>'
+      : '';
+    const expiresInfo = (!c.used && !c.revoked && c.expires_at)
+      ? '<div class="admin-user-status">有效期至: ' + fmtTime(c.expires_at) + (isActivationCodeExpired(c) ? '（已过期）' : '') + '</div>'
       : '';
     const revokeBtn = (!c.used && !c.revoked)
       ? '<button class="btn btn-sm btn-danger" data-code-action="revoke" data-code="' + codeEsc + '">🚫 作废</button>'
@@ -109,7 +119,7 @@ function renderActivationCodes() {
       + '<div class="admin-user-name activation-code-text">' + esc(c.code) + '</div>'
       + '<div class="admin-user-loginId">状态: ' + statusLabel + '</div>'
       + '<div class="admin-user-role">创建: ' + esc(c.created_by || '-') + ' · ' + fmtTime(c.created_at) + notePart + '</div>'
-      + usedInfo + revokedInfo
+      + usedInfo + revokedInfo + expiresInfo
       + '</div>'
       + '<div class="admin-user-actions">' + copyBtn + revokeBtn + '</div>'
       + '</div>';

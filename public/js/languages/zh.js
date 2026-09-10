@@ -555,6 +555,8 @@ window._LANG_ZH = {
   "register.failed": "注册失败",
   "modal.gen_codes_title": "🎟 生成激活码",
   "modal.gen_codes_hint": "生成的激活码保存在服务器本地文件中，可直接分发给用户用于注册。",
+  "modal.gen_expires_label": "有效期（天，0 = 永久）",
+  "modal.gen_expires_until": "有效期至：{date}",
   "modal.gen_count_label": "生成数量",
   "modal.gen_note_label": "备注（选填）",
   "modal.gen_note_ph": "例如：2026年9月批次",

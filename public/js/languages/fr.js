@@ -543,6 +543,8 @@ window._LANG_FR = {
   "register.failed": "Échec de l'inscription",
   "modal.gen_codes_title": "🎟 Générer des codes d'activation",
   "modal.gen_codes_hint": "Les codes générés sont enregistrés dans un fichier local sur le serveur et peuvent être distribués aux utilisateurs pour l'inscription.",
+  "modal.gen_expires_label": "Durée de validité (jours, 0 = permanent)",
+  "modal.gen_expires_until": "Valable jusqu'au : {date}",
   "modal.gen_count_label": "Quantité",
   "modal.gen_note_label": "Note (facultatif)",
   "modal.gen_note_ph": "ex. : lot de septembre 2026",

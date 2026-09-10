@@ -181,12 +181,20 @@ router.post('/register', registerLimiter, async (req, res) => {
 
     if (!consume.ok) {
       // 建号成功但激活码文件写回失败：补偿删除刚建的账号，保证「码未消耗 ↔ 账号不存在」一致
+      // 删除带重试：瞬时连接抖动时不留「账号已建但码未消耗」的悬挂状态
       if (createdUserId && consume.reason === 'WRITE_FAILED') {
-        try {
-          await getPool().query(`DELETE FROM user_group_membership WHERE user_id = ?`, [createdUserId]);
-          await getPool().query(`DELETE FROM users WHERE id = ?`, [createdUserId]);
-        } catch (e) {
-          logger.error('auth/register', `[SEC] 激活码写回失败且补偿删除账号 #${createdUserId} 失败: ${e.message}`);
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            await getPool().query(`DELETE FROM user_group_membership WHERE user_id = ?`, [createdUserId]);
+            await getPool().query(`DELETE FROM users WHERE id = ?`, [createdUserId]);
+            break;
+          } catch (e) {
+            if (attempt === 3) {
+              logger.error('auth/register', `[SEC] 激活码写回失败且补偿删除账号 #${createdUserId} 三次均失败: ${e.message}`);
+            } else {
+              await new Promise(r => setTimeout(r, 120 * attempt));
+            }
+          }
         }
         createdUserId = null;
       }
@@ -199,6 +207,7 @@ router.post('/register', registerLimiter, async (req, res) => {
         NOT_FOUND: '激活码无效',
         ALREADY_USED: '激活码已被使用',
         REVOKED: '激活码已被作废，请联系管理员',
+        EXPIRED: '激活码已过期，请联系管理员',
         WRITE_FAILED: '注册失败，请稍后重试'
       };
       return fail(res, 400, msgMap[consume.reason] || '注册失败，请稍后重试', { code: consume.reason || 'REGISTER_FAILED' });
