@@ -253,12 +253,12 @@ router.get('/:userId', async (req, res) => {
     const currentUserId = req.session?.userId;
     const isLoggedIn = !!currentUserId;
 
-    // 查询用户基本信息
+    // 查询用户基本信息（preferences 内含 motto/bio/website/coverImage/social_links 等资料字段）
     const [users] = await getPool().query(
       `SELECT id, login_id AS loginId, display_name AS displayName,
               avatar_type, custom_avatar_path, vrchat_avatar_url,
               role, vrchat_id AS vrchatId, vrchat_name AS vrchatName,
-              birthday, location, bio
+              birthday, location, bio, preferences
        FROM users WHERE id = ? AND deleted_at IS NULL`,
       [targetUserId]
     );
@@ -285,14 +285,31 @@ router.get('/:userId', async (req, res) => {
 
     const canSeeSensitive = isSelf || viewerIsFriend;
 
-    // 查询资料（user_profile 仅含 motto/bio；location 取自 users 主表）
-    const [profiles] = await getPool().query(
-      `SELECT motto, bio
-       FROM user_profile WHERE vrchat_id = (SELECT vrchat_id FROM users WHERE id = ?)`,
-      [targetUserId]
-    );
-    const profile = profiles.length ? profiles[0] : {
-      motto: '', bio: ''
+    // 资料合并：motto/bio/website/coverImage 的真相源是 users.preferences（与 PUT /users/me/profile
+    // 写入端一致）。user_profile 表按 user_id 兜底读一次（兼容历史数据），查询失败静默降级，
+    // 避免老表结构差异（如历史 vrchat_id 结构）把整个公开主页打成 500。
+    let profileRow = null;
+    try {
+      const [profiles] = await getPool().query(
+        `SELECT motto, bio, cover_image AS coverImage, website
+         FROM user_profile WHERE user_id = ?`,
+        [targetUserId]
+      );
+      if (profiles.length) profileRow = profiles[0];
+    } catch (e) {
+      logger.warn('[profile] user_profile 表读取失败，仅使用 preferences 数据:', e.message);
+    }
+    let prefs = user.preferences;
+    if (typeof prefs === 'string') {
+      try { prefs = JSON.parse(prefs); } catch { prefs = {}; }
+    }
+    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) prefs = {};
+
+    const profile = {
+      motto: prefs.motto ?? (profileRow ? profileRow.motto : '') ?? '',
+      bio: prefs.bio ?? (profileRow ? profileRow.bio : '') ?? '',
+      website: prefs.website ?? (profileRow ? profileRow.website : '') ?? '',
+      coverImage: prefs.coverImage ?? (profileRow ? profileRow.coverImage : '') ?? ''
     };
     // location 优先取 users 主表（隐私：非好友/游客按隐私设置隐藏）
     profile.location = (user.location && (canSeeSensitive || user.location_visible)) ? user.location : '';
@@ -352,11 +369,42 @@ router.get('/:userId', async (req, res) => {
 
 /**
  * POST /update - 更新自己的资料（需登录）
+ * 兼容遗留 API（见 docs/05）：写入 user_profile 表；同时把 motto/bio/website/coverImage
+ * 同步进 users.preferences，保证公开主页（以 preferences 为真相源）读到一致数据。
  */
 router.post('/update', requireAuth, async (req, res) => {
   try {
     const userId = req.session.userId;
     const { motto, bio, coverImage, location, website, socialLinks, privacySettings } = req.body;
+
+    // 输入校验（与 users.js PUT /me/profile 同标准；上限对齐表列与前端 maxlength）
+    const isSafeUrl = (v) => typeof v === 'string' && v.length <= 500 && (
+      v === '' || /^https?:\/\/\S+$/i.test(v) || /^\/[A-Za-z0-9._\-~/]*$/.test(v)
+    );
+    if (motto !== undefined && (typeof motto !== 'string' || motto.length > 100)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '个性签名不能超过100字');
+    if (bio !== undefined && (typeof bio !== 'string' || bio.length > 2000)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '个人简介不能超过2000字');
+    if (location !== undefined && (typeof location !== 'string' || location.length > 200)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '所在地过长');
+    if (website !== undefined && !isSafeUrl(website)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '个人网站格式不正确');
+    if (coverImage !== undefined && !isSafeUrl(coverImage)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '封面图地址格式不正确');
+    let socialLinksStr = null;
+    if (socialLinks !== undefined && socialLinks !== null) {
+      let sl = socialLinks;
+      if (typeof sl === 'string') {
+        try { sl = JSON.parse(sl); } catch { return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'socialLinks 不是合法的 JSON'); }
+      }
+      if (!sl || typeof sl !== 'object' || Array.isArray(sl)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'socialLinks 格式不正确');
+      for (const [k, v] of Object.entries(sl)) {
+        if (!/^[A-Za-z0-9_]{1,30}$/.test(k) || (v !== null && (typeof v !== 'string' || v.length > 300))) {
+          return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'socialLinks 内容不合规');
+        }
+      }
+      socialLinksStr = JSON.stringify(sl);
+    }
+    let privacySettingsStr = null;
+    if (privacySettings !== undefined && privacySettings !== null) {
+      if (!privacySettings || typeof privacySettings !== 'object' || Array.isArray(privacySettings)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'privacySettings 格式不正确');
+      privacySettingsStr = JSON.stringify(privacySettings);
+    }
 
     // upsert user_profile
     await getPool().query(
@@ -377,10 +425,27 @@ router.post('/update', requireAuth, async (req, res) => {
         coverImage || '',
         location || '',
         website || '',
-        socialLinks ? JSON.stringify(socialLinks) : null,
-        privacySettings ? JSON.stringify(privacySettings) : null
+        socialLinksStr,
+        privacySettingsStr
       ]
     );
+
+    // 同步 preferences（公开主页读取的真相源；仅覆盖本端点负责的键，保留其余键）
+    try {
+      const [cur] = await getPool().query(`SELECT preferences FROM users WHERE id = ?`, [userId]);
+      let prefs = cur.length && cur[0].preferences
+        ? (typeof cur[0].preferences === 'string' ? JSON.parse(cur[0].preferences) : cur[0].preferences)
+        : {};
+      if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) prefs = {};
+      if (motto !== undefined) prefs.motto = motto;
+      if (bio !== undefined) prefs.bio = bio;
+      if (website !== undefined) prefs.website = website;
+      if (coverImage !== undefined) prefs.coverImage = coverImage;
+      if (socialLinksStr !== null) prefs.social_links = JSON.parse(socialLinksStr);
+      await getPool().query(`UPDATE users SET preferences = ?, updated_at = NOW() WHERE id = ?`, [JSON.stringify(prefs), userId]);
+    } catch (e) {
+      logger.warn('[profile/update] preferences 同步失败（user_profile 已更新）:', e.message);
+    }
 
     ok(res, { message: '资料更新成功' });
   } catch (e) {

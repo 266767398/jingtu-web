@@ -23,6 +23,9 @@ const files = {
   dbInit: read('server', 'db_init.js'),
   metrics: read('server', 'middleware', 'metrics.js'),
   analyticsRoute: read('server', 'routes', 'analytics.js'),
+  usersRoute: read('server', 'routes', 'users.js'),
+  profileRoute: read('server', 'routes', 'profile.js'),
+  membersJs: read('public', 'js', 'members.js'),
   migrationPage: read('public', 'migration.html'),
   mainJs: read('public', 'js', 'main.js'),
   initJs: read('public', 'js', 'init.js'),
@@ -273,5 +276,60 @@ describe('security regressions', () => {
     expect(files.analyticsRoute).toMatch(/endpoints:\s*metrics\.endpoints/);
     expect(files.analyticsRoute).toMatch(/statusCodes:\s*metrics\.statusCodes/);
     expect(files.analyticsRoute).toMatch(/slowRequests:\s*metrics\.requests\.slow/);
+  });
+
+  // 资料写入曾零校验直落库，且 coverImage 被静默丢弃；PUT /me/profile 必须全字段校验并接收 coverImage。
+  test('validates profile updates and keeps the coverImage field', () => {
+    const putProfile = sliceBetween(files.usersRoute, "router.put('/me/profile'", "router.post('/me/avatar'");
+    expect(putProfile).toMatch(/const \{ displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage \} = req\.body/);
+    expect(putProfile).toMatch(/!\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(birthday\)/);
+    expect(putProfile).toMatch(/const isSafeUrl = \(v\) => typeof v === 'string' && v\.length <= 500 && \(/);
+    expect(putProfile).toMatch(/\^https\?:\\\/\\\/\\S\+\$\/i\.test\(v\) \|\| \/\^\\\/\[A-Za-z0-9\._\\\-~\/\]\*\$\/\.test\(v\)/);
+    expect(putProfile).toMatch(/bio\.length > 2000\)[\s\S]*?return sendError\(res,\s*400,\s*ErrorCodes\.BAD_REQUEST,\s*'个人简介不能超过2000字'\)/);
+    expect(putProfile).toMatch(/motto\.length > 100\)[\s\S]*?return sendError\(res,\s*400,\s*ErrorCodes\.BAD_REQUEST,\s*'个性签名不能超过100字'\)/);
+    expect(putProfile).toMatch(/prefsObj\.coverImage = coverImage/);
+    expect(putProfile).toMatch(/!\/\^\[A-Za-z0-9_\]\{1,30\}\$\/\.test\(k\) \|\| \(v !== null && \(typeof v !== 'string' \|\| v\.length > 300\)\)/);
+    expect(putProfile).toMatch(/JSON\.stringify\(incoming\)\.length > 65536/);
+    expect(putProfile).toMatch(/k !== 'social_links'\) return sendError\(res,\s*400,\s*ErrorCodes\.BAD_REQUEST,\s*'preferences 值类型不正确'\)/);
+  });
+
+  // 前端保存封面后 GET /me/profile 曾永远读回空值；响应必须回显 preferences.coverImage。
+  test('returns coverImage from GET /me/profile', () => {
+    const getProfile = sliceBetween(files.usersRoute, "router.get('/me/profile'", "router.put('/me/profile'");
+    expect(getProfile).toMatch(/coverImage:\s*u\.preferences\?\.coverImage \|\| ''/);
+  });
+
+  // 公开主页曾按不存在的 vrchat_id 关联 user_profile 表导致 500，且 motto/bio 双数据源割裂；
+  // 必须按 user_id 兜底读取（失败静默降级）并以 preferences 为真相源合并。
+  test('merges the public profile from preferences with a user_id fallback', () => {
+    const publicProfile = sliceBetween(files.profileRoute, "router.get('/:userId'", "router.post('/update'");
+    expect(publicProfile).toMatch(/birthday, location, bio, preferences/);
+    expect(publicProfile).toMatch(/FROM user_profile WHERE user_id = \?/);
+    expect(publicProfile).not.toMatch(/user_profile WHERE vrchat_id/);
+    expect(publicProfile).toMatch(/logger\.warn\('\[profile\] user_profile 表读取失败，仅使用 preferences 数据:'/);
+    expect(publicProfile).toMatch(/motto: prefs\.motto \?\? \(profileRow \? profileRow\.motto : ''\) \?\? ''/);
+    expect(publicProfile).toMatch(/coverImage: prefs\.coverImage \?\? \(profileRow \? profileRow\.coverImage : ''\) \?\? ''/);
+  });
+
+  // 遗留 /update 端点曾零校验且只写 user_profile 不写 preferences；必须同标准校验并同步真相源。
+  test('validates and syncs the legacy profile update endpoint', () => {
+    const legacyUpdate = sliceBetween(files.profileRoute, "router.post('/update'", "router.get('/:userId/albums'");
+    expect(legacyUpdate).toMatch(/motto\.length > 100\)[\s\S]*?return sendError\(res,\s*400,\s*ErrorCodes\.BAD_REQUEST,\s*'个性签名不能超过100字'\)/);
+    expect(legacyUpdate).toMatch(/bio\.length > 2000\)[\s\S]*?return sendError\(res,\s*400,\s*ErrorCodes\.BAD_REQUEST,\s*'个人简介不能超过2000字'\)/);
+    expect(legacyUpdate).toMatch(/coverImage !== undefined && !isSafeUrl\(coverImage\)\) return sendError\(res,\s*400,\s*ErrorCodes\.BAD_REQUEST,\s*'封面图地址格式不正确'\)/);
+    expect(legacyUpdate).toMatch(/ON DUPLICATE KEY UPDATE/);
+    expect(legacyUpdate).toMatch(/prefs\.coverImage = coverImage/);
+    expect(legacyUpdate).toMatch(/prefs\.social_links = JSON\.parse\(socialLinksStr\)/);
+    expectBefore(legacyUpdate, 'if (motto !== undefined && (typeof motto !== \'string\'', 'INSERT INTO user_profile');
+    expectBefore(legacyUpdate, 'logger.warn(\'[profile/update] preferences 同步失败', "ok(res, { message: '资料更新成功' })");
+  });
+
+  // 会员弹窗标签是 innerHTML 注入点，用户名必须经 esc 转义（escJsStr 只转义引号，不转义 <>&）。
+  test('escapes user names inside members modal labels', () => {
+    const notesModal = sliceBetween(files.membersJs, 'async function openMemberNotes', 'async function saveMemberNote');
+    const reportModal = sliceBetween(files.membersJs, 'async function reportUser', 'async function submitUserReport');
+    expect(notesModal).toMatch(/\$\{esc\(userName\)\}/);
+    expect(reportModal).toMatch(/\$\{esc\(userName\)\}/);
+    expect(files.membersJs).not.toMatch(/\$\{userName\}/);
   });
 });

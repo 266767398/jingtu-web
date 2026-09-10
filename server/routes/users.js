@@ -754,6 +754,7 @@ router.get('/me/profile', requireAuth, async (req, res) => {
       bio: u.preferences?.bio || '',
       motto: u.preferences?.motto || '',
       website: u.preferences?.website || '',
+      coverImage: u.preferences?.coverImage || '',
       socialLinks: u.preferences?.social_links || null,
       createdAt: u.created_at,
       updatedAt: u.updated_at,
@@ -772,7 +773,7 @@ router.put('/me/profile', requireAuth, async (req, res) => {
     if (req.session.userId === 0) {
       return sendError(res, 403, ErrorCodes.FORBIDDEN, '游客不能修改资料');
     }
-    const { displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks } = req.body;
+    const { displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage } = req.body;
     const updates = {};
 
     if (displayName !== undefined) {
@@ -783,7 +784,10 @@ router.put('/me/profile', requireAuth, async (req, res) => {
       if (typeof qq !== 'string' || qq.length > 50) return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'QQ号过长');
       updates.qq_number_enc = qq ? encryptAES(qq) : null;
     }
-    if (birthday !== undefined) updates.birthday = birthday || null;
+    if (birthday !== undefined) {
+      if (birthday !== null && (typeof birthday !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(birthday))) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '生日格式不正确');
+      updates.birthday = birthday || null;
+    }
     if (location !== undefined) {
       if (typeof location !== 'string' || location.length > 200) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '所在地过长');
       updates.location = location || null;
@@ -798,20 +802,59 @@ router.put('/me/profile', requireAuth, async (req, res) => {
         prefsObj = typeof current[0].preferences === 'string' ? JSON.parse(current[0].preferences) : current[0].preferences;
       }
     } catch { prefsObj = {}; }
+    if (!prefsObj || typeof prefsObj !== 'object' || Array.isArray(prefsObj)) prefsObj = {};
 
-    // preferences 参数覆盖（如果前端传了完整的 preferences 对象）
-    if (preferences !== undefined) {
-      const incoming = typeof preferences === 'string' ? JSON.parse(preferences) : preferences;
-      Object.assign(prefsObj, incoming);
+    // 输入校验（对齐前端 maxlength：motto=100、bio=2000；URL 字段限 http(s) 或站内相对路径，
+    // 拒绝 javascript:/data: 等伪协议，防止存库后在渲染端形成 XSS 载体）
+    const isSafeUrl = (v) => typeof v === 'string' && v.length <= 500 && (
+      v === '' || /^https?:\/\/\S+$/i.test(v) || /^\/[A-Za-z0-9._\-~/]*$/.test(v)
+    );
+    if (bio !== undefined) {
+      if (typeof bio !== 'string' || bio.length > 2000) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '个人简介不能超过2000字');
+      prefsObj.bio = bio;
     }
-    if (bio !== undefined) prefsObj.bio = bio;
-    if (motto !== undefined) prefsObj.motto = motto;
+    if (motto !== undefined) {
+      if (typeof motto !== 'string' || motto.length > 100) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '个性签名不能超过100字');
+      prefsObj.motto = motto;
+    }
     // V6.10: website 存到 preferences.website
-    if (website !== undefined) prefsObj.website = website;
-    // V6.10: socialLinks 存到 preferences.social_links
+    if (website !== undefined) {
+      if (!isSafeUrl(website)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '个人网站格式不正确');
+      prefsObj.website = website;
+    }
+    // coverImage 存到 preferences.coverImage（封面图 URL，公开主页读取端已兼容该键）
+    if (coverImage !== undefined) {
+      if (!isSafeUrl(coverImage)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '封面图地址格式不正确');
+      prefsObj.coverImage = coverImage;
+    }
+    // V6.10: socialLinks 存到 preferences.social_links（平面对象 string→string，防深层结构滥用）
     if (socialLinks !== undefined) {
-      if (typeof socialLinks === 'string') prefsObj.social_links = JSON.parse(socialLinks);
-      else prefsObj.social_links = socialLinks;
+      let sl = socialLinks;
+      if (typeof sl === 'string') {
+        try { sl = JSON.parse(sl); } catch { return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'socialLinks 不是合法的 JSON'); }
+      }
+      if (!sl || typeof sl !== 'object' || Array.isArray(sl)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'socialLinks 格式不正确');
+      for (const [k, v] of Object.entries(sl)) {
+        if (!/^[A-Za-z0-9_]{1,30}$/.test(k) || (v !== null && (typeof v !== 'string' || v.length > 300))) {
+          return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'socialLinks 内容不合规');
+        }
+      }
+      prefsObj.social_links = sl;
+    }
+    // preferences 参数覆盖（如果前端传了完整的 preferences 对象）——
+    // 只接受 plain object，键名限白名单字符，整体序列化后限 64KB，防止撑爆 JSON 列
+    if (preferences !== undefined) {
+      let incoming = preferences;
+      if (typeof incoming === 'string') {
+        try { incoming = JSON.parse(incoming); } catch { return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'preferences 不是合法的 JSON'); }
+      }
+      if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'preferences 格式不正确');
+      if (JSON.stringify(incoming).length > 65536) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '偏好设置过大');
+      for (const k of Object.keys(incoming)) {
+        if (!/^[A-Za-z0-9_]{1,30}$/.test(k)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'preferences 含不支持的键名');
+        if (typeof incoming[k] === 'object' && incoming[k] !== null && k !== 'social_links') return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'preferences 值类型不正确');
+      }
+      Object.assign(prefsObj, incoming);
     }
     updates.preferences = JSON.stringify(prefsObj);
 

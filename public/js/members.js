@@ -319,7 +319,7 @@ async function openMemberNotes(userId, userName) {
             <button class="modal-close" onclick="closeModal('memberNotesModal')" aria-label="${__('common.close')}">✕</button>
           </div>
           <div class="form-group">
-            <label>${__('members.notes_for')} ${userName}</label>
+            <label>${__('members.notes_for')} ${esc(userName)}</label>
             <textarea id="memberNoteText" class="form-input" rows="4" maxlength="200" placeholder="${__('members.notes_placeholder')}"></textarea>
             <div class="text-right text-xs text-muted mt-2"><span id="memberNoteCount">0</span>/200</div>
           </div>
@@ -441,7 +441,7 @@ async function reportUser(userId, userName) {
             <button class="modal-close" onclick="closeModal('reportUserModal')" aria-label="${__('common.close')}">✕</button>
           </div>
           <div class="form-group">
-            <label>${__('members.report_for')} ${userName}</label>
+            <label>${__('members.report_for')} ${esc(userName)}</label>
             <div class="form-group">
               <label>${__('members.report_type')}</label>
               <select id="reportType" class="form-input">
