@@ -8,8 +8,8 @@
  * 示例：
  *   node server/scripts/consume-activation-code.js JT-AB2D-E3FG-H5JK p2p-client-001
  *
- * 语义：与网站注册消耗同一文件、同一把锁——校验存在且未使用、未作废后，原子标记
- *       used=true / used_by / used_at 并写回磁盘，激活码永久作废。
+ * 语义：与网站注册消耗同一文件、同一把锁——校验存在且未使用、未作废、未过期后，
+ *       原子标记 used=true / used_by / used_at 并写回磁盘，激活码永久作废。
  *
  * 退出码：
  *   0 = 消耗成功
@@ -17,6 +17,7 @@
  *   2 = 已被使用
  *   3 = 写入失败 / 锁超时
  *   4 = 已被作废
+ *   5 = 已过期（码未被消耗，仍留在文件中留档）
  */
 const { validateAndConsume, setFilePath } = require('../activation_code_service');
 
@@ -55,6 +56,10 @@ async function main() {
   if (result.reason === 'REVOKED') {
     out({ ok: false, reason: 'REVOKED', code: opts.code, revoked_by: result.revoked_by, revoked_at: result.revoked_at, message: `该激活码已被作废（${result.revoked_by || '未知'}，${result.revoked_at || '未知时间'}）` });
     process.exit(4);
+  }
+  if (result.reason === 'EXPIRED') {
+    out({ ok: false, reason: 'EXPIRED', code: opts.code, expired_at: result.expired_at, message: `该激活码已过期（原有效期至 ${result.expired_at ? String(result.expired_at).replace('T', ' ').slice(0, 19) : '未知'}）` });
+    process.exit(5);
   }
   if (result.reason === 'WRITE_FAILED') {
     out({ ok: false, reason: 'WRITE_FAILED', code: opts.code, message: '写入失败，激活码未消耗，可重试', detail: String(result.error && result.error.message || result.error || '') });

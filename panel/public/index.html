@@ -671,7 +671,9 @@ p.innerHTML=`<div class="page-head"><h2>激活码管理</h2><p>激活码保存�
 <div class="card"><div class="card-title">${IC.ac} 激活码列表</div>
 <div class="form-row"><input type="text" id="acKw" placeholder="搜索激活码 / 备注 / 创建人" value="${esc(AC.kw)}" onkeydown="if(event.key==='Enter')activationSearch()"><button class="btn btn-brand" onclick="activationSearch()">搜索</button>
 <select id="acFilter" onchange="renderAcList()"><option value="">全部状态</option><option value="unused">未使用</option><option value="used">已使用</option><option value="revoked">已作废</option><option value="expired">已过期</option></select>
-<button class="btn btn-warn" onclick="acGenerateModal()">生成激活码</button></div>
+<button class="btn btn-warn" onclick="acGenerateModal()">生成激活码</button>
+<button class="btn btn-ghost" onclick="acCopyUnused()" title="复制所有未使用且未过期的激活码">📋 复制未使用</button>
+<button class="btn btn-ghost" onclick="acExportCsv()" title="按当前筛选条件导出 CSV 文件">⬇ 导出CSV</button></div>
 <div id="acList"><div class="empty">加载中…</div></div></div>`;
 loadActivation();}
 async function loadActivation(){const st=$('acStats'),el=$('acList');if(!st)return;
@@ -690,12 +692,26 @@ if(!rows.length){el.innerHTML='<div class="empty">无匹配激活码</div>';retu
 const fmt=t=>esc(String(t||'').replace('T',' ').slice(0,19));
 el.innerHTML='<table><tr><th>激活码</th><th>状态</th><th>备注</th><th>创建人</th><th>创建时间</th><th>使用 / 作废信息</th><th>操作</th></tr>'+
 rows.map(c=>{const st=acState(c);
-const tag={unused:'<span style="color:#4ade80">未使用</span>',used:'<span style="color:#fbbf24">已使用</span>',revoked:'<span style="color:#f87171">已作废</span>',expired:'<span style="color:#f97316">已过期</span>'}[st];
-const info=c.used?('由 <b>'+esc(c.used_by||'?')+'</b> 于 '+fmt(c.used_at)+' 使用'):(c.revoked?('由 '+esc(c.revoked_by||'?')+' 于 '+fmt(c.revoked_at)+' 作废'+(c.revoked_reason?'（'+esc(c.revoked_reason)+'）':'')):(c.expires_at?('有效期至 <b class="mono">'+fmt(c.expires_at)+'</b>'+(st==='expired'?'<span style="color:#f97316">（已过期）</span>':'')):'-'));
+const expSoon=st==='unused'&&c.expires_at&&new Date(c.expires_at).getTime()-Date.now()<7*86400000;
+const tag={unused:'<span style="color:#4ade80">未使用</span>',used:'<span style="color:#fbbf24">已使用</span>',revoked:'<span style="color:#f87171">已作废</span>',expired:'<span style="color:#f97316">已过期</span>'}[st]+(expSoon?' <span style="color:#f59e0b">⚡即将过期</span>':'');
+const info=c.used?('由 <b>'+esc(c.used_by||'?')+'</b> 于 '+fmt(c.used_at)+' 使用'):(c.revoked?('由 '+esc(c.revoked_by||'?')+' 于 '+fmt(c.revoked_at)+' 作废'+(c.revoked_reason?'（'+esc(c.revoked_reason)+'）':'')):(c.expires_at?('有效期至 <b class="mono">'+fmt(c.expires_at)+'</b>'+(st==='expired'?'<span style="color:#f97316">（已过期）</span>':(expSoon?'<span style="color:#f59e0b">（即将过期）</span>':''))):'-'));
 return `<tr><td class="mono">${esc(c.code)}</td><td>${tag}</td><td>${esc(c.note||'-')}</td><td>${esc(c.created_by||'-')}</td><td class="mono">${fmt(c.created_at)}</td><td>${info}</td>
 <td><button class="btn btn-ghost btn-sm" onclick="acCopy('${esc(c.code)}')">复制</button>${st==='unused'?' <button class="btn btn-danger btn-sm" onclick="acRevoke(\''+esc(c.code)+'\')">作废</button>':''}</td></tr>`;}).join('')+'</table>';}
 function activationSearch(){AC.kw=$('acKw').value.trim();renderAcList();}
 function acCopy(code){navigator.clipboard.writeText(code).then(()=>toast('已复制 '+code)).catch(()=>toast('复制失败，请手动选择复制','warn'));}
+function acCopyUnused(){const codes=AC.codes.filter(c=>acState(c)==='unused').map(c=>c.code);
+if(!codes.length){toast('没有可复制的未使用激活码','warn');return;}
+navigator.clipboard.writeText(codes.join('\n')).then(()=>toast('已复制 '+codes.length+' 个未使用激活码')).catch(()=>toast('复制失败，请手动选择复制','warn'));}
+function acExportCsv(){const kw=AC.kw.toLowerCase(),f=$('acFilter')?$('acFilter').value:'';
+const rows=AC.codes.slice().reverse().filter(c=>{const st=acState(c);if(f&&st!==f)return false;if(!kw)return true;return String(c.code||'').toLowerCase().includes(kw)||String(c.note||'').toLowerCase().includes(kw)||String(c.created_by||'').toLowerCase().includes(kw);});
+if(!rows.length){toast('没有可导出的激活码','warn');return;}
+const expSoon=c=>acState(c)==='unused'&&c.expires_at&&new Date(c.expires_at).getTime()-Date.now()<7*86400000;
+const stOf=c=>({used:'已使用',revoked:'已作废',expired:'已过期'})[acState(c)]||(expSoon(c)?'未使用（即将过期）':'未使用');
+const fmt2=t=>String(t||'').replace('T',' ').slice(0,19);
+const head=['激活码','状态','备注','创建人','创建时间','有效期至','使用者','使用时间'];
+const data=rows.map(c=>[c.code,stOf(c),c.note||'',c.created_by||'',fmt2(c.created_at),c.expires_at?fmt2(c.expires_at):'永久',c.used_by||'',fmt2(c.used_at)]);
+const csv='\uFEFF'+[head].concat(data).map(r=>r.map(v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"').join(',')).join('\r\n');
+const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='activation-codes-'+new Date().toISOString().slice(0,10)+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('已导出 '+rows.length+' 条激活码');}
 function acRevoke(code){confirmModal('作废激活码',`确定要作废激活码 <b class="mono">${esc(code)}</b> 吗？<br>作废后立即失效且不可恢复；已被使用的码无法作废。`,'btn-danger','作废',(reason)=>{
 api('/api/activation-codes/revoke',{method:'POST',body:JSON.stringify({code,reason})}).then(r=>{toast(r.message);opLog(r.message,'ok');loadActivation();}).catch(e=>toast(e.message,'err'));},'输入作废原因（必填）');}
 function acGenerateModal(){const mask=$('modalMask'),box=$('modalBox');

@@ -9,6 +9,29 @@ function isActivationCodeExpired(c) {
   return !!(c && c.expires_at && !c.used && !c.revoked && new Date(c.expires_at).getTime() <= Date.now());
 }
 
+const EXPIRING_SOON_MS = 7 * 24 * 60 * 60 * 1000;
+
+function isActivationCodeExpiringSoon(c) {
+  return !!(c && c.expires_at && !c.used && !c.revoked && !isActivationCodeExpired(c)
+    && new Date(c.expires_at).getTime() - Date.now() < EXPIRING_SOON_MS);
+}
+
+function filterActivationCodes(kw, status) {
+  let list = _activationCodes.slice().reverse();
+  if (status === 'unused') list = list.filter(function (c) { return !c.used && !c.revoked && !isActivationCodeExpired(c); });
+  else if (status === 'used') list = list.filter(function (c) { return c.used; });
+  else if (status === 'revoked') list = list.filter(function (c) { return c.revoked; });
+  else if (status === 'expired') list = list.filter(isActivationCodeExpired);
+  if (kw) {
+    list = list.filter(function (c) {
+      return c.code.indexOf(kw) !== -1
+        || String(c.note || '').toUpperCase().indexOf(kw) !== -1
+        || String(c.created_by || '').toUpperCase().indexOf(kw) !== -1;
+    });
+  }
+  return list;
+}
+
 function initActivationPanelEvents() {
   if (_activationPanelBound) return;
   _activationPanelBound = true;
@@ -19,6 +42,10 @@ function initActivationPanelEvents() {
   });
   const refreshBtn = document.getElementById('activationRefreshBtn');
   if (refreshBtn) refreshBtn.addEventListener('click', function () { loadActivationCodesPanel(); });
+  const copyUnusedBtn = document.getElementById('activationCopyUnusedBtn');
+  if (copyUnusedBtn) copyUnusedBtn.addEventListener('click', copyUnusedActivationCodes);
+  const exportBtn = document.getElementById('activationExportBtn');
+  if (exportBtn) exportBtn.addEventListener('click', exportActivationCodesCsv);
   const search = document.getElementById('activationCodeSearch');
   if (search) search.addEventListener('input', renderActivationCodes);
   const filter = document.getElementById('activationCodeStatusFilter');
@@ -77,18 +104,7 @@ function renderActivationCodes() {
   if (!container) return;
   const kw = (document.getElementById('activationCodeSearch')?.value || '').trim().toUpperCase();
   const status = document.getElementById('activationCodeStatusFilter')?.value || '';
-  let list = _activationCodes.slice().reverse();
-  if (status === 'unused') list = list.filter(function (c) { return !c.used && !c.revoked; });
-  else if (status === 'used') list = list.filter(function (c) { return c.used; });
-  else if (status === 'revoked') list = list.filter(function (c) { return c.revoked; });
-  else if (status === 'expired') list = list.filter(isActivationCodeExpired);
-  if (kw) {
-    list = list.filter(function (c) {
-      return c.code.indexOf(kw) !== -1
-        || String(c.note || '').toUpperCase().indexOf(kw) !== -1
-        || String(c.created_by || '').toUpperCase().indexOf(kw) !== -1;
-    });
-  }
+  const list = filterActivationCodes(kw, status);
   if (!list.length) {
     renderEmpty(container, { icon: '🎟', text: '暂无匹配的激活码' });
     return;
@@ -98,6 +114,7 @@ function renderActivationCodes() {
     if (c.used) statusLabel = '已使用';
     else if (c.revoked) statusLabel = '已作废';
     else if (isActivationCodeExpired(c)) statusLabel = '已过期';
+    else if (isActivationCodeExpiringSoon(c)) statusLabel = '未使用 · 即将过期';
     const codeEsc = escAttr(c.code);
     const notePart = c.note ? ' · ' + esc(c.note) : '';
     const usedInfo = c.used
@@ -108,7 +125,10 @@ function renderActivationCodes() {
         + (c.revoked_reason ? ' · 原因: ' + esc(c.revoked_reason) : '') + '</div>'
       : '';
     const expiresInfo = (!c.used && !c.revoked && c.expires_at)
-      ? '<div class="admin-user-status">有效期至: ' + fmtTime(c.expires_at) + (isActivationCodeExpired(c) ? '（已过期）' : '') + '</div>'
+      ? '<div class="admin-user-status">有效期至: ' + fmtTime(c.expires_at)
+        + (isActivationCodeExpired(c) ? '<span style="color:#f87171">（已过期）</span>' : '')
+        + (isActivationCodeExpiringSoon(c) ? '<span style="color:#f59e0b">（即将过期）</span>' : '')
+        + '</div>'
       : '';
     const revokeBtn = (!c.used && !c.revoked)
       ? '<button class="btn btn-sm btn-danger" data-code-action="revoke" data-code="' + codeEsc + '">🚫 作废</button>'
@@ -148,4 +168,61 @@ function revokeActivationCode(code) {
       toast('作废失败: ' + err.message, 'error');
     }
   });
+}
+
+function copyUnusedActivationCodes() {
+  const codes = _activationCodes
+    .filter(function (c) { return !c.used && !c.revoked && !isActivationCodeExpired(c); })
+    .map(function (c) { return c.code; });
+  if (!codes.length) {
+    toast('没有可复制的未使用激活码', 'warn');
+    return;
+  }
+  copyToClipboard(codes.join('\r\n')).then(function () {
+    toast('已复制 ' + codes.length + ' 个未使用激活码', 'success');
+  });
+}
+
+function activationCodeStatusText(c) {
+  if (c.used) return '已使用';
+  if (c.revoked) return '已作废';
+  if (isActivationCodeExpired(c)) return '已过期';
+  if (isActivationCodeExpiringSoon(c)) return '未使用（即将过期）';
+  return '未使用';
+}
+
+function exportActivationCodesCsv() {
+  const kw = (document.getElementById('activationCodeSearch')?.value || '').trim().toUpperCase();
+  const status = document.getElementById('activationCodeStatusFilter')?.value || '';
+  const list = filterActivationCodes(kw, status);
+  if (!list.length) {
+    toast('没有可导出的激活码', 'warn');
+    return;
+  }
+  const fmtTimePlain = function (t) { return String(t || '').replace('T', ' ').slice(0, 19); };
+  const head = ['激活码', '状态', '备注', '创建人', '创建时间', '有效期至', '使用者', '使用时间'];
+  const rows = list.map(function (c) {
+    return [
+      c.code,
+      activationCodeStatusText(c),
+      c.note || '',
+      c.created_by || '',
+      fmtTimePlain(c.created_at),
+      c.expires_at ? fmtTimePlain(c.expires_at) : '永久',
+      c.used_by || '',
+      fmtTimePlain(c.used_at)
+    ];
+  });
+  const csv = '\uFEFF' + [head].concat(rows).map(function (r) {
+    return r.map(function (v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; }).join(',');
+  }).join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'activation-codes-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  toast('已导出 ' + list.length + ' 条激活码', 'success');
 }

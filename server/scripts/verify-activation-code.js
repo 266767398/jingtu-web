@@ -9,11 +9,12 @@
  *   node server/scripts/verify-activation-code.js JT-AB2D-E3FG-H5JK
  *   node server/scripts/verify-activation-code.js JT-AB2D-E3FG-H5JK JT-ZZ99-ZZ99-ZZ99 --json
  *
- * 退出码：
- *   0 = 全部可用（存在且未使用、未作废）
+ * 退出码（位掩码）：
+ *   0 = 全部可用（存在且未使用、未作废、未过期）
  *   1 = 存在无效码（格式错误或不存在）
  *   2 = 存在已用码（没有更严重的无效码时）
  *   4 = 存在已作废码（没有更严重的无效码时）
+ *   8 = 存在已过期码（没有更严重的无效码时）
  *
  * --json 输出机器可读结果数组，供 P2P 安装脚本解析。
  */
@@ -36,6 +37,7 @@ function statusLabel(r) {
   if (r.reason === 'NOT_FOUND') return '无效（不存在）';
   if (r.reason === 'ALREADY_USED') return `已使用（${r.used_by || '未知'}，${r.used_at || '未知时间'}）`;
   if (r.reason === 'REVOKED') return `已作废（${r.revoked_by || '未知'}，${r.revoked_at || '未知时间'}）`;
+  if (r.reason === 'EXPIRED') return `已过期（原有效期至 ${r.expires_at ? String(r.expires_at).replace('T', ' ').slice(0, 19) : '未知'}）`;
   return '可用';
 }
 
@@ -60,7 +62,8 @@ async function main() {
         reason: r.reason || null, used: !!r.used,
         used_by: r.used_by || null, used_at: r.used_at || null,
         revoked: !!r.revoked,
-        revoked_by: r.revoked_by || null, revoked_at: r.revoked_at || null
+        revoked_by: r.revoked_by || null, revoked_at: r.revoked_at || null,
+        expired: !!r.expired, expires_at: r.expires_at || null
       })),
       all_valid: results.every(r => r.valid)
     }, null, 2));
@@ -72,12 +75,14 @@ async function main() {
     if (results.every(r => r.valid)) console.log('结论: 全部可用');
     else if (results.some(r => r.reason === 'INVALID_FORMAT' || r.reason === 'NOT_FOUND')) console.log('结论: 存在无效激活码');
     else if (results.some(r => r.reason === 'REVOKED')) console.log('结论: 存在已作废的激活码');
+    else if (results.some(r => r.reason === 'EXPIRED')) console.log('结论: 存在已过期的激活码');
     else console.log('结论: 存在已使用的激活码');
   }
   const hasInvalid = results.some(r => r.reason === 'INVALID_FORMAT' || r.reason === 'NOT_FOUND');
   const hasUsed = results.some(r => r.reason === 'ALREADY_USED');
   const hasRevoked = results.some(r => r.reason === 'REVOKED');
-  process.exit(hasInvalid ? 1 : hasUsed ? 2 : hasRevoked ? 4 : 0);
+  const hasExpired = results.some(r => r.reason === 'EXPIRED');
+  process.exit(hasInvalid ? 1 : hasRevoked ? 4 : hasExpired ? 8 : hasUsed ? 2 : 0);
 }
 
 main().catch(e => {
