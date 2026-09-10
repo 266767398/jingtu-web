@@ -86,6 +86,7 @@
 | `GET /api/auth/init` | 公开 | — | `{needInit,message}` |
 | `POST /api/auth/init` | 公开；仅无超管时 | `{loginId,password,displayName}` | `{success:true,user,message}` |
 | `POST /api/auth/login` | 公开 | `{loginId,password}`；前端还发送未被后端使用的 `remember` | `{success:true,user}` |
+| `POST /api/auth/register` | 公开（`registerLimiter`） | `{username(2-32字符),password,activationCode}` | `{success:true,user,message:'注册成功'}`；激活码问题 → 400 `{success:false,error,code:INVALID_FORMAT\|NOT_FOUND\|ALREADY_USED\|REVOKED\|EXPIRED\|WRITE_FAILED}`、用户名冲突 400 `code:USERNAME_TAKEN`、缺码 `code:ACTIVATION_CODE_REQUIRED`、并发锁超时 `code:LOCK_TIMEOUT`；激活码在文件锁内原子消耗，成功后重生成会话（自动登录）并写 `sys_oper_log`（类型「用户注册」） |
 | `POST /api/auth/logout` | 公开 | — | `{success:true}` |
 | `GET /api/auth/session` | 公开 | — | `{loggedIn,user}` |
 | `POST /api/auth/change-password` | 登录 | `{oldPassword,newPassword}` | `{success:true,message}` |
@@ -768,4 +769,17 @@ V8.2 起收藏统一为「收藏夹 + 收藏项」模型，合并原 `model-coll
 | `GET /api/moderations?status=pending&page=1&pageSize=20` | 管理员 | — | `{items,total,page,pageSize}`；`status` 限 `pending/approved/rejected`；`items[].remoteResult` 为 `remote_result` JSON 字符串（供队列回显 block/mute 状态） |
 | `POST /api/moderations/:id/resolve` | 管理员 | `{action:'approve'\|'reject', note?}` | `{status, remote}`；不存在 404；已处理 409；`approve` 触发远程 block+mute 并落库 `remote_result` |
 | `POST /api/moderations/:id/revert` | 管理员 | — | `{remote:{unblock,unmute}, revoked:true}`；不存在 404；非 `approved` 409；avatar 仅标 `revoked` 不调远程 |
+
+### 14.9 注册激活码（`admin_users.js`，前缀 `/api/admin/activation-codes`）
+
+> 任务 X/Y/Z 落地：注册激活码用于 `POST /api/auth/register` 自助注册（见 §3.1）。离线文件存储（默认 `server/data/activation-codes.json`，环境变量 `ACTIVATION_CODES_FILE` 可覆盖），全部接口仅 `super_admin`；一码一用（已使用 / 已作废 / 已过期均拒绝消耗）。生成、作废对运维面板 `/api/activation-codes/*`（独立 panel token 鉴权，见 20 号文档 §六）与 `jingtu.ps1 [A]` 菜单、`server/scripts` CLI 即时生效——四处共用同一存储文件。
+
+| 方法与路径 | 权限 | 请求 | 成功/业务响应 |
+|---|---|---|---|
+| `POST /api/admin/activation-codes/generate` | 超管 | `{count, note?, expiresDays?}`（`expiresDays` 0-3650，0=永久） | `{success:true,codes,count,expiresAt,message}` |
+| `GET /api/admin/activation-codes` | 超管 | — | `{success:true,total,used,unused,revoked,expired,codes}`；响应 `Cache-Control: no-store`（未使用码等同凭据） |
+| `POST /api/admin/activation-codes/sync` | 超管 | `{codes[]}` | `{success:true,imported,skipped,invalid,alreadySynced}`（离线端导入主站，走 `importCodes` 去重校验） |
+| `POST /api/admin/activation-codes/revoke` | 超管 | `{code, reason?}` | `{success:true,code,revoked_at,message}` |
+
+> 配套 CLI（`server/scripts/`）：`generate-activation-codes.js` / `list-activation-codes.js`（unused 过滤含过期未用）/ `verify-activation-code.js` / `revoke-activation-code.js` / `consume-activation-code.js`。离线对接与 P2P 联动详见 `docs/25-激活码离线对接说明-P2P联动.md`。
 
