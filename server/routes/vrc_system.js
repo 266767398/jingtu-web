@@ -13,6 +13,7 @@ const {
   vrchatGetCurrentUserResult,
   vrchatRequest,
   vrchatVerifyTwoFactor,
+  vrchatGetNotifications,
   VRC_API_KEY
 } = require('../vrc');
 const { fail, ok, handleError , sendError, ErrorCodes } = require('../utils');
@@ -99,6 +100,33 @@ module.exports = function (authStateRef, saveAuthStateFn) {
     authStateRef.cookieSetAt = null;
     await saveAuthStateFn();
     ok(res);
+  });
+
+  // F-19: 拉取系统 VRChat 账号的官方通知（REST 兜底，与 pipeline WS 实时推送互补）
+  router.get('/vrc-notifications', requireAdminCompat, async (req, res) => {
+    try {
+      if (!authStateRef.loggedIn || !authStateRef.cookie) {
+        return sendError(res, 400, ErrorCodes.BAD_REQUEST, '系统 VRChat 未登录');
+      }
+      const r = await vrchatGetNotifications(authStateRef.cookie, req.query.n, req.query.offset);
+      if (r.status !== 200) {
+        return fail(res, 502, r.data?.error?.message || 'VRChat 通知拉取失败');
+      }
+      const list = Array.isArray(r.data) ? r.data : [];
+      ok(res, {
+        notifications: list.map(nt => ({
+          id: nt.id,
+          type: nt.type,
+          title: nt.title || nt.senderUsername || nt.type,
+          message: nt.message,
+          senderUserId: nt.senderUserId,
+          senderUsername: nt.senderUsername,
+          link: nt.link,
+          imageUrl: nt.imageUrl,
+          createdAt: nt.createdAt
+        }))
+      });
+    } catch (e) { handleError(res, e, '[vrc-system/notifications]'); }
   });
 
   return router;

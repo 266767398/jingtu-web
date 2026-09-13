@@ -452,7 +452,10 @@ app.use('/api/friends', require('./routes/friends')(notificationService));
 app.use('/api/follows', require('./routes/follows')(notificationService));
 
 // ==================== 直播系统 V6.14 ====================
-app.use('/api/live', require('./routes/live')(notificationService));
+// P1-5 收尾（2026-09-12）：/api/live 不再挂载。前端入口早已通过
+// loader.js DISABLED_FEATURES 下线，缺的是外部 RTMP/HLS 转码管线（基础设施缺口）。
+// 此前"前端隐藏、后端裸露"导致未鉴权的直播列表/详情接口仍可达，现统一收到
+// 全局 404 JSON 兜底。代码资产保留在 routes/_archive/live.js，复活方式见该文件头注释。
 
 // ==================== VRChat 路由（系统级） ====================
 // 系统 VRChat 登录/2FA/登出 + 健康检查
@@ -560,6 +563,12 @@ app.use('/api/share', require('./routes/share')());
 app.use('/api/avatar', require('./routes/avatar')());
 // 统一收藏系统 (V8.2)：合并模型收藏馆与收藏夹（含由孤儿 model-collections 模块迁移而来的 VRCX 匿名搜索）
 app.use('/api/collections', require('./routes/collections')(getVRCCookie));
+
+// F-20 VRChat 官方收藏（与站内收藏系统并存，直接操作 VRChat 账号内的官方收藏）
+app.use('/api/vrc-favorites', require('./routes/vrc_favorites')(getVRCCookie, getVRCCookieUserOnly));
+
+// F-10 VRChat 官方实例邀请 / 好友申请（写侧严格用户本人 cookie，未绑定直接引导绑定）
+app.use('/api/vrc-invites', require('./routes/vrc_invites')(getVRCCookieUserOnly));
 
 // F-16 头像标签（私有标签，owner 为当前登录用户）
 app.use('/api/avatar-tags', require('./routes/avatar_tags'));
@@ -691,6 +700,13 @@ async function gracefulShutdown(signal) {
   if (typeof startSchedule.gracefulShutdown === 'function') {
     startSchedule.gracefulShutdown();
     logger.info('[shutdown]', '定时任务已取消');
+  }
+
+  try {
+    await cache.closeCache();
+    logger.info('[shutdown]', 'Redis 连接已释放');
+  } catch (e) {
+    logger.error('[shutdown]', 'Redis 关闭失败:', e.message);
   }
 
   logger.info('[shutdown]', '优雅关闭完成');

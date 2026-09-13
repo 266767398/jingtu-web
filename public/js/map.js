@@ -878,9 +878,11 @@ function switchVrcView(view) {
   const groupView = document.getElementById('vrcGroupView');
   const worldsView = document.getElementById('vrcWorldsView');
   const collView = document.getElementById('vrcCollectionsView');
+  const favView = document.getElementById('vrcFavoritesView');
   if (groupView) groupView.classList.toggle('d-none', view !== 'group');
   if (worldsView) worldsView.classList.toggle('d-none', view !== 'worlds');
   if (collView) collView.classList.toggle('d-none', view !== 'collections');
+  if (favView) favView.classList.toggle('d-none', view !== 'vrcfav');
   if (view === 'worlds') {
     bindMapWorldsControls();
     updateWorldMapMarkers();
@@ -888,6 +890,10 @@ function switchVrcView(view) {
   // 收藏视图：懒加载 collections.js 后刷新数据（与原独立页签行为一致）
   if (view === 'collections' && typeof window.loadCollections === 'function') {
     window.loadCollections();
+  }
+  // F-20 VRChat 官方收藏视图：懒加载 vrc_favorites.js 后刷新数据
+  if (view === 'vrcfav' && typeof window.loadVrcFavorites === 'function') {
+    window.loadVrcFavorites();
   }
 }
 

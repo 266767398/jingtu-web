@@ -100,6 +100,26 @@ module.exports = function setupVrcAuth() {
     });
   });
 
+  // F-10: 发给「系统 VRChat 账号」的实例邀请（含对方接受/拒绝回执）实时广播。
+  // pipeline 归属系统账号，因此这里只反映系统账号收到的邀请，与普通用户
+  // 通过 /api/vrc-invites 发出的邀请无关；前端按 F-19 语义仅对管理员提示。
+  vrcPipeline.on('invite', (notification) => {
+    logger.info('[vrc-pipeline]', `收到实例邀请: ${notification.senderUsername || notification.message}`);
+    wsService.broadcastAllExcept(null, {
+      type: 'vrc_invite',
+      notification
+    });
+  });
+
+  // F-10: 发给「系统 VRChat 账号」的好友申请实时广播（管理员可见，语义同上）
+  vrcPipeline.on('friend_request', (notification) => {
+    logger.info('[vrc-pipeline]', `收到好友申请: ${notification.senderUsername || ''}`);
+    wsService.broadcastAllExcept(null, {
+      type: 'vrc_friend_request',
+      notification
+    });
+  });
+
   // 从加密存储读取系统 Cookie
   // 注意：原 server.js 版本此处对 authState 做变量重赋值；抽取后改用 Object.assign
   // 就地改写同一对象，保证下游工厂（vrc_system/album/notifications）引用不失效。

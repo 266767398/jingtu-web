@@ -275,6 +275,16 @@ async function vrchatGetWorld(worldId, cookie = null) {
   return await vrchatRequest('GET', endpoint, null, cookie);
 }
 
+/**
+ * F-19: 获取系统 VRChat 账号的官方通知列表（REST 兜底，与 pipeline WS 实时推送互补）
+ */
+async function vrchatGetNotifications(cookie, n = 50, offset = 0) {
+  const safeN = Math.min(Math.max(parseInt(n, 10) || 50, 1), 100);
+  const safeOffset = Math.max(parseInt(offset, 10) || 0, 0);
+  const endpoint = `/auth/user/notifications?apiKey=${VRC_API_KEY}&sent=false&n=${safeN}&offset=${safeOffset}`;
+  return await vrchatRequest('GET', endpoint, null, cookie);
+}
+
 // 实例 ID 格式：wrld_<uuid>:<instance>... 含 worldId + instanceId，可能带 ~private(...)~nonce(...)
 const VRC_INSTANCE_PATTERN = /^wrld_[0-9a-fA-F-]+:.+$/;
 
@@ -291,6 +301,33 @@ async function vrchatGetInstance(instanceId, cookie = null) {
   }
   const endpoint = `/instances/${encodeURIComponent(instanceId)}?apiKey=${VRC_API_KEY}`;
   return await vrchatRequest('GET', endpoint, null, cookie);
+}
+
+/**
+ * F-10: 向指定用户发送世界实例邀请（POST /invite/{userId}）。
+ * instanceId 为 user API 返回的完整 location 字符串（wrld_xxx:12345~...），
+ * 写侧严格使用用户本人绑定的 cookie，由 routes/vrc_invites.js 调用。
+ */
+async function vrchatSendInvite(targetUserId, instanceId, cookie) {
+  const safeUserId = sanitizeVrcId(targetUserId);
+  if (typeof instanceId !== 'string' || !VRC_INSTANCE_PATTERN.test(instanceId)) {
+    const err = new Error(`非法 VRChat 实例 ID 格式: ${instanceId}`);
+    err.code = 'INVALID_VRC_INSTANCE_ID';
+    err.statusCode = 400;
+    throw err;
+  }
+  const endpoint = `/invite/${safeUserId}?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('POST', endpoint, { instanceId }, cookie);
+}
+
+/**
+ * F-10: 向指定用户发送好友申请（POST /user/{userId}/friendRequest）。
+ * 写侧严格使用用户本人绑定的 cookie，由 routes/vrc_invites.js 调用。
+ */
+async function vrchatSendFriendRequest(targetUserId, cookie) {
+  const safeUserId = sanitizeVrcId(targetUserId);
+  const endpoint = `/user/${safeUserId}/friendRequest?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('POST', endpoint, {}, cookie);
 }
 
 /**
@@ -795,6 +832,9 @@ async function vrchatGetFriendsOnlineMap(cookie, options = {}) {
       isOnline,
       isInGame,
       isVrcPlus: Array.isArray(f.tags) && f.tags.includes('system_supporter'),
+      // F-7: troll 判定——VRChat 官方会给疑似恶意账号打 system_troll/admin_troll_roll 标签
+      isTroll: Array.isArray(f.tags) && (f.tags.includes('system_troll') || f.tags.includes('admin_troll_roll')),
+      developerType: f.developerType || 'none',
       ageVerificationStatus: f.ageVerificationStatus || '',
       ageVerified: f.ageVerified === true,
       trustLevel: f.trustLevel || '',
@@ -873,6 +913,8 @@ async function vrchatResolveOnlineStatuses(cookie, userIds, options = {}) {
             isInGame,
             isFriend: false,
             isVrcPlus: Array.isArray(userData.tags) && userData.tags.includes('system_supporter'),
+            isTroll: Array.isArray(userData.tags) && (userData.tags.includes('system_troll') || userData.tags.includes('admin_troll_roll')),
+            developerType: userData.developerType || 'none',
             ageVerificationStatus: userData.ageVerificationStatus || '',
             ageVerified: userData.ageVerified === true,
             trustLevel: userData.trustLevel || '',
@@ -897,11 +939,124 @@ async function vrchatResolveOnlineStatuses(cookie, userIds, options = {}) {
   return result;
 }
 
+// ==================== F-20 VRChat 官方收藏（Favorites / Favorite Groups） ====================
+// 官方收藏与站内收藏系统（/api/collections, V8.2）并存：前者直接操作 VRChat
+// 账号内的官方收藏（游戏内同样可见），后者是本站私有的收藏馆数据。
+const VRC_FAVORITE_ID_PATTERN = /^fvrt_[0-9a-fA-F-]+$/;          // 收藏条目 ID
+const VRC_FAV_GROUP_NAME_PATTERN = /^[a-zA-Z0-9_]{1,32}$/;        // 分组名，如 worlds1 / avatars1 / group_0
+const VRC_FAV_TYPES = Object.freeze(['world', 'avatar', 'friend']);
+// 收藏目标 ID 按类型限定前缀，防止把 friend 类型塞进 avtr_xxx 之类混用
+const VRC_FAV_TARGET_PREFIX = Object.freeze({ world: 'wrld_', avatar: 'avtr_', friend: 'usr_' });
+
+/**
+ * 校验收藏分组名（worlds1~4 / avatars1~4 / group_0~3 等）
+ */
+function assertFavoriteGroupName(name) {
+  if (typeof name !== 'string' || !VRC_FAV_GROUP_NAME_PATTERN.test(name)) {
+    const err = new Error(`非法收藏分组名: ${name}`);
+    err.code = 'INVALID_VRC_ID';
+    err.statusCode = 400;
+    throw err;
+  }
+  return encodeURIComponent(name);
+}
+
+/**
+ * 校验收藏目标 ID 与类型匹配（world→wrld_ / avatar→avtr_ / friend→usr_）
+ */
+function assertFavoriteTargetId(type, id) {
+  if (!VRC_FAV_TYPES.includes(type)) {
+    const err = new Error(`不支持的收藏类型: ${type}`);
+    err.code = 'INVALID_TARGET_TYPE';
+    err.statusCode = 400;
+    throw err;
+  }
+  if (typeof id !== 'string' || !id.startsWith(VRC_FAV_TARGET_PREFIX[type]) || !VRC_ID_PATTERN.test(id)) {
+    const err = new Error(`非法收藏目标 ID: ${id}`);
+    err.code = 'INVALID_VRC_ID';
+    err.statusCode = 400;
+    throw err;
+  }
+  return encodeURIComponent(id);
+}
+
+/**
+ * 获取收藏条目列表（可按分组 tag 过滤）
+ */
+async function vrchatGetFavorites(cookie, n = 50, offset = 0, tag = null) {
+  const params = new URLSearchParams({ n: String(n), offset: String(offset), apiKey: VRC_API_KEY });
+  if (tag) params.set('tag', String(tag));
+  return vrchatRequest('GET', `/favorites?${params}`, null, cookie);
+}
+
+/**
+ * 添加收藏（tags 传 [分组名]；分组不存在时 VRChat 会自动创建）
+ */
+async function vrchatAddFavorite(cookie, type, favoriteId, tags = []) {
+  const safeId = assertFavoriteTargetId(type, favoriteId);
+  return vrchatRequest('POST', '/favorites', { type, favoriteId: safeId, tags }, cookie);
+}
+
+/**
+ * 移除单条收藏（favoriteId 为 fvrt_ 开头的收藏条目 ID，非目标 ID）
+ */
+async function vrchatRemoveFavorite(cookie, favoriteId) {
+  if (typeof favoriteId !== 'string' || !VRC_FAVORITE_ID_PATTERN.test(favoriteId)) {
+    const err = new Error(`非法收藏条目 ID: ${favoriteId}`);
+    err.code = 'INVALID_VRC_ID';
+    err.statusCode = 400;
+    throw err;
+  }
+  return vrchatRequest('DELETE', `/favorites/${encodeURIComponent(favoriteId)}`, null, cookie);
+}
+
+/**
+ * 获取收藏分组列表（返回全部分组，每项含 type/name/displayName/ownerUserId/count）
+ */
+async function vrchatGetFavoriteGroups(cookie, n = 50, offset = 0) {
+  return vrchatRequest('GET', `/favorite/groups?n=${n}&offset=${offset}&apiKey=${VRC_API_KEY}`, null, cookie);
+}
+
+/**
+ * 重命名收藏分组（ownerUserId 为分组归属用户的 usr_ ID，来自分组列表）
+ */
+async function vrchatUpdateFavoriteGroup(cookie, type, name, ownerUserId, displayName) {
+  const safeName = assertFavoriteGroupName(name);
+  const safeOwner = sanitizeVrcId(ownerUserId);
+  const safeType = VRC_FAV_TYPES.includes(type) ? type : null;
+  if (!safeType) {
+    const err = new Error(`不支持的收藏类型: ${type}`);
+    err.code = 'INVALID_TARGET_TYPE';
+    err.statusCode = 400;
+    throw err;
+  }
+  const body = { displayName: String(displayName || '').slice(0, 64) };
+  return vrchatRequest('PUT', `/favorite/group/${safeType}/${safeName}/${safeOwner}`, body, cookie);
+}
+
+/**
+ * 清空收藏分组（删除分组内全部条目，分组本身保留）
+ */
+async function vrchatClearFavoriteGroup(cookie, type, name, ownerUserId) {
+  const safeName = assertFavoriteGroupName(name);
+  const safeOwner = sanitizeVrcId(ownerUserId);
+  const safeType = VRC_FAV_TYPES.includes(type) ? type : null;
+  if (!safeType) {
+    const err = new Error(`不支持的收藏类型: ${type}`);
+    err.code = 'INVALID_TARGET_TYPE';
+    err.statusCode = 400;
+    throw err;
+  }
+  return vrchatRequest('DELETE', `/favorite/group/${safeType}/${safeName}/${safeOwner}`, null, cookie);
+}
+
 module.exports = {
   VRC_API,
   VRC_API_KEY,
   USER_AGENT,
   VRC_INSTANCE_PATTERN,
+  VRC_FAV_TYPES,
+  sanitizeVrcId,
   vrchatRequest,
   vrchatBasicLogin,
   vrchatVerifyTwoFactor,
@@ -909,7 +1064,10 @@ module.exports = {
   vrchatGetCurrentUserResult,
   vrchatGetGroupEvents,
   vrchatGetWorld,
+  vrchatGetNotifications,
   vrchatGetInstance,
+  vrchatSendInvite,
+  vrchatSendFriendRequest,
   vrchatSearchWorlds,
   vrchatListWorlds,
   vrchatGetPopularWorlds,
@@ -950,5 +1108,11 @@ module.exports = {
   vrchatGetAllFriends,
   vrchatGetFriendsOnlineMap,
   vrchatResolveOnlineStatuses,
-  vrchatGetUser
+  vrchatGetUser,
+  vrchatGetFavorites,
+  vrchatAddFavorite,
+  vrchatRemoveFavorite,
+  vrchatGetFavoriteGroups,
+  vrchatUpdateFavoriteGroup,
+  vrchatClearFavoriteGroup
 };

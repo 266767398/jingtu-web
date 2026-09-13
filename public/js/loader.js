@@ -43,7 +43,8 @@ var ROUTE_MODULES = [
 
 // 2026-08-31：被禁用的功能模块（占用网络多/暂不需要）
 // - 'live'：直播功能。入口通过 CSS [data-feature-disabled] 隐藏，模块不参与懒加载也不预载；
-//   服务端路由 live.js 仍在 server.js 中挂载（保留代码资产，需要时一行启用）。
+//   2026-09-12（P1-5 收尾）：服务端 /api/live 也已卸载，路由归档于 server/routes/_archive/live.js，
+//   此处 DISABLED_FEATURES 为唯一事实来源；复活步骤见该归档文件头注释。
 var DISABLED_FEATURES = new Set(['live']);
 function _isDisabled(name) { return DISABLED_FEATURES.has(name); }
 
@@ -52,7 +53,7 @@ var TAB_MODULES = {
   home: ['home.js'],
   members: ['members.js'],
   me: ['admin-users.js', 'profile.js', 'profile-page.js'],
-  vrc: ['group.js', 'members.js', 'map.js', 'vrc.js', 'collections.js'],
+  vrc: ['group.js', 'members.js', 'map.js', 'vrc.js', 'collections.js', 'vrc_favorites.js'],
   announcements: ['announcements.js'],
   events: ['events.js'],
   album: ['album.js'],

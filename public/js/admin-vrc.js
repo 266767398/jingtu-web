@@ -38,6 +38,9 @@ function handleVrcAction(e) {
         case 'show-login':
           showSystemVrcLogin();
           break;
+        case 'load-notifications':
+          loadVrcNotifications();
+          break;
       }
     } else if (el.hasAttribute('data-action')) {
       const action = el.dataset.action;
@@ -304,6 +307,33 @@ function showSystemVrcLogin() {
   }
   document.getElementById('systemVrcLoginForm')?.classList.remove('d-none');
   document.getElementById('systemVrcError')?.classList.add('d-none');
+}
+
+// F-19: 拉取系统 VRChat 账号的官方通知列表（REST 兜底，与 pipeline WS 实时推送互补）
+async function loadVrcNotifications() {
+  if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'super_admin')) return;
+  const listEl = document.getElementById('vrcNotifList');
+  if (!listEl) return;
+  listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.notif_loading') + '</p>';
+  try {
+    const res = await api('/api/vrc-notifications?n=50');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || __('admin_vrc.notif_fail'));
+    const list = Array.isArray(data.notifications) ? data.notifications : [];
+    if (!list.length) {
+      listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.notif_empty') + '</p>';
+      return;
+    }
+    listEl.innerHTML = list.map(nt => {
+      const time = nt.createdAt ? new Date(nt.createdAt).toLocaleString() : '';
+      const msg = nt.message ? '<div class="text-13 text-muted">' + esc(String(nt.message).slice(0, 200)) + '</div>' : '';
+      return '<div class="vrc-notif-item mb-8"><div class="text-13"><strong>' + esc(nt.title || nt.type || 'VRChat') + '</strong>' +
+        (nt.senderUsername ? ' <span class="text-muted2">@' + esc(nt.senderUsername) + '</span>' : '') +
+        (time ? ' <span class="text-muted2">· ' + time + '</span>' : '') + '</div>' + msg + '</div>';
+    }).join('');
+  } catch (e) {
+    listEl.innerHTML = '<p class="text-red text-13">' + (e.message || __('admin_vrc.notif_fail')) + '</p>';
+  }
 }
 
 function hideSystemVrcLogin() {
