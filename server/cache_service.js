@@ -399,6 +399,10 @@ async function warmup(getPool) {
   }
 }
 
+async function del(key) {
+  await cache.del(key);
+}
+
 async function clearAll() {
   await cache.flushAll();
   console.log('[cache-service] 所有缓存已清除');
@@ -510,6 +514,7 @@ module.exports = {
   getGroupRosterOnline,
   setGroupRosterOnline,
   warmup,
+  del,
   clearAll,
   getCacheStatus,
   invalidateRelated,

@@ -98,6 +98,77 @@ async function exists(key) {
   }
 }
 
+/**
+ * 原子计数：首次写入即带 TTL，避免 incr-then-expire 竞态产生永生键。
+ * 返回 { total, ttl }；Redis 不可用或异常时返回 null，调用方需回退本地实现。
+ */
+async function incr(key, ttlSeconds) {
+  if (!isEnabled || !redisClient) return null;
+  const ttl = Number.isFinite(ttlSeconds) && ttlSeconds > 0 ? Math.ceil(ttlSeconds) : 0;
+  try {
+    const created = ttl > 0
+      ? await redisClient.set(key, '1', { NX: true, EX: ttl })
+      : await redisClient.set(key, '1', { NX: true });
+    if (created) return { total: 1, ttl };
+
+    const total = await redisClient.incr(key);
+    const remaining = ttl > 0 ? await redisClient.ttl(key) : -1;
+    if (ttl > 0 && remaining < 0) {
+      await redisClient.expire(key, ttl);
+      return { total, ttl };
+    }
+    return { total, ttl: ttl > 0 ? remaining : ttl };
+  } catch (e) {
+    console.error('[cache] incr error:', e);
+    isEnabled = false;
+    return null;
+  }
+}
+
+/**
+ * 剩余存活秒数：键不存在/已过期返回 -2，未设置过期返回 -1，Redis 不可用返回 -2。
+ */
+async function ttl(key) {
+  if (!isEnabled || !redisClient) return -2;
+  try {
+    return await redisClient.ttl(key);
+  } catch (e) {
+    console.error('[cache] ttl error:', e);
+    isEnabled = false;
+    return -2;
+  }
+}
+
+async function expire(key, seconds) {
+  if (!isEnabled || !redisClient) return false;
+  try {
+    return await redisClient.expire(key, Math.ceil(seconds));
+  } catch (e) {
+    console.error('[cache] expire error:', e);
+    isEnabled = false;
+    return false;
+  }
+}
+
+/**
+ * 释放 Redis 连接，供进程优雅退出时调用。
+ */
+async function closeCache() {
+  if (!redisClient) return;
+  const client = redisClient;
+  redisClient = null;
+  isEnabled = false;
+  try {
+    await client.quit();
+  } catch (e) {
+    try {
+      client.disconnect();
+    } catch (closeErr) {
+      console.error('[cache] closeCache error:', closeErr);
+    }
+  }
+}
+
 async function keys(pattern) {
   if (!isEnabled || !redisClient) return [];
   try {
@@ -167,6 +238,10 @@ module.exports = {
   set,
   del,
   exists,
+  incr,
+  ttl,
+  expire,
+  closeCache,
   keys,
   flushAll,
   getStats,

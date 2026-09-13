@@ -1,5 +1,6 @@
 const rateLimit = require('express-rate-limit');
 const cache = require('../cache');
+const { hybridStore } = require('./rate_limit_store');
 
 // 使用 ipKeyGenerator 辅助函数包装 IP 获取，修复 IPv6 兼容性
 function ipKey(req) {
@@ -20,6 +21,7 @@ const limiterConfig = {
 const loginLimiter = rateLimit({
   ...limiterConfig,
   max: 10,
+  store: hybridStore('rate-login'),
   message: {
     error: '登录失败次数过多，请稍后再试',
     retryAfter: 900
@@ -30,6 +32,7 @@ const loginLimiter = rateLimit({
 const registerLimiter = rateLimit({
   ...limiterConfig,
   max: 5,
+  store: hybridStore('rate-register'),
   message: {
     error: '注册请求过于频繁，请稍后再试',
     retryAfter: 900
@@ -40,6 +43,7 @@ const registerLimiter = rateLimit({
 const apiLimiter = rateLimit({
   ...limiterConfig,
   max: 200,
+  store: hybridStore('rate-api'),
   message: {
     error: 'API请求过于频繁，请稍后再试',
     retryAfter: 900
@@ -49,6 +53,7 @@ const apiLimiter = rateLimit({
 const uploadLimiter = rateLimit({
   ...limiterConfig,
   max: 30,
+  store: hybridStore('rate-upload'),
   message: {
     error: '上传请求过于频繁，请稍后再试',
     retryAfter: 900
@@ -59,6 +64,7 @@ const uploadLimiter = rateLimit({
 const passwordResetLimiter = rateLimit({
   ...limiterConfig,
   max: 5,
+  store: hybridStore('rate-password-reset'),
   message: {
     error: '敏感操作请求过于频繁，请稍后再试',
     retryAfter: 900
@@ -84,9 +90,10 @@ const bruteForceLimiter = {
   }
 };
 
-const createCustomLimiter = (options) => {
+const createCustomLimiter = ({ name, ...options }) => {
   return rateLimit({
     ...limiterConfig,
+    store: hybridStore(`rate-custom-${name || 'anonymous'}`),
     ...options
   });
 };

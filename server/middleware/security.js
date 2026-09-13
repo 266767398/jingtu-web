@@ -6,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const { onRateLimitTriggered, onSuspiciousRequest } = require('../security_alert');
 const { getLimits } = require('../settings');
+const { hybridStore } = require('./rate_limit_store');
 const { fail } = require('../utils');
 
 const FILE_SIGNATURES = {
@@ -95,6 +96,7 @@ const ddosLimiter = rateLimit({
   max: 600,
   standardHeaders: true,
   legacyHeaders: false,
+  store: hybridStore('security-ddos'),
   message: { error: '请求过于频繁，请稍后再试' },
   skip: (req) => {
     if (req.method === 'OPTIONS') return true;
@@ -115,6 +117,7 @@ const loginBruteForceLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   standardHeaders: true,
+  store: hybridStore('security-login-bruteforce'),
   message: { error: '登录尝试次数过多，请15分钟后再试' },
   skipSuccessfulRequests: true,
   keyGenerator: (req) => {
@@ -132,6 +135,7 @@ const uploadLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  store: hybridStore('security-upload'),
   message: { error: '上传请求过于频繁，请稍后再试', retryAfter: 60 },
   handler: (req, res) => {
     onRateLimitTriggered(req.ip, req.path);
@@ -144,6 +148,7 @@ const adminLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
+  store: hybridStore('security-admin'),
   message: { error: '管理后台请求过于频繁，请稍后再试', retryAfter: 60 },
   handler: (req, res) => {
     onRateLimitTriggered(req.ip, req.path);
@@ -156,6 +161,7 @@ const searchLimiter = rateLimit({
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  store: hybridStore('security-search'),
   message: { error: '搜索请求过于频繁，请稍后再试', retryAfter: 30 },
   handler: (req, res) => {
     onRateLimitTriggered(req.ip, req.path);

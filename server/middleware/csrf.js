@@ -2,16 +2,72 @@
  * CSRF 保护
  * token 生成后绑定当前 sessionID（防跨用户复用），可重用直至过期或会话不匹配；
  * 豁免 GET/HEAD/OPTIONS 与登录/初始化路径。含 /api/auth/check-init 与 /api/csrf-token 两个路由。
+ *
+ * P1-1（条件触发项）：token 记录本地 Map + Redis 双写。
+ * - 本地 Map 始终写入，作为权威副本 → Redis 抖动/未配置时行为与迁移前完全一致；
+ * - Redis 可用时同步写入 csrf:<token>（带 TTL）→ 多 worker 部署下可跨进程校验他机颁发的 token。
  */
 const crypto = require('crypto');
 const logger = require('../logger');
+const cache = require('../cache');
 const { fail, getPool, safeError } = require('../utils');
 
 const csrfTokens = new Map();
 const CSRF_EXPIRY = 60 * 60 * 1000;
+const CSRF_EXPIRY_SECONDS = Math.ceil(CSRF_EXPIRY / 1000);
+const CSRF_KEY_PREFIX = 'csrf:';
 
 function generateCsrfToken() {
   return crypto.randomBytes(32).toString('hex');
+}
+
+function csrfRedisKey(token) {
+  return `${CSRF_KEY_PREFIX}${token}`;
+}
+
+function isUsableRecord(record) {
+  return !!record
+    && typeof record === 'object'
+    && typeof record.sid === 'string'
+    && Number.isFinite(record.createdAt);
+}
+
+// 双写：本地 Map 为权威副本，Redis 仅在启用时同步（失败静默降级，不影响本地校验）
+async function csrfStoreSet(token, record) {
+  csrfTokens.set(token, record);
+  if (!cache.isEnabled()) return;
+  try {
+    await cache.set(csrfRedisKey(token), record, CSRF_EXPIRY_SECONDS);
+  } catch (e) {
+    logger.warn('[csrf] Redis 写入失败，已降级为本地存储:', e?.message);
+  }
+}
+
+// 先查本地，未命中再查 Redis（覆盖「token 由其他 worker 颁发」场景），命中后回填本地
+async function csrfStoreGet(token) {
+  const local = csrfTokens.get(token);
+  if (local) return local;
+  if (!cache.isEnabled()) return null;
+  try {
+    const shared = await cache.get(csrfRedisKey(token));
+    if (isUsableRecord(shared)) {
+      csrfTokens.set(token, shared);
+      return shared;
+    }
+  } catch (e) {
+    logger.warn('[csrf] Redis 读取失败，已降级为本地存储:', e?.message);
+  }
+  return null;
+}
+
+async function csrfStoreDelete(token) {
+  csrfTokens.delete(token);
+  if (!cache.isEnabled()) return;
+  try {
+    await cache.del(csrfRedisKey(token));
+  } catch (e) {
+    logger.warn('[csrf] Redis 删除失败，已降级为本地存储:', e?.message);
+  }
 }
 
 /**
@@ -38,11 +94,11 @@ function setupCsrf(app) {
   });
 
   // 获取 CSRF Token（绑定到当前 session，防止 token 被跨用户复用）
-  app.get('/api/csrf-token', (req, res) => {
+  app.get('/api/csrf-token', async (req, res) => {
     const token = generateCsrfToken();
     const sid = req.sessionID || 'anon';
-    csrfTokens.set(token, { sid, createdAt: Date.now() });
-    // token 已在 csrfTokens Map 中绑定到当前 sessionID，校验时仅需验证 Map 中的 sid 匹配
+    await csrfStoreSet(token, { sid, createdAt: Date.now() });
+    // token 已绑定到当前 sessionID，校验时仅需验证记录中的 sid 匹配
     res.json({ csrfToken: token });
   });
 
@@ -61,7 +117,7 @@ function setupCsrf(app) {
   }, 15 * 60 * 1000).unref();
 
   // CSRF 中间件（豁免 GET/HEAD/OPTIONS + 登录/初始化路径）
-  app.use('/api', (req, res, next) => {
+  app.use('/api', async (req, res, next) => {
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
     // ⚠️ Express app.use('/api', ...) 会裁剪 req.path，所以豁免路径使用相对于 /api 的路径
     const exemptPaths = ['/vrchat-login', '/init',
@@ -75,16 +131,16 @@ function setupCsrf(app) {
       '/jtt/accounts/verify', '/jtt/accounts/register', '/jtt/states'];
     if (exemptPaths.some(p => req.path === p)) return next();
     const token = req.headers['x-csrf-token'];
-    if (!token || !csrfTokens.has(token)) return fail(res, 403, 'CSRF token 无效');
-    const record = csrfTokens.get(token);
+    const record = token ? await csrfStoreGet(token) : null;
+    if (!record) return fail(res, 403, 'CSRF token 无效');
     if (Date.now() - record.createdAt > CSRF_EXPIRY) {
-      csrfTokens.delete(token);
+      await csrfStoreDelete(token);
       return fail(res, 403, 'CSRF token 已过期，请刷新页面');
     }
     // session 绑定检查：校验 token 生成时所绑定的 sessionID 是否与当前请求一致
     // 防止 token 被跨用户/跨会话复用（例如 CSRF token 泄露后攻击者用自己的 session 使用）
     if (record.sid && record.sid !== 'anon' && record.sid !== req.sessionID) {
-      csrfTokens.delete(token);
+      await csrfStoreDelete(token);
       return fail(res, 403, 'CSRF token 与当前会话不匹配');
     }
     // token 可重用：仅在过期（CSRF_EXPIRY）或会话不匹配时清除
