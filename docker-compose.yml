@@ -64,6 +64,12 @@ services:
       KOOK_URL: ${KOOK_URL:-}
       OOPZ_URL: ${OOPZ_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Redis 缓存（可选）：留空即完全关闭，应用回退进程内实现；
+      # 容器内如需 Redis，请自行添加 redis 服务并把 REDIS_HOST 指向该服务名
+      REDIS_HOST: ${REDIS_HOST:-}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
       # 直播推流（可选）
       RTMP_HOST: ${RTMP_HOST:-}
       RTMP_PORT: ${RTMP_PORT:-1935}
