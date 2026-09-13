@@ -54,3 +54,21 @@ uploads/profile/photos/*
 uploads/profile/videos/*
 !uploads/profile/photos/.gitkeep
 !uploads/profile/videos/.gitkeep
+
+# ===== 仓库卫生收口（P2-65，2026-09-13）=====
+# 运行时生成资产目录（头像缓存/相册图片等用户数据），永不入库
+/assets/
+# 浏览器截图调试产物
+/captures/
+# 用户上传内容（头像/直播截图；已跟踪的样例文件不受影响）
+/uploads/avatars/*
+/uploads/live/*
+# Jest 覆盖率本地产物（CI 上传 lcov 已足够）
+server/coverage/
+# 性能优化前的文件备份快照
+/.perf-backup/
+# 浏览器审计输出产物
+server/browser-audit/
+# AI 助手本地状态目录
+/.workbuddy/
+/.codebuddy/
