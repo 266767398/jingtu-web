@@ -7,6 +7,14 @@
  * tags:
  *   name: Events
  *   description: 活动管理相关接口
+ *
+ * P0-3（2026-09-13 修复）：封堵活动可见性零执行洞——
+ *   列表侧（活动列表/生日派对/iCal 导出/日历/有关联 World）统一按 visibilityFilter 过滤：
+ *     匿名仅见 public；普通登录用户不见 private（或本人创建）；管理员全量。
+ *   详情侧：members_only 需登录、private 仅组织者/管理员；出勤名单（signList/checkinList）
+ *     收敛为组织者/管理员可见，人数保持公开（前端按 null 优雅跳过名单渲染）。
+ *   另封堵两个同源泄露面：/:id/signs 匿名全量名单、/:id/google-calendar 匿名标题跳转。
+ *   路由路径与数量不变，仅收紧数据可见范围。
  */
 const express = require('express');
 const { fail, ok,  getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes  } = require('../utils');;
@@ -75,6 +83,17 @@ function generateGoogleCalendarUrl(evt) {
   const details = encodeURIComponent(evt.description || '');
   const location = encodeURIComponent(evt.place || evt.worldName || '');
   return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${formatICalDate(start)}/${formatICalDate(end)}&details=${details}&location=${location}`;
+}
+
+// P0-3 可见性执行：按当前会话身份生成 visibility 过滤 SQL 片段。
+// 匿名 => 仅 public；管理员及以上 => 全量；普通登录用户 => 非 private，或本人创建。
+// NULL 视同 public（DB DEFAULT 'public'，兼容历史行）。prefix 用于带表别名的查询。
+function visibilityFilter(req, prefix = '') {
+  const uid = req.session?.userId || 0;
+  if (!uid) return { clause: `COALESCE(${prefix}visibility, 'public') = 'public'`, params: [] };
+  const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+  if (roleLevel >= ROLE_LEVEL.admin) return { clause: '1=1', params: [] };
+  return { clause: `(COALESCE(${prefix}visibility, 'public') <> 'private' OR ${prefix}create_user_id = ?)`, params: [uid] };
 }
 
 /**
@@ -151,6 +170,10 @@ router.get('/', async (req, res) => {
       }
       // VN-9 命令面板：按标题模糊搜索（无表别名，COUNT 与主查询共用 whereStr）
       if (q) { whereClauses.push('title LIKE ?'); params.push('%' + q + '%'); }
+      // P0-3：按身份过滤可见性（COUNT 与主查询共用 whereStr，列名无歧义）
+      const vis = visibilityFilter(req);
+      whereClauses.push(vis.clause);
+      params.push(...vis.params);
       const whereStr = whereClauses.join(' AND ');
 
       const [count] = await getPool().query(`SELECT COUNT(*) as total FROM event WHERE ${whereStr}`, params);
@@ -176,8 +199,10 @@ router.get('/', async (req, res) => {
   // ==================== 生日派对 ====================
   router.get('/birthday-parties', async (req, res) => {
     try {
+      const vis = visibilityFilter(req);
       const [rows] = await getPool().query(
-        `SELECT id, title, event_time AS eventTime, ends_at AS endsAt, description, create_admin AS createAdmin, create_user_id AS createUserId, event_type AS eventType FROM event WHERE event_type='birthday' ORDER BY event_time DESC LIMIT 20`
+        `SELECT id, title, event_time AS eventTime, ends_at AS endsAt, description, create_admin AS createAdmin, create_user_id AS createUserId, event_type AS eventType FROM event WHERE event_type='birthday' AND ${vis.clause} ORDER BY event_time DESC LIMIT 20`,
+        vis.params
       );
       res.json(rows);
     } catch (e) { handleError(res, e, '[events/birthday-parties]'); }
@@ -186,9 +211,11 @@ router.get('/', async (req, res) => {
   // ==================== 活动日历导出（iCal格式） ====================
   router.get('/export/ical', async (req, res) => {
     try {
+      const vis = visibilityFilter(req);
       const [rows] = await getPool().query(
         `SELECT id, title, place, event_time AS eventTime, description, event_type AS eventType, ends_at AS endsAt, world_name AS worldName
-         FROM event WHERE is_archive=0 ORDER BY event_time ASC LIMIT 50`
+         FROM event WHERE is_archive=0 AND ${vis.clause} ORDER BY event_time ASC LIMIT 50`,
+        vis.params
       );
       const ical = generateICal(rows);
       res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
@@ -201,8 +228,9 @@ router.get('/', async (req, res) => {
   router.get('/calendar', async (req, res) => {
     try {
       const { year, month } = req.query;
-      let sql = `SELECT id, title, event_time AS eventTime, ends_at AS endsAt, event_type AS eventType, visibility FROM event WHERE is_archive=0`;
-      const params = [];
+      const vis = visibilityFilter(req);
+      let sql = `SELECT id, title, event_time AS eventTime, ends_at AS endsAt, event_type AS eventType, visibility FROM event WHERE is_archive=0 AND ${vis.clause}`;
+      const params = [...vis.params];
       if (year && month) {
         const start = `${year}-${String(month).padStart(2, '0')}-01`;
         const end = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
@@ -218,10 +246,12 @@ router.get('/', async (req, res) => {
   // ==================== 有关联 World 的活动 ====================
   router.get('/with-worlds', async (req, res) => {
     try {
+      const vis = visibilityFilter(req);
       const [rows] = await getPool().query(
-        `SELECT id, title, event_time AS eventTime, event_time AS time, ends_at AS endsAt, world_id AS worldId, world_name AS worldName, world_image_url AS worldImageUrl FROM event WHERE world_id IS NOT NULL ORDER BY event_time DESC LIMIT 50`
+        `SELECT id, title, event_time AS eventTime, event_time AS time, ends_at AS endsAt, world_id AS worldId, world_name AS worldName, world_image_url AS worldImageUrl, visibility FROM event WHERE world_id IS NOT NULL AND ${vis.clause} ORDER BY event_time DESC LIMIT 50`,
+        vis.params
       );
-      const events = rows.map(e => ({ ...e, participants: 0, maxParticipants: 0, signCount: 0, description: '', eventType: 'activity', visibility: 'members_only' }));
+      const events = rows.map(e => ({ ...e, participants: 0, maxParticipants: 0, signCount: 0, description: '', eventType: 'activity', visibility: e.visibility || 'public' }));
       res.json({ events });
     } catch (e) { handleError(res, e, '[events/with-worlds]'); }
   });
@@ -242,23 +272,38 @@ router.get('/', async (req, res) => {
       );
       if (rows.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '活动不存在');
       const evt = rows[0];
+      // P0-3：详情页可见性执行——members_only 需登录；private（防御性）仅组织者/管理员
+      const uid = req.session?.userId || 0;
+      const vis = evt.visibility || 'public';
+      const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+      const isOwner = !!uid && evt.createUserId === uid;
+      const isAdmin = roleLevel >= ROLE_LEVEL.admin;
+      if (vis === 'members_only' && !uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录后查看该活动');
+      if (vis === 'private' && !isOwner && !isAdmin) return sendError(res, 403, ErrorCodes.FORBIDDEN, '仅组织者或管理员可查看该活动');
+      // P0-3：出勤名单（报名/打卡）含用户昵称与 ID，仅组织者/管理员可见；人数保持公开
+      const canSeeRoster = !!uid && (isOwner || isAdmin);
       // 当前用户是否已报名（用于前端按钮态，避免依赖前端本地 Set 的初始缺失）
-      const [[signedRow]] = await getPool().query('SELECT 1 AS ok FROM event_sign WHERE event_id=? AND user_vrcid=? AND is_sign=1', [id, req.session?.userId || 0]);
+      const [[signedRow]] = await getPool().query('SELECT 1 AS ok FROM event_sign WHERE event_id=? AND user_vrcid=? AND is_sign=1', [id, uid]);
       const signedByMe = !!signedRow;
-      const [signs] = await getPool().query(`SELECT id, user_vrcid, user_name, sign_time FROM event_sign WHERE event_id=? AND is_sign=1 ORDER BY sign_time`, [id]);
       const [signCount] = await getPool().query(`SELECT COUNT(*) as c FROM event_sign WHERE event_id=? AND is_sign=1`, [id]);
-      const signList = await Promise.all(signs.map(async s => {
-        const [u] = await getPool().query(
-          `SELECT display_name, avatar_type, custom_avatar_path, vrchat_avatar_url FROM users WHERE id = ? OR login_id = ?`,
-          [s.user_vrcid, s.user_vrcid]);
-        return { id: s.id, user_name: s.user_name, avatarUrl: u.length > 0 ? getAvatarUrl(u[0]) : null };
-      }));
-      const [checkins] = await getPool().query(`SELECT id, user_id, user_name, checkin_time AS checkinTime FROM event_checkin WHERE event_id=? ORDER BY checkin_time`, [id]);
       const [[{ checkinCount }]] = await getPool().query(`SELECT COUNT(*) AS checkinCount FROM event_checkin WHERE event_id=?`, [id]);
+      let signList = null;
+      let checkinList = null;
+      if (canSeeRoster) {
+        const [signs] = await getPool().query(`SELECT id, user_vrcid, user_name, sign_time FROM event_sign WHERE event_id=? AND is_sign=1 ORDER BY sign_time`, [id]);
+        signList = await Promise.all(signs.map(async s => {
+          const [u] = await getPool().query(
+            `SELECT display_name, avatar_type, custom_avatar_path, vrchat_avatar_url FROM users WHERE id = ? OR login_id = ?`,
+            [s.user_vrcid, s.user_vrcid]);
+          return { id: s.id, user_name: s.user_name, avatarUrl: u.length > 0 ? getAvatarUrl(u[0]) : null };
+        }));
+        const [checkins] = await getPool().query(`SELECT id, user_id, user_name, checkin_time AS checkinTime FROM event_checkin WHERE event_id=? ORDER BY checkin_time`, [id]);
+        checkinList = checkins;
+      }
       // 结束状态：用于前端置灰/隐藏过期活动的操作入口
       const now = new Date();
       const ended = evt.endsAt ? now > new Date(evt.endsAt) : (evt.eventTime ? now > new Date(evt.eventTime) : false);
-      res.json({ ...evt, time: evt.eventTime, desc: evt.description, signedByMe, signCount: signCount[0].c, maxSign: evt.maxSign, signList, checkinList: checkins, checkinCount, ended });
+      res.json({ ...evt, time: evt.eventTime, desc: evt.description, signedByMe, signCount: signCount[0].c, maxSign: evt.maxSign, signList, checkinList, checkinCount, ended });
     } catch (e) { handleError(res, e, '[events/detail]'); }
   });
 
@@ -601,6 +646,15 @@ router.get('/', async (req, res) => {
   // ==================== 获取报名列表 ====================
   router.get('/:id/signs', async (req, res) => {
     try {
+      // P0-3：报名名单含用户昵称/ID（出勤 PII），仅登录的组织者或管理员可见
+      const uid = req.session?.userId || 0;
+      if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
+      const [evRows] = await getPool().query(`SELECT create_user_id AS createUserId FROM event WHERE id = ?`, [req.params.id]);
+      if (evRows.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '活动不存在');
+      const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+      if (evRows[0].createUserId !== uid && roleLevel < ROLE_LEVEL.admin) {
+        return sendError(res, 403, ErrorCodes.FORBIDDEN, '仅组织者或管理员可查看报名名单');
+      }
       const [rows] = await getPool().query(`SELECT id, user_vrcid AS userVrcId, user_name AS userName, sign_time AS signTime FROM event_sign WHERE event_id=? AND is_sign=1`, [req.params.id]);
       res.json(rows);
     } catch (e) { handleError(res, e, '[events/signs]'); }
@@ -722,10 +776,18 @@ router.get('/', async (req, res) => {
       const id = parseInt(req.params.id);
       if (!id) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
       const [rows] = await getPool().query(
-        `SELECT id, title, place, event_time AS eventTime, description, event_type AS eventType, ends_at AS endsAt, world_name AS worldName
+        `SELECT id, title, place, event_time AS eventTime, description, event_type AS eventType, ends_at AS endsAt, world_name AS worldName, visibility, create_user_id AS createUserId
          FROM event WHERE id = ?`, [id]
       );
       if (rows.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '活动不存在');
+      // P0-3：跳转 URL 携带标题/简介/地点，按与详情页一致的可见性规则执行
+      const uid = req.session?.userId || 0;
+      const vis = rows[0].visibility || 'public';
+      const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+      if (vis === 'members_only' && !uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录后查看该活动');
+      if (vis === 'private' && rows[0].createUserId !== uid && roleLevel < ROLE_LEVEL.admin) {
+        return sendError(res, 403, ErrorCodes.FORBIDDEN, '仅组织者或管理员可查看该活动');
+      }
       const url = generateGoogleCalendarUrl(rows[0]);
       res.redirect(url);
     } catch (e) { handleError(res, e, '[events/google-calendar]'); }
