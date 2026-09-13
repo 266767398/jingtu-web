@@ -294,7 +294,8 @@ describe('位置共享必须有 HTTP 持久化兜底', () => {
   //   sendLocationViaWS 在 WS 未连接时直接 return，于是 /api/users/all/locations
   //   （过滤 lat IS NOT NULL）恒返回空数组，而 UI 还显示"正在共享"。
   const mapJs = read(path.join(PUB, 'js', 'map.js'));
-  const usersJs = read(path.join(ROOT, 'server', 'routes', 'users.js'));
+  // P2-66 god-route 拆分：PUT /me/location 已按域拆至 users_profile.js，守卫随实现迁移
+  const usersJs = read(path.join(ROOT, 'server', 'routes', 'users_profile.js'));
 
   test('WS 不可用时改用 HTTP 上报坐标', () => {
     expect(/persistLocationViaHttp/.test(mapJs)).toBe(true);

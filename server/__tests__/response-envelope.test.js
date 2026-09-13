@@ -100,6 +100,8 @@ describe('P2-6 错误侧已迁移文件静态守卫', () => {
     'routes/admin_users.js', 'routes/admin_content_live.js',
     'routes/avatar.js', 'routes/database.js',
     'routes/db-recover.js', 'routes/events.js', 'routes/export.js', 'routes/groups.js',
+    // P2-66 god-route 拆分：groups 子模块中仅这两处引入 fail，守卫随实现迁移
+    'routes/groups_members_sync.js', 'routes/groups_content.js',
     'routes/logs.js', 'routes/migration.js', 'routes/permission_groups.js',
     'routes/permissions.js', 'routes/posts.js', 'routes/setup.js', 'routes/users.js',
     'routes/vrc_system.js', 'middleware/api_version.js', 'middleware/security.js',

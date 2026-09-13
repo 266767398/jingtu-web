@@ -50,6 +50,8 @@ function extractDirective(source, directive) {
 describe('map module regressions', () => {
   const mapJs = () => readRepo('public', 'js', 'map.js');
   const usersRoute = () => readServer('routes', 'users.js');
+  // P2-66 god-route 拆分：/me/profile、/me/location 等资料域路由已按域拆至 users_profile.js，守卫随实现迁移
+  const usersProfileRoute = () => readServer('routes', 'users_profile.js');
 
   // 防止 Leaflet 再次只依赖公共 CDN，弱网或 CDN 被拦时地图会不可用。
   test('Leaflet is vendored locally so the map does not depend on public CDNs', () => {
@@ -103,7 +105,7 @@ describe('map module regressions', () => {
     expect(source).toMatch(/api\(['"]\/api\/users\/me\/location['"],\s*\{\s*method:\s*['"]PUT['"],\s*body:\s*\{\s*visible:\s*true\s*\}/s);
     expect(source).toMatch(/api\(['"]\/api\/users\/me\/location['"],\s*\{\s*method:\s*['"]PUT['"],\s*body:\s*\{\s*visible:\s*false\s*\}/s);
     expect(source).not.toMatch(/\/api\/users\/me\/profile[^\n]+locationVisible/);
-    const route = usersRoute();
+    const route = usersProfileRoute();
     expect(route).toMatch(/router\.put\(['"]\/me\/location['"]/);
     expect(route).toMatch(/const\s+\{\s*lat,\s*lng,\s*location,\s*visible\s*\}\s*=\s*req\.body/);
     expect(route).toMatch(/updates\.location_visible\s*=\s*visible\s*\?\s*1\s*:\s*0/);
@@ -126,8 +128,10 @@ describe('map module regressions', () => {
 
   // 防止 PUT /me/location 接受 NaN/越界坐标，或更新坐标时不记录更新时间。
   test('PUT /me/location validates coordinates and records a timestamp', () => {
-    const route = usersRoute();
-    const locationRoute = route.slice(route.indexOf("router.put('/me/location'"), route.indexOf("router.get('/:userId/photos'"));
+    // P2-66：/me/location 是 users_profile.js 的末条路由，原结束锚点 /:userId/photos 留在壳内，
+    // 改为从起始锚点切到文件末尾（断言均为该路由内正向 needle，不依赖边界排除）。
+    const route = usersProfileRoute();
+    const locationRoute = route.slice(route.indexOf("router.put('/me/location'"));
     expect(locationRoute).toMatch(/parseFloat\(lat\)/);
     expect(locationRoute).toMatch(/!Number\.isFinite\(v\)\s*\|\|\s*v\s*<\s*-90\s*\|\|\s*v\s*>\s*90/);
     expect(locationRoute).toMatch(/parseFloat\(lng\)/);

@@ -28,7 +28,8 @@ const files = {
   dbInit: read('server', 'db_init.js'),
   metrics: read('server', 'middleware', 'metrics.js'),
   analyticsRoute: read('server', 'routes', 'analytics.js'),
-  usersRoute: read('server', 'routes', 'users.js'),
+  // P2-66 god-route 拆分：/me/profile、/me/avatar 等资料域路由已按域拆至 users_profile.js，守卫随实现迁移
+  usersProfileRoute: read('server', 'routes', 'users_profile.js'),
   profileRoute: read('server', 'routes', 'profile.js'),
   membersJs: read('public', 'js', 'members.js'),
   migrationPage: read('public', 'migration.html'),
@@ -285,7 +286,7 @@ describe('security regressions', () => {
 
   // 资料写入曾零校验直落库，且 coverImage 被静默丢弃；PUT /me/profile 必须全字段校验并接收 coverImage。
   test('validates profile updates and keeps the coverImage field', () => {
-    const putProfile = sliceBetween(files.usersRoute, "router.put('/me/profile'", "router.post('/me/avatar'");
+    const putProfile = sliceBetween(files.usersProfileRoute, "router.put('/me/profile'", "router.post('/me/avatar'");
     expect(putProfile).toMatch(/const \{ displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage \} = req\.body/);
     expect(putProfile).toMatch(/!\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(birthday\)/);
     expect(putProfile).toMatch(/const isSafeUrl = \(v\) => typeof v === 'string' && v\.length <= 500 && \(/);
@@ -300,7 +301,7 @@ describe('security regressions', () => {
 
   // 前端保存封面后 GET /me/profile 曾永远读回空值；响应必须回显 preferences.coverImage。
   test('returns coverImage from GET /me/profile', () => {
-    const getProfile = sliceBetween(files.usersRoute, "router.get('/me/profile'", "router.put('/me/profile'");
+    const getProfile = sliceBetween(files.usersProfileRoute, "router.get('/me/profile'", "router.put('/me/profile'");
     expect(getProfile).toMatch(/coverImage:\s*u\.preferences\?\.coverImage \|\| ''/);
   });
 

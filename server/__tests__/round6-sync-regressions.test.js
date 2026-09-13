@@ -167,7 +167,10 @@ describe('全局加载指示器必须真的能显示', () => {
 
 describe('VRChat 上游临时故障不得销毁用户的登录凭据', () => {
   const vrcJs = srv('vrc.js');
-  const groupsJs = srv('routes/groups.js');
+  // P2-66 god-route 拆分：vrcWithFallback 实现迁至 groups_helpers.js，
+  // 群组同步路由迁至 groups_members_sync.js，守卫随实现迁移。
+  const groupsHelpersJs = srv('routes/groups_helpers.js');
+  const groupsSyncJs = srv('routes/groups_members_sync.js');
 
   test('vrc.js 导出带 HTTP 状态的取当前用户接口', () => {
     expect(vrcJs).toMatch(/async\s+function\s+vrchatGetCurrentUserResult\s*\(/);
@@ -185,13 +188,13 @@ describe('VRChat 上游临时故障不得销毁用户的登录凭据', () => {
   });
 
   test('vrcWithFallback 只认 401，不能把 null 或 5xx 当成登录失效', () => {
-    expect(groupsJs).toMatch(/const\s+unauthorized\s*=\s*result\?\.status\s*===\s*401\s*;/);
-    expect(groupsJs).not.toMatch(/unauthorized\s*=\s*result\s*===\s*null/);
+    expect(groupsHelpersJs).toMatch(/const\s+unauthorized\s*=\s*result\?\.status\s*===\s*401\s*;/);
+    expect(groupsHelpersJs).not.toMatch(/unauthorized\s*=\s*result\s*===\s*null/);
   });
 
   test('同步路由把「登录过期」和「上游故障」分开处理', () => {
-    const i = groupsJs.indexOf("router.post('/group/members/sync'");
-    const body = groupsJs.slice(i, i + 3000);
+    const i = groupsSyncJs.indexOf("router.post('/group/members/sync'");
+    const body = groupsSyncJs.slice(i, i + 3000);
     // 401 才提示重新登录/重新绑定
     expect(body).toMatch(/status\s*===\s*401[\s\S]{0,400}VRC_COOKIE_EXPIRED/);
     // 其它非 200 走 sendVrcError 分流（会给出"限流"之类的准确原因）
@@ -202,9 +205,10 @@ describe('VRChat 上游临时故障不得销毁用户的登录凭据', () => {
 // ---------------------------------------------------------------------------
 
 describe('群组同步不能把自己或整站拖住', () => {
-  const groupsJs = srv('routes/groups.js');
-  const syncStart = groupsJs.indexOf("router.post('/group/members/sync'");
-  const syncBody = groupsJs.slice(syncStart, groupsJs.indexOf('\n  });', syncStart));
+  // P2-66 god-route 拆分：同步域整体迁至 groups_members_sync.js（同为工厂内 2 空格缩进，切片锚点不变）
+  const groupsSyncJs = srv('routes/groups_members_sync.js');
+  const syncStart = groupsSyncJs.indexOf("router.post('/group/members/sync'");
+  const syncBody = groupsSyncJs.slice(syncStart, groupsSyncJs.indexOf('\n  });', syncStart));
 
   test('分页循环必须有轮次上限', () => {
     // 原来是 while (true)：上游一旦忽略 offset 一直返回满页，
@@ -227,7 +231,7 @@ describe('群组同步不能把自己或整站拖住', () => {
   test('同一时刻只允许一次全量同步', () => {
     // 前端超时后用户会重复点；并发同步会互相看到对方
     // `UPDATE ... is_member=0` 的中间态，写出成片假的"已离开群组"。
-    expect(groupsJs).toMatch(/let\s+syncInFlight\s*=\s*false/);
+    expect(groupsSyncJs).toMatch(/let\s+syncInFlight\s*=\s*false/);
     expect(syncBody).toMatch(/if\s*\(\s*syncInFlight\s*\)/);
     expect(syncBody).toMatch(/syncInFlight\s*=\s*true/);
     // 必须在 finally 里复位，否则一次异常就永久锁死同步功能

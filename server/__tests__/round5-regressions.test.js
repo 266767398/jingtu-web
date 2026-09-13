@@ -108,6 +108,10 @@ describe('VRChat cookie 失效后必须能降级到下一个候选', () => {
   const serverJs = srv('server.js');
   const vrcAuthJs = srv('vrc_auth.js');
   const groupsJs = srv(path.join('routes', 'groups.js'));
+  // P2-66 god-route 拆分：vrcWithFallback 实现收敛至 groups_helpers.js（壳仅保留 (req, run) 转发闭包），
+  // 群组同步路由迁至 groups_members_sync.js，守卫随实现迁移。
+  const groupsHelpersJs = srv(path.join('routes', 'groups_helpers.js'));
+  const groupsSyncJs = srv(path.join('routes', 'groups_members_sync.js'));
   const eventsJs = srv(path.join('routes', 'events.js'));
   const authJs = srv('auth_vrc_service.js');
 
@@ -140,19 +144,20 @@ describe('VRChat cookie 失效后必须能降级到下一个候选', () => {
     // vrchatGetCurrentUser 对任何非 2xx（429 限流、500、超时）都返回 null，
     // 一旦按 null 判定就会把用户 session 里的 VRChat cookie 清掉，
     // 用户刷新后发现"绑定又没了"。上游临时故障绝不能销毁登录凭据。
-    expect(groupsJs).toMatch(/const\s+unauthorized\s*=\s*result\?\.status\s*===\s*401\s*;/);
-    expect(groupsJs).not.toMatch(/unauthorized\s*=\s*result\s*===\s*null/);
+    expect(groupsHelpersJs).toMatch(/const\s+unauthorized\s*=\s*result\?\.status\s*===\s*401\s*;/);
+    expect(groupsHelpersJs).not.toMatch(/unauthorized\s*=\s*result\s*===\s*null/);
     // 降级后必须确认拿到的是不同的 cookie，否则会无意义地重试同一份
-    expect(groupsJs).toMatch(/next\s*&&\s*next\s*!==\s*cookie/);
+    expect(groupsHelpersJs).toMatch(/next\s*&&\s*next\s*!==\s*cookie/);
   });
 
   test('群组同步走 vrcWithFallback，且用带 HTTP 状态的取用户接口', () => {
-    const syncStart = groupsJs.indexOf("router.post('/group/members/sync'");
+    const syncStart = groupsSyncJs.indexOf("router.post('/group/members/sync'");
     expect(syncStart).toBeGreaterThan(-1);
-    const body = groupsJs.slice(syncStart, syncStart + 3000);
+    const body = groupsSyncJs.slice(syncStart, syncStart + 3000);
     // 必须用 vrchatGetCurrentUserResult：裸的 vrchatGetCurrentUser 失败时只返回 null，
     // 调用方分不清"cookie 过期"和"VRChat 挂了"
-    expect(body).toMatch(/vrcWithFallback\(\s*req\s*,\s*\(c\)\s*=>\s*vrchatGetCurrentUserResult\(c\)\s*\)/);
+    // P2-66：helper 版把 cookie 取值函数改为显式入参，第 2 个实参后可出现 ',' 或 ')'
+    expect(body).toMatch(/vrcWithFallback\(\s*req\s*,\s*\(c\)\s*=>\s*vrchatGetCurrentUserResult\(c\)\s*[,)]/);
   });
 
   test('世界搜索 / 模型搜索 / 群组信息都接入了降级', () => {
