@@ -94,7 +94,7 @@
             __('auto_admin_ui_4') + escapeHtml(s.displayName || s.username || '-') + __('auto_admin_ui_5') + (s.startedAt || '-') + '</div></div>' +
             '<span class="badge ' + (live ? 'badge-live' : 'badge-ended') + '">' + (live ? __('live.live_now') : __('auto_admin_ui_6')) + '</span>' +
             (live ? '<button class="btn btn-sm btn-danger" onclick="adminEndLive(\'' + s.id + '\')">⏹ ' + __('admin_ui.end_live') + '</button>' : '') +
-            '<button class="btn btn-sm btn-outline" onclick="adminDeleteLive(\'' + s.id + __('auto_admin_ui_7') +
+            '<button class="btn btn-sm btn-outline" onclick="adminDeleteLive(\'' + s.id + '\')">🗑 ' + __('auto_admin_ui_7') + '</button>' +
             '</div>';
         }).join('');
         renderAdminLivePager(r.page || page, r.totalPages || 1, page);

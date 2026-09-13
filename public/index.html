@@ -78,7 +78,7 @@
         return 'zh';
       }
       // 解析期 document.write 外部脚本为阻塞式，保证在 i18n.js 之前就绪
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260906g"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260912a"><\/script>');
     })();
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
@@ -521,6 +521,9 @@
       <span class="section-title-icon">🧭</span>
       <h3 class="section-title" data-i18n="home.feature_nav_title">功能导航</h3>
       <span class="home-feature-hint text-muted2 text-12 ml-8" data-i18n="home.feature_nav_hint">点击任意入口，直达对应模块</span>
+      <!-- F-8：首页 widget 自定义（编辑态拖拽排序 + 显隐，localStorage 持久化） -->
+      <button id="homeWidgetResetBtn" type="button" class="btn btn-sm btn-ghost" style="display:none" onclick="resetHomeWidgetLayout()" data-i18n="home.widget_reset">恢复默认</button>
+      <button id="homeWidgetEditBtn" type="button" class="btn btn-sm btn-outline ml-auto" aria-pressed="false" onclick="toggleHomeWidgetEdit()" data-i18n="home.widget_edit">✏️ 自定义</button>
     </div>
     <div id="homeFeatureGrid" class="home-feature-grid"></div>
 
@@ -627,6 +630,7 @@
       <span class="map-tab-btn active" data-view="group" role="button" tabindex="0" onclick="switchVrcView('group')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVrcView('group')">👥 <span data-i18n="nav.group">群组</span></span>
       <span class="map-tab-btn" data-view="worlds" role="button" tabindex="0" onclick="switchVrcView('worlds')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVrcView('worlds')">🌐 <span data-i18n="map.worlds_view">VRChat 世界</span></span>
       <span class="map-tab-btn" data-view="collections" role="button" tabindex="0" onclick="switchVrcView('collections')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVrcView('collections')">📚 <span data-i18n="nav.collections">收藏</span></span>
+      <span class="map-tab-btn" data-view="vrcfav" role="button" tabindex="0" onclick="switchVrcView('vrcfav')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVrcView('vrcfav')">⭐ <span data-i18n="nav.vrc_favorites">VRChat 收藏</span></span>
     </div>
     <div id="vrcGroupView">
     <div id="groupOverview" class="group-overview">
@@ -835,6 +839,46 @@
 
         <div id="collList" class="coll-grid"></div>
         <div id="collLoadMore" class="coll-loadmore-wrap mt-8"></div>
+      </div>
+    </div>
+    </div>
+    <!-- F-20 VRChat 官方收藏子视图：直接管理 VRChat 账号内的官方收藏（游戏内同样可见），与站内收藏库并存 -->
+    <div id="vrcFavoritesView" class="d-none">
+    <div class="coll-layout">
+      <aside class="coll-sidebar" id="vrcfavSidebar">
+        <div class="coll-sidebar-head flex-row justify-between align-center">
+          <span data-i18n="vrcfav.groups">官方收藏分组</span>
+          <button id="vrcfavRefreshGroupsBtn" class="btn btn-xs btn-outline" title="刷新分组" aria-label="刷新分组">⟳</button>
+        </div>
+        <ul class="coll-folder-list" id="vrcfavGroupList">
+          <li class="coll-folder active" data-group=""><span data-i18n="collections.all">全部</span></li>
+        </ul>
+        <div class="mt-8" id="vrcfavGroupOps">
+          <input id="vrcfavRenameInput" class="group-admin-input" style="width:100%" placeholder="新分组显示名" maxlength="32" aria-label="新分组显示名">
+          <div class="flex-row gap-6 mt-8">
+            <button id="vrcfavRenameBtn" class="btn btn-xs btn-outline">✏️ 重命名</button>
+            <button id="vrcfavClearBtn" class="btn btn-xs btn-outline">🗑️ 清空分组</button>
+          </div>
+        </div>
+      </aside>
+      <div class="coll-main">
+        <div class="page-header">
+          <h2 data-i18n="nav.vrc_favorites">⭐ VRChat 收藏</h2>
+          <div class="page-actions">
+            <button id="vrcfavRefreshBtn" class="btn btn-sm btn-outline">🔄 <span data-i18n="common.refresh">刷新</span></button>
+          </div>
+        </div>
+        <div class="coll-kind-bar" id="vrcfavKindBar">
+          <button class="coll-kind active" data-kind="world">🌐 <span data-i18n="nav.worlds">世界</span></button>
+          <button class="coll-kind" data-kind="avatar">🎭 <span data-i18n="nav.avatars">头像</span></button>
+          <button class="coll-kind" data-kind="friend">🧑‍🦰 <span data-i18n="nav.group">好友</span></button>
+        </div>
+        <div class="coll-filters flex-row gap-8 mb-8 flex-wrap" id="vrcfavAddBar">
+          <input type="text" id="vrcfavAddId" class="search-box m-0 flex-1" placeholder="输入 ID（世界 wrld_ / 头像 avtr_ / 好友 usr_）" aria-label="收藏目标 ID" maxlength="64" autocomplete="off">
+          <button id="vrcfavAddBtn" class="btn btn-sm btn-accent">➕ <span data-i18n="collections.add">添加收藏</span></button>
+        </div>
+        <div id="vrcfavList" class="coll-grid"></div>
+        <div id="vrcfavLoadMore" class="coll-loadmore-wrap mt-8"></div>
       </div>
     </div>
     </div>
@@ -1145,7 +1189,8 @@
       </div>
       <div id="systemVrcError" class="text-13 text-red d-none mt-4"></div>
       <div id="systemVrcExpireWrap" class="d-none mt-12"></div>
-      <div class="mt-12"><button id="btnSyncGroup" class="btn btn-sm btn-outline">🔄 同步群组成员</button><button id="adminOperLogBtn" class="btn btn-sm btn-outline ml-4">📋 操作日志</button></div>
+      <div class="mt-12"><button id="btnSyncGroup" class="btn btn-sm btn-outline">🔄 同步群组成员</button><button id="adminOperLogBtn" class="btn btn-sm btn-outline ml-4">📋 操作日志</button><button class="btn btn-sm btn-outline ml-4" data-vrc-action="load-notifications">🔔 <span data-i18n="admin_vrc.notif_btn">官方通知</span></button></div>
+      <div id="vrcNotifList" class="mt-8"></div>
     </div>
 
           </section>
@@ -2279,9 +2324,9 @@
 <!-- ===== Scripts ===== -->
 <!-- 核心基础设施：defer 后与其余模块同批次按文档顺序执行（core 仍在最前），
      移出解析阻塞路径，首屏可先完成首次绘制（P2-21） -->
-<script defer src="/js/core.js?v=20260906a"></script>
+<script defer src="/js/core.js?v=20260912b"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
-<script defer src="/js/i18n.js?v=20260906g"></script>
+<script defer src="/js/i18n.js?v=20260912a"></script>
 <script defer src="/js/ui.js?v=20260906a"></script>
 <script defer src="/vendor/gsap/gsap.min.js?v=20260906a"></script>
 <script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260906a"></script>
