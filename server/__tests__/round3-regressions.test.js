@@ -343,7 +343,7 @@ describe('直播推流地址可用于 OBS', () => {
   // 症状：把弹窗里的地址填进 OBS 无法推流。
   // 根因：后端返回的是站内相对路径 /live/rtmp/<id>，既不是 rtmp:// 协议，
   //   也没有推流码，任何人猜到自增 id 就能顶替他人推流。
-  const live = stripJsComments(read(path.join(ROOT, 'server', 'routes', 'live.js')));
+  const live = stripJsComments(read(path.join(ROOT, 'server', 'routes', '_archive', 'live.js')));
 
   test('生成完整的 rtmp:// 地址而非站内相对路径', () => {
     // 注意：必须先去掉注释再检测。解释"这里以前写成 /live/rtmp/${id}"的注释

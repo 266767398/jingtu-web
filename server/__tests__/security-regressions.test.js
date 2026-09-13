@@ -14,9 +14,14 @@ const files = {
   vrcService: read('server', 'auth_vrc_service.js'),
   authMiddleware: read('server', 'auth.js'),
   securityMiddleware: read('server', 'middleware', 'security.js'),
+  rateLimitMiddleware: read('server', 'middleware', 'rate_limit.js'),
+  rateLimitStore: read('server', 'middleware', 'rate_limit_store.js'),
+  cacheLib: read('server', 'cache.js'),
+  cacheService: read('server', 'cache_service.js'),
+  chatRoute: read('server', 'routes', 'chat.js'),
   migrationRoute: read('server', 'routes', 'migration.js'),
   vrcSystemRoute: read('server', 'routes', 'vrc_system.js'),
-  liveRoute: read('server', 'routes', 'live.js'),
+  liveRoute: read('server', 'routes', '_archive', 'live.js'),
   postsRoute: read('server', 'routes', 'posts.js'),
   shareRoute: read('server', 'routes', 'share.js'),
   backupsRoute: read('server', 'routes', 'backups.js'),
@@ -89,7 +94,7 @@ describe('security regressions', () => {
     expectBefore(files.server, 'const { csrfCleanupInterval } = setupCsrf(app);', "app.use('/api/auth', require('./routes/auth'))");
     expectBefore(files.server, 'const { csrfCleanupInterval } = setupCsrf(app);', "app.use('/api/migration', require('./routes/migration'))");
     expectBefore(files.server, 'const { csrfCleanupInterval } = setupCsrf(app);', "app.use('/api', require('./routes/database'))");
-    expect(files.csrfMiddleware).toMatch(/app\.use\('\/api',\s*\(req,\s*res,\s*next\) => \{/);
+    expect(files.csrfMiddleware).toMatch(/app\.use\('\/api',\s*(?:async\s*)?\(req,\s*res,\s*next\) => \{/);
     const csrfBlock = sliceBetween(files.csrfMiddleware, 'const exemptPaths = [', 'const token = req.headers');
     expect(csrfBlock).not.toMatch(/admin|migration|database|backups|files|export|config/);
     expect(files.csrfMiddleware).toMatch(/record\.sid[\s\S]*!== req\.sessionID[\s\S]*CSRF token 与当前会话不匹配/);
@@ -331,5 +336,72 @@ describe('security regressions', () => {
     expect(notesModal).toMatch(/\$\{esc\(userName\)\}/);
     expect(reportModal).toMatch(/\$\{esc\(userName\)\}/);
     expect(files.membersJs).not.toMatch(/\$\{userName\}/);
+  });
+
+  // P1-1（条件触发项）：所有 express-rate-limit limiter 必须显式声明共享 store，
+  // 否则回到 v8 默认 MemoryStore（进程内计数），多实例部署下限流语义失效。
+  test('wires every rate limiter to the shared hybrid store', () => {
+    const countLimiters = (source) => (source.match(/rateLimit\(\{/g) || []).length;
+    const countStores = (source) => (source.match(/store:\s*hybridStore\(/g) || []).length;
+    expect(countLimiters(files.securityMiddleware)).toBe(5);
+    expect(countStores(files.securityMiddleware)).toBe(countLimiters(files.securityMiddleware));
+    expect(countLimiters(files.rateLimitMiddleware)).toBe(6);
+    expect(countStores(files.rateLimitMiddleware)).toBe(countLimiters(files.rateLimitMiddleware));
+    expect(files.chatRoute).toMatch(/joinGroupLimiter = rateLimit\(\{[\s\S]*?store: hybridStore\('chat-join-group'\)/);
+    // createCustomLimiter 必须注入默认 store，且放在调用方 options 之前，允许显式覆盖
+    expect(files.rateLimitMiddleware).toMatch(/const createCustomLimiter = \(\{ name, \.\.\.options \}\) => \{/);
+    expectBefore(files.rateLimitMiddleware, 'store: hybridStore(`rate-custom-', '  ...options');
+    expect(files.rateLimitMiddleware).not.toMatch(/new MemoryStore\(\)/);
+    expect(files.securityMiddleware).not.toMatch(/new MemoryStore\(\)/);
+  });
+
+  // hybrid store 必须在「请求时」而不是构造时判断 Redis 可用性（initCache 是 fire-and-forget），
+  // 并且 Redis 关闭/异常时必须回退到本地 MemoryStore，保持限流始终生效。
+  test('keeps the hybrid store degradable when Redis is unavailable', () => {
+    expect(files.rateLimitStore).toMatch(/const \{ MemoryStore \} = require\('express-rate-limit'\)/);
+    expect(files.rateLimitStore).toMatch(/const cache = require\('\.\.\/cache'\)/);
+    expect(files.rateLimitStore).toMatch(/this\.localKeys = false/);
+    expect(files.rateLimitStore).toMatch(/this\.prefix = `\$\{KEY_PREFIX\}:\$\{this\.name\}:`/);
+    expect(files.rateLimitStore).toMatch(/async increment\(key\) \{[\s\S]*?if \(cache\.isEnabled\(\)\)[\s\S]*?return this\.local\.increment\(key\)/);
+    expect(files.rateLimitStore).toMatch(/async decrement\(key\) \{[\s\S]*?await this\.local\.decrement\(key\)/);
+    expect(files.rateLimitStore).toMatch(/async get\(key\) \{[\s\S]*?return this\.local\.get\(key\)/);
+    expect(files.rateLimitStore).toMatch(/async resetKey\(key\) \{[\s\S]*?await this\.local\.resetKey\(key\)/);
+    // 可用性判定必须逐方法发生在请求时（共 4 处），否则启动后才连上的 Redis 永远不会被使用
+    expect((files.rateLimitStore.match(/if \(cache\.isEnabled\(\)\)/g) || []).length).toBe(4);
+    // v8 校验：同一 store 实例不得跨 limiter 复用，工厂必须每次新建实例
+    expect(files.rateLimitStore).toMatch(/function hybridStore\(name\) \{[\s\S]*?return new HybridStore\(/);
+    expect(files.rateLimitStore).not.toMatch(/registry\.get\(base\)\s*\?\?\s*new HybridStore/);
+    // Redis 计数键必须带 TTL，避免窗口结束后键常驻
+    expect(files.rateLimitStore).toMatch(/Math\.ceil\(this\.windowMs \/ 1000\)/);
+    expect(files.cacheLib).toMatch(/async function incr\(key, ttlSeconds\)/);
+    expect(files.cacheLib).toMatch(/NX:\s*true,\s*EX:\s*ttl/);
+    expect(files.cacheLib).toMatch(/isEnabled = false/);
+    expect(files.cacheLib).toMatch(/async function closeCache\(\)/);
+    expect(files.cacheLib).toMatch(/exports = \{[\s\S]*incr,[\s\S]*closeCache,/);
+  });
+
+  // P1-1：CSRF token 必须本地 Map + Redis 双写，Redis 仅为跨实例共享副本，
+  // 未配置或异常时行为与迁移前一致（本地 Map 为权威副本）。
+  test('dual-writes CSRF tokens to Redis with a local authoritative copy', () => {
+    expect(files.csrfMiddleware).toMatch(/const cache = require\('\.\.\/cache'\)/);
+    expect(files.csrfMiddleware).toMatch(/async function csrfStoreSet\(token, record\) \{\s*csrfTokens\.set\(token, record\);\s*if \(!cache\.isEnabled\(\)\) return;/);
+    expect(files.csrfMiddleware).toMatch(/async function csrfStoreGet\(token\) \{\s*const local = csrfTokens\.get\(token\);\s*if \(local\) return local;/);
+    expect(files.csrfMiddleware).toMatch(/csrfTokens\.set\(token, shared\)/);
+    expect(files.csrfMiddleware).toMatch(/const record = token \? await csrfStoreGet\(token\) : null/);
+    expect(files.csrfMiddleware).toMatch(/await csrfStoreDelete\(token\)/);
+    expect(files.csrfMiddleware).toMatch(/await cache\.del\(csrfRedisKey\(token\)\)/);
+    expect(files.csrfMiddleware).toMatch(/CSRF_KEY_PREFIX = 'csrf:'/);
+    expect(files.csrfMiddleware).toMatch(/TTL[\s\S]*CSRF_EXPIRY_SECONDS|cache\.set\(csrfRedisKey\(token\), record, CSRF_EXPIRY_SECONDS\)/);
+    // 清理定时器仍须负责本地 Map，避免只依赖 Redis TTL 造成内存增长
+    expect(files.csrfMiddleware).toMatch(/for \(const \[token, record\] of csrfTokens\) \{/);
+  });
+
+  // 缓存门面必须透传 del，否则 posts.js 的写后失效会抛 TypeError；优雅关闭须释放 Redis 连接。
+  test('exposes cache invalidation passthrough and releases Redis on shutdown', () => {
+    expect(files.cacheService).toMatch(/async function del\(key\) \{\s*await cache\.del\(key\);\s*\}/);
+    expect(files.cacheService).toMatch(/exports = \{[\s\S]*\bdel,\n[\s\S]*clearAll,/);
+    expect(files.postsRoute).toMatch(/await cacheService\.del\(/);
+    expect(files.server).toMatch(/await cache\.closeCache\(\)/);
+    expectBefore(files.server, 'startSchedule.gracefulShutdown()', 'await cache.closeCache()');
   });
 });

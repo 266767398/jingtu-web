@@ -111,14 +111,25 @@ describe('同名全局函数不得跨文件重复定义（后加载者会静默�
     //
     // 例外（有意下线、保留资产的脚本，删除前先确认security-regressions仍引用）：
     //   live.js —— 前端直播模块已从 loader.js ROUTE_MODULES 移除（docs/19 P1-5：
-    //   缺外部转码管线），后端 /api/live 路由保留。security-regressions.test.js
-    //   仍读取该文件校验"前端上传契约与后端对齐"，故文件保留在原位。
-    //   若重新启用直播（P1-5 落地），把它加回 ROUTE_MODULES 并从此处移除豁免。
+    //   缺外部转码管线）。2026-09-12 P1-5 收尾：后端路由也已卸载并归档至
+    //   routes/_archive/live.js，DISABLED_FEATURES 成为唯一事实来源。
+    //   security-regressions.test.js 仍读取该文件校验"前端上传契约与后端对齐"，
+    //   故前端文件保留在原位。若重新启用直播（P1-5 落地），把前端加回
+    //   ROUTE_MODULES、后端移回 routes/ 并恢复挂载，同时移除下方防复活守卫。
     const intentionallyUnloaded = new Set(['live.js']);
     const orphans = fs
       .readdirSync(JS_DIR)
       .filter((f) => f.endsWith('.js') && !scriptsUsedByAnyPage.has(f) && !intentionallyUnloaded.has(f));
     expect(orphans).toEqual([]);
+  });
+
+  test('P1-5 防复活：前端已下线的 /api/live 后端不得仍被挂载', () => {
+    // 「前端隐藏、后端裸露」曾是本仓库的安全惯性（P2-4 同类）。
+    // loader.js DISABLED_FEATURES 下线了直播入口，服务端就必须同步不可达，
+    // 否则未鉴权的直播列表/详情接口仍在公网上暴露。
+    const serverSrc = srv('server.js');
+    expect(serverSrc).not.toMatch(/app\.use\(\s*['"]\/api\/live/);
+    expect(serverSrc).not.toMatch(/require\(\s*['"]\.\/routes\/live/);
   });
 });
 
@@ -517,6 +528,133 @@ describe('i18n：新增的界面文案要覆盖全部语言', () => {
     }
     expect(missing).toEqual([]);
   });
+
+  test('语言包里不得残留「拼接到一半」的前缀键（如 events.month_）', () => {
+    // 动态拼接的前缀一旦被当成完整键写进语言包，静态审计会把它当成"引用到了、但缺后缀"
+    // 的假阳性，真正的缺键反而被淹没；同时代码运行时永远命中不了它（拼接结果带后缀）。
+    const prefixes = ['nav.', 'error.', 'events.month_', 'events.weekday_',
+      'friends.feed_', 'home.feature_cat_', 'home.feature_desc_'];
+    const orphans = [];
+    for (const l of LANGS) {
+      const src = read(path.join(LANG_DIR, `${l}.js`));
+      for (const p of prefixes) {
+        if (new RegExp('["\']' + p.replace(/\./g, '\\.') + '["\']\\s*:').test(src)) orphans.push(`${l}: ${p}`);
+      }
+    }
+    expect(orphans).toEqual([]);
+  });
+
+  test('语言包与 i18n.js 的 ?v= 必须等于 I18N_PACK_VERSION（否则修复送不到客户端）', () => {
+    // 带 ?v= 的静态资源：服务端 max-age=31536000 immutable（server.js），SW 对 ?v= 资源
+    // cache-first 且零网络（sw.js）。也就是说改语言包内容本身对老客户端完全无效，
+    // 唯一的失效手段就是换 URL 里的 ?v=。因此存在三方联动：
+    //   i18n.js 的 I18N_PACK_VERSION 拼出运行时加载的包 URL
+    //   各 HTML 里 document.write 的首包 ?v= 必须与它一致
+    //   引用 /js/i18n.js 的 ?v= 也必须一致 —— 只改常量不改标签，老客户端仍在执行
+    //   缓存里的旧 i18n.js、继续请求旧包，本次月份名修复就永远到不了线上。
+    // 2026-09-12 核查 P1-8 时实测到三方漂移（index.html=20260906g、四个辅助页=20260906f、
+    // 常量=20260912a），故加此守卫。
+    const ver = js('i18n.js').match(/const I18N_PACK_VERSION\s*=\s*'([^']+)'/);
+    expect(ver).not.toBeNull();
+    const version = ver[1];
+
+    const pages = fs.readdirSync(PUB).filter((f) => f.endsWith('.html'));
+    expect(pages.length).toBeGreaterThan(3);
+
+    const drift = [];
+    let pinned = 0;
+    for (const f of pages) {
+      for (const line of read(path.join(PUB, f)).split('\n')) {
+        if (!/src=|document\.write/.test(line)) continue;
+        if (!/languages\/|\/js\/i18n\.js/.test(line)) continue;
+        const at = line.match(/\?v=([\w.-]+)/);
+        if (!at) continue; // 不带版本号的（setup.html）走 etag 协商缓存，每次都是最新的
+        pinned++;
+        if (at[1] !== version) drift.push(`${f}: ?v=${at[1]} != I18N_PACK_VERSION ${version}`);
+      }
+    }
+    expect(pinned).toBeGreaterThan(5);
+    expect(drift).toEqual([]);
+  });
+
+  test('错误码翻译缺失时必须回退后端原文，而不是把 error.XXX 键名渲染给用户', () => {
+    // error.<code> 的后缀来自服务端运行时（含上游 VRChat 透传码），无法穷举，
+    // 所以这条链路的正确性靠"未命中就回退 message"的契约兜底，这里守住契约本身。
+    const core = js('core.js');
+    expect(core).toMatch(/__\(\s*['"]error\.['"]\s*\+\s*code\s*\)/);
+    expect(core).toMatch(/translated\s*!==\s*['"]error\.['"]\s*\+\s*code/);
+    for (const f of ['friends.js', 'follows.js']) {
+      const src = js(f);
+      expect(src).toMatch(/t\s*!==\s*['"]error\.['"]\s*\+\s*code/);
+    }
+  });
+
+  test('运行时拼接出来的 i18n 键必须在全部 6 种语言里都存在（P1-8 同类缺陷防护）', () => {
+    // 静态审计脚本（server/scripts/audit-i18n-full.js）只能匹配字符串字面量常量，
+    // `__('nav.' + it.tab)` 这类拼接它只会记录成残缺前缀 `nav.`，永远发现不了缺键 ——
+    // P1-8 正是这么漏掉的；本次核查又抓出 events.month_1..12 在 6 种语言里全缺，
+    // 日历/周视图/某日清单表头直接把原始键名渲染给用户。
+    const SKIP_DIRS = new Set(['languages', '_archive', '_unwired']);
+    const liveFiles = [];
+    (function walk(dir) {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const f = path.join(dir, e.name);
+        if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) walk(f); }
+        else if (e.name.endsWith('.js')) liveFiles.push(f);
+      }
+    })(JS_DIR);
+    expect(liveFiles.length).toBeGreaterThan(30);
+
+    const found = new Map();
+    for (const f of liveFiles) {
+      const src = stripJsComments(read(f));
+      for (const m of src.matchAll(/__\(\s*(['"])([^'"]+)\1\s*\+/g)) {
+        if (!found.has(m[2])) found.set(m[2], path.basename(f));
+      }
+    }
+
+    const FEATURE_TABS = ['members', 'vrc', 'chat', 'friends', 'follows', 'announcements',
+      'posts', 'album', 'live', 'events', 'map', 'birthday', 'notifications', 'me', 'admin'];
+    const FEATURE_CATS = ['community', 'content', 'discover', 'personal', 'admin'];
+    const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+    const SUFFIXES = {
+      'nav.': FEATURE_TABS,
+      'home.feature_desc_': FEATURE_TABS,
+      'home.feature_cat_': FEATURE_CATS,
+      'events.weekday_': WEEKDAYS,
+      'events.month_': Array.from({ length: 12 }, (_, i) => String(i + 1)),
+      'friends.feed_': ['post', 'sign', 'photo'],
+    };
+
+    const dynamicPrefixes = [...found.keys()].filter((p) => p !== 'error.').sort();
+    // 双向锁：新增了拼接点却没登记后缀清单 → 炸；清单里的拼接点被删掉/改写 → 也炸，
+    // 避免这条守卫悄悄退化成什么都不检查的摆设。
+    expect(dynamicPrefixes).toEqual(Object.keys(SUFFIXES).sort());
+
+    // 清单必须与 home.js / events.js / friends.js 里的真实取值来源一致
+    const home = stripJsComments(read(path.join(JS_DIR, 'home.js')));
+    expect([...new Set([...home.matchAll(/tab:\s*'([a-z_]+)'/g)].map((m) => m[1]))].sort())
+      .toEqual([...FEATURE_TABS].sort());
+    expect([...new Set([...home.matchAll(/cat:\s*'([a-z_]+)'/g)].map((m) => m[1]))].sort())
+      .toEqual([...FEATURE_CATS].sort());
+    const events = stripJsComments(read(path.join(JS_DIR, 'events.js')));
+    expect(events).toMatch(/\['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'\]/);
+    const friends = stripJsComments(read(path.join(JS_DIR, 'friends.js')));
+    expect(friends).toMatch(/'post'\s*\?\s*'post'\s*:\s*[^?:]*'event_sign'\s*\?\s*'sign'\s*:\s*'photo'/);
+
+    const missing = [];
+    for (const l of LANGS) {
+      const src = read(path.join(LANG_DIR, `${l}.js`));
+      for (const prefix of dynamicPrefixes) {
+        for (const suffix of SUFFIXES[prefix]) {
+          const key = prefix + suffix;
+          const re = new RegExp('["\']' + key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '["\']\\s*:');
+          if (!re.test(src)) missing.push(`${l}: ${key}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -716,5 +854,37 @@ describe('前端脚本不得调用任何全站都不存在的全局函数', () =
     }
     // 去重后报告，便于一眼看出问题
     expect([...new Set(missing)]).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('toast 并发溢出不得死循环卡死主线程', () => {
+  // 2026-09-12 核查 P1-8 时浏览器实测复现：DB 断开后 home 的三个渲染器在同一个
+  // Promise.all 里并发弹「服务器内部错误」。旧实现溢出清理用
+  //   setTimeout(() => first.remove(), 300)
+  // 异步移除，而 while 条件读的 children.length 在同步阶段永远不会减少 ——
+  // 第 4 条 toast 一旦进入清理循环就原地空转，整个标签页主线程永久卡死
+  // （CDP Profiler.stop 同步超时，证实为同步死循环而非异步堆积；表现为"页面突然全冻"，
+  // 不抛任何错误）。这类缺陷运行时难定位，静态守卫成本低，必须钉死。
+  test('core.js 的 toast 溢出循环必须同步移除旧节点，不得依赖 setTimeout', () => {
+    const core = js('core.js');
+    const start = core.indexOf('while (c.children.length >= MAX_TOASTS)');
+    expect(start).toBeGreaterThan(-1);
+
+    let depth = 0;
+    let end = start;
+    for (let i = core.indexOf('{', start); i < core.length; i++) {
+      if (core[i] === '{') depth++;
+      else if (core[i] === '}' && --depth === 0) { end = i; break; }
+    }
+    expect(end).toBeGreaterThan(start);
+    const body = core.slice(start, end + 1);
+
+    expect(body).toContain('first.remove()');
+    expect(body).not.toMatch(/setTimeout/);
+    // 空引用兜底：children 非空但 firstElementChild 理论上为 null 时必须退出，
+    // 否则同样的死循环会以另一种形式复活。
+    expect(body).toMatch(/if\s*\(\s*!\s*first\s*\)\s*(break|return|throw)/);
   });
 });

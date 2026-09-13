@@ -18,14 +18,15 @@ module.exports = {
     'security_alert.js'
   ],
   coverageReporters: ['text', 'lcov', 'html', 'json-summary'],
-  // 覆盖率阈值为当前真实基线（P2-1 首次跑通 test:ci 时实测：语句 ~15.7%、分支 ~6.3%、
-  // 函数 ~9.9%、行 ~17.4%）。原 60/60/50/40 为理想目标、从未达成，会让 CI 恒红；
-  // 后续随 P2-4/P2-6 与路由层单测补齐逐步上调，防止覆盖率回退。
+  // 覆盖率阈值基线（P2-1 设立 15/6/9/16；2026-09-12 P2-4 复验时按「随 P2-4/P2-6 上调」
+  // 承诺实测上调：真实值 语句 17.29 / 分支 6.99 / 函数 11.3 / 行 19.24，取留 ~1pt 余量）。
+  // 原 60/60/50/40 为理想目标、从未达成，会让 CI 恒红；分支因真实值距阈值余量不足暂维持 6，
+  // 后续随路由层单测补齐继续上调，防止覆盖率回退。
   coverageThreshold: {
     global: {
-      lines: 16,
-      statements: 15,
-      functions: 9,
+      lines: 18,
+      statements: 16,
+      functions: 10,
       branches: 6
     }
   },
