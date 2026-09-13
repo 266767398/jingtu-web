@@ -1,22 +1,27 @@
 /**
- * 境途同游 V6.14 — 直播系统路由
- * 
+ * 境途同游 V6.14 — 直播系统路由（已归档，P1-5 收尾 2026-09-12）
+ *
+ * 前端入口已通过 loader.js DISABLED_FEATURES 下线，服务端不再挂载 /api/live
+ * （请求落到全局 404 JSON 兜底）。本文件保留为可复活资产：
+ * 若要重启直播功能，补好外部 RTMP/HLS 转码管线（P1-5 基础设施缺口）后，
+ * 将本文件移回 routes/ 并在 server.js 恢复挂载即可。
+ *
  * @swagger
  * tags:
  *   name: Live
- *   description: 直播相关接口
+ *   description: 直播相关接口（已归档，未挂载）
  */
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload } = require('../utils');
-const { requireAuth, requireAdminCompat } = require('../auth');
+const { getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload } = require('../../utils');
+const { requireAuth, requireAdminCompat } = require('../../auth');
 
 module.exports = function (notificationService) {
   const router = express.Router();
 
-const LIVE_DIR = path.join(__dirname, '..', '..', 'uploads', 'live');
+const LIVE_DIR = path.join(__dirname, '..', '..', '..', 'uploads', 'live');
 if (!fs.existsSync(LIVE_DIR)) fs.mkdirSync(LIVE_DIR, { recursive: true });
 
 const liveStorage = multer.diskStorage({
