@@ -272,6 +272,31 @@ function connectWebSocket() {
       if (msg.type === 'group:roster_update' && typeof applyRosterUpdate === 'function') {
         applyRosterUpdate(msg);
       }
+      // F-19: VRChat 官方通知实时推送（pipeline 接收后广播）。
+      // 系统 VRChat 账号归站点运营方所有，通知只对管理员弹提示，普通用户静默忽略。
+      if (msg.type === 'vrc_notification' && msg.notification) {
+        const n = msg.notification;
+        if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin')) {
+          const notifPanel = document.getElementById('notificationPanel');
+          if (!notifPanel || !notifPanel.classList.contains('show')) {
+            toast('🎮 ' + (n.title || n.senderUsername || __('main.vrc_notif', 'VRChat 通知')), 'info', 5000);
+          }
+          playNotificationSound();
+          showBrowserNotification(n.title || __('main.vrc_notif', 'VRChat 通知'), n.message || '');
+        }
+      }
+      // F-10: 系统账号收到的 VRChat 实例邀请 / 好友申请实时提示（管理员可见，语义同 F-19）
+      if ((msg.type === 'vrc_invite' || msg.type === 'vrc_friend_request') && msg.notification) {
+        const n = msg.notification;
+        if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin')) {
+          const label = __(msg.type === 'vrc_invite' ? 'main.vrc_invite_notif' : 'main.vrc_friendreq_notif');
+          const notifPanel = document.getElementById('notificationPanel');
+          if (!notifPanel || !notifPanel.classList.contains('show')) {
+            toast('🎮 ' + (n.senderUsername || n.title || '') + ' · ' + label, 'info', 5000);
+          }
+          playNotificationSound();
+        }
+      }
     } catch {}
   };
   wsClient.onclose = (ev) => {

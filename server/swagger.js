@@ -32,7 +32,9 @@ const options = {
     },
     security: [{ SessionAuth: [], CSRFToken: [] }]
   },
-  apis: ['./routes/*.js']
+  // 注意：登录/2FA 等认证端点的 @swagger 块写在 service 层
+  // （auth_local_service.js），只扫 routes/ 会让这些接口从文档里整体消失。
+  apis: ['./routes/*.js', './auth_local_service.js']
 };
 
 const swaggerSpec = swaggerJsdoc(options);

@@ -139,14 +139,32 @@ router.get('/list', requireAuth, async (req, res) => {
     const [count] = await getPool().query(
       `SELECT COUNT(*) as total FROM users WHERE deleted_at IS NULL AND approved = 1 AND banned = 0`
     );
+    // F-7: 关联 group_roster 的信任等级（schedule 定时任务已同步），取该用户在所有群组中
+    // 信任阶最高的一个作为列表徽章展示值，避免 VRChat API 逐个查询的开销。
+    // MySQL 5.7 无窗口函数，用 FIELD() 求最高阶 + MIN() 聚合兼容 ONLY_FULL_GROUP_BY。
+    const TRUST_ORDER = `'legend','veteran','vetted','trusted','known','user','new','visitor','negative'`;
     const [rows] = await getPool().query(
       `SELECT u.id, u.login_id AS loginId, u.display_name, u.vrchat_id, u.vrchat_name, u.role, u.avatar_type,
               u.custom_avatar_path, u.vrchat_avatar_url,
               u.location, u.lat, u.lng, u.location_visible AS locationVisible,
-              COALESCE(l.likeCount, 0) AS likeCount
+              COALESCE(l.likeCount, 0) AS likeCount,
+              tr.trust_level AS trustLevel, tr.trust_level_cn AS trustLevelCn
        FROM users u
        LEFT JOIN (SELECT to_user_id, COUNT(*) AS likeCount FROM user_like GROUP BY to_user_id) l
          ON u.id = l.to_user_id
+       LEFT JOIN (
+         SELECT g.vrchat_id, MIN(g.trust_level) AS trust_level, MIN(g.trust_level_cn) AS trust_level_cn
+         FROM group_roster g
+         JOIN (
+           SELECT vrchat_id, MAX(FIELD(trust_level, ${TRUST_ORDER})) AS maxrk
+           FROM group_roster
+           WHERE trust_level IS NOT NULL AND trust_level <> ''
+           GROUP BY vrchat_id
+         ) m ON m.vrchat_id = g.vrchat_id
+         WHERE g.trust_level IS NOT NULL AND g.trust_level <> ''
+           AND FIELD(g.trust_level, ${TRUST_ORDER}) = m.maxrk
+         GROUP BY g.vrchat_id
+       ) tr ON tr.vrchat_id = u.vrchat_id
        WHERE u.deleted_at IS NULL AND u.approved = 1 AND u.banned = 0
        ORDER BY FIELD(u.role, 'super_admin', 'admin', 'member'), u.id ASC
        LIMIT ? OFFSET ?`,
@@ -166,7 +184,9 @@ router.get('/list', requireAuth, async (req, res) => {
       lat: u.locationVisible ? parseFloat(u.lat) : null,
       lng: u.locationVisible ? parseFloat(u.lng) : null,
       locationVisible: !!u.locationVisible,
-      likeCount: parseInt(u.likeCount) || 0
+      likeCount: parseInt(u.likeCount) || 0,
+      trustLevel: u.trustLevel || '',
+      trustLevelCn: u.trustLevelCn || ''
     }));
 
     res.json({ users, total: count[0].total, page, pageSize });

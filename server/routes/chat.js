@@ -14,6 +14,7 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const { getPool, getAvatarUrl, handleError, sendError, ErrorCodes, createFileFilter, secureUpload } = require('../utils');
 const { requireAuth } = require('../auth');
+const { hybridStore } = require('../middleware/rate_limit_store');
 // §67: 引入 ws_service 以在成员变更后失效群成员缓存
 const wsService = require('../ws_service');
 
@@ -308,6 +309,7 @@ const joinGroupLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  store: hybridStore('chat-join-group'),
   message: { ok: false, error: '操作过于频繁，请稍后再试' }
 });
 

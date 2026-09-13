@@ -103,13 +103,12 @@ function toast(msg, type = 'info', duration) {
   const c = document.getElementById('toastContainer');
   if (!c) return;
 
-  // 超过上限移除最旧的
+  // 超过上限移除最旧的：必须同步移除 —— 依赖 setTimeout 时 children.length 不会减少，
+  // 并发第 4 条 toast 会在此 while 死循环卡死主线程（2026-09-12 浏览器实测：home 三接口并发 500）。
   while (c.children.length >= MAX_TOASTS) {
     const first = c.firstElementChild;
-    if (first) {
-      first.classList.add('removing');
-      setTimeout(() => first.remove(), 300);
-    }
+    if (!first) break;
+    first.remove();
   }
 
   const d = document.createElement('div');

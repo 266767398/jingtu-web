@@ -5,12 +5,13 @@
  * tags:
  *   name: Export
  *   description: 数据导出相关接口
- *
- * 说明（P0-3 修复）：导出接口原先一次性 `SELECT * LIMIT 50000` 把整表读入内存数组，
- * 再 redact + 生成完整 CSV/JSON 字符串，峰值内存约 3~4× 数据量；大表（users/messages 等）
- * 易触发 OOM。现改为「mysql2 流式查询 + 逐行 redact + 流式写出(res.write)」，
- * 内存占用与单行大小成常数级，不再随表行数线性增长。
  */
+// 说明（P0-3 修复）：导出接口原先一次性 `SELECT * LIMIT 50000` 把整表读入内存数组，
+// 再 redact + 生成完整 CSV/JSON 字符串，峰值内存约 3~4× 数据量；大表（users/messages 等）
+// 易触发 OOM。现改为「mysql2 流式查询 + 逐行 redact + 流式写出(res.write)」，
+// 内存占用与单行大小成常数级，不再随表行数线性增长。
+// （此段须留在 @swagger 块外：散文行混入块内会让 swagger-jsdoc 抛
+//  YAMLSemanticError，且该库只打日志不抛异常，整块文档会被静默丢弃。）
 const express = require('express');
 const { fail, getPool, handleError , sendError, ErrorCodes } = require('../utils');
 const { requireAdminCompat } = require('../auth');

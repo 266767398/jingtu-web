@@ -177,6 +177,7 @@
   color: var(--trust); border: 1px solid var(--trust); background: color-mix(in srgb, var(--trust) 12%, transparent);
 }
 .vrc-dev { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px; background: rgba(251,191,36,.15); color: #fbbf24; }
+.vrc-troll { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px; background: rgba(239,68,68,.15); color: #ef4444; }
 .vrc-section-label { display: block; font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
 .vrc-badges, .vrc-bio, .vrc-links { margin-top: 16px; }
 .vrc-badge-list, .vrc-link-list { display: flex; flex-wrap: wrap; gap: 6px; }

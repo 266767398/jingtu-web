@@ -9,9 +9,18 @@ let homeLoading = false;
 // __('auto_home_2')那一项不跳标签，而是弹出在线成员列表：这个入口原先挂在顶栏的__('auto_home_3')
 // 和 Hero 统计卡片上，那两处都因重复被移除，功能移交到这里。
 document.addEventListener('click', function(e) {
+  // F-8 编辑态：显隐切换按钮（卡片内嵌的真按钮，不能放在 <button> 里所以编辑态卡片是 div）
+  const wgtToggle = e.target.closest('.wgt-toggle');
+  if (wgtToggle) {
+    const card = wgtToggle.closest('[data-tab]');
+    if (card) toggleWidgetHidden(card.dataset.tab);
+    return;
+  }
   // 功能导航卡片：点击直接进入对应模块（首页__('auto_home_4')的核心交互）
   const feat = e.target.closest('.home-feature-card');
   if (feat) {
+    // 编辑态下点击卡片不跳转（此时卡片用于拖拽排序）
+    if (feat.classList.contains('editing')) return;
     const tab = feat.dataset.tab;
     if (tab && typeof switchTab === 'function') switchTab(tab);
     return;
@@ -69,9 +78,127 @@ const FEATURE_ADMIN = { tab: 'admin', icon: '⚙️' };
 // 这里仅用于首页功能网格的「不展示」过滤；运行时安全由 loader.js 的 switchTab 拦截兜底。
 const HOME_DISABLED_FEATURES = new Set(['live']);
 
-function featureCardHtml(it) {
+// ==================== F-8 首页 widget 自定义（拖拽排序 + 显隐 + 持久化） ====================
+// 排序/显隐仅存 localStorage（个人显示偏好，不动服务端）；HOME_DISABLED_FEATURES 与
+// 管理员判定始终是硬过滤——用户只能隐藏自己可见的入口，不能借自定义「解锁」被禁功能。
+const HOME_LAYOUT_KEY = 'home_widget_layout_v1';
+let homeWidgetEditing = false;
+let homeLayout = null; // { order: ['members', ...], hidden: ['chat', ...] }
+
+// 展开为扁平列表（含 cat 分类标记），管理员入口按角色动态附加
+function defaultFeatureItems() {
+  const items = [];
+  FEATURE_GROUPS.forEach(function (g) {
+    g.items.forEach(function (it) { items.push({ tab: it.tab, icon: it.icon, cat: g.cat }); });
+  });
+  if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin')) {
+    items.push({ tab: FEATURE_ADMIN.tab, icon: FEATURE_ADMIN.icon, cat: 'admin' });
+  }
+  return items;
+}
+
+function loadHomeLayout() {
+  const items = defaultFeatureItems();
+  const defOrder = items.map(function (i) { return i.tab; });
+  const known = new Set(defOrder);
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(HOME_LAYOUT_KEY) || 'null'); } catch (_) { saved = null; }
+  // 只接受当前真实存在的 tab：下线功能的旧排序/隐藏记录自动失效
+  let order = (saved && Array.isArray(saved.order)) ? saved.order.filter(function (t) { return known.has(t); }) : defOrder.slice();
+  // 版本迭代新增的功能入口追加到末尾，保证不会「消失」
+  defOrder.forEach(function (t) { if (order.indexOf(t) === -1) order.push(t); });
+  const hidden = (saved && Array.isArray(saved.hidden)) ? saved.hidden.filter(function (t) { return known.has(t); }) : [];
+  homeLayout = { order: order, hidden: hidden };
+}
+
+function saveHomeLayout() {
+  try { localStorage.setItem(HOME_LAYOUT_KEY, JSON.stringify(homeLayout)); } catch (_) { /* 隐私模式等场景静默失败 */ }
+}
+
+function resetHomeWidgetLayout() {
+  try { localStorage.removeItem(HOME_LAYOUT_KEY); } catch (_) {}
+  loadHomeLayout();
+  renderFeatureGrid();
+}
+
+function toggleHomeWidgetEdit() {
+  homeWidgetEditing = !homeWidgetEditing;
+  if (homeWidgetEditing && !homeLayout) loadHomeLayout();
+  const btn = document.getElementById('homeWidgetEditBtn');
+  const resetBtn = document.getElementById('homeWidgetResetBtn');
+  if (btn) {
+    btn.textContent = homeWidgetEditing ? __('home.widget_done') : __('home.widget_edit');
+    btn.setAttribute('aria-pressed', homeWidgetEditing ? 'true' : 'false');
+  }
+  if (resetBtn) resetBtn.style.display = homeWidgetEditing ? '' : 'none';
+  renderFeatureGrid();
+}
+
+function toggleWidgetHidden(tab) {
+  if (!homeLayout || !tab) return;
+  const i = homeLayout.hidden.indexOf(tab);
+  if (i >= 0) homeLayout.hidden.splice(i, 1); else homeLayout.hidden.push(tab);
+  saveHomeLayout();
+  renderFeatureGrid();
+}
+
+// 拖拽换位：编辑态卡片之间以 drop 目标为锚点重排 order 数组
+function bindHomeWidgetDnD(container) {
+  let dragTab = null;
+  container.addEventListener('dragstart', function (e) {
+    const card = e.target.closest('.home-feature-card.editing');
+    if (!card || !homeWidgetEditing) { e.preventDefault(); return; }
+    dragTab = card.dataset.tab;
+    card.classList.add('dragging');
+    try { e.dataTransfer.setData('text/plain', dragTab); } catch (_) {}
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  container.addEventListener('dragend', function () {
+    dragTab = null;
+    container.querySelectorAll('.home-feature-card.dragging').forEach(function (c) { c.classList.remove('dragging'); });
+  });
+  container.addEventListener('dragover', function (e) {
+    if (!homeWidgetEditing || !dragTab) return;
+    const card = e.target.closest('.home-feature-card.editing');
+    if (!card || card.dataset.tab === dragTab) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  });
+  container.addEventListener('drop', function (e) {
+    if (!homeWidgetEditing || !dragTab) return;
+    const card = e.target.closest('.home-feature-card.editing');
+    if (!card) return;
+    e.preventDefault();
+    const targetTab = card.dataset.tab;
+    if (targetTab === dragTab) return;
+    const order = homeLayout.order;
+    const from = order.indexOf(dragTab);
+    const to = order.indexOf(targetTab);
+    if (from < 0 || to < 0) return;
+    order.splice(from, 1);
+    const idx = order.indexOf(targetTab);
+    order.splice(from < to ? idx + 1 : idx, 0, dragTab);
+    saveHomeLayout();
+    renderFeatureGrid();
+  });
+}
+
+function featureCardHtml(it, opts) {
   const title = __('nav.' + it.tab);
   const desc = __('home.feature_desc_' + it.tab);
+  const editing = opts && opts.editing;
+  const isHidden = opts && opts.hidden;
+  if (editing) {
+    // 编辑态：div + draggable（卡片本身不是按钮，避免 button 嵌套 button）
+    return '<div class="home-feature-card editing' + (isHidden ? ' is-hidden' : '') + '" data-tab="' + escAttr(it.tab) + '" draggable="true" aria-label="' + escAttr(title) + '">'
+      + '<span class="home-feature-icon">' + it.icon + '</span>'
+      + '<span class="home-feature-body">'
+      + '<span class="home-feature-title">' + esc(title) + '</span>'
+      + '<span class="home-feature-desc">' + esc(desc) + '</span>'
+      + '</span>'
+      + '<button type="button" class="wgt-toggle" data-toggle-tab="' + escAttr(it.tab) + '" title="' + escAttr(isHidden ? __('home.widget_show') : __('home.widget_hide')) + '" aria-label="' + escAttr(__('nav.' + it.tab) + ' · ' + (isHidden ? __('home.widget_show') : __('home.widget_hide'))) + '">' + (isHidden ? '🚫' : '👁️') + '</button>'
+      + '</div>';
+  }
   return '<button type="button" class="home-feature-card" data-tab="' + escAttr(it.tab) + '"'
     + ' data-ripple aria-label="' + escAttr(title) + '">'
     + '<span class="home-feature-icon">' + it.icon + '</span>'
@@ -86,24 +213,34 @@ function featureCardHtml(it) {
 function renderFeatureGrid() {
   const container = document.getElementById('homeFeatureGrid');
   if (!container) return;
+  if (!homeLayout) loadHomeLayout();
+  const items = defaultFeatureItems();
+  const map = {};
+  items.forEach(function (it) { map[it.tab] = it; });
+  // 用户排序优先；order 里不存在的入口（理论上 loadHomeLayout 已兜底）追加到末尾双保险
+  const ordered = homeLayout.order.map(function (t) { return map[t]; }).filter(Boolean);
+  items.forEach(function (it) { if (ordered.indexOf(it) === -1) ordered.push(it); });
+
+  container.classList.toggle('editing', homeWidgetEditing);
+  if (!container._wgtDnDBound) { bindHomeWidgetDnD(container); container._wgtDnDBound = true; }
+
+  // 分类标题跟随排序「连续段」出现：跨分类拖动后，同分类卡片自动聚合成一组
   let html = '';
-  FEATURE_GROUPS.forEach(function (group) {
-    html += '<div class="home-feature-group">';
-    html += '<div class="home-feature-cat">' + esc(__('home.feature_cat_' + group.cat)) + '</div>';
-    html += '<div class="home-feature-cards">';
-    group.items.forEach(function (it) {
-      // 过滤掉已被禁用（feature gate）的入口（如直播）
-      if (HOME_DISABLED_FEATURES.has(it.tab)) return;
-      html += featureCardHtml(it);
-    });
-    html += '</div></div>';
+  let lastCat = null;
+  ordered.forEach(function (it) {
+    // feature gate（如直播）：无论什么状态都硬过滤
+    if (HOME_DISABLED_FEATURES.has(it.tab)) return;
+    const isHidden = homeLayout.hidden.indexOf(it.tab) >= 0;
+    if (isHidden && !homeWidgetEditing) return;
+    if (it.cat !== lastCat) {
+      if (lastCat !== null) html += '</div></div>';
+      html += '<div class="home-feature-group"><div class="home-feature-cat">' + esc(__('home.feature_cat_' + it.cat)) + '</div><div class="home-feature-cards">';
+      lastCat = it.cat;
+    }
+    html += featureCardHtml(it, { editing: homeWidgetEditing, hidden: isHidden });
   });
-  // 管理后台：仅对管理员展示（与 ui.js 的 .admin-only 判定保持一致）
-  if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin')) {
-    html += '<div class="home-feature-group">';
-    html += '<div class="home-feature-cat">' + esc(__('home.feature_cat_admin')) + '</div>';
-    html += '<div class="home-feature-cards">' + featureCardHtml(FEATURE_ADMIN) + '</div></div>';
-  }
+  if (lastCat !== null) html += '</div></div>';
+  if (!html) html = '<div class="home-feature-empty">' + esc(__('home.widget_empty')) + '</div>';
   container.innerHTML = html;
 }
 

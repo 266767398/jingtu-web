@@ -276,6 +276,7 @@ router.post('/register', registerLimiter, async (req, res) => {
 // 安全：① 不返回 found 布尔，账号不存在与「存在但无头像」均返默认图，避免账号枚举泄露；
 //       ② 独立限流（15 分钟 40 次）防批量探测。密码验证逻辑完全不变。
 const authPreviewLimiter = createCustomLimiter({
+  name: 'auth-preview',
   max: 40,
   message: { error: '请求过于频繁，请稍后再试', retryAfter: 900 }
 });

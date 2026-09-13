@@ -765,7 +765,7 @@ async function vrcLoadRealTime(vrchatId, baseD, token) {
     const merged = Object.assign({}, baseD);
     const fields = ['displayName','avatarUrl','profilePicOverrideThumbnail','userIcon','bio','bioLinks',
       'status','statusDescription','trustLevel','trustLevelCn','trustRank','developerType','developerTypeCn',
-      'badges','platform','location','instance','isVrcPlus','ageVerified','ageVerificationStatus',
+      'isTroll','badges','platform','location','instance','isVrcPlus','ageVerified','ageVerificationStatus',
       'representedGroup','languages','pronouns','previousDisplayNames','lastPlatform',
       'dateJoined','allowAvatarCopying','bannerColor','bannerType',
       'hasVrcPublicModels','publicModels','joinedInstanceAt','isInGame'];
@@ -854,6 +854,9 @@ function renderVrcMemberCard(d, forId) {
   const recent = d.recentActivity || [];
   const pubModels = d.publicModels || [];
   const fmtDateTime = (x) => x ? new Date(x).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+
+  // F-10: 名片对应 VRC 账号已绑定到当前登录用户本人时，隐藏发起邀请/好友申请入口
+  const isSelfCard = lu.bound && window.currentUser && String(lu.id || '') === String(window.currentUser.id || '');
 
   const localUserHtml = lu.bound ? `
     <div class="vrc-localuser">
@@ -972,6 +975,7 @@ function renderVrcMemberCard(d, forId) {
               ${d.trustLevel ? '🛡️ ' : '🔒 '}${__('members.vrc_trust_label')}：${esc(trustText)}
             </span>
             ${d.developerType && d.developerType !== 'none' ? `<span class="vrc-dev">${esc(d.developerTypeCn || d.developerType)}</span>` : ''}
+            ${d.isTroll ? `<span class="vrc-troll" title="${esc(__('members.vrc_troll_tip'))}">☠️ ${esc(__('members.vrc_troll_label'))}</span>` : ''}
             ${customAvatar && currentAvatar && currentAvatar !== customAvatar ? `<span class="vrc-avatar-source" title="${esc(__('members.custom_avatar'))}">🖼️ ${__('members.custom_avatar')}</span>` : ''}
           </div>
         </div>
@@ -1073,8 +1077,54 @@ function renderVrcMemberCard(d, forId) {
       <div class="vrc-card-actions">
         <a href="${profileUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">${__('members.vrc_view_in_vrchat')}</a>
         <button type="button" class="btn btn-sm btn-outline" onclick="openAvatarDetail('${escJsStr(d.vrchatId || '')}','${escJsStr(d.avatarId || '')}','${escJsStr(d.displayName || '')}',${lu.bound ? (Number(lu.id) || 0) : 0},'${escJsStr(avatar)}')">🖼️ ${__('members.avatar_detail_btn')}</button>
+        ${!isSelfCard && !d.isFriend && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" onclick="vrcSendFriendRequest('${escJsStr(d.vrchatId)}', this)">🤝 ${__('members.vrc_friend_request_btn')}</button>` : ''}
+        ${!isSelfCard && d.vrchatId && inst && !inst.isOffline && /^wrld_[0-9a-fA-F-]+:.+$/.test(d.location || '') ? `<button type="button" class="btn btn-sm btn-outline" onclick="vrcSendInvite('${escJsStr(d.vrchatId)}','${escJsStr(d.location)}', this)">📨 ${__('members.vrc_invite_btn')}</button>` : ''}
       </div>
     </div>`;
+}
+
+// ==================== F-10 VRChat 官方实例邀请 / 好友申请 ====================
+async function vrcSendInvite(targetUserId, instanceId, btn) {
+  if (!targetUserId || !instanceId) return;
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api('/api/vrc-invites/world', {
+      method: 'POST',
+      body: JSON.stringify({ targetUserId, instanceId })
+    });
+    if (res.ok) {
+      toast(__('members.vrc_invite_sent'), 'success');
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast(err.error || __('members.vrc_invite_failed'), 'error');
+    }
+  } catch (e) {
+    toast(__('members.vrc_invite_failed'), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function vrcSendFriendRequest(targetUserId, btn) {
+  if (!targetUserId) return;
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api('/api/vrc-invites/friend-request', {
+      method: 'POST',
+      body: JSON.stringify({ targetUserId })
+    });
+    if (res.ok) {
+      toast(__('members.vrc_friend_request_sent'), 'success');
+      if (btn) btn.remove();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast(err.error || __('members.vrc_friend_request_failed'), 'error');
+      if (btn) btn.disabled = false;
+    }
+  } catch (e) {
+    toast(__('members.vrc_friend_request_failed'), 'error');
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ==================== F-16 头像详情（使用历史 + 标签 + 收藏） ====================

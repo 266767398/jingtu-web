@@ -1,9 +1,10 @@
-// 全模块 API 冒烟：用真实登录会话遍历所有 GET 端点，找出 5xx
-const puppeteer = require('puppeteer');
-const BASE = 'http://127.0.0.1:3456';
+// 全模块 API 冒烟：用 Node 内置 fetch 遍历所有 GET 端点，找出 5xx；404 视为清单腐化同样失败。
+// 端点路径均已对照 server.js 挂载表与 routes/*.js 路由定义核实。
+// 可选：设置 SMOKE_LOGIN_ID / SMOKE_PASSWORD 环境变量走真实登录；未设置时测未登录面（401/403 属预期 WARN）。
+const BASE = process.env.SMOKE_BASE || 'http://127.0.0.1:3456';
 
 const ENDPOINTS = [
-  '/api/auth/me',
+  '/api/auth/session',
   '/api/users/all/locations',
   '/api/users?page=1&pageSize=10',
   '/api/users/me/events',
@@ -17,39 +18,42 @@ const ENDPOINTS = [
   '/api/events?page=1&pageSize=10',
   '/api/posts?page=1&pageSize=10',
   '/api/announcements',
-  '/api/live/streams',
-  '/api/checkin/status',
-  '/api/achievements',
-  '/api/members?page=1&pageSize=10',
+  '/api/checkin/me/status',
+  '/api/achievements/me',
+  '/api/group/members?page=1&pageSize=10',
   '/api/social-links',
-  '/api/permission-groups',
+  '/api/permission-groups/groups',
   '/api/vrc/status/list',
-  '/api/birthday/upcoming',
-  '/api/group/info',
+  '/api/users/birthdays',
+  '/api/group/stats',
   '/api/notifications?page=1&pageSize=10'
 ];
 
-(async () => {
-  const b = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'], protocolTimeout: 240000 });
-  const p = await b.newPage();
-  await p.goto(BASE, { waitUntil: 'networkidle2' });
-  await p.type('#loginId', '__diag');
-  await p.type('#loginPassword', 'Diag#2026x');
-  await p.click('#loginPwdBtn');
-  await new Promise(r => setTimeout(r, 4500));
+async function loginAndGetCookie() {
+  if (!process.env.SMOKE_LOGIN_ID || !process.env.SMOKE_PASSWORD) return '';
+  const r = await fetch(BASE + '/api/auth/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ loginId: process.env.SMOKE_LOGIN_ID, password: process.env.SMOKE_PASSWORD })
+  });
+  if (!r.ok) throw new Error('login failed: HTTP ' + r.status);
+  return (r.headers.getSetCookie ? r.headers.getSetCookie() : [r.headers.get('set-cookie')])
+    .filter(Boolean)
+    .map(c => c.split(';')[0])
+    .join('; ');
+}
 
-  const results = await p.evaluate(async (list) => {
-    const out = [];
-    for (const url of list) {
-      try {
-        const r = await fetch(url, { credentials: 'include' });
-        let body = '';
-        if (r.status >= 400) { try { body = (await r.text()).slice(0, 220); } catch { } }
-        out.push({ url, status: r.status, body });
-      } catch (e) { out.push({ url, status: 'THROW', body: e.message }); }
-    }
-    return out;
-  }, ENDPOINTS);
+(async () => {
+  const cookie = await loginAndGetCookie();
+  const results = [];
+  for (const url of ENDPOINTS) {
+    try {
+      const r = await fetch(BASE + url, { headers: cookie ? { cookie } : {}, redirect: 'manual' });
+      let body = '';
+      if (r.status >= 400) { try { body = (await r.text()).slice(0, 220); } catch { } }
+      results.push({ url, status: r.status, body });
+    } catch (e) { results.push({ url, status: 'THROW', body: e.message }); }
+  }
 
   let bad = 0, missing = 0;
   console.log('=== 全模块 GET 冒烟 ===');
@@ -63,6 +67,5 @@ const ENDPOINTS = [
     if (r.body && tag !== 'OK  ') console.log(`        ${r.body}`);
   }
   console.log(`\n5xx: ${bad}   404: ${missing}   共 ${results.length} 个端点`);
-  await b.close();
-  process.exit(bad > 0 ? 1 : 0);
+  process.exit(bad > 0 || missing > 0 ? 1 : 0);
 })().catch(e => { console.error('异常:', e.message); process.exit(2); });

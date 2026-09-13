@@ -1121,7 +1121,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       trustLevel: '', trustLevelCn: '', trustRank: 0,
       developerType: 'none', developerTypeCn: '普通用户', badges: [],
       platform: '', location: '', instance: null,
-      isVrcPlus: false, ageVerified: false, ageVerificationStatus: '',
+      isVrcPlus: false, isTroll: false, ageVerified: false, ageVerificationStatus: '',
       representedGroup: null, languages: [], pronouns: '', dateJoined: '',
       allowAvatarCopying: null, bannerColor: '', bannerType: '',
       hasVrcPublicModels: false, publicModels: []
@@ -1146,6 +1146,8 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     vrcData.location = user.location || '';
     vrcData.instance = parseVrcLocation(user.location || '');
     vrcData.isVrcPlus = Array.isArray(user.tags) && user.tags.includes('system_supporter');
+    // F-7: troll 判定（与 vrc.js 好友/用户查询口径一致：system_troll 或 admin_troll_roll）
+    vrcData.isTroll = Array.isArray(user.tags) && (user.tags.includes('system_troll') || user.tags.includes('admin_troll_roll'));
     vrcData.ageVerified = user.ageVerified === true;
     vrcData.ageVerificationStatus = user.ageVerificationStatus || '';
     if (user.profile && user.profile.representedGroup) {

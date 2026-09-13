@@ -279,6 +279,61 @@ table.admin-table tbody tr:hover td {
   color: var(--accent);
 }
 
+/* F-8 首页 widget 自定义：编辑态（拖拽排序 + 显隐切换） */
+.home-feature-card.editing {
+  cursor: grab;
+  position: relative;
+}
+.home-feature-card.editing:active {
+  cursor: grabbing;
+}
+.home-feature-card.editing.dragging {
+  opacity: .55;
+  transform: scale(.98);
+  border-style: dashed;
+  border-color: var(--accent);
+}
+.home-feature-card.editing.is-hidden {
+  opacity: .45;
+}
+.home-feature-card.editing.is-hidden .home-feature-title,
+.home-feature-card.editing.is-hidden .home-feature-desc {
+  text-decoration: line-through;
+}
+.home-feature-card.editing.is-hidden .home-feature-icon {
+  filter: grayscale(1);
+  opacity: .7;
+}
+.wgt-toggle {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg2);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.wgt-toggle:hover {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.home-feature-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+
 /* 欢迎卡增强：头像 + 文本 + 品牌标识 的横排布局 */
 .home-welcome {
   display: flex;
