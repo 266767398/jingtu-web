@@ -62,6 +62,76 @@ async function refreshAggregates(pool, targetId, kind) {
   );
 }
 
+// ============ 历史空名行自愈回填 ============
+// 早期写入 bug（把上游 {status,data} 包装体当对象取值）留下 name/thumbnail 全空的收藏行。
+// 列表加载时 fire-and-forget 回源补齐：进程内去重 + 每页预算 6 条，避免刷爆 VRChat API。
+const backfillInflight = new Set();
+
+async function fetchRemotePatch(kind, targetId, cookie) {
+  if (kind === 'world') {
+    const w = await getCachedWorld(targetId, cookie);
+    if (w && w.name) {
+      return {
+        name: w.name || '', author: w.authorName || '', author_id: w.authorId || '',
+        thumbnail: (w.imageUrl || w.thumbnailImageUrl || (w.thumbnail && w.thumbnail.url) || ''),
+        description: w.description || ''
+      };
+    }
+    return null;
+  }
+  const isAvatar = kind === 'avatar_model' || /^avtr_/.test(targetId);
+  if (isAvatar) {
+    const resp = await vrchatGetAvatar(targetId, cookie);
+    const a = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+    if (a && a.id && a.name) {
+      return {
+        name: a.name || '', author: a.authorName || '', author_id: a.authorId || '',
+        thumbnail: a.thumbnailImageUrl || (a.images && a.images.thumbnail ? a.images.thumbnail.url : '') || '',
+        description: a.description || ''
+      };
+    }
+    return null;
+  }
+  const resp = await vrchatGetUser(targetId, cookie);
+  const u = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+  if (u && u.id) {
+    return {
+      name: u.displayName || u.username || '', author: u.displayName || '', author_id: u.id || '',
+      thumbnail: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl || '',
+      description: ''
+    };
+  }
+  return null;
+}
+
+async function backfillMissingInfo(rows, cookie) {
+  const pool = getPool();
+  const targets = [];
+  for (const r of rows) {
+    if (!(r.name || '') && r.target_id && !backfillInflight.has(r.id)) targets.push(r);
+    if (targets.length >= 6) break;
+  }
+  if (!targets.length) return;
+  for (const r of targets) backfillInflight.add(r.id);
+  try {
+    for (const r of targets) {
+      try {
+        const patch = await fetchRemotePatch(r.kind, r.target_id, cookie);
+        if (patch && patch.name) {
+          await pool.query(
+            `UPDATE collections SET name=?, author=?, author_id=?, thumbnail=?,
+               description=IF(description IS NULL OR description='', ?, description), updated_at=NOW()
+             WHERE id=? AND (name IS NULL OR name='')`,
+            [patch.name, patch.author, patch.author_id, patch.thumbnail, patch.description, r.id]
+          );
+        }
+      } catch (_) { /* 单条失败静默，下轮列表加载再试 */ }
+    }
+  } finally {
+    for (const r of targets) backfillInflight.delete(r.id);
+  }
+}
+
 // ============ 分组 folders ============
 // 列表
 router.get('/folders', requireAuth, async (req, res) => {
@@ -183,6 +253,8 @@ router.get('/', requireAuth, async (req, res) => {
     );
     // 缩略图代理 + 去重标记（同模型ID是否已有他人公开副本）
     rows.forEach(r => { if (r.thumbnail) r.thumbnail = proxyThumb(r.thumbnail); r.public_duplicate = !!Number(r.public_duplicate); });
+    // 自愈：本页存在历史空名行时后台回源补齐，不阻塞本次响应
+    backfillMissingInfo(rows, req.vrcCookie || null).catch(() => {});
     ok(res, {
       items: rows,
       page, pageSize, total, totalPages,
@@ -226,6 +298,7 @@ router.get('/discover', requireAuth, async (req, res) => {
       [...params, pageSize, offset]
     );
     rows.forEach(r => { if (r.thumbnail) r.thumbnail = proxyThumb(r.thumbnail); delete r.notes; r.public_duplicate = !!Number(r.public_duplicate); });
+    backfillMissingInfo(rows, req.vrcCookie || null).catch(() => {});
     ok(res, { items: rows, page, pageSize, total, totalPages });
   } catch (e) { handleError(res, e, 'collections.discover'); }
 });
@@ -477,8 +550,10 @@ router.post('/', requireAuth, async (req, res) => {
     if (kind === 'avatar_model') {
       const cookie = req.vrcCookie || null;
       try {
-        const avatar = await vrchatGetAvatar(targetId, cookie);
-        if (avatar) {
+        // vrchatGetAvatar 返回 {status,data} 包装体，须解包后使用（否则 name/thumbnail 全空、且 404 也被当成功）
+        const resp = await vrchatGetAvatar(targetId, cookie);
+        const avatar = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+        if (avatar && avatar.id) {
           rec.name = avatar.name || '';
           rec.author = avatar.authorName || '';
           rec.author_id = avatar.authorId || '';
@@ -515,8 +590,10 @@ router.post('/', requireAuth, async (req, res) => {
       } catch (e) { /* ignore */ }
     } else if (kind === 'avatar_favorite') {
       try {
-        const u = await vrchatGetUser(targetId, req.vrcCookie || null);
-        if (u) {
+        // vrchatGetUser 同样返回 {status,data} 包装体，解包后再取 displayName/头像字段
+        const resp = await vrchatGetUser(targetId, req.vrcCookie || null);
+        const u = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+        if (u && u.id) {
           rec.name = u.displayName || u.username || '';
           rec.author = u.displayName || '';
           rec.author_id = u.id || targetId;
@@ -608,9 +685,27 @@ router.post('/:id/check', requireAuth, async (req, res) => {
     if (cur[0].kind !== 'avatar_model') return res.status(400).json({ success: false, error: { code: ErrorCodes.BAD_REQUEST, message: '该类型不支持失效检测' } });
     let status = 'unknown', invalidReason = '', invalidAt = null;
     try {
-      const avatar = await vrchatGetAvatar(cur[0].target_id, req.vrcCookie || null);
-      if (!avatar) { status = 'invalid'; invalidReason = 'VRChat 接口未返回该模型'; invalidAt = new Date(); }
-      else { status = 'valid'; }
+      // 解包 {status,data} 包装体；仅 404 判定为失效，401/403（登录态失效）保持 unknown 不误伤原状态
+      const resp = await vrchatGetAvatar(cur[0].target_id, req.vrcCookie || null);
+      const httpStatus = resp && resp.status;
+      const avatar = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+      if (avatar && avatar.id) {
+        status = 'valid';
+        // 顺手自愈：历史空名行在检测时回填名字/作者/缩略图
+        if (!(cur[0].name || '')) {
+          const thumb = avatar.thumbnailImageUrl || (avatar.images && avatar.images.thumbnail ? avatar.images.thumbnail.url : '') || '';
+          await pool.query(
+            `UPDATE collections SET name=?, author=?, author_id=?, thumbnail=?, updated_at=NOW() WHERE id=? AND (name IS NULL OR name='')`,
+            [avatar.name || '', avatar.authorName || '', avatar.authorId || '', thumb, id]
+          );
+        }
+      } else if (httpStatus === 404 || httpStatus === 410) {
+        status = 'invalid'; invalidReason = 'VRChat 未返回该模型'; invalidAt = new Date();
+      } else if (httpStatus === 401 || httpStatus === 403) {
+        invalidReason = 'VRChat 登录态失效，无法检测';
+      } else {
+        invalidReason = 'VRChat 接口未返回可判定结果';
+      }
     } catch (e) {
       status = 'invalid'; invalidReason = e.message || '检测失败'; invalidAt = new Date();
     }
@@ -660,7 +755,9 @@ router.post('/:id/set-avatar', requireAuth, async (req, res) => {
     // 1) 拉详情拿 inventoryItemId（unityPackages[0].id），用于克隆到本人库存
     let inventoryItemId = null;
     try {
-      const detail = await vrchatGetAvatar(avatarId, cookie);
+      // 解包后再取 unityPackages（此前直接读包装体恒为 undefined，克隆步骤从未真正执行）
+      const resp = await vrchatGetAvatar(avatarId, cookie);
+      const detail = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
       const ups = detail && detail.unityPackages;
       if (Array.isArray(ups) && ups.length) inventoryItemId = ups[0].id;
     } catch (_) { /* 详情拉取失败不阻断，直接进入切换 */ }
@@ -683,11 +780,17 @@ router.post('/scan', requireAdminCompat, async (req, res) => {
     let checked = 0, newInvalid = 0;
     for (const r of rows) {
       try {
-        const avatar = await vrchatGetAvatar(r.target_id, null);
-        const invalid = !avatar;
-        checked++;
-        if (invalid) { newInvalid++; await pool.query(`UPDATE collections SET status='invalid', invalid_reason='VRChat 未返回', last_checked_at=NOW(), invalid_at=NOW() WHERE id=?`, [r.id]); }
-        else await pool.query(`UPDATE collections SET status='valid', last_checked_at=NOW() WHERE id=?`, [r.id]);
+        // 解包包装体；无 cookie 场景下 401/403 跳过本轮，不误批量标记失效
+        const resp = await vrchatGetAvatar(r.target_id, null);
+        const httpStatus = resp && resp.status;
+        const data = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+        if (data && data.id) {
+          checked++;
+          await pool.query(`UPDATE collections SET status='valid', last_checked_at=NOW() WHERE id=?`, [r.id]);
+        } else if (httpStatus === 404 || httpStatus === 410) {
+          checked++; newInvalid++;
+          await pool.query(`UPDATE collections SET status='invalid', invalid_reason='VRChat 未返回', last_checked_at=NOW(), invalid_at=NOW() WHERE id=?`, [r.id]);
+        }
       } catch (e) { /* skip */ }
     }
     ok(res, { checked, newInvalid });
@@ -777,10 +880,13 @@ router.post('/admin/user/:userId/scan', requireAdminCompat, async (req, res) => 
     let scanned = 0, newlyInvalid = 0;
     for (const r of rows) {
       try {
-        const avatar = await vrchatGetAvatar(r.target_id, null);
+        const resp = await vrchatGetAvatar(r.target_id, null);
         scanned++;
-        if (!avatar) { newlyInvalid++; await pool.query(`UPDATE collections SET status='invalid', invalid_reason='VRChat 未返回', invalid_at=NOW() WHERE id=?`, [r.id]); }
-        else await pool.query(`UPDATE collections SET status='valid' WHERE id=?`, [r.id]);
+        const httpStatus = resp && resp.status;
+        const avatar = (httpStatus >= 200 && httpStatus < 300) ? resp.data : null;
+        if (avatar && avatar.id) await pool.query(`UPDATE collections SET status='valid' WHERE id=?`, [r.id]);
+        else if (httpStatus === 404 || httpStatus === 410) { newlyInvalid++; await pool.query(`UPDATE collections SET status='invalid', invalid_reason='VRChat 模型不存在', invalid_at=NOW() WHERE id=?`, [r.id]); }
+        // 其余状态（401/403/5xx 等）跳过判定，防止误标失效
       } catch (e) { /* skip */ }
     }
     ok(res, { scanned, newlyInvalid });
@@ -795,10 +901,13 @@ router.post('/admin/scan', requireAdminCompat, async (req, res) => {
     let scanned = 0, newlyInvalid = 0;
     for (const r of rows) {
       try {
-        const avatar = await vrchatGetAvatar(r.target_id, null);
+        const resp = await vrchatGetAvatar(r.target_id, null);
         scanned++;
-        if (!avatar) { newlyInvalid++; await pool.query(`UPDATE collections SET status='invalid', invalid_reason='VRChat 未返回', invalid_at=NOW() WHERE id=?`, [r.id]); }
-        else await pool.query(`UPDATE collections SET status='valid' WHERE id=?`, [r.id]);
+        const httpStatus = resp && resp.status;
+        const avatar = (httpStatus >= 200 && httpStatus < 300) ? resp.data : null;
+        if (avatar && avatar.id) await pool.query(`UPDATE collections SET status='valid' WHERE id=?`, [r.id]);
+        else if (httpStatus === 404 || httpStatus === 410) { newlyInvalid++; await pool.query(`UPDATE collections SET status='invalid', invalid_reason='VRChat 模型不存在', invalid_at=NOW() WHERE id=?`, [r.id]); }
+        // 其余状态（401/403/5xx 等）跳过判定，防止误标失效
       } catch (e) { /* skip */ }
     }
     ok(res, { scanned, newlyInvalid });
@@ -827,10 +936,14 @@ async function scanAvatarModels(pool, opt = {}) {
     scanned++;
     let newStatus = 'unknown', reason = '';
     try {
-      const avatar = await vrchatGetAvatar(r.target_id, cookie);
-      if (!avatar) { newStatus = 'invalid'; reason = 'VRChat 未返回该模型'; }
-      else newStatus = 'valid';
-    } catch (e) { newStatus = 'invalid'; reason = e.message || '检测失败'; }
+      const resp = await vrchatGetAvatar(r.target_id, cookie);
+      const httpStatus = resp && resp.status;
+      const avatar = (httpStatus >= 200 && httpStatus < 300) ? resp.data : null;
+      if (avatar && avatar.id) newStatus = 'valid';
+      else if (httpStatus === 404 || httpStatus === 410) { newStatus = 'invalid'; reason = 'VRChat 模型不存在'; }
+      else if (httpStatus === 401 || httpStatus === 403) { newStatus = 'unknown'; reason = 'VRChat 鉴权失败，跳过判定'; }
+      else { newStatus = 'unknown'; reason = httpStatus ? `VRChat 返回 ${httpStatus}` : 'VRChat 无响应'; }
+    } catch (e) { newStatus = 'unknown'; reason = e.message || '检测异常'; }
     const wasInvalid = r.status === 'invalid';
     const invalidAtSql = newStatus === 'invalid' ? ', invalid_at=NOW()' : ', invalid_at=NULL';
     await pool.query(

@@ -10,8 +10,11 @@ const { requireAuth } = require('../auth');
 const {
   vrchatGetFavorites, vrchatAddFavorite, vrchatRemoveFavorite,
   vrchatGetFavoriteGroups, vrchatUpdateFavoriteGroup, vrchatClearFavoriteGroup,
+  vrchatGetAvatar, vrchatGetUser,
   VRC_FAV_TYPES
 } = require('../vrc');
+// 条目名字/缩略图富化：世界走缓存服务（含回源与自愈），头像/用户直接回源
+const { getCachedWorld } = require('../world_cache');
 
 const MAX_PAGE = 100;
 
@@ -23,6 +26,104 @@ function clampInt(v, def, min, max) {
 
 function isValidType(type) {
   return VRC_FAV_TYPES.includes(type);
+}
+
+// ============ 收藏条目名字/缩略图富化 ============
+// 官方收藏条目本身只带 favoriteId（wrld_/avtr_/usr_），需回源目标对象才能显示
+// 名字与图片。进程内缓存 + 限并发尽力回源：失败保留原始条目，由前端以 ID 兜底展示。
+const FAV_META_TTL_MS = 6 * 60 * 60 * 1000;
+const FAV_META_MAX = 600;
+const favMetaCache = new Map();
+
+function favMetaGet(id) {
+  const hit = favMetaCache.get(id);
+  if (!hit) return null;
+  if (Date.now() - hit.at > FAV_META_TTL_MS) { favMetaCache.delete(id); return null; }
+  return hit.meta;
+}
+
+function favMetaSet(id, meta) {
+  if (favMetaCache.size >= FAV_META_MAX) favMetaCache.delete(favMetaCache.keys().next().value);
+  favMetaCache.set(id, { at: Date.now(), meta });
+}
+
+async function fetchFavoriteMeta(type, targetId, cookie) {
+  try {
+    if (type === 'world' && /^wrld_/.test(targetId)) {
+      const w = await getCachedWorld(targetId, cookie);
+      if (w && w.id && w.name) {
+        const meta = {
+          name: w.name,
+          thumbnailImageUrl: w.thumbnailImageUrl || w.imageUrl || (w.thumbnail && w.thumbnail.url) || '',
+          authorName: w.authorName || ''
+        };
+        favMetaSet(targetId, meta);
+        return meta;
+      }
+      return null;
+    }
+    if (type === 'avatar' && /^avtr_/.test(targetId)) {
+      const resp = await vrchatGetAvatar(targetId, cookie);
+      const a = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+      if (a && a.id && a.name) {
+        const meta = {
+          name: a.name,
+          thumbnailImageUrl: a.thumbnailImageUrl || (a.images && a.images.thumbnail && a.images.thumbnail.url) || '',
+          authorName: a.authorName || ''
+        };
+        favMetaSet(targetId, meta);
+        return meta;
+      }
+      return null;
+    }
+    if (type === 'friend' && /^usr_/.test(targetId)) {
+      const resp = await vrchatGetUser(targetId, cookie);
+      const u = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+      if (u && u.id && (u.displayName || u.name)) {
+        const meta = {
+          name: u.displayName || u.name || '',
+          thumbnailImageUrl: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl || '',
+          authorName: ''
+        };
+        favMetaSet(targetId, meta);
+        return meta;
+      }
+      return null;
+    }
+  } catch (e) { /* 富化失败不影响收藏列表主流程 */ }
+  return null;
+}
+
+async function enrichFavoriteItems(items, cookie) {
+  const CONCURRENCY = 5;
+  let budget = 25; // 单页冷回源上限，防止收藏极多时列表拖垮响应
+  const pending = [];
+  for (const it of items) {
+    const targetId = it && it.favoriteId;
+    if (!targetId) continue;
+    const cached = favMetaGet(targetId);
+    if (cached) {
+      it.name = cached.name;
+      it.thumbnailImageUrl = cached.thumbnailImageUrl;
+      it.authorName = cached.authorName;
+      continue;
+    }
+    if (budget > 0) { budget--; pending.push(it); }
+  }
+  let cursor = 0;
+  async function worker() {
+    while (cursor < pending.length) {
+      const it = pending[cursor++];
+      const meta = await fetchFavoriteMeta(it.type, it.favoriteId, cookie);
+      if (meta) {
+        it.name = meta.name;
+        it.thumbnailImageUrl = meta.thumbnailImageUrl;
+        it.authorName = meta.authorName;
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pending.length) }, () => worker()));
+  return items;
 }
 
 module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
@@ -97,6 +198,8 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       // VRChat 官方未提供按 type 的服务端过滤（tag 过滤已等价于按分组过滤），
       // 前端选择"全部分组"时在这里按 type 兜底过滤一次
       if (type && !tag) items = items.filter(it => it?.type === type);
+      // 前端渲染卡片标题与图片需要名字/缩略图，尽力回源富化（带缓存与并发上限）
+      items = await enrichFavoriteItems(items, req.vrcCookieRead);
       ok(res, { items });
     } catch (e) { handleError(res, e, 'vrcfav.items'); }
   });

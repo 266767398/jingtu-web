@@ -42,13 +42,15 @@
   function getUserId() { return (window.__user && window.__user.id) || null; }
   function isAdmin() { return window.__isAdmin && window.__isAdmin(); }
 
+  // 统一走全局 window.api()：自动带 credentials / CSRF 令牌 / 超时；这里只做 JSON 解析与错误剥离
   async function api(path, opts) {
     opts = opts || {};
-    const res = await fetch(path, Object.assign({ credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } }, opts));
+    const res = await window.api(path, opts);
     let data;
     try { data = await res.json(); } catch (e) { data = {}; }
     if (!res.ok || data.success === false) {
-      throw new Error((data.error && data.error.message) || ('HTTP ' + res.status));
+      const flat = typeof data.error === 'string' ? data.error : '';
+      throw new Error((data.error && data.error.message) || flat || ('HTTP ' + res.status));
     }
     return data;
   }
@@ -430,7 +432,7 @@
     const worldTagEditHtml = (isMineDetail && it.kind === 'world') ? `
       <div class="coll-detail-tag-edit mt-8">
         <label>${__('world_tags.label', '我的标签')}</label>
-        <input id="collDetailWorldTags" class="search-box" type="text" maxlength="255" placeholder="${__('world_tags.placeholder', '用逗号分隔，最多 8 个，如：常驻, 社交')}" value="${esc((item.worldTags || []).join(', '))}">
+        <input id="collDetailWorldTags" class="search-box" type="text" maxlength="255" placeholder="${__('world_tags.placeholder', '用逗号分隔，最多 8 个，如：常驻, 社交')}" value="${esc((it.worldTags || []).join(', '))}">
         <div class="flex-row gap-8 mt-4">
           <button class="btn btn-outline" id="collDetailWorldTagSave">${__('common.save', __('auto_collections_61'))}</button>
           <button class="btn btn-outline" id="collDetailWorldTagClear">${__('common.delete', '删除')}</button>
@@ -497,7 +499,7 @@
       try {
         await api('/api/world-tags/' + encodeURIComponent(it.target_id), { method: 'POST', body: JSON.stringify({ tags }) });
         toast(__('world_tags.saved', '标签已保存'), 'success');
-        item.worldTags = tags;
+        it.worldTags = tags;
       } catch (e) { toast(e.message, 'error'); }
     });
     const wtClear = $('collDetailWorldTagClear');
@@ -508,7 +510,7 @@
         toast(__('world_tags.cleared', '标签已清空'), 'success');
         const input = $('collDetailWorldTags');
         if (input) input.value = '';
-        item.worldTags = [];
+        it.worldTags = [];
       } catch (e) { toast(e.message, 'error'); }
     });
   }

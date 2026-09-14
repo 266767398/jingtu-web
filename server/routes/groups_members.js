@@ -206,6 +206,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
           displayName: member.displayName,
           avatarUrl: member.avatarUrl,
           status: member.status,
+          location: member.location || '',
           isFriend: !!member.isFriend
         });
 

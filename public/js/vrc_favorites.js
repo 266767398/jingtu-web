@@ -18,6 +18,8 @@
     friend: '🧑‍🦰 ' + __('friends.title', '好友')
   };
   const KIND_PREFIX = { world: 'wrld_', avatar: 'avtr_', friend: 'usr_' };
+  // 官方收藏类型 → 本站本地收藏 kind（/api/collections）
+  const LOCAL_KIND = { world: 'world', avatar: 'avatar_model', friend: 'avatar_favorite' };
 
   const state = {
     kind: 'world',
@@ -31,13 +33,15 @@
   function $(id) { return document.getElementById(id); }
   function qsa(sel, root) { return Array.from((root || document).querySelectorAll(sel)); }
 
+  // 统一走全局 window.api()：自动带 credentials / CSRF 令牌 / 超时；这里只做 JSON 解析与错误剥离
   async function api(path, opts) {
     opts = opts || {};
-    const res = await fetch(path, Object.assign({ credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } }, opts));
+    const res = await window.api(path, opts);
     let data;
     try { data = await res.json(); } catch (e) { data = {}; }
     if (!res.ok || data.success === false) {
-      throw new Error((data.error && data.error.message) || data.error || ('HTTP ' + res.status));
+      const flat = typeof data.error === 'string' ? data.error : '';
+      throw new Error((data.error && data.error.message) || flat || ('HTTP ' + res.status));
     }
     return data;
   }
@@ -90,7 +94,8 @@
       params.set('type', state.kind);
       params.set('n', '50');
       if (state.group) params.set('tag', state.group);
-      const d = await api('/api/vrc-favorites/items?' + params.toString());
+      // 后端对收藏条目做名字/缩略图回源富化，冷启动耗时更高，放宽超时
+      const d = await api('/api/vrc-favorites/items?' + params.toString(), { timeout: 20000 });
       state.items = d.items || [];
       renderItems();
     } catch (e) {
@@ -113,12 +118,19 @@
       const target = it.favoriteId || '';
       const kind = KIND_LABEL[it.type] || it.type || '';
       const tag = Array.isArray(it.tags) && it.tags.length ? it.tags[0] : '';
+      const thumb = it.thumbnailImageUrl || '';
+      const localKind = LOCAL_KIND[it.type] || '';
+      const collectBtn = (target && localKind)
+        ? `<button class="coll-card-btn" data-act="collect" data-kind="${escAttr(localKind)}" data-id="${escAttr(target)}">⭐ ${__('vrcfav.collect', '收藏到本站')}</button>`
+        : '';
       return `
         <div class="coll-card" data-fvrt="${escAttr(it.id || '')}">
+          <div class="coll-card-thumb" style="background-image:url('${escAttr(thumb)}')"></div>
           <div class="coll-card-body">
-            <div class="coll-card-title">${esc(target || it.id || '')}</div>
-            <div class="coll-card-author">${esc(kind)}${tag ? ' · ' + esc(tag) : ''}</div>
+            <div class="coll-card-title">${esc(it.name || target || it.id || '')}</div>
+            <div class="coll-card-author">${it.authorName ? esc(it.authorName) + ' · ' : ''}${esc(kind)}${tag ? ' · ' + esc(tag) : ''}</div>
             <div class="coll-card-actions flex-row gap-6 mt-8">
+              ${collectBtn}
               <button class="coll-card-btn" data-act="copyid" data-id="${escAttr(target)}">📄 ${__('common.copy', '复制')}</button>
               <button class="coll-card-btn" data-act="remove" data-id="${escAttr(it.id || '')}">🗑️ ${__('vrcfav.remove', '移除')}</button>
             </div>
@@ -156,6 +168,27 @@
       loadItems(true);
     } catch (e) {
       toast(e.message, 'error');
+    }
+  }
+
+  // 官方收藏条目一键收进本站本地收藏库（/api/collections），默认私密
+  async function collectToLocal(btn) {
+    const target = btn.dataset.id || '';
+    const kind = btn.dataset.kind || '';
+    if (!target || !kind || btn.dataset.busy) return;
+    btn.dataset.busy = '1';
+    try {
+      await api('/api/collections', {
+        method: 'POST',
+        body: JSON.stringify({ kind, target_id: target, visibility: 'private' })
+      });
+      toast(__('vrcfav.collect_ok', '已收藏到本站'), 'success');
+    } catch (e) {
+      const msg = e.message || '';
+      if (/已在收藏中|已收藏|已存在|already/i.test(msg)) toast(__('vrcfav.collected', '该内容已在本站收藏中'), 'info');
+      else toast(msg || __('vrcfav.collect_fail', '收藏到本站失败'), 'error');
+    } finally {
+      delete btn.dataset.busy;
     }
   }
 
@@ -231,6 +264,7 @@
         const btn = ev.target.closest('.coll-card-btn');
         if (!btn) return;
         if (btn.dataset.act === 'remove') removeFavorite(btn.dataset.id);
+        if (btn.dataset.act === 'collect') collectToLocal(btn);
         if (btn.dataset.act === 'copyid' && btn.dataset.id) {
           const text = btn.dataset.id;
           if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(() => toast(__('common.copied', '已复制'), 'success'));

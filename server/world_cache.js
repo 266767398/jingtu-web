@@ -49,7 +49,7 @@ function worldToRow(world, worldId) {
     worldId,
     world.name || '',
     world.description || '',
-    (world.imageUrl || (world.thumbnail && world.thumbnail.url) || ''),
+    (world.imageUrl || world.thumbnailImageUrl || (world.thumbnail && world.thumbnail.url) || ''),
     world.authorName || '',
     world.authorId || '',
     world.worldType || '',
@@ -70,10 +70,13 @@ async function getCachedWorld(worldId, cookie = null) {
     `SELECT * FROM vrc_worlds_cache WHERE world_id = ? AND cached_at > (NOW() - INTERVAL ${CACHE_TTL_HOURS} HOUR)`,
     [safeId]
   );
-  if (rows.length) return rowToWorld(rows[0]);
+  // 自愈：历史上曾把 vrchatGetWorld 的 {status,data} 包装体当扁平世界写库，产生空名行；空名行视为 miss 重新回源
+  if (rows.length && (rows[0].world_name || '')) return rowToWorld(rows[0]);
 
-  const world = await vrchatGetWorld(safeId, cookie);
-  if (world) {
+  // vrchatGetWorld 返回 vrchatRequest 包装体 {status,data,...}，须解包后再当世界对象使用
+  const resp = await vrchatGetWorld(safeId, cookie);
+  const world = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+  if (world && world.id) {
     const vals = worldToRow(world, safeId);
     await pool.query(
       `INSERT INTO vrc_worlds_cache
@@ -89,8 +92,10 @@ async function getCachedWorld(worldId, cookie = null) {
     );
     // Redis 缓存层（未启用时 set 为空操作，安全）
     try { await cacheService.setWorld(safeId, world); } catch (e) { /* ignore */ }
+    return world;
   }
-  return world;
+  // 回源失败（404/网络错误）：退回已有旧行（可能为空名或已过期），至少保持 ID 可用而不抛错
+  return rows.length ? rowToWorld(rows[0]) : null;
 }
 
 module.exports = { getCachedWorld, rowToWorld, worldToRow, CACHE_TTL_HOURS };
