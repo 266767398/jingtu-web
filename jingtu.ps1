@@ -229,7 +229,9 @@ function Assert-Node {
         return $false
     }
     Write-Line ('[信息] 使用 Node: ' + $n) $Cfg.C_Dim
-    return $true
+    # 成功时返回 node 路径（真值）：既兼容 `if (-not (Assert-Node))` 布尔用法，
+    # 也让调用方可以直接拿返回值当可执行文件路径用
+    return $n
 }
 
 # ---------- MySQL 启停 ----------
@@ -315,8 +317,16 @@ function Stop-MySql {
     if ($admin -and (Test-Path $admin)) {
         $cfg = Load-ToolConfig
         $pw = if ($cfg.mysql.password) { $cfg.mysql.password } else { $env:JINGTU_MYSQL_PWD }
-        $argLists = @( @('-h','127.0.0.1','-P','3306','-u','root','shutdown') )
-        if ($pw) { $argLists += @('-h','127.0.0.1','-P','3306','-u','root',('-p' + $pw),'shutdown') }
+        $base = @('-h','127.0.0.1','-P','3306','-u','root')
+        # 用逗号包裹保证「参数数组」作为嵌套元素入列，避免 @( @(...) ) 被扁平化后逐字符串试跑
+        $argLists = @( ,($base + @('shutdown')) )
+        $tmpCnf = $null
+        if ($pw) {
+            # 密码经临时 defaults 文件传递，避免 -p 明文出现在进程命令行（任务管理器/其他用户可见）
+            $tmpCnf = Join-Path $env:TEMP ('mysqladmin_' + [guid]::NewGuid().ToString('N') + '.cnf')
+            Set-Content -Path $tmpCnf -Value ("[client]`r`npassword=`"$pw`"") -Encoding ascii
+            $argLists += @( ,($base + @('--defaults-extra-file=' + $tmpCnf, 'shutdown')) )
+        }
         foreach ($al in $argLists) {
             $tmpErr = Join-Path $env:TEMP ('mysqladmin_' + [guid]::NewGuid().ToString('N') + '.err')
             try {
@@ -325,6 +335,7 @@ function Stop-MySql {
             } catch {}
             Remove-Item $tmpErr -Force -ErrorAction SilentlyContinue
         }
+        if ($tmpCnf) { Remove-Item $tmpCnf -Force -ErrorAction SilentlyContinue }
     }
     if (-not $used) {
         try { Stop-Process -Id $portPid -Force -ErrorAction Stop; $used = $true } catch {}
@@ -698,8 +709,16 @@ function Invoke-NodeScript {
     param([string[]]$ScriptArgs)
     $node = Assert-Node
     if (-not $node) { return }
+    if (-not $ScriptArgs -or $ScriptArgs.Count -lt 1) { return }
+    $scriptPath = Join-Path (Join-Path $Root 'server') ('scripts\' + $ScriptArgs[0])
+    if (-not (Test-Path $scriptPath)) {
+        Write-Line ('[错误] 找不到脚本: ' + $scriptPath) $Cfg.C_Fail
+        return
+    }
+    $rest = @()
+    if ($ScriptArgs.Count -gt 1) { $rest = @($ScriptArgs[1..($ScriptArgs.Count - 1)]) }
     Write-Host ''
-    & $node (Join-Path (Join-Path $Root 'server') 'scripts') @ScriptArgs 2>&1 | ForEach-Object { Write-Host $_ }
+    & $node $scriptPath @rest 2>&1 | ForEach-Object { Write-Host $_ }
     Write-Host ''
 }
 

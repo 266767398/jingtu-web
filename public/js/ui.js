@@ -251,6 +251,7 @@ function switchTab(tab, force) {
   else if (tab === 'admin') { if (typeof initAdminNavOnce === 'function') initAdminNavOnce(); loadAdminStats(); checkSystemVrcStatus(); loadUsersAdmin(); updateNameReviewPreview(); loadPermissions(); loadPermGroups(); loadOperLog(); loadSystemConfig(); bindHeroPreviewEvents(); }
   else if (tab === 'me') showProfile();
   else if (tab === 'profile-user' && currentUser) loadUserProfile(currentUser.id);
+  else if (tab === 'notifications') { loadNotifications(true); loadNotificationSettings(); }
 
   // 离开群组页时立即按「已读基线」重新评估角标：若在线人数已回落则清除，
   // 有新上线则显示，避免红点常驻或切换后状态不同步。
@@ -334,10 +335,16 @@ let notifPage = 1;
 const NOTIF_PAGE_SIZE = 30;
 
 async function loadNotifications(reset) {
-  const box = document.getElementById('notificationList') || document.querySelector('#notificationPanel .notification-list');
+  const dropBox = document.getElementById('notificationList') || document.querySelector('#notificationPanel .notification-list');
+  const centerBox = document.getElementById('notificationCenterList');
+  const centerEmpty = document.getElementById('notificationCenterEmpty');
+  const boxes = [dropBox, centerBox].filter(Boolean);
   if (reset) notifPage = 1;
-  if (!box) return;
-  if (reset) box.innerHTML = '<div class="skeleton-card-list" style="margin:4px 8px"></div><div class="skeleton-card-list" style="margin:4px 8px"></div><div class="skeleton-card-list" style="margin:4px 8px"></div>';
+  if (!boxes.length) return;
+  if (reset) {
+    const skel = '<div class="skeleton-card-list" style="margin:4px 8px"></div><div class="skeleton-card-list" style="margin:4px 8px"></div><div class="skeleton-card-list" style="margin:4px 8px"></div>';
+    boxes.forEach(b => { b.innerHTML = skel; });
+  }
   try {
     const qs = new URLSearchParams({ type: notifFilter, page: notifPage, pageSize: NOTIF_PAGE_SIZE }).toString();
     const res = await api('/api/notifications?' + qs, { method: 'GET' });
@@ -345,17 +352,19 @@ async function loadNotifications(reset) {
       const data = await res.json();
       const notifs = data.notifications || [];
       const unread = data.unread || 0;
-      // 仅首次（reset）刷新铃铛未读徽章
+      // 仅首次（reset）刷新铃铛未读徽章：顶栏下拉与「我的」页两处同步
       if (reset) {
-        const badge = document.getElementById('bellBadge');
-        if (badge) {
+        ['bellBadge', 'bellBadgeTab'].forEach(bid => {
+          const badge = document.getElementById(bid);
+          if (!badge) return;
           if (unread > 0) {
             badge.textContent = unread > 99 ? '99+' : String(unread);
             badge.classList.remove('d-none');
           } else {
             badge.classList.add('d-none');
           }
-        }
+        });
+        if (centerEmpty) centerEmpty.classList.toggle('d-none', notifs.length > 0);
       }
       const html = notifs.map(n => `
         <div class="notification-item ${n.isRead ? '' : 'unread'}">
@@ -372,18 +381,34 @@ async function loadNotifications(reset) {
         </div>
       `).join('');
       if (reset) {
-        box.innerHTML = '';
-        if (notifs.length === 0) { box.innerHTML = `<div class="notification-empty">${__('ui.no_notifications')}</div>`; return; }
-        box.insertAdjacentHTML('beforeend', html);
+        boxes.forEach(b => {
+          b.innerHTML = '';
+          if (b === dropBox && notifs.length === 0) {
+            b.innerHTML = `<div class="notification-empty">${__('ui.no_notifications')}</div>`;
+          }
+        });
+        if (notifs.length === 0) return;
+        boxes.forEach(b => b.insertAdjacentHTML('beforeend', html));
       } else {
-        box.insertAdjacentHTML('beforeend', html);
+        boxes.forEach(b => {
+          b.querySelectorAll('.notif-load-more').forEach(el => el.remove());
+          b.insertAdjacentHTML('beforeend', html);
+        });
       }
       // 加载更多（后端分页）
       if (notifPage < (data.totalPages || 1)) {
-        box.insertAdjacentHTML('beforeend', `<button class="notif-load-more" onclick="notifLoadMore()">${__('ui.load_more') || __('auto_ui_1')}</button>`);
+        boxes.forEach(b => b.insertAdjacentHTML('beforeend', `<button class="notif-load-more" onclick="notifLoadMore()">${__('ui.load_more') || __('auto_ui_1')}</button>`));
       }
     }
-  } catch { if (reset && box) box.innerHTML = `<div class="notification-empty">${__('ui.load_failed')}</div>`; }
+  } catch {
+    if (reset) {
+      if (dropBox) dropBox.innerHTML = `<div class="notification-empty">${__('ui.load_failed')}</div>`;
+      if (centerBox) {
+        centerBox.innerHTML = '';
+        if (centerEmpty) centerEmpty.classList.remove('d-none');
+      }
+    }
+  }
 }
 
 function notifLoadMore() {
@@ -409,7 +434,7 @@ function toggleNotificationPanel() {
   if (panel) {
     const wasHidden = !panel.classList.contains('show');
     panel.classList.toggle('show');
-    if (wasHidden) loadNotifications(true);
+    if (wasHidden) { loadNotifications(true); loadNotificationSettings(); }
   }
 }
 
@@ -441,6 +466,40 @@ async function clearAllNotifications() {
       if (res.ok) { toast(__('ui.notifications_cleared'), 'info'); loadNotifications(true); }
     } catch { toast(__('ui.op_failed'), 'error'); }
   });
+}
+
+// ==================== 通知偏好设置 ====================
+// email 由后端（notification-service）消费；browser/sound 写入 window.__notifPrefs 供 main.js 客户端生效
+let notifSettingsLoaded = false;
+async function loadNotificationSettings() {
+  if (notifSettingsLoaded || !currentUser) return;
+  try {
+    const res = await api('/api/notifications/settings', { method: 'GET' });
+    if (!res.ok) return;
+    const data = await res.json();
+    notifSettingsLoaded = true;
+    window.__notifPrefs = { email: !!data.email, browser: data.browser !== false, sound: data.sound !== false };
+    const map = { notifEmailToggle: 'email', notifBrowserToggle: 'browser', notifSoundToggle: 'sound' };
+    Object.keys(map).forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.checked = window.__notifPrefs[map[id]];
+    });
+  } catch { /* 静默：保持默认开关 */ }
+}
+
+async function toggleNotificationSetting(key, value) {
+  const prefs = Object.assign({ email: false, browser: true, sound: true }, window.__notifPrefs || {});
+  prefs[key] = !!value;
+  window.__notifPrefs = prefs;
+  try {
+    const res = await api('/api/notifications/settings', {
+      method: 'POST',
+      body: JSON.stringify({ email: prefs.email, browser: prefs.browser, sound: prefs.sound })
+    });
+    if (!res.ok) throw new Error('save failed');
+  } catch {
+    toast(__('ui.op_failed'), 'error');
+  }
 }
 
 // ==================== 密码强度 ====================

@@ -342,14 +342,14 @@ describe('P2-71/72/73/76 config & deploy hygiene guard', () => {
     const writeEnv = extractFunction(readServer('routes', 'setup.js'), 'writeEnv');
     expect(writeEnv).toMatch(/replace\(\/\[\\r\\n\]\/g, ''\)/);
     expect(writeEnv).toMatch(/\/SECRET\|PASSWORD\|PASS\|KEY\|TOKEN\/i/);
-    expect(writeEnv).toMatch(/envPath \+ '\.tmp'/);
+    expect(writeEnv).toMatch(/\$\{envPath\}\.\$\{process\.pid\}-\$\{Date\.now\(\)\}\.tmp/);
     expect(writeEnv).toMatch(/fs\.renameSync\(tmpPath, envPath\)/);
   });
 
   // P2-73：.env 自动备份/原子写产物全部含旧密钥，面板哈希文件属本地私有，严禁入库。
   test('.gitignore keeps env backups and panel auth out of the repo', () => {
     const gitignore = readRepo('.gitignore');
-    for (const pattern of ['^\\.env\\.bak\\.\\*$', '^\\.env\\.broken-\\*$', '^\\.env\\.tmp$', '^panel/panel-auth\\.json$']) {
+    for (const pattern of ['^\\.env\\.bak\\.\\*$', '^\\.env\\.broken-\\*$', '^\\.env\\.tmp$', '^\\.env\\.\\*\\.tmp$', '^panel/panel-auth\\.json$']) {
       expect(gitignore).toMatch(new RegExp(pattern, 'm'));
     }
   });

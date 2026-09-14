@@ -756,7 +756,7 @@ document.getElementById('wizEnter').onclick=()=>enterApp();}
 (function init(){bind();
 api('/api/bootstrap').then(r=>{S.initialized=r.initialized;
 if(r.initialized){showAuth('login');}
-else{showAuth('init');wizGo(1);renderWizEnv(r.env);}
+else{showAuth('init');wizGo(1);api('/api/setup-env').then(e=>renderWizEnv(e.env)).catch(()=>renderWizEnv(null));}
 }).catch(e=>{document.body.innerHTML='<div style="padding:40px;text-align:center;color:#f87171">面板服务不可用：'+esc(e.message)+'<br><br><span class="muted">请确认 panel-server.js 已启动（双击 start-panel.bat）</span></div>';});})();
 </script>
 </body>

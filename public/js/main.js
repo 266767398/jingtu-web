@@ -10,6 +10,7 @@ function scrollToTop() {
 }
 
 function playNotificationSound() {
+  if (window.__notifPrefs && window.__notifPrefs.sound === false) return;
   try {
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const oscillator = audioCtx.createOscillator();
@@ -31,6 +32,7 @@ let _notificationPermissionRequested = false;
 
 function showBrowserNotification(title, message) {
   if (!('Notification' in window) || !currentUser) return;
+  if (window.__notifPrefs && window.__notifPrefs.browser === false) return;
   if (Notification.permission === 'denied') return;
   if (Notification.permission !== 'granted') {
     if (!_notificationPermissionRequested) {

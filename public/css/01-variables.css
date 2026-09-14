@@ -37,6 +37,10 @@
   --shadow-glow: 0 0 20px rgba(124,92,252,.15);
   --transition-fast: .15s cubic-bezier(.4,0,.2,1);
   --transition: .2s cubic-bezier(.4,0,.2,1);
+  /* 纯时长变量：animation 简写专用。--transition 自带 easing，
+     混入 animation 简写会出现两个 <easing-function> → 整条声明 IACVT 失效 */
+  --transition-time: .2s;
+  --transition-time-slow: .25s;
   --transition-slow: .25s cubic-bezier(.4,0,.2,1);
   --scrollbar-track: #1a1a24;
   --scrollbar-thumb: #2a2a3a;
@@ -96,6 +100,8 @@
   --shadow-glow: 0 0 20px rgba(109,76,252,.1);
   --transition-fast: .15s cubic-bezier(.4,0,.2,1);
   --transition: .2s cubic-bezier(.4,0,.2,1);
+  --transition-time: .2s;
+  --transition-time-slow: .25s;
   --transition-slow: .25s cubic-bezier(.4,0,.2,1);
   --scrollbar-track: #f0f0f8;
   --scrollbar-thumb: #ddddee;
@@ -222,6 +228,8 @@
   :root:not(.force-anim) {
     --transition-fast: 0s;
     --transition: 0s;
+    --transition-time: 0s;
+    --transition-time-slow: 0s;
     --transition-slow: 0s;
   }
 }

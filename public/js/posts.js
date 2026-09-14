@@ -400,8 +400,16 @@ function showPostMenu(event, postId) {
 function deletePost(postId) {
   showConfirm(__('posts.delete_confirm'), function() {
     api('/api/posts/' + postId, { method: 'DELETE' })
-      .then(function(r) { return r.json(); })
-      .then(function() { toast(__('posts.deleted'), 'success'); loadPosts(postsCurrentPage); })
+      .then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }).catch(function() { return { ok: false, data: null }; }); })
+      .then(function(r2) {
+        // 4xx 等非抛错失败也会 resolve 到这里：不校验成功标记就弹「删除成功」是假成功
+        if (r2.ok && r2.data && r2.data.success !== false) {
+          toast(__('posts.deleted'), 'success');
+          loadPosts(postsCurrentPage);
+        } else {
+          toast(__('posts.delete_failed'), 'error');
+        }
+      })
       .catch(function(err) { if (!isApiHandledError(err)) toast(__('posts.delete_failed'), 'error'); });
   });
 }
@@ -756,10 +764,16 @@ function closePostDetail() {
 function togglePostDetailLike(postId) {
   if (!currentUser) { toast(__('posts.login_first'), 'warning'); return; }
   api('/api/posts/' + postId + '/like', { method: 'POST', body: { content: '' } })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
+    .then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+    .then(function(r2) {
+      if (!r2.ok || !r2.data || r2.data.liked === undefined) {
+        // 失败/异常包络：重取详情恢复真实计数，避免渲染「( undefined )」假成功
+        showPostDetail(postId);
+        toast(__('posts.op_failed'), 'error');
+        return;
+      }
       var btn = document.getElementById('postDetailLikeBtn');
-      if (btn) btn.innerHTML = (d.liked ? __('posts.liked_btn') : __('posts.unliked_btn')) + ' (' + d.likeCount + ')';
+      if (btn) btn.innerHTML = (r2.data.liked ? __('posts.liked_btn') : __('posts.unliked_btn')) + ' (' + r2.data.likeCount + ')';
     })
     .catch(function(err) { if (!isApiHandledError(err)) toast(__('posts.op_failed'), 'error'); });
 }
@@ -770,8 +784,16 @@ function submitPostDetailComment(postId) {
   if (!input || !input.value.trim()) return;
   var content = input.value.trim();
   api('/api/posts/' + postId + '/comments', { method: 'POST', body: { content: content } })
-    .then(function(r) { return r.json(); })
-    .then(function() { input.value = ''; showPostDetail(postId); })
+    .then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+    .then(function(r2) {
+      // 只有确认成功才清空输入框；失败保留内容，用户不必重打
+      if (r2.ok && r2.data && r2.data.success !== false) {
+        input.value = '';
+        showPostDetail(postId);
+      } else {
+        toast(__('posts.comment_failed'), 'error');
+      }
+    })
     .catch(function(err) { if (!isApiHandledError(err)) toast(__('posts.comment_failed'), 'error'); });
 }
 

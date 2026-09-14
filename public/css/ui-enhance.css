@@ -260,6 +260,16 @@ body.home-active .tab-indicator { opacity: 0 !important; }
 }
 /* 隐藏旧的伪元素下划线，避免与 JS 滑动药丸指示器冲突导致视觉方向错乱 */
 #mainContainer > .tabs .tab.active::after { display: none; }
+/* 移动端胶囊指示器被隐藏（上方 media 规则），透明底白字在浅色主题下完全隐形；
+   激活态改由页签自身衬底表达，配色与桌面滑动药丸一致 */
+@media (max-width: 768px) {
+  #mainContainer > .tabs .tab.active,
+  #mainContainer > .tabs .tab[aria-selected="true"] {
+    background: var(--accent);
+    color: #fff;
+    border-radius: 10px;
+  }
+}
 
 /* ========== 18. 滚动条美化（覆盖 style.css） ========== */
 ::-webkit-scrollbar { width: 5px; height: 5px; }

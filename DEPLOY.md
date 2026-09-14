@@ -58,6 +58,10 @@ cp docker.env.example .env.docker        # 或保持原名，用 --env-file 指�
 ```
 
 > 用 `--env-file` 加载，不会触碰 Node 自用的根目录 `.env`，二者互不干扰。
+> `JINGTU_DB_ROOT_PASSWORD` / `JINGTU_DB_PASSWORD` 为必填（compose 用 `${VAR:?}` 校验，
+> 缺失直接报错拒启，无占位默认值）。应用端口默认只绑 `127.0.0.1`（公网流量走本机反代，
+> 变量表中 `TRUST_PROXY=1` 即对应此姿势）；确需无反代直连暴露时设 `APP_BIND=0.0.0.0`
+> 并把 `TRUST_PROXY=0`。
 
 ### 1.2 启动
 
@@ -161,7 +165,7 @@ Cookie `secure` 改为 `'auto'`，经 HTTPS 时自动加 `Secure`。**反代上�
 | `ENCRYPT_KEY` | VRChat Cookie AES-256-GCM 密钥（64位十六进制） | 是 |
 | `NODE_ENV` | `production` 关闭 Swagger、启用 HSTS | 是 |
 | `PORT` | 监听端口，默认 3456 | 否 |
-| `TRUST_PROXY` | 反代信任（生产默认 `1`，直暴露设 `false`） | 否 |
+| `TRUST_PROXY` | 反代信任（代码默认不信任；Docker compose 默认 `1`，直暴露设 `0`） | 否 |
 | `CORS_ORIGINS` | 允许的跨域来源，逗号分隔；生产必须设 | 强烈建议 |
 | `GROUP_ID` / `VRC_API_KEY` / `VRC_GROUP_URL` | VRChat 群组 | 可选 |
 | `KOOK_URL` / `OOPZ_URL` | 社区外链 | 可选 |

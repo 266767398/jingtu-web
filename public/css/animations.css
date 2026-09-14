@@ -212,20 +212,20 @@
 
 /* ========== 动画类 ========== */
 
-.animate-fade-in { animation: fadeIn var(--transition) ease-out forwards; }
-.animate-fade-in-up { animation: fadeInUp var(--transition) ease-out forwards; }
-.animate-fade-in-down { animation: fadeInDown var(--transition) ease-out forwards; }
-.animate-fade-in-left { animation: fadeInLeft var(--transition) ease-out forwards; }
-.animate-fade-in-right { animation: fadeInRight var(--transition) ease-out forwards; }
+.animate-fade-in { animation: fadeIn var(--transition-time) ease-out forwards; }
+.animate-fade-in-up { animation: fadeInUp var(--transition-time) ease-out forwards; }
+.animate-fade-in-down { animation: fadeInDown var(--transition-time) ease-out forwards; }
+.animate-fade-in-left { animation: fadeInLeft var(--transition-time) ease-out forwards; }
+.animate-fade-in-right { animation: fadeInRight var(--transition-time) ease-out forwards; }
 
-.animate-slide-in-right { animation: slideInRight var(--transition) ease-out forwards; }
-.animate-slide-in-left { animation: slideInLeft var(--transition) ease-out forwards; }
-.animate-slide-in-up { animation: slideInUp var(--transition) ease-out forwards; }
-.animate-slide-in-down { animation: slideInDown var(--transition) ease-out forwards; }
+.animate-slide-in-right { animation: slideInRight var(--transition-time) ease-out forwards; }
+.animate-slide-in-left { animation: slideInLeft var(--transition-time) ease-out forwards; }
+.animate-slide-in-up { animation: slideInUp var(--transition-time) ease-out forwards; }
+.animate-slide-in-down { animation: slideInDown var(--transition-time) ease-out forwards; }
 
-.animate-zoom-in { animation: zoomIn var(--transition) ease-out forwards; }
-.animate-zoom-out { animation: zoomOut var(--transition) ease-out forwards; }
-.animate-bounce-in { animation: bounceIn var(--transition-slow) ease-out forwards; }
+.animate-zoom-in { animation: zoomIn var(--transition-time) ease-out forwards; }
+.animate-zoom-out { animation: zoomOut var(--transition-time) ease-out forwards; }
+.animate-bounce-in { animation: bounceIn var(--transition-time-slow) ease-out forwards; }
 .animate-shake { animation: shake 0.5s ease-in-out; }
 .animate-pulse { animation: pulse 2s ease-in-out infinite; }
 .animate-float { animation: float 3s ease-in-out infinite; }
@@ -233,9 +233,9 @@
 .animate-glow { animation: glow 2s ease-in-out infinite; }
 .animate-bounce { animation: bounce 1s ease-in-out infinite; }
 .animate-wave { animation: wave 1s ease-in-out infinite; }
-.animate-fade-scale { animation: fadeScale var(--transition) ease-out forwards; }
-.animate-fade-in-scale { animation: fadeInScale var(--transition) ease-out forwards; }
-.animate-slide-fade-in { animation: slideFadeIn var(--transition) ease-out forwards; }
+.animate-fade-scale { animation: fadeScale var(--transition-time) ease-out forwards; }
+.animate-fade-in-scale { animation: fadeInScale var(--transition-time) ease-out forwards; }
+.animate-slide-fade-in { animation: slideFadeIn var(--transition-time) ease-out forwards; }
 .animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
 
 /* ========== 动画延迟 ========== */
@@ -338,11 +338,11 @@
 /* ========== Toast 通知动画 ========== */
 
 .toast {
-  animation: toastIn var(--transition) ease-out forwards;
+  animation: toastIn var(--transition-time) ease-out forwards;
 }
 
 .toast.out {
-  animation: toastOut var(--transition) ease-in forwards;
+  animation: toastOut var(--transition-time) ease-in forwards;
 }
 
 /* ========== 按钮点击波纹效果 ========== */
@@ -357,17 +357,17 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 0;
-  height: 0;
+  width: 200%;
+  height: 200%;
   background: rgba(255, 255, 255, 0.2);
   border-radius: 50%;
-  transform: translate(-50%, -50%);
-  transition: width 0.3s, height 0.3s;
+  /* 只动 transform（合成层）；此前以 width/height 展开，每帧触发重排 */
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 0.3s;
 }
 
 .btn:active::after {
-  width: 200%;
-  height: 200%;
+  transform: translate(-50%, -50%) scale(1);
 }
 
 /* ========== 卡片悬停效果 ========== */
@@ -422,7 +422,7 @@
 /* ========== 进度条动画 ========== */
 
 .progress-bar {
-  animation: progress var(--transition-slow) ease-out forwards;
+  animation: progress var(--transition-time-slow) ease-out forwards;
 }
 
 /* ========== 标签悬停效果 ========== */
@@ -517,13 +517,13 @@
 /* ========== 页面切换动画 ========== */
 
 .page-transition {
-  animation: fadeInUp var(--transition) ease-out;
+  animation: fadeInUp var(--transition-time) ease-out;
 }
 
 /* ========== 标签页切换动画 ========== */
 
 .tab-content {
-  animation: fadeIn var(--transition) ease-out;
+  animation: fadeIn var(--transition-time) ease-out;
 }
 
 /* ========== 错误抖动效果 ========== */
@@ -541,7 +541,7 @@
 /* ========== 加载遮罩动画 ========== */
 
 .loading-overlay {
-  animation: fadeIn var(--transition) ease-out;
+  animation: fadeIn var(--transition-time) ease-out;
 }
 
 /* ========== 滚动提示动画 ========== */
@@ -602,7 +602,7 @@
 /* ========== 下拉菜单动画 ========== */
 
 .dropdown-menu {
-  animation: fadeInScale var(--transition) ease-out;
+  animation: fadeInScale var(--transition-time) ease-out;
 }
 
 /* ========== 工具提示动画 ========== */
@@ -635,7 +635,7 @@
 /* ========== 图片预览放大动画 ========== */
 
 .image-preview {
-  animation: zoomIn var(--transition) ease-out;
+  animation: zoomIn var(--transition-time) ease-out;
 }
 
 /* ========== GSAP 动效层配套（motion.js） ========== */
@@ -756,7 +756,7 @@
 /* ========== 消息气泡动画 ========== */
 
 .message-bubble {
-  animation: slideFadeIn var(--transition) ease-out;
+  animation: slideFadeIn var(--transition-time) ease-out;
 }
 
 /* ========== 滚动到顶部按钮动画 ========== */

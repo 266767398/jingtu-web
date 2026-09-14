@@ -21,7 +21,7 @@ const crypto = require('crypto');
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 
-const { fail, ok, handleError, sendError, ErrorCodes } = require('../utils');
+const { fail, ok, handleError, sendError, ErrorCodes, logger } = require('../utils');
 const { requireRole } = require('../auth');
 const { applyDbConfig } = require('../db');
 const mailer = require('../mailer');
@@ -95,7 +95,8 @@ function writeEnv(envPath, obj) {
     const v = sanitize(obj[k]);
     return isSensitive(k) ? `${k}="${v}"` : `${k}=${v}`;
   });
-  const tmpPath = envPath + '.tmp';
+  // 临时名带 pid+时间戳，避免并发安装/重走时两个请求互相覆盖同一 .tmp
+  const tmpPath = `${envPath}.${process.pid}-${Date.now()}.tmp`;
   fs.writeFileSync(tmpPath, lines.join('\n') + '\n', 'utf8');
   fs.renameSync(tmpPath, envPath);
 }
@@ -134,7 +135,9 @@ function requireNotInstalled(req, res, next) {
 // 重走模式（.env 已存在）要求超级管理员；首次安装（无 .env）放行，任何人可完成初始建站
 // 会话 cookie 为 SameSite=Lax，跨站 POST 不携带 cookie → requireRole 直接 401 挡掉跨站篡改
 function requireSuperAdminForReconfigure(req, res, next) {
-  if (!fs.existsSync(getEnvPath())) return next(); // 首次安装：无超管账号可登录，放行
+  // 判定口径与 requireNotInstalled 一致（存在且有效才算「已安装」）：
+  // 此前仅看文件存在，导致 .env 损坏时「未安装放行写入」与「要求超管」互相矛盾，形成无法修复的死锁
+  if (!isSiteInstalled()) return next(); // 首次安装 / .env 损坏：无超管账号可登录，放行
   if (req.session && req.session.role === 'super_admin') return next();
   return fail(res, 403, '仅超级管理员可重走建站引导（修改站点配置）');
 }
@@ -360,13 +363,14 @@ router.post('/setup/save', requireNotInstalled, requireSuperAdminForReconfigure,
       fs.copyFileSync(envPath, envPath + '.broken-' + ts);
     }
 
-    // 写入 .env（合并模式不删除原文件；任何失败仅返回错误，绝不回滚删除 .env）
-    writeEnv(envPath, merged);
-
-    // 连接数据库创建 / 更新 super_admin
+    // 先验后写（P1-20）：数据库连接/建库校验通过后才落盘 .env，失败不留下半损坏配置
     let adminResult = { created: false, updated: false };
     let conn = null;
+    let envWritten = false;
     try {
+      if (!/^[a-zA-Z0-9_]{1,64}$/.test(config.dbName)) {
+        return fail(res, 200, '数据库名仅允许 1-64 位字母/数字/下划线');
+      }
       conn = await mysql.createConnection({
         host: config.dbHost,
         port: parseInt(config.dbPort),
@@ -374,11 +378,12 @@ router.post('/setup/save', requireNotInstalled, requireSuperAdminForReconfigure,
         password: config.dbPass || cur.MYSQL_PASSWORD || ''
       });
       // 数据库不存在则自动创建（首次安装 / 重走引导无需手工建库）
-      if (!/^[a-zA-Z0-9_]{1,64}$/.test(config.dbName)) {
-        return fail(res, 200, '数据库名仅允许 1-64 位字母/数字/下划线');
-      }
       await conn.query('CREATE DATABASE IF NOT EXISTS `' + config.dbName + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
       await conn.changeUser({ database: config.dbName });
+
+      // 校验通过后才写入 .env（合并模式不删除原文件；任何失败不回滚删除 .env）
+      writeEnv(envPath, merged);
+      envWritten = true;
 
       // 运行中进程连接池同步到新配置（等效于重启服务的 DB 部分，避免保存后站内请求仍连旧库导致引导死循环）
       try {
@@ -395,7 +400,8 @@ router.post('/setup/save', requireNotInstalled, requireSuperAdminForReconfigure,
           const initDatabase = require('../db_init');
           await initDatabase();
         } catch (initErr) {
-          return fail(res, 200, '配置已保存，但数据库表初始化失败：' + initErr.message + '。可手动运行 `node db_init.js` 后重试');
+          logger.error('[setup] 数据库表初始化失败：' + initErr.message, initErr.stack);
+          return fail(res, 200, '配置已保存，但数据库表初始化失败。可手动运行 `node db_init.js` 后重试');
         }
       }
 
@@ -434,8 +440,11 @@ router.post('/setup/save', requireNotInstalled, requireSuperAdminForReconfigure,
         adminResult.created = true;
       }
     } catch (e) {
-      // 合并模式：不删 .env，提示用户修正数据库配置后重试
-      return fail(res, 200, `管理员账号处理失败：${e.message}（.env 已写入，可修正数据库配置后重试）`);
+      // 匿名可达端点：不回显内部错误详情（P1-20），完整堆栈仅入服务端日志
+      logger.error('[setup] 保存失败（' + (envWritten ? '写入后处理' : '数据库校验') + '）：' + e.message, e.stack);
+      return fail(res, 200, envWritten
+        ? '管理员账号处理失败（站点配置已写入，可修正数据库配置后重试）'
+        : '数据库连接校验失败，站点配置未写入，请检查数据库设置后重试');
     } finally {
       if (conn) {
         try { await conn.end(); } catch (_) {}

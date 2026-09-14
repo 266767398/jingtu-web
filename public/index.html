@@ -19,11 +19,11 @@
 <link rel="stylesheet" href="/css/style.css?v=20260906a">
 <link rel="stylesheet" href="/css/99-design-system.css?v=20260906a">
 <link rel="stylesheet" href="/css/ui-components.css?v=20260906a">
-<link rel="stylesheet" href="/css/ui-enhance.css?v=20260906a">
+<link rel="stylesheet" href="/css/ui-enhance.css?v=20260914a">
 <link rel="stylesheet" href="/css/nav-scroller.css?v=20260906a">
 <link rel="stylesheet" href="/css/home-featured.css?v=20260906a">
 <link rel="stylesheet" href="/css/home-enhance.css?v=20260906a">
-<link rel="stylesheet" href="/css/animations.css?v=20260906a">
+<link rel="stylesheet" href="/css/animations.css?v=20260914a">
 <!-- 点赞动效（like-burst）：给 post/album 等点赞按钮加心爆裂动画 + 无障碍兜底 -->
 <link rel="stylesheet" href="/css/likes-anim.css?v=20260906a">
 <!-- 功能隐藏：直播入口 #tab-btn-live / 管理侧栏 live / #tab-live 面板统一不显示。
@@ -2731,12 +2731,12 @@ document.addEventListener('DOMContentLoaded', function() {
   bindClick('operLogRefreshBtn', function() { loadOperLog(1); });
 
   // ===== Notification Center =====
-  bindClick('markAllNotifsReadBtn', function() { markAllNotifsRead(); });
-  bindClick('clearAllNotifsBtn', function() { clearAllNotifs(); });
+  bindClick('markAllNotifsReadBtn', function() { markAllNotificationsRead(); });
+  bindClick('clearAllNotifsBtn', function() { clearAllNotifications(); });
   // 通知中心标签页里的同名按钮此前与下拉面板共用 id，getElementById 只命中第一个，
   // 导致标签页内的两个按钮完全无响应。
-  bindClick('markAllNotifsReadBtnTab', function() { markAllNotifsRead(); });
-  bindClick('clearAllNotifsBtnTab', function() { clearAllNotifs(); });
+  bindClick('markAllNotifsReadBtnTab', function() { markAllNotificationsRead(); });
+  bindClick('clearAllNotifsBtnTab', function() { clearAllNotifications(); });
   ['notifEmailToggle','notifBrowserToggle','notifSoundToggle'].forEach(function(tid) {
     var t = byId(tid);
     if (t) t.addEventListener('change', function() {

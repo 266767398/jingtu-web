@@ -190,6 +190,11 @@ function getQuery(req) {
   const u = new URL(req.url, 'http://localhost');
   return u.searchParams;
 }
+function isLoopback(req) {
+  let addr = String((req.socket && req.socket.remoteAddress) || '');
+  if (addr.startsWith('::ffff:')) addr = addr.slice(7);
+  return addr === '::1' || addr === '127.0.0.1' || addr.startsWith('127.');
+}
 
 /* ---------- 桌面打开操作 ---------- */
 function openDesktop(target, onDone) {
@@ -438,13 +443,21 @@ async function handleApi(req, res, token) {
   const body = (req.method === 'POST') ? await readBody(req) : {};
 
   if (pathName === '/api/bootstrap') {
+    if (!token) return sendJson(res, 200, { ok: true, initialized: authLoaded() });
     return sendJson(res, 200, { ok: true, initialized: authLoaded(), lan: LAN_MODE, port: settings.port, env: envProbe() });
   }
+  if (pathName === '/api/setup-env') {
+    if (authLoaded()) return sendErr(res, 403, '面板已初始化，请直接登录');
+    if (!isLoopback(req)) return sendErr(res, 403, '初始化环境检测仅可在本机进行');
+    return sendJson(res, 200, { ok: true, env: envProbe() });
+  }
   if (pathName === '/api/init') {
-    if (authLoaded()) return sendErr(res, 400, '面板已初始化，请直接登录');
+    if (authLoaded()) return sendErr(res, 403, '面板已初始化，请直接登录');
+    if (!isLoopback(req)) return sendErr(res, 403, '初始化管理面板仅可在本机进行');
     const pwd = String(body.password || '');
     if (pwd.length < 8) return sendErr(res, 400, '面板管理密码至少 8 位');
     createAuth(pwd);
+    auditPanel('面板初始化完成，已设置管理密码');
     return sendJson(res, 200, { ok: true, token: issueToken(), message: '初始化完成' });
   }
   if (pathName === '/api/login') {

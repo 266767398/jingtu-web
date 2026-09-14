@@ -604,6 +604,10 @@ async function saveSystemConfig() {
     if (res.ok) {
       toast(__('admin.settings_saved'), 'success');
       loadSystemConfig();
+    } else {
+      // 与同文件 vrcCookieExpire 一致：非 2xx 给明确失败提示，不再静默零反馈
+      const err = await res.json().catch(() => ({}));
+      toast((typeof err.error === 'string' && err.error) || __('admin_vrc.save_failed'), 'error');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.save_failed') + ': ' + err.message, 'error'); }
 }

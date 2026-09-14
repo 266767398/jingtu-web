@@ -488,9 +488,10 @@ async function testDatabase() {
   }
   resultDiv.style.display = 'block'; resultDiv.className = 'test-result';
   resultDiv.innerHTML = '<span class="loading"></span> ' + __('setup.testing_db');
+  const controller = new AbortController();
+  let timeoutId;
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    timeoutId = setTimeout(() => controller.abort(), 10000);
     const response = await fetch('/api/setup/test-db', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -535,9 +536,10 @@ async function testEmail() {
   }
   resultDiv.style.display = 'block'; resultDiv.className = 'test-result';
   resultDiv.innerHTML = '<span class="loading"></span> ' + __('setup.sending_email');
+  const controller = new AbortController();
+  let timeoutId;
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    timeoutId = setTimeout(() => controller.abort(), 10000);
     const response = await fetch('/api/setup/test-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -603,9 +605,11 @@ async function saveAndStart() {
   const stageTimer = setTimeout(() => {
     resultDiv.innerHTML = '<span class="loading"></span> ' + __('setup.stage2_db');
   }, 500);
+  const controller = new AbortController();
+  let timeoutId;
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    // 保存链路含建库/建表/bcrypt 哈希，15s 过短易误报超时，放宽到 60s
+    timeoutId = setTimeout(() => controller.abort(), 60000);
     const response = await fetch('/api/setup/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
