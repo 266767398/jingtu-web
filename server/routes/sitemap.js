@@ -12,8 +12,10 @@ const { getPool, handleError } = require('../utils');
 const logger = require('../logger');
 
 // baseUrl 仅从环境变量读取，忽略 Host 头，防止 Host 头注入导致 SEO 劫持
+// P2-72：接入 APP_URL（docker-compose 实际透传的站点地址变量）作为回退，
+// 否则容器部署下 sitemap 会落到本地默认值；默认端口同步修正为真实监听端口 3456。
 function getBaseUrl() {
-  return process.env.SITEMAP_BASE_URL || process.env.APP_BASE_URL || 'http://localhost:3000';
+  return process.env.SITEMAP_BASE_URL || process.env.APP_URL || process.env.APP_BASE_URL || 'http://localhost:3456';
 }
 
 router.get('/sitemap.xml', async (req, res) => {

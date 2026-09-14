@@ -74,7 +74,9 @@ describe('security regressions', () => {
     expect(files.server).toMatch(/app\.use\('\/assets',\s*express\.static\(ASSETS_DIR,\s*\{/);
     expect(files.server).toMatch(/express\.static\(path\.join\(ROOT_DIR,\s*'public'\),\s*\{\s*maxAge:\s*0,\s*etag:\s*true,/);
     expect(files.server).not.toMatch(/express\.static\([^)]*(?:backups|backupDir)[^)]*\)/i);
-    expect(files.backupsRoute).toMatch(/const backupDir = path\.join\(__dirname,\s*'\.\.',\s*'\.\.',\s*'backups'\)/);
+    // P1-12：备份目录定义已收口至 backup-core，路由改为委托导入，守卫随实现迁移
+    expect(files.backupsRoute).toMatch(/BACKUP_DIR:\s*backupDir,[\s\S]*?\}\s*=\s*require\('\.\.\/backup-core'\)/);
+    expect(read('server', 'backup-core.js')).toMatch(/const BACKUP_DIR = path\.join\(__dirname,\s*'\.\.',\s*'backups'\)/);
     expect(files.backupsRoute).toMatch(/router\.get\('\/admin\/backups\/:filename\/download',\s*requireAdminCompat/);
     expect(files.backupsRoute).toMatch(/const filename = path\.basename\(req\.params\.filename\)/);
   });

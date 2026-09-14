@@ -11,7 +11,7 @@ const express = require('express');
 const {
   requireAuth, requireRole
 } = require('../auth');
-const { ok, getPool, logOper, handleError, sendError, ErrorCodes } = require('../utils');
+const { ok, getPool, logOper, handleError, sendError, ErrorCodes, paginate } = require('../utils');
 const {
   vrchatBlockUser, vrchatMuteUser, vrchatUnblockUser, vrchatUnmuteUser
 } = require('../vrc');
@@ -116,9 +116,7 @@ module.exports = (getVRCCookieUserOnly) => {
   router.get('/', requireRole('admin'), async (req, res) => {
     try {
       const status = req.query.status || 'pending';
-      const page = Math.max(1, parseInt(req.query.page) || 1);
-      const pageSize = Math.min(50, parseInt(req.query.pageSize) || 20);
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
       const where = [];
       const params = [];
       if (['pending', 'approved', 'rejected'].includes(status)) {

@@ -89,26 +89,10 @@ async function addNewTables() {
     console.log('  ✅ name_change_requests 表');
   } catch (e) { console.log(`  ❌ name_change_requests: ${e.message}`); }
 
-  // permissions
-  try {
-    await conn.query(`CREATE TABLE IF NOT EXISTS permissions (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      user_id INT NOT NULL UNIQUE,
-      can_manage_announcements TINYINT(1) DEFAULT 0,
-      can_manage_events TINYINT(1) DEFAULT 0,
-      can_manage_album TINYINT(1) DEFAULT 0,
-      can_manage_users TINYINT(1) DEFAULT 0,
-      can_sync_vrchat TINYINT(1) DEFAULT 0,
-      can_manage_group_images TINYINT(1) DEFAULT 0,
-      can_manage_rosters TINYINT(1) DEFAULT 0,
-      can_view_logs TINYINT(1) DEFAULT 0,
-      can_manage_permissions TINYINT(1) DEFAULT 0,
-      can_review_names TINYINT(1) DEFAULT 0,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      KEY idx_user_id (user_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
-    console.log('  ✅ permissions 表');
-  } catch (e) { console.log(`  ❌ permissions: ${e.message}`); }
+  // P2-79：permissions 是死表——RBAC 早已迁移到 group_permission_entries（docs/04），
+  // 本脚本却仍会把它重建出来，制造「有权限系统」的错觉与双源漂移。
+  // 不再建表；也不主动 DROP（遗留脚本保持非破坏性），如库中残留可自行清理。
+  console.log('  ⏭️ permissions 表已废弃（RBAC 迁移至 group_permission_entries），跳过创建');
 
   console.log('\n=== 新表创建完成 ===');
   await conn.end();

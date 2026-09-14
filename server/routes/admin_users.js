@@ -8,7 +8,7 @@
  *   description: 管理后台用户管理接口
  */
 const express = require('express');
-const { fail, ok, getPool, handleError, logOper, sendError, ErrorCodes } = require('../utils');
+const { fail, ok, getPool, handleError, logOper, sendError, ErrorCodes, paginate } = require('../utils');
 const {
   requireAdminCompat, requireRole,
   hashPassword, validatePasswordStrength, verifyPassword,
@@ -50,15 +50,19 @@ module.exports = function createAdminUsersRouter() {
       sendError(res, 403, ErrorCodes.FORBIDDEN, '无权操作比自身角色更高的账户');
       return { ok: false };
     }
+    // P2-81：禁止同级互改（防止 admin 之间互相 ban/delete/reset-password）；
+    // super_admin 为最高治理层，保留超管之间的互管能力
+    if (targetLevel === currentLevel && req.session.role !== 'super_admin') {
+      sendError(res, 403, ErrorCodes.FORBIDDEN, '无权操作同级管理员账户');
+      return { ok: false };
+    }
     return { ok: true, targetUser };
   }
 
   // ==================== 管理员用户管理 CRUD ====================
   router.get('/admin/users', requireAdminCompat, async (req, res) => {
     try {
-      const page = parseInt(req.query.page) || 1;
-      const pageSize = parseInt(req.query.pageSize) || 20;
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20 });
       const search = req.query.search ? req.query.search.trim() : '';
       const roleFilter = req.query.role ? req.query.role.trim() : '';
       const statusFilter = req.query.status ? req.query.status.trim() : '';
@@ -111,7 +115,14 @@ module.exports = function createAdminUsersRouter() {
   });
 
   router.post('/admin/users/:id/approve', requireAdminCompat, async (req, res) => {
-    try { await getPool().query(`UPDATE users SET approved=1 WHERE id=?`, [req.params.id]); await logOper(req.session.userId, '批准用户', `批准用户 #${req.params.id}`); ok(res); }
+    try {
+      // P2-81：批准同样走目标权限守卫，防止低阶管理员改动高权限/同级账户状态
+      const guard = await assertCanModifyTarget(req, res, req.params.id);
+      if (!guard.ok) return;
+      await getPool().query(`UPDATE users SET approved=1 WHERE id=?`, [req.params.id]);
+      await logOper(req.session.userId, '批准用户', `批准用户 ${guard.targetUser.display_name} (#${req.params.id})`);
+      ok(res);
+    }
     catch (e) { handleError(res, e, '[admin/users/approve]'); }
   });
   router.post('/admin/users/:id/ban', requireAdminCompat, async (req, res) => {

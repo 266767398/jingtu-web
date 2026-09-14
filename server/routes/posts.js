@@ -12,7 +12,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { requireAuth } = require('../auth');
-const { fail, ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, logOper  } = require('../utils');;
+const { fail, ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, logOper, paginate  } = require('../utils');;
 const cacheService = require('../cache_service');
 const webhook = require('../webhook');
 const logger = require('../logger');
@@ -169,9 +169,7 @@ async function getPostDetail(postId, currentUserId) {
  */
 router.get('/', async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const pageSize = Math.min(50, Math.max(1, parseInt(req.query.pageSize) || 20));
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
     const targetUserId = req.query.userId ? parseInt(req.query.userId) : null;
     const typeFilter = req.query.type || '';
     const dateFilter = (req.query.date || '').trim(); // YYYY-MM-DD，VN-12 时间线日期筛选

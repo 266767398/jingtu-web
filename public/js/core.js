@@ -557,10 +557,17 @@ function isElVisible(el) {
 }
 
 // ==================== 弹窗管理 ====================
+// P2-83：滚动锁统一收口到 ui.js 的引用计数锁（lockBodyScroll/unlockBodyScroll）。
+// 旧实现是 core.js 私有计数器 + 裸写 overflow：closeAllModals 关旧弹窗时不递减，
+// 计数只增不减导致「全部关闭后 overflow 残留 hidden 滚不动」；且与移动端菜单/
+// 灯箱/无障碍观察器各自的锁互不知情，互相误解锁。
+// 现在每个弹窗以 'modal:'+id 为独立持锁人，ui.js 无障碍观察器还会以弹窗元素为
+// 持锁人再加一道锁；Set 按身份去重、两条释放路径都会走到，谁最后释放谁恢复。
 function closeAllModals() {
   document.querySelectorAll('.modal').forEach(modal => {
     modal.classList.remove('show');
     modal.style.display = 'none';
+    if (typeof unlockBodyScroll === 'function') unlockBodyScroll('modal:' + modal.id);
   });
 }
 function showModal(id) {
@@ -570,9 +577,7 @@ function showModal(id) {
     modal.style.display = 'flex';
     requestAnimationFrame(() => requestAnimationFrame(() => modal.classList.add('show')));
     // 锁定背景滚动，避免弹窗背后内容滚动露底
-    if (!document.body._modalScrollLocks) document.body._modalScrollLocks = 0;
-    document.body._modalScrollLocks++;
-    document.body.style.overflow = 'hidden';
+    if (typeof lockBodyScroll === 'function') lockBodyScroll('modal:' + id);
     // 焦点管理：移动到弹窗内第一个可聚焦元素
     const focusable = modal.querySelector('input, button, select, textarea, [tabindex]:not([tabindex="-1"])');
     if (focusable) setTimeout(() => focusable.focus(), 100);
@@ -585,13 +590,7 @@ function closeModal(id) {
     delete modal.dataset.returnToModal;
     modal.classList.remove('show');
     modal.style.display = 'none';
-    if (document.body._modalScrollLocks) {
-      document.body._modalScrollLocks--;
-      if (document.body._modalScrollLocks <= 0) {
-        document.body._modalScrollLocks = 0;
-        document.body.style.overflow = '';
-      }
-    }
+    if (typeof unlockBodyScroll === 'function') unlockBodyScroll('modal:' + id);
     if (returnToModalId && !document.querySelector('.modal.show')) {
       showModal(returnToModalId);
     }

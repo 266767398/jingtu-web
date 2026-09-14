@@ -13,7 +13,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
-const { ok, getPool, logOper, handleError , sendError, ErrorCodes, createFileFilter, secureUpload } = require('../utils');
+const { ok, getPool, logOper, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, paginate } = require('../utils');
 const { extractVideoThumbnail, getVideoDuration } = require('../video_utils');
 const { requireAdminCompat, ROLE_LEVEL, getAvatarUrl } = require('../auth');
 const logger = require('../logger');
@@ -186,9 +186,7 @@ module.exports = function (authStateRef, notificationService) {
      */
   router.get('/album/photos', async (req, res) => {
     try {
-      const page = parseInt(req.query.page) || 1;
-      const pageSize = 40;
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { fixedSize: 40 });
       const cateId = parseInt(req.query.cate) || 0;
       const albumId = parseInt(req.query.album) || 0;
       const sort = req.query.sort || 'newest';
@@ -541,7 +539,7 @@ module.exports = function (authStateRef, notificationService) {
 // 之前曾被前端误调（404），此处补齐兜底接口，避免历史残留脚本再次踩坑。
 router.get('/album/featured', async (req, res) => {
   try {
-    const limit = Math.min(30, Math.max(1, parseInt(req.query.limit) || 12));
+    const { pageSize: limit } = paginate(req, { sizeParam: 'limit', defaultSize: 12, maxSize: 30 });
     const [rows] = await getPool().query(
       `SELECT p.id, p.cate_id AS cateId, p.event_id AS eventId, p.photo_path AS url, p.thumb_path AS thumbnail, p.photo_desc AS caption, p.upload_vrcid AS uploader, p.upload_name AS uploaderName, p.like_count AS likes, p.media_type AS mediaType, p.file_size AS fileSize, p.create_time AS createTime
        FROM album_photo p WHERE p.is_recycle = 0

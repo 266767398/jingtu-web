@@ -22,7 +22,9 @@
 #   bash install.sh
 # =============================================================================
 
-set -uo pipefail
+# P1-17：补上 -e ——旧实现仅 -u，中间步骤失败（如写文件失败、子命令失败）会被忽略，
+# 脚本照样走到末尾打印「部署完成」。各失败点均有显式 || 兜底，errexit 只作安全网。
+set -euo pipefail
 
 # ---------- 颜色 ----------
 if [ -t 1 ]; then
@@ -99,9 +101,14 @@ require_node() {
   fi
   warn "需要 Node.js >= $need，当前为 ${have:-未安装}。尝试自动安装 ..."
   if command -v apt-get >>/dev/null 2>&1; then
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-      && apt-get install -y nodejs \
-      && ok "Node.js 安装完成：$(node -v)" && return 0
+    # P1-17：原为「curl | bash - && apt-get … && ok … && return 0」长链——
+    # 在 set -e 下链中失败会直接触发 errexit 终止脚本，改写成 if 形式保留
+    # 「安装失败 → 打印手动安装指引 → exit 1」的原有流程。
+    if curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+        && apt-get install -y nodejs; then
+      ok "Node.js 安装完成：$(node -v)"
+      return 0
+    fi
     err "通过 NodeSource 自动安装失败。"
   else
     err "当前系统非 apt（Debian/Ubuntu），无法自动安装 Node。"
@@ -138,8 +145,12 @@ else
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 MYSQL_USER=${DB_USER}
-MYSQL_PASSWORD=${DB_PASS}
 MYSQL_DATABASE=${DB_NAME}
+EOF
+  # P2-80：密码单独用 printf 写入——未加引号的 heredoc 会对 ${DB_PASS} 二次展开：
+  # 密码含反引号 / $( ) 时会被当作命令执行（注入到生成文件）。printf %s 仅做字面拼接。
+  printf 'MYSQL_PASSWORD=%s\n' "$DB_PASS" >> "$ENV_FILE"
+  cat >> "$ENV_FILE" <<EOF
 
 SESSION_SECRET=${SESSION_SECRET}
 ENCRYPT_KEY=${ENCRYPT_KEY}
@@ -169,14 +180,22 @@ fi
 if [ -n "$MYSQL_ROOT_PASSWORD" ]; then
   info "尝试创建数据库与账号（需要本地 mysql 客户端）..."
   if command -v mysql >/dev/null 2>&1; then
-    mysql -uroot -p"$MYSQL_ROOT_PASSWORD" <<SQL || warn "建库失败，请通过宝塔手动创建数据库 $DB_NAME / 用户 $DB_USER，并确保密码一致。"
+    # P2-80：密码改走 --defaults-extra-file（0600 临时文件）——旧实现 `-p"$PASS"`
+    # 虽已加引号，但仍会出现在 /proc 进程列表里，同机任意用户可见。
+    # SQL 字面量里的密码需把单引号翻倍转义，否则含 ' 的密码会截断语句。
+    MYSQL_CNF=$(mktemp)
+    chmod 600 "$MYSQL_CNF"
+    printf '[client]\nuser=root\npassword=%s\n' "$MYSQL_ROOT_PASSWORD" > "$MYSQL_CNF"
+    DB_PASS_ESC=${DB_PASS//\'/\'\'}
+    mysql --defaults-extra-file="$MYSQL_CNF" <<SQL || warn "建库失败，请通过宝塔手动创建数据库 $DB_NAME / 用户 $DB_USER，并确保密码一致。"
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASS}';
+CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASS_ESC}';
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'127.0.0.1';
-CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
+CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS_ESC}';
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
+    rm -f "$MYSQL_CNF"
     ok "数据库初始化 SQL 已执行"
   else
     warn "未找到 mysql 客户端，跳过自动建库。请通过宝塔数据库面板手动创建："
@@ -192,8 +211,13 @@ info "执行 db_init.js（建表 / 应用迁移）..."
 node db_init.js && ok "db_init 完成" || warn "db_init 返回非零，请检查上方日志后重试；无库时应用会以未就绪状态监听。"
 
 # ---------- 生成 PM2 ecosystem 配置 ----------
-info "生成 PM2 配置 ecosystem.config.js ..."
-cat > "$PROJECT_DIR/ecosystem.config.js" <<EOF
+# P2-80：ecosystem.config.js 是 git 跟踪文件（仓库版含 PM2 日志落盘配置），
+# 旧实现无条件覆盖会弄脏工作树并丢掉日志配置。已存在则保留。
+if [ -f "$PROJECT_DIR/ecosystem.config.js" ]; then
+  ok "已存在 ecosystem.config.js（仓库自带标准版，含 PM2 日志配置），保留不覆盖"
+else
+  info "生成 PM2 配置 ecosystem.config.js ..."
+  cat > "$PROJECT_DIR/ecosystem.config.js" <<EOF
 module.exports = {
   apps: [{
     name: 'jingtu-web',
@@ -204,17 +228,30 @@ module.exports = {
     autorestart: true,
     watch: false,
     max_memory_restart: '1024M',
+    out_file: '${PROJECT_DIR}/logs/pm2-out.log',
+    error_file: '${PROJECT_DIR}/logs/pm2-error.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+    merge_logs: true,
     env: { NODE_ENV: 'production' }
   }]
 };
 EOF
-ok "ecosystem.config.js 已生成"
+  ok "ecosystem.config.js 已生成"
+fi
 
 # ---------- 生成 Nginx 反向代理配置 ----------
 NGINX_DIR="$PROJECT_DIR/deploy/nginx"
 mkdir -p "$NGINX_DIR"
 CERT_DIR="/www/server/panel/vhost/cert/${DOMAIN:-jingtu}"
-cat > "$NGINX_DIR/jingtu.conf" <<EOF
+# P2-80：deploy/nginx/jingtu.conf 同为 git 跟踪文件，已存在时不覆盖，
+# 生成到 jingtu.conf.generated，由运维 diff 后自行替换。
+if [ -f "$NGINX_DIR/jingtu.conf" ]; then
+  NGINX_CONF="$NGINX_DIR/jingtu.conf.generated"
+  warn "已存在 $NGINX_DIR/jingtu.conf（仓库跟踪文件），不覆盖；本次生成到 jingtu.conf.generated，请 diff 后自行替换。"
+else
+  NGINX_CONF="$NGINX_DIR/jingtu.conf"
+fi
+cat > "$NGINX_CONF" <<EOF
 # 境途同游 Web — Nginx 反向代理配置
 # 适用：宝塔「网站 → 设置 → 配置文件」整体替换，或独立 Nginx 引入。
 # 站点根目录请设为：${PROJECT_DIR}/public （静态资源由 Node 提供，此处仅作反代）
@@ -237,7 +274,7 @@ server {
     ssl_certificate_key ${CERT_DIR}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
 
-    client_max_body_size 200m;
+    client_max_body_size 500m;
 
     # 屏蔽公开的 API 文档（生产安全）
     location = /api-docs.json { return 404; }
@@ -257,14 +294,20 @@ server {
     }
 }
 EOF
-ok "Nginx 配置已生成：$NGINX_DIR/jingtu.conf"
+ok "Nginx 配置已生成：$NGINX_CONF"
 
 # ---------- 启动服务（PM2） ----------
+# P1-17：logs/ 必须先行创建——旧脚本仅在个别条件分支里 mkdir，
+# nohup 重定向到不存在的 $PROJECT_DIR/logs/app.log 会直接失败，
+# 服务根本没起来，末尾却照样打印「部署完成」。
+mkdir -p "$PROJECT_DIR/logs"
 if command -v pm2 >/dev/null 2>&1; then
   info "通过 PM2 启动服务 ..."
   cd "$PROJECT_DIR"
-  pm2 start ecosystem.config.js
-  pm2 save
+  pm2 start ecosystem.config.js || { err "pm2 start 失败，请检查上方输出与 $PROJECT_DIR/logs/pm2-error.log。"; exit 1; }
+  pm2 save || warn "pm2 save 失败（开机自启可能未写入），可稍后手动重试：pm2 save"
+  # P2-80：pm2-*.log 自身无按大小轮转，依赖 pm2-logrotate 模块；装不上只警告不阻断。
+  pm2 install pm2-logrotate >/dev/null 2>&1 || warn "pm2-logrotate 模块安装失败，PM2 日志不会自动轮转，建议手动执行：pm2 install pm2-logrotate"
   ok "PM2 已启动 jingtu-web（pm2 status 查看）"
 else
   warn "未检测到 pm2，使用 nohup 后台启动（不保证开机自启）。"
@@ -273,6 +316,25 @@ else
   ok "已后台启动（日志：$PROJECT_DIR/logs/app.log）"
   warn "建议安装 PM2 以获得进程守护与开机自启：npm i -g pm2 && pm2 startup"
 fi
+
+# ---------- 健康探测（P1-17：探活通过才宣布部署完成） ----------
+info "健康探测 http://127.0.0.1:${PORT}/api/health/live（最长约 30s）..."
+health_ok=0
+for _i in $(seq 1 15); do
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS "http://127.0.0.1:${PORT}/api/health/live" >/dev/null 2>&1 && { health_ok=1; break; }
+  else
+    node -e "require('http').get('http://127.0.0.1:${PORT}/api/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))" && { health_ok=1; break; }
+  fi
+  sleep 2
+done
+if [ "$health_ok" -ne 1 ]; then
+  err "服务未在 30s 内通过健康探测，部署未确认成功。"
+  err "排查：pm2 logs jingtu-web  或  tail -n 50 $PROJECT_DIR/logs/app.log"
+  err "修复后再确认：curl -fsS http://127.0.0.1:${PORT}/api/health/ready"
+  exit 1
+fi
+ok "服务健康探测通过"
 
 # ---------- 完成提示 ----------
 echo ""
@@ -289,7 +351,7 @@ echo ""
 echo "宝塔后续步骤："
 echo "  1) 网站 → 创建站点（域名 ${DOMAIN:-服务器IP}，根目录 ${PROJECT_DIR}/public）"
 echo "  2) 网站 → 设置 → 反向代理：目标 http://127.0.0.1:${PORT}"
-echo "     或直接用生成的配置：网站 → 设置 → 配置文件，整体替换为 $NGINX_DIR/jingtu.conf"
+echo "     或直接用生成的配置：网站 → 设置 → 配置文件，整体替换为 $NGINX_CONF"
 echo "  3) 网站 → SSL：申请/部署证书（路径已写入 jingtu.conf）"
 echo "  4) 确认防火墙只开放 80/443 及必要端口，3306 不暴露公网"
 echo ""

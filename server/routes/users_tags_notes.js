@@ -5,7 +5,9 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth, requireAdminCompat } = require('../auth');
-const { getPool, ok, handleError, sendError, ErrorCodes } = require('../utils');
+// P2-68 首轮 lint 修复：本文件自 users.js 拆出时漏掉 logOper 导入，
+// 4 个写端点会在成功后抛 ReferenceError 并被 handleError 转成 500（数据已写、响应却报失败）。
+const { getPool, ok, handleError, sendError, ErrorCodes, logOper } = require('../utils');
 
 // ==================== 用户标签 API ====================
 router.get('/tags/list', requireAdminCompat, async (req, res) => {

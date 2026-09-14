@@ -80,17 +80,24 @@ const ENV_ORDER = [
   'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_SECURE', 'SMTP_FROM',
   'LOG_LEVEL'
 ];
+// P2-73①：写法规则与 db-recover.js 收口对齐——敏感键统一加引号、值剔除换行
+// （防表单值注入额外键值行）、写临时文件后 rename 原子落盘（崩溃不再留半截 .env）。
+// 向导仍按 ENV_ORDER 整文件重生成（引导产物即规范模板）；两侧读函数均兼容
+// 带/不带引号格式，与 db-recover 的原位改写互不破格式。
 function writeEnv(envPath, obj) {
   const keys = [
     ...ENV_ORDER.filter((k) => k in obj),
     ...Object.keys(obj).filter((k) => !ENV_ORDER.includes(k))
   ];
+  const sanitize = (v) => String(v == null ? '' : v).replace(/[\r\n]/g, '');
+  const isSensitive = (k) => /SECRET|PASSWORD|PASS|KEY|TOKEN/i.test(k);
   const lines = keys.map((k) => {
-    const v = obj[k] == null ? '' : obj[k];
-    if (k === 'MYSQL_PASSWORD' || k === 'SMTP_PASS') return `${k}="${v}"`;
-    return `${k}=${v}`;
+    const v = sanitize(obj[k]);
+    return isSensitive(k) ? `${k}="${v}"` : `${k}=${v}`;
   });
-  fs.writeFileSync(envPath, lines.join('\n') + '\n', 'utf8');
+  const tmpPath = envPath + '.tmp';
+  fs.writeFileSync(tmpPath, lines.join('\n') + '\n', 'utf8');
+  fs.renameSync(tmpPath, envPath);
 }
 
 // ============ .env 完整性检测（.env 缺失/缺少必需项 → 引导重填）============
@@ -132,6 +139,16 @@ function requireSuperAdminForReconfigure(req, res, next) {
   return fail(res, 403, '仅超级管理员可重走建站引导（修改站点配置）');
 }
 
+// P2-67：state 两端点匿名面收口——站点安装完成后，.env 拓扑（内部主机名、DB/SMTP 用户名）
+// 与磁盘草稿不再对非超管披露；POST 草稿也拒绝匿名写入，防 setup-wizard.json 被污染。
+// 首次安装（无 .env 或 .env 损坏）必须保留匿名可达，否则引导无法完成。
+function isSiteInstalled() {
+  return fs.existsSync(getEnvPath()) && envValid();
+}
+function isSuperAdminSession(req) {
+  return !!(req.session && req.session.userId !== undefined && req.session.role === 'super_admin');
+}
+
 // §45：/setup/check 始终可访问（用于检测安装状态 + 引导完成态）
 router.get('/setup/check', (req, res) => {
   const envPath = getEnvPath();
@@ -156,6 +173,10 @@ router.get('/setup/check', (req, res) => {
 router.get('/setup/state', (req, res) => {
   const envExists = fs.existsSync(getEnvPath());
   const wiz = readWizard() || defaultWizard();
+  // P2-67：站点安装完成后仅超管可见配置拓扑/草稿；其余调用方拿到空草稿（前端预填降级为手动填写）
+  if (isSiteInstalled() && !isSuperAdminSession(req)) {
+    return res.json({ configured: true, restricted: true, wizard: { completed: !!wiz.completed, step: wiz.step || 1, drafts: {} } });
+  }
   let drafts = wiz.drafts || {};
   if (envExists && (!drafts || Object.keys(drafts).length === 0)) {
     const env = readEnv(getEnvPath());
@@ -173,6 +194,10 @@ router.get('/setup/state', (req, res) => {
 // 持久化引导进度 + 非敏感草稿（隔离存储，不含任何密码/密钥）
 router.post('/setup/state', (req, res) => {
   try {
+    // P2-67：站点安装完成后仅超管可写向导草稿，拒绝匿名污染 setup-wizard.json
+    if (isSiteInstalled() && !isSuperAdminSession(req)) {
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, '系统已安装，仅超级管理员可写入建站草稿');
+    }
     const wiz = readWizard() || defaultWizard();
     if (typeof req.body.step === 'number') wiz.step = req.body.step;
     if (req.body.drafts && typeof req.body.drafts === 'object') {

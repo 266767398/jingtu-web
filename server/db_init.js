@@ -1,6 +1,11 @@
 const mysql = require('mysql2/promise');
 const path = require('path');
-const { holder, DB_NAME, DB_CONFIG, recreatePool } = require('./db');
+// P1-13：本文件同时被 server.js / routes/setup.js 进程内 require，也被 DEPLOY.md、
+// docker-entrypoint.sh、install.sh 以 `node db_init.js` 独立调用。db.js 自身不加载 .env
+// （仅 MYSQL_PASSWORD 有文件回退），独立运行时若不先 dotenv 会拿空配置连不上库。
+// dotenv 幂等，进程内 require 时重复加载无副作用。必须早于 require('./db')。
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+const { holder, DB_CONFIG, recreatePool } = require('./db');
 
 async function initDatabase() {
   // 第一步：用不带 database 的临时连接建库
@@ -8,7 +13,12 @@ async function initDatabase() {
   const maxRetries = 3;
   let lastError = null;
   
+  // P1-13：旧判断 `if (lastError && !tempConn)` 写反——tempConn 声明在循环外且
+  // catch 里不清空，连接失败后仍残留（已关闭的）连接对象，条件永远不成立，
+  // 三次全失败也会静默继续往下建表。改为显式成功标记 dbReady。
+  let dbReady = false;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    tempConn = null;
     try {
       tempConn = await mysql.createConnection({
         ...DB_CONFIG,
@@ -18,12 +28,15 @@ async function initDatabase() {
         `CREATE DATABASE IF NOT EXISTS \`${holder.dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
       );
       console.log(`✅ 数据库 ${holder.dbName} 已就绪`);
-      if (tempConn) await tempConn.end();
+      await tempConn.end();
+      tempConn = null;
+      dbReady = true;
       break;
     } catch (err) {
       lastError = err;
       if (tempConn) {
         try { await tempConn.end(); } catch (e) { console.warn('  关闭临时连接失败:', e.message); }
+        tempConn = null;
       }
       console.warn(`⚠️ 数据库连接尝试 ${attempt}/${maxRetries} 失败: ${err.message}`);
       if (attempt < maxRetries) {
@@ -33,23 +46,23 @@ async function initDatabase() {
     }
   }
   
-  if (lastError && !tempConn) {
-    console.error('❌ 建库失败:', lastError.message);
+  if (!dbReady) {
+    console.error('❌ 建库失败:', lastError ? lastError.message : '未知错误');
     console.error('   请检查 .env 文件中的数据库配置是否正确：');
     console.error('   MYSQL_HOST:', DB_CONFIG.host);
     console.error('   MYSQL_USER:', DB_CONFIG.user);
-    console.error('   MYSQL_DATABASE:', DB_NAME);
-    console.error('   错误类型:', lastError.code || 'UNKNOWN');
-    throw lastError;
+    console.error('   MYSQL_DATABASE:', holder.dbName);
+    console.error('   错误类型:', (lastError && lastError.code) || 'UNKNOWN');
+    throw lastError || new Error('建库失败：数据库连接重试全部耗尽');
   }
 
   // 第二步：重建连接池（带 database），然后通过 holder.pool 建表
   recreatePool();
 
+  // P2-77：移除池级 `SET FOREIGN_KEY_CHECKS = 0/1`。该设置只作用于当次借出的池连接，
+  // 且会话状态随连接归还留在池内污染后续业务查询——既起不到全局关外键的作用，
+  // 又留下隐患。本文件表定义已按依赖顺序声明且全部 IF NOT EXISTS，无需关闭外键。
   try {
-    await holder.pool.query(`SET FOREIGN_KEY_CHECKS = 0`);
-    console.log('🔓 已临时禁用外键约束检查');
-
     const tables = [
       // 密码重置token表
       `CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -1229,8 +1242,26 @@ async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
     ];
 
+    // P2-77：逐表容错——旧实现任一表失败即中断整个数组且被外层 catch 以
+    // 「建表失败」名义重抛，掩盖真实建表进度。改为收集失败、末尾汇总（见函数尾部）。
+    const createFailures = [];
     for (const sql of tables) {
-      await holder.pool.query(sql);
+      let m = /^CREATE TABLE IF NOT EXISTS\s+`?(\w+)`?/i.exec(sql.trim());
+      let label = m ? m[1] : '未知表';
+      if (label === 'sessions') {
+        try {
+          await holder.pool.query(sql);
+        } catch (e) {
+          console.warn(`  ⚠️ 表 sessions 建表失败（将影响登录态持久化，请检查权限后重启）: ${e.message}`);
+        }
+        continue;
+      }
+      try {
+        await holder.pool.query(sql);
+      } catch (e) {
+        createFailures.push(`${label}: ${e.message}`);
+        console.error(`  ❌ 建表失败 ${label}: ${e.message}`);
+      }
     }
 
     // V6.5: 为现有 group_roster 表添加新列（兼容旧表）
@@ -1789,27 +1820,19 @@ async function initDatabase() {
       }
     }
 
-    // 社区评分表与标签字典表（首次启动自动建表；已存在则忽略）
-    for (const sql of [
-      `CREATE TABLE IF NOT EXISTS model_ratings (
-        id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        model_collection_id BIGINT NOT NULL,
-        user_id INT NOT NULL,
-        rating TINYINT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uk_model_user (model_collection_id, user_id),
-        INDEX idx_model (model_collection_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
-      `CREATE TABLE IF NOT EXISTS model_tag_dict (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        tag VARCHAR(64) NOT NULL,
-        category VARCHAR(32) DEFAULT 'general',
-        COUNT INT NOT NULL DEFAULT 0,
-        UNIQUE KEY uk_tag (tag)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
-    ]) {
-      try { await holder.pool.query(sql); } catch (e) { console.warn('  ⚠️ model ratings/tags table migration:', e.message); }
+    // P2-79：此处曾重复声明 model_ratings / model_tag_dict 建表块（规范定义已在
+    // 上方 tables 数组 :1060/:1072，IF NOT EXISTS 幂等），属双源漂移，予以删除。
+    // 同时承接 P2-79 的另一半：checkin.js 请求路径上的 ensureCheckinUniqueIndex()
+    // 一次性裸 ALTER 迁移逻辑移入这里——库内建表已含 uk_user_date，仅为老库补建；
+    // 迁移应属于启动初始化，而不是首个签到请求的隐式副作用。
+    try {
+      await holder.pool.query(
+        'ALTER TABLE user_checkin ADD UNIQUE INDEX uk_user_date (user_id, checkin_date)'
+      );
+      console.log('🔧 老库兼容：user_checkin 已补建 uk_user_date 唯一索引');
+    } catch (e) {
+      const idxExists = (e.code === 'ER_DUP_KEYNAME' || e.errno === 1061 || /Duplicate key name/i.test(e.message));
+      if (!idxExists) console.warn('  ⚠️ user_checkin uk_user_date 兼容迁移:', e.message);
     }
 
     // V7.00: 插入签到奖励默认数据
@@ -2003,16 +2026,26 @@ async function initDatabase() {
       console.log('✅ 历史收藏迁移完成');
     }
 
-    await holder.pool.query(`SET FOREIGN_KEY_CHECKS = 1`);
-    console.log('🔒 已重新启用外键约束检查');
-
-    console.log('✅ 数据库初始化完成（73张表 + 默认数据）');
-  } catch (err) {
+    // P2-77：表数改为运行时统计。旧硬编码「73张表」与实际 81 张早已漂移失真。
+    let tableCountText = '未知';
     try {
-      await holder.pool.query(`SET FOREIGN_KEY_CHECKS = 1`);
-      console.log('🔒 异常时已重新启用外键约束检查');
-    } catch (e) { console.warn('[db_init] 恢复外键约束检查失败:', e.message); }
-    console.error('❌ 建表失败:', err.message);
+      const [cntRows] = await holder.pool.query(
+        'SELECT COUNT(*) AS cnt FROM information_schema.TABLES WHERE TABLE_SCHEMA = ?',
+        [holder.dbName]
+      );
+      tableCountText = String(cntRows[0] ? cntRows[0].cnt : '未知');
+    } catch (e) {
+      console.warn('  ⚠️ 统计表数量失败:', e.message);
+    }
+
+    if (createFailures.length > 0) {
+      console.error(`❌ 数据库初始化未完全成功：${createFailures.length} 张表建表失败`);
+      createFailures.forEach((f) => console.error('   - ' + f));
+      throw new Error(`数据库初始化失败：${createFailures.length} 张表未能创建（详见上方日志）`);
+    }
+    console.log(`✅ 数据库初始化完成（当前库共 ${tableCountText} 张表 + 默认数据）`);
+  } catch (err) {
+    console.error('❌ 数据库初始化失败:', err.message);
     throw err;
   }
 }
@@ -2038,14 +2071,19 @@ async function setMigrationVersion(version) {
   );
 }
 
+// P1-13：旧实现是伪备份——只 mkdir + 拼文件名就返回成功，从未真正 mysqldump，
+// 迁移前「已有备份」的安全感是假的。现委托 backup-core 真实导出并做三重校验
+// （退出码 / 体积 / mysqldump 文件头）；导出落在 backups/ 根目录，与手动/自动备份同栈。
 async function backupDatabase() {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupDir = path.join(__dirname, '..', 'backups', 'migrations');
-  try { require('fs').promises.mkdir(backupDir, { recursive: true }); } catch {}
-  const filename = `migration_backup_v${CURRENT_MIGRATION_VERSION}_${timestamp}.sql`;
-  const filepath = path.join(backupDir, filename);
-  console.log('📦 创建迁移前备份:', filename);
-  return { filepath, version: CURRENT_MIGRATION_VERSION, timestamp };
+  const { createBackup } = require('./backup-core');
+  console.log('📦 创建迁移前备份...');
+  const info = await createBackup({ prefix: 'migration_' });
+  console.log(`✅ 迁移前备份完成: ${info.filename} (${info.sizeFormatted})`);
+  return {
+    filepath: info.filePath,
+    version: CURRENT_MIGRATION_VERSION,
+    timestamp: info.createdAt
+  };
 }
 
 async function rollbackToVersion(targetVersion) {
@@ -2055,8 +2093,11 @@ async function rollbackToVersion(targetVersion) {
     return;
   }
   console.log(`🔄 准备从版本 ${current} 回滚到版本 ${targetVersion}`);
+  // P1-13：备份文件名口径与 backupDatabase 保持一致（backups/ 根目录、migration_ 前缀、
+  // 库名+时间戳命名）；旧提示里的 migrations/migration_backup_v*.sql 路径从未存在过。
   console.log('⚠️ 回滚需要手动恢复备份，请使用以下命令：');
-  console.log(`   mysql -u<user> -p <database> < backups/migrations/migration_backup_v${targetVersion}_*.sql`);
+  console.log('   mysql -u<user> -p <database> < backups/migration_<库名>_<时间戳>.sql');
+  console.log('   （管理后台「数据库备份」页也可直接恢复，含完整性校验）');
   await setMigrationVersion(targetVersion);
   console.log(`✅ 版本号已回滚至 ${targetVersion}（数据需手动恢复）`);
 }
@@ -2068,3 +2109,20 @@ module.exports.setMigrationVersion = setMigrationVersion;
 module.exports.backupDatabase = backupDatabase;
 module.exports.rollbackToVersion = rollbackToVersion;
 module.exports.CURRENT_MIGRATION_VERSION = CURRENT_MIGRATION_VERSION;
+
+// P1-13：补 CLI 入口。DEPLOY.md、docker-entrypoint.sh（`if node db_init.js`）、
+// install.sh 都把 `node db_init.js` 当作初始化手段，但旧文件没有 require.main 入口，
+// 独立运行只是加载模块后静默 exit 0——「初始化成功」完全是假的。
+// 现在真正执行 initDatabase，成功 exit 0 / 失败 exit 1，并关闭连接池让进程能退出。
+if (require.main === module) {
+  initDatabase()
+    .then(async () => {
+      try { await holder.pool.end(); } catch (e) { console.warn('[db_init] 关闭连接池失败:', e.message); }
+      process.exit(0);
+    })
+    .catch(async (err) => {
+      console.error('❌ 数据库初始化失败:', err.message);
+      try { await holder.pool.end(); } catch (_) { /* 池可能未建立，忽略 */ }
+      process.exit(1);
+    });
+}

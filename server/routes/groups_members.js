@@ -10,7 +10,7 @@
  *   description: VRChat群组名册与统计接口
  */
 const express = require('express');
-const { ok, getPool, handleError, sendError, ErrorCodes } = require('../utils');
+const { ok, getPool, handleError, sendError, ErrorCodes, paginate } = require('../utils');
 const { requireAuth, requireAdminCompat } = require('../auth');
 const { vrchatGetInstance } = require('../vrc');
 const logger = require('../logger');
@@ -72,7 +72,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   // ==================== 成员变更历史 ====================
   router.get('/group/members/changes', requireAuth, async (req, res) => {
     try {
-      const limit = Math.min(parseInt(req.query.limit) || 30, 100);
+      const { pageSize: limit } = paginate(req, { sizeParam: 'limit', defaultSize: 30, maxSize: 100 });
       const [rows] = await getPool().query(
         `SELECT vrchat_id AS vrchatId, vrchat_name AS vrchatName, change_type AS changeType,
                 old_status AS oldStatus, new_status AS newStatus, detail, created_at AS createdAt

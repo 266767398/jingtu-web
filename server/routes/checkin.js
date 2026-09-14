@@ -8,7 +8,7 @@
  */
 const express = require('express');
 const router = express.Router();
-const { getPool, handleError } = require('../utils');
+const { getPool, handleError, paginate } = require('../utils');
 const { requireAuth } = require('../auth');
 const { checkAndUnlock } = require('./achievements');
 
@@ -24,24 +24,13 @@ function dayDiff(a, b) {
   return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000);
 }
 
-// 确保 user_checkin 上存在 (user_id, checkin_date) 唯一索引，防止并发签到重复入库
-async function ensureCheckinUniqueIndex() {
-  try {
-    await getPool().query('ALTER TABLE user_checkin ADD UNIQUE INDEX uk_user_date (user_id, checkin_date)');
-  } catch (e) {
-    // 索引已存在或其他错误时静默忽略
-  }
-}
-let _indexEnsured = false;
+// P2-79：原 ensureCheckinUniqueIndex() 一次性裸 ALTER 迁移已从请求路径移除，
+// 改由 db_init.js 启动初始化统一补建（新库建表自带 uk_user_date，老库兼容 ALTER）。
+// 此处签到写入依赖该唯一索引 + 显式 INSERT（冲突即已签到），并发安全不受影响。
 
 router.post('/me/checkin', requireAuth, async (req, res) => {
   const conn = await getPool().getConnection();
   try {
-    if (!_indexEnsured) {
-      await ensureCheckinUniqueIndex();
-      _indexEnsured = true;
-    }
-
     const userId = req.session.userId;
     const today = ymd(new Date());
 
@@ -200,9 +189,7 @@ router.get('/me/status', requireAuth, async (req, res) => {
 router.get('/me/history', requireAuth, async (req, res) => {
   try {
     const userId = req.session.userId;
-    const page = parseInt(req.query.page) || 1;
-    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize) || 30));
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 30, maxSize: 100 });
     
     const [count] = await getPool().query(
       'SELECT COUNT(*) as total FROM user_checkin WHERE user_id = ?',

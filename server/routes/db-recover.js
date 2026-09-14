@@ -40,8 +40,13 @@ const ENV_PATH = path.join(__dirname, '..', '..', '.env');
 // - 若未配置：写接口一律返回 503，明确提示「恢复令牌未启用」，绝不在无令牌时放行。
 // - 令牌传递：Authorization: Bearer <token>，或查询参数 ?token=<token>，或头 X-Recovery-Token。
 // - 校验失败计入安全告警 + 限流，避免被暴力枚举。
-const RECOVERY_TOKEN = process.env.RECOVERY_TOKEN || '';
-if (!RECOVERY_TOKEN) {
+// P1-16：令牌必须每次请求实时读取 process.env——模块加载期的常量快照会过期：
+// 本路由的核心场景就是「运维改了 .env 里的凭证后自救」，快照导致新令牌不生效、
+// 旧令牌撤不掉。
+function getRecoveryToken() {
+  return process.env.RECOVERY_TOKEN || '';
+}
+if (!getRecoveryToken()) {
   // 仅打印一次告警（模块加载期）。生产部署请立即配置 RECOVERY_TOKEN。
   logger && logger.warn('[db-recover]',
     '⚠️ RECOVERY_TOKEN 未在 .env 中配置。数据库恢复写接口已禁用（返回 503）。' +
@@ -50,7 +55,8 @@ if (!RECOVERY_TOKEN) {
 
 let recoveryFailStreak = 0;
 function requireRecoveryToken(req, res, next) {
-  if (!RECOVERY_TOKEN) {
+  const recoveryToken = getRecoveryToken();
+  if (!recoveryToken) {
     return fail(res, 503, '数据库恢复通道未启用：请管理员在服务器 .env 配置 RECOVERY_TOKEN 后重试。', { code: 'RECOVERY_DISABLED' });
   }
   const auth = req.headers['authorization'] || '';
@@ -61,14 +67,21 @@ function requireRecoveryToken(req, res, next) {
 
   // 恒定时间比较，避免时序侧信道泄露令牌长度/前缀
   const a = Buffer.from(provided || '');
-  const b = Buffer.from(RECOVERY_TOKEN);
+  const b = Buffer.from(recoveryToken);
   const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
 
   if (!ok) {
     recoveryFailStreak++;
-    // 失败次数较多时通过安全告警模块提示（若有）
-    if (recoveryFailStreak >= 5 && typeof securityAlert === 'function') {
-      try { securityAlert('db_recover_token_fail', { ip: req.ip, fails: recoveryFailStreak }); } catch (_) {}
+    // 失败次数较多时通过安全告警模块提示
+    // P1-16 关联：旧代码 `typeof securityAlert === 'function'` 永假（securityAlert 未在本
+    // 模块定义，security_alert.js 导出的是命名函数对象），爆破告警分支从未触发过。
+    if (recoveryFailStreak >= 5) {
+      try {
+        const { onSecurityBreach } = require('../security_alert');
+        if (typeof onSecurityBreach === 'function') {
+          onSecurityBreach('数据库恢复令牌疑似爆破', { ip: req.ip, fails: recoveryFailStreak });
+        }
+      } catch (_) {}
     }
     logger && logger.warn('[db-recover]', '恢复令牌校验失败（疑似爆破）', { ip: req.ip, fails: recoveryFailStreak });
     return fail(res, 401, '恢复令牌无效', { code: 'BAD_RECOVERY_TOKEN' });
@@ -89,18 +102,50 @@ function readEnv() {
   } catch (_) {}
   return obj;
 }
+// P2-73①②：旧 writeEnv 会把 .env 整文件重排重写（未知键被挪到尾部、注释与格式丢失、
+// 非原子写），且密码含引号/换行时可破坏文件结构。现改为：
+//  - 原位替换：逐行扫描，只改动目标 MYSQL_* 行，其余行（注释/顺序/格式）原样保留；
+//  - 原子落盘：写 .env.tmp 后 rename，避免半截文件；
+//  - 值中的换行直接剔除，防止注入额外键值行。
 function writeEnv(obj) {
   const MYSQL_KEYS = ['MYSQL_HOST', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE', 'MYSQL_PORT'];
-  const order = [
-    ...MYSQL_KEYS.filter((k) => k in obj),
-    ...Object.keys(obj).filter((k) => !MYSQL_KEYS.includes(k))
-  ];
-  const lines = order.map((k) => {
-    const v = obj[k] == null ? '' : obj[k];
-    if (k === 'MYSQL_PASSWORD') return `${k}="${v}"`;
-    return `${k}=${v}`;
-  });
-  fs.writeFileSync(ENV_PATH, lines.join('\n') + '\n', 'utf8');
+  const sanitize = (v) => String(v == null ? '' : v).replace(/[\r\n]/g, '');
+  const targets = {};
+  for (const k of MYSQL_KEYS) {
+    if (k in obj) targets[k] = `${k}="${sanitize(obj[k])}"`;
+  }
+
+  const raw = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : '';
+  const eol = raw.includes('\r\n') ? '\r\n' : '\n';
+  const lines = raw.split(/\r?\n/);
+  const seen = new Set();
+  const out = [];
+  for (const line of lines) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=/);
+    if (m && Object.prototype.hasOwnProperty.call(targets, m[1])) {
+      if (!seen.has(m[1])) {
+        out.push(targets[m[1]]);
+        seen.add(m[1]);
+      }
+      // 重复键只保留第一次出现，其余丢弃
+      continue;
+    }
+    out.push(line);
+  }
+  // .env 中原本不存在的 MYSQL_* 键追加到末尾（保持尾部无空行）
+  for (const k of MYSQL_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(targets, k) && !seen.has(k)) {
+      out.push(targets[k]);
+    }
+  }
+  const content = out.join(eol).replace(/\s+$/, '') + eol;
+  const tmpPath = ENV_PATH + '.tmp';
+  fs.writeFileSync(tmpPath, content, 'utf8');
+  fs.renameSync(tmpPath, ENV_PATH);
+  // 同步刷新当前进程 env（P1-16：热切换后模块内实时读取才能拿到新值）
+  for (const k of MYSQL_KEYS) {
+    if (k in obj) process.env[k] = sanitize(obj[k]);
+  }
 }
 
 // 当前 DB 是否可用（用于恢复门禁）；池未创建或 ping 失败均视为不可用
@@ -185,17 +230,40 @@ router.post('/db-recover', requireRecoveryToken, async (req, res) => {
   merged.MYSQL_PORT = String(port);
   writeEnv(merged);
 
-  // 5) 热切换连接池并重新初始化（无需重启进程）
-  try {
+  // 5) 热切换连接池并重新初始化（应用主池无需重启即生效）
+  const switchedToNewDb = !!(cur.MYSQL_DATABASE && database !== cur.MYSQL_DATABASE);
+  // P1-16：旧实现对任意「可连通的目标库」无条件跑 db_init（81 张表建表脚本），
+  // 一旦恢复时误填了别的库名，就会在别人正在用的库上强行建表/改结构。
+  // 现在：库名未变（常见场景：只是密码/地址变了）→ 照常初始化以保证表结构齐备；
+  // 库名变了 → 必须显式 confirmInitialize=true 才初始化，否则只切换不建表。
+  const shouldInit = !switchedToNewDb || body.confirmInitialize === true;
+  let reinitialized = false;
+  let initWarning = null;
+  if (shouldInit) {
+    try {
+      applyDbConfig({ host, port, user, password, database });
+      const initDatabase = require('../db_init');
+      await initDatabase();
+      reinitialized = true;
+    } catch (e) {
+      // 配置已写入磁盘；初始化失败（如表不存在）提示用户手动跑 db_init.js
+      initWarning = '数据库已连接，但表结构初始化失败：' + e.message + '（可能需要先在服务器运行 `node db_init.js`）';
+    }
+  } else {
     applyDbConfig({ host, port, user, password, database });
-    const initDatabase = require('../db_init');
-    await initDatabase();
-  } catch (e) {
-    // 配置已写入磁盘；初始化失败（如表不存在）提示用户手动跑 db_init.js
-    return ok(res, {reinitialized: false,
-      warning: '数据库已连接，但表结构初始化失败：' + e.message + '（可能需要先在服务器运行 `node db_init.js`）'});
+    initWarning = '目标库与原库不同，未自动执行表结构初始化（避免在无关库上建表）。如确认新库需要建站表结构，请携带 confirmInitialize=true 重新提交。';
   }
-  ok(res, {reinitialized: true});
+
+  // P1-16：会话存储（express-mysql-session 独立连接池）与 WS 服务在启动时各自持有
+  // 独立连接池，热切换无法刷新它们——响应中如实告知「需重启进程彻底生效」，
+  // 不再伪装成完全免重启的切换。
+  const restartWarning = '注意：登录会话存储与 WebSocket 服务的连接池仍指向旧配置，' +
+    '需重启 Node 进程后才能彻底生效（重启前可能出现无法登录新会话的情况）。';
+
+  ok(res, {
+    reinitialized,
+    warning: [restartWarning, initWarning].filter(Boolean).join(' ') || undefined
+  });
 });
 
 module.exports = router;

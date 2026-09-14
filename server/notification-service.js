@@ -59,9 +59,7 @@ class NotificationService {
   async notifyAllMembers(type, title, message, target = {}) {
     try {
       const [users] = await getPool().query(`SELECT id FROM users WHERE deleted_at IS NULL AND banned = 0`);
-      for (const u of users) {
-        await this.notifyUser(u.id, type, title, message, target);
-      }
+      await this._bulkFanOut(users.map(u => u.id), type, title, message, target);
     } catch (e) {
       console.warn('⚠️ 群发通知失败:', e.message);
     }
@@ -73,11 +71,70 @@ class NotificationService {
       const [admins] = await getPool().query(
         `SELECT id FROM users WHERE deleted_at IS NULL AND banned = 0 AND role IN ('super_admin','admin')`
       );
-      for (const a of admins) {
-        await this.notifyUser(a.id, type, title, message, target);
-      }
+      await this._bulkFanOut(admins.map(a => a.id), type, title, message, target);
     } catch (e) {
       console.warn('⚠️ 管理员群发通知失败:', e.message);
+    }
+  }
+
+  // P2-82 批量扇出：原先每人一次 notifyUser（INSERT + 设置 SELECT 串行往返），
+  // 万人群为分钟级阻塞。改为按 500 人分块：多行 INSERT 一次落库、设置一次查回；
+  // WS 推送仍逐用户（尊重个人 browser 设置、走 broadcastToUser），邮件仍 fire-and-forget 进队列。
+  // 失败语义与原逐人路径一致：INSERT 分块失败仅告警不阻断推送；设置查询失败回落默认设置（不写缓存）。
+  async _bulkFanOut(userIds, type, title, message, target = {}) {
+    if (!userIds || userIds.length === 0) return;
+    const { relatedId = null, targetType = null, targetId = null, postId = null } = target;
+    const CHUNK = 500;
+    for (let i = 0; i < userIds.length; i += CHUNK) {
+      const slice = userIds.slice(i, i + CHUNK);
+      try {
+        const values = [];
+        for (const id of slice) values.push(id, type, title, message, relatedId, targetType, targetId, postId);
+        await getPool().query(
+          `INSERT INTO notifications (user_id, type, title, message, related_id, target_type, target_id, post_id)
+           VALUES ${slice.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}`,
+          values
+        );
+      } catch (e) {
+        console.warn('⚠️ 批量创建通知失败:', e.message);
+      }
+      let rows = null;
+      try {
+        [rows] = await getPool().query(`SELECT id, notification_settings FROM users WHERE id IN (?)`, [slice]);
+      } catch (e) {
+        console.warn('⚠️ 批量查询通知设置失败:', e.message);
+      }
+      if (rows) {
+        for (const row of rows) {
+          let settings = null;
+          try {
+            const parsed = row.notification_settings ? JSON.parse(row.notification_settings) : {};
+            settings = {
+              browser: parsed.browser !== false,
+              email: parsed.email || false,
+              sound: parsed.sound !== false
+            };
+          } catch (e) {
+            settings = null;
+          }
+          if (settings) this._settingsCache.set(row.id, settings);
+          else settings = { browser: true, email: false, sound: true };
+          this._deliver(settings, row.id, type, title, message, target);
+        }
+      } else {
+        for (const id of slice) {
+          this._deliver({ browser: true, email: false, sound: true }, id, type, title, message, target);
+        }
+      }
+    }
+  }
+
+  _deliver(settings, userId, type, title, message, target) {
+    if (settings.browser) {
+      this.pushToUserWS(userId, type, { title, message, ...target });
+    }
+    if (settings.email) {
+      this.sendEmailNotification(userId, title, message).catch(() => {});
     }
   }
 
@@ -95,12 +152,7 @@ class NotificationService {
   async notifyUser(userId, type, title, message, target = {}) {
     await this.createNotification(userId, type, title, message, target);
     const settings = await this.getUserSettings(userId);
-    if (settings.browser) {
-      this.pushToUserWS(userId, type, { title, message, ...target });
-    }
-    if (settings.email) {
-      this.sendEmailNotification(userId, title, message).catch(() => {});
-    }
+    this._deliver(settings, userId, type, title, message, target);
   }
 
   async sendEmailNotification(userId, title, message) {

@@ -217,3 +217,293 @@ describe('posts module regressions', () => {
     expect(submitComment).toMatch(/input\.value\s*=\s*content/);
   });
 });
+
+describe('P2-70 pagination consolidation guard', () => {
+  // 防止路由层重新出现裸 parseInt(req.query.page/pageSize/limit) 钳位写法，
+  // 全站分页必须走 utils.paginate()。_archive/ 为下线归档，不纳入收口口径。
+  const liveRouteFiles = () => fs
+    .readdirSync(path.join(serverRoot, 'routes'), { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.js'))
+    .map((entry) => entry.name);
+
+  test('route files never parse page/pageSize/limit by hand again', () => {
+    const rawParse = /parseInt\s*\(\s*\w+(?:\.\w+)*\.(?:page|pageSize|limit)\b/;
+    const offenders = [];
+    for (const name of liveRouteFiles()) {
+      const src = readServer('routes', name);
+      if (rawParse.test(src)) offenders.push(name);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test('paginate() call sites stay pinned at 34 across 21 route files', () => {
+    let totalCalls = 0;
+    const filesWithCalls = [];
+    for (const name of liveRouteFiles()) {
+      const count = (readServer('routes', name).match(/= paginate\(/g) || []).length;
+      if (count > 0) filesWithCalls.push(name);
+      totalCalls += count;
+    }
+    expect(totalCalls).toBe(34);
+    expect(filesWithCalls.length).toBe(21);
+  });
+
+  // P2-70 全量回归暴露的教训：路由新增解构 utils 导出（如 paginate）后，
+  // 若测试的 jest.mock('../utils') 工厂没同步补名，路由加载期解构到 undefined，
+  // 命中该导出的接口一调用即 TypeError、被 handleError 吞成 500（collections/moderations 双套件曾中招）。
+  // 守卫对「mock 了 utils 且 require 了路由」的套件自动校验解构名是否被工厂覆盖。
+  test('utils mock factories cover every export their routes destructure', () => {
+    const extractFactory = (src) => {
+      const marker = src.indexOf("jest.mock('../utils'");
+      if (marker === -1) return null;
+      const braceIdx = src.indexOf('{', marker);
+      if (braceIdx === -1) return null;
+      let depth = 0;
+      for (let i = braceIdx; i < src.length; i++) {
+        if (src[i] === '{') depth++;
+        if (src[i] === '}') {
+          depth--;
+          if (depth === 0) return src.slice(braceIdx + 1, i);
+        }
+      }
+      return null;
+    };
+    const testDir = path.join(serverRoot, '__tests__');
+    const offenders = [];
+    for (const file of fs.readdirSync(testDir).filter((f) => f.endsWith('.test.js'))) {
+      const src = fs.readFileSync(path.join(testDir, file), 'utf8');
+      const factory = extractFactory(src);
+      // requireActual + spread 型工厂由真实 utils 动态兜底全部导出，静态检查不适用（也读不到键名）。
+      if (!factory || factory.includes('requireActual')) continue;
+      for (const [, routeName] of src.matchAll(/require\(['"]\.\.\/routes\/([\w.-]+)['"]\)/g)) {
+        let routeSrc;
+        try {
+          routeSrc = readServer('routes', `${routeName}.js`);
+        } catch {
+          continue;
+        }
+        const destructure = routeSrc.match(/const \{([^}]+)\} = require\(['"]\.\.\/utils['"]\)/);
+        if (!destructure) continue;
+        for (const raw of destructure[1].split(',')) {
+          const utilName = raw.trim();
+          if (utilName && !new RegExp(`(^|[\\s,{])${utilName}\\s*[(:]`).test(factory)) {
+            offenders.push(`${file} → routes/${routeName}.js 解构 ${utilName} 未被 mock 工厂覆盖`);
+          }
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe('P2-82 notification bulk fan-out guard', () => {
+  // 防止群发通知回退为逐用户串行 notifyUser（每人 INSERT+SELECT，万人群分钟级阻塞）。
+  test('mass notifications fan out in batches instead of per-user serial round-trips', () => {
+    const src = readServer('notification-service.js');
+    expect(src).toMatch(/_bulkFanOut\(users\.map\(u => u\.id\)/);
+    expect(src).toMatch(/_bulkFanOut\(admins\.map\(a => a\.id\)/);
+    expect(src).not.toMatch(/this\.notifyUser\(/);
+    expect(src).toMatch(/VALUES \$\{slice\.map\(/);
+    expect(src).toMatch(/SELECT id, notification_settings FROM users WHERE id IN \(\?\)/);
+  });
+});
+
+describe('P2-71/72/73/76 config & deploy hygiene guard', () => {
+  // P2-72：防止站点地址变量链回退丢失（compose 透传 APP_URL，sitemap 必须认它），
+  // 也防止 localhost 兜底端口倒退回 3000（实际监听 3456）。
+  test('site-url fallback chain covers APP_URL and defaults to port 3456', () => {
+    const sitemap = readServer('routes', 'sitemap.js');
+    const baseUrl = extractFunction(sitemap, 'getBaseUrl');
+    expect(baseUrl).toMatch(/SITEMAP_BASE_URL\s*\|\|\s*process\.env\.APP_URL\s*\|\|\s*process\.env\.APP_BASE_URL/);
+    expect(baseUrl).toContain('http://localhost:3456');
+    const mailer = readServer('mailer.js');
+    expect(mailer).toContain("process.env.APP_URL || 'http://localhost:3456'");
+    expect(sitemap).not.toContain('localhost:3000');
+    expect(mailer).not.toContain('localhost:3000');
+  });
+
+  // P2-72：代码读取但模板缺失的环境变量必须回到 .env.example，防止部署时靠翻源码猜配置。
+  test('.env.example documents every previously-undocumented consumed env var', () => {
+    const example = readRepo('.env.example');
+    const documented = [
+      'APP_URL', 'SITEMAP_BASE_URL', 'APP_BASE_URL', 'WS_URL',
+      'SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_SECURE', 'SMTP_FROM', 'ADMIN_EMAIL',
+      'FILE_RETENTION_DAYS', 'NOTIFICATION_RETENTION_DAYS', 'BACKUP_RETENTION_DAYS',
+      'PANEL_PORT', 'ACTIVATION_CODES_FILE', 'VRC_USER_AGENT', 'VRCX_SEARCH_URL'
+    ];
+    for (const key of documented) {
+      expect(example).toMatch(new RegExp(`^${key}=`, 'm'));
+    }
+  });
+
+  // P2-73①：安装向导写 .env 必须与 db-recover/migration 通道收口：敏感键加引号、
+  // 值剔除换行（防注入额外键值行）、临时文件 + rename 原子落盘。
+  test('setup wizard writes .env atomically with sanitized quoted secrets', () => {
+    const writeEnv = extractFunction(readServer('routes', 'setup.js'), 'writeEnv');
+    expect(writeEnv).toMatch(/replace\(\/\[\\r\\n\]\/g, ''\)/);
+    expect(writeEnv).toMatch(/\/SECRET\|PASSWORD\|PASS\|KEY\|TOKEN\/i/);
+    expect(writeEnv).toMatch(/envPath \+ '\.tmp'/);
+    expect(writeEnv).toMatch(/fs\.renameSync\(tmpPath, envPath\)/);
+  });
+
+  // P2-73：.env 自动备份/原子写产物全部含旧密钥，面板哈希文件属本地私有，严禁入库。
+  test('.gitignore keeps env backups and panel auth out of the repo', () => {
+    const gitignore = readRepo('.gitignore');
+    for (const pattern of ['^\\.env\\.bak\\.\\*$', '^\\.env\\.broken-\\*$', '^\\.env\\.tmp$', '^panel/panel-auth\\.json$']) {
+      expect(gitignore).toMatch(new RegExp(pattern, 'm'));
+    }
+  });
+
+  // P2-76：反代体积上限不得低于相册路由的单文件上限（500MB），否则大视频在 nginx 层 413。
+  test('nginx body-size cap matches the 500MB upload route cap', () => {
+    const conf = readRepo('deploy', 'nginx', 'jingtu.conf');
+    const installer = readRepo('install.sh');
+    expect(conf).toMatch(/client_max_body_size 500m;/);
+    expect(installer).toMatch(/client_max_body_size 500m;/);
+    expect(conf).not.toMatch(/client_max_body_size 200m;/);
+    expect(installer).not.toMatch(/client_max_body_size 200m;/);
+  });
+
+  // P2-71：MySQL 服务端时区须与连接层（db.js '+08:00'）和 CronJob 时区一致，
+  // 否则 NOW()/CURDATE() 按 UTC 计，日报统计在 00:00-08:00（北京时间）统计错日。
+  test('scheduled tasks and MySQL server timezone are both Asia/Shanghai', () => {
+    const compose = readRepo('docker-compose.yml');
+    expect(compose).toMatch(/--default-time-zone=\+08:00/);
+    const tasks = extractFunction(readServer('tasks.js'), 'startTasks');
+    const cronJobs = (tasks.match(/new CronJob\(/g) || []).length;
+    const tzPinned = (tasks.match(/null, true, 'Asia\/Shanghai'\)/g) || []).length;
+    expect(cronJobs).toBe(6);
+    expect(tzPinned).toBe(cronJobs);
+  });
+});
+
+describe('P2-83/84/85 frontend lock, guard & stamp hygiene', () => {
+  // P2-83：弹窗滚动锁统一收口到 ui.js 的引用计数锁。core.js 私有计数器
+  // (_modalScrollLocks) 在 closeAllModals 中漏递减、且裸写 overflow 会覆盖
+  // 菜单/灯箱/无障碍观察器的锁；严禁回退，overflow 只允许经锁机制操作。
+  test('core.js modal scroll lock is unified with ui.js reference-counted lock', () => {
+    const core = readRepo('public', 'js', 'core.js');
+    expect(core).not.toContain('_modalScrollLocks');
+    const closeModal = extractFunction(core, 'closeModal');
+    expect(closeModal).toContain("unlockBodyScroll('modal:' + id)");
+    expect(closeModal).not.toMatch(/body\.style\.overflow/);
+    const showModal = extractFunction(core, 'showModal');
+    expect(showModal).toContain("lockBodyScroll('modal:' + id)");
+    expect(showModal).not.toMatch(/body\.style\.overflow/);
+    const closeAll = extractFunction(core, 'closeAllModals');
+    expect(closeAll).toContain("unlockBodyScroll('modal:' + modal.id)");
+    // canonical 锁本体仍在 ui.js（若被删除，core.js 的调用会静默失效）
+    const ui = readRepo('public', 'js', 'ui.js');
+    expect(ui).toMatch(/function\s+lockBodyScroll\s*\(/);
+    expect(ui).toMatch(/function\s+unlockBodyScroll\s*\(/);
+  });
+
+  // P2-84：showEventDetail（events.js）与 openMapLocation（map.js）均为懒加载模块，
+  // 内联 onclick 直接引用会在模块未加载时抛 ReferenceError；须带 window 属性守卫。
+  test('cross-module inline onclick handlers guard lazily-loaded globals', () => {
+    const adminUi = readRepo('public', 'js', 'admin-ui.js');
+    expect(adminUi).toContain('onclick="window.showEventDetail&&showEventDetail(');
+    expect(adminUi).not.toMatch(/onclick="showEventDetail/);
+    const profile = readRepo('public', 'js', 'profile.js');
+    expect(profile).toContain('onclick="window.showEventDetail&&showEventDetail(');
+    expect(profile).not.toMatch(/onclick="showEventDetail/);
+    const chat = readRepo('public', 'js', 'chat.js');
+    expect(chat).toContain('onclick="window.openMapLocation&&openMapLocation(');
+    expect(chat).not.toMatch(/onclick="openMapLocation/);
+  });
+
+  // P2-85：懒加载模块版本戳唯一来源是 index.html 的 loader.js?v=（loader.js 运行时自取）。
+  // loader.js 内除「标签无戳」注释外不允许出现 ?v=20xxxxxxa 字面量，防止戳再度分叉。
+  test('loader.js derives asset stamp from its own script tag instead of hardcoding', () => {
+    const loader = readRepo('public', 'js', 'loader.js');
+    expect(loader).toMatch(/document\.currentScript/);
+    expect(loader).toMatch(/script\[src\*="\/js\/loader\.js"\]/);
+    expect(loader).toContain("s.src = '/js/' + src + _assetVer;");
+    const withoutExplain = loader.replace(/\/\/[^\n]*\n/g, '');
+    expect(withoutExplain).not.toMatch(/\?v=20\d{6}[a-z]/);
+    const index = readRepo('public', 'index.html');
+    expect(index).toMatch(/<script defer src="\/js\/loader\.js\?v=\d{8}[a-z]?"><\/script>/);
+  });
+});
+
+describe('P2-68 eslint gate and lint-discovered fixes', () => {
+  // P2-68 首轮 ESLint 抓出 routes/*.js 里「调用 logOper( 但从未导入」的文件
+  // （users.js 改密端点、users_tags_notes.js 四个写端点——P2-66 拆分时漏导入）。
+  // 症状：数据写入成功后抛 ReferenceError，被 handleError 转成 500（成功却报失败）。
+  // 静态扫描全 routes 目录，防止今后再拆文件时复发。
+  test('every route file calling logOper imports it via destructuring', () => {
+    const routesDir = path.join(serverRoot, 'routes');
+    const offenders = [];
+    for (const name of fs.readdirSync(routesDir)) {
+      if (!name.endsWith('.js')) continue;
+      const src = fs.readFileSync(path.join(routesDir, name), 'utf8');
+      const code = src.replace(/\/\/[^\n]*\n/g, '\n');
+      if (!/\blogOper\s*\(/.test(code)) continue;
+      if (!/const\s*\{[^}]*\blogOper\b[^}]*\}\s*=\s*require\(/.test(code)) {
+        offenders.push(name);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  // P2-68：ws_service.js 旧代码 `typeof securityAlert === 'function'` 永假
+  // （模块内从未定义 securityAlert），未认证风暴告警从未触发。
+  // 已按 P1-16（db-recover.js）先例改为显式引入 onSecurityBreach，严禁回退。
+  test('ws_service security-storm alert uses real onSecurityBreach import', () => {
+    const ws = readServer('ws_service.js');
+    // 修复说明注释里原文引用了旧代码，断言须先剥行注释只看可执行代码
+    const wsCode = ws.replace(/\/\/[^\n]*\n/g, '\n');
+    expect(wsCode).not.toMatch(/typeof securityAlert === 'function'/);
+    expect(wsCode).toContain("require('./security_alert')");
+    expect(wsCode).toContain('onSecurityBreach');
+    expect(ws).toContain('WebSocket 未认证连接风暴');
+  });
+
+  // P2-68：vrc.js 两处对象字面量重复键 statusDescription（no-dupe-keys），
+  // 各保留一份；重复定义会静默覆盖，禁止再加回。
+  test('vrc.js defines statusDescription exactly once per object literal', () => {
+    const vrc = readServer('vrc.js');
+    expect((vrc.match(/statusDescription: f\.statusDescription/g) || []).length).toBe(1);
+    expect((vrc.match(/statusDescription: userData\.statusDescription/g) || []).length).toBe(1);
+  });
+
+  // P2-68：字符类里的 `\/` 属于 no-useless-escape 噪音，正则语义不变但须保持净化后写法。
+  test('regex noise cleaned in waf and route_guard', () => {
+    const waf = readServer('middleware', 'waf.js');
+    expect(waf).not.toContain('[^\\/');
+    expect(waf).toContain('[^/]');
+    const guard = readServer('route_guard.js');
+    expect(guard).not.toContain('\\[\\]');
+  });
+
+  // P2-68：两处控制字符正则是有意的黑名单（显示名校验 / CSV 转义），
+  // 以行内 disable 记账；若注释丢失，ESLint error 会立刻把问题顶回 CI。
+  test('intentional control-regex sites carry documented eslint-disable', () => {
+    expect(readServer('routes', 'admin_name_change.js')).toContain('eslint-disable-next-line no-control-regex');
+    expect(readServer('routes', 'user-data-helper.js')).toContain('eslint-disable-next-line no-control-regex');
+  });
+
+  // 门禁本体：flat config、npm 脚本、CI 双新 job（lint / node:test）缺一不可。
+  test('lint tooling and CI wiring are present', () => {
+    expect(fs.existsSync(path.join(serverRoot, 'eslint.config.js'))).toBe(true);
+    const pkg = JSON.parse(readServer('package.json'));
+    expect(pkg.scripts.lint).toContain('eslint');
+    expect(pkg.scripts['test:node']).toContain('node --test');
+    const ci = readRepo('.github', 'workflows', 'ci.yml');
+    expect(ci).toContain('npm run lint');
+    expect(ci).toContain('npm run test:node');
+  });
+
+  // P2-68 复活 node:test 套件时发现：`node --test test/`（目录参数）在部分
+  // Node/Windows 组合下不做目录发现，会把目录当模块加载并报 MODULE_NOT_FOUND；
+  // 脚本改用通配符形态（CI bash 可展开，Node ≥23 亦支持原生 glob 双保险）。
+  // 同批修复：security.test.js 的 express-rate-limit stub 必须带 MemoryStore
+  // 命名导出，否则 rate_limit_store.js 模块加载期 `new MemoryStore()` 直接崩溃。
+  test('node:test suite is discoverable and stub matches module shape', () => {
+    const pkg = JSON.parse(readServer('package.json'));
+    expect(pkg.scripts['test:node']).toContain('test/*.test.js');
+    const sec = readServer('test', 'security.test.js');
+    expect(sec).toContain('rateLimitStub.MemoryStore');
+  });
+});
+

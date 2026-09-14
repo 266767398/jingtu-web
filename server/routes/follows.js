@@ -4,7 +4,7 @@
  * 接口契约（入参/出参/越权/错误码）严格遵循 docs/10 §6.3。
  */
 const express = require('express');
-const { ok, getPool, getAvatarUrl, handleError, sendError, ErrorCodes } = require('../utils');
+const { ok, getPool, getAvatarUrl, handleError, sendError, ErrorCodes, paginate } = require('../utils');
 const { requireAuth } = require('../auth');
 
 module.exports = function (notificationService) {
@@ -107,9 +107,7 @@ module.exports = function (notificationService) {
     try {
       const me = req.session.userId;
       const userId = parseInt(req.query.userId) || me;
-      const page = Math.max(1, parseInt(req.query.page) || 1);
-      const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize) || 20));
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 100 });
       const pool = getPool();
 
       const [count] = await pool.query(
@@ -139,9 +137,7 @@ module.exports = function (notificationService) {
     try {
       const me = req.session.userId;
       const userId = parseInt(req.query.userId) || me;
-      const page = Math.max(1, parseInt(req.query.page) || 1);
-      const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize) || 20));
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 100 });
       const pool = getPool();
 
       const [count] = await pool.query(

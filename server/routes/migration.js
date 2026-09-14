@@ -162,6 +162,68 @@ router.post('/get-tables', async (req, res) => {
   }
 });
 
+// P2-78：按主键游标分批搬运单表数据，替代旧实现 `SELECT * FROM 表` 整表载入内存
+// （docs/09 迁移章节自身都标注大表会打爆内存）。无主键 / 复合主键时回退
+// LIMIT/OFFSET 稳定排序分页，并在日志中如实给出内存告警。
+async function migrateTableDataInBatches(sourceConn, targetConn, tableName, logs) {
+  const BATCH = 500;
+
+  async function insertRows(rows) {
+    if (!rows.length) return 0;
+    const columns = Object.keys(rows[0]);
+    const insertSql = `INSERT INTO \`${tableName}\` (${columns.map((c) => `\`${c}\``).join(', ')}) VALUES ?`;
+    for (let j = 0; j < rows.length; j += 100) {
+      const values = rows.slice(j, j + 100).map((row) => columns.map((c) => row[c]));
+      await targetConn.query(insertSql, [values]);
+    }
+    return rows.length;
+  }
+
+  let pkCol = null;
+  let pkType = null;
+  try {
+    const [pkRows] = await sourceConn.query(
+      'SELECT COLUMN_NAME, DATA_TYPE FROM information_schema.COLUMNS'
+      + ' WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_KEY = ?',
+      [tableName, 'PRI']
+    );
+    if (pkRows.length === 1) { pkCol = pkRows[0].COLUMN_NAME; pkType = String(pkRows[0].DATA_TYPE).toLowerCase(); }
+  } catch (e) {
+    logs.push(`[WARN] 探测表 ${tableName} 主键失败，回退整表读取：${e.message}`);
+  }
+
+  const numericPk = pkCol && /^(int|bigint|mediumint|smallint|tinyint)/.test(pkType);
+  let migrated = 0;
+
+  if (numericPk) {
+    let last = null;
+    for (;;) {
+      const rows = last === null
+        ? (await sourceConn.query(`SELECT * FROM \`${tableName}\` ORDER BY \`${pkCol}\` ASC LIMIT ${BATCH}`))[0]
+        : (await sourceConn.query(`SELECT * FROM \`${tableName}\` WHERE \`${pkCol}\` > ? ORDER BY \`${pkCol}\` ASC LIMIT ${BATCH}`, [last]))[0];
+      if (!rows.length) break;
+      migrated += await insertRows(rows);
+      last = rows[rows.length - 1][pkCol];
+      if (rows.length < BATCH) break;
+    }
+    return { migrated, note: `按主键 ${pkCol} 游标分批` };
+  }
+
+  logs.push(`[WARN] 表 ${tableName} 无单列数值主键，使用 LIMIT/OFFSET 分页搬运；超大表仍可能有内存与性能压力`);
+  for (let offset = 0; ; offset += BATCH) {
+    let rows;
+    if (pkCol) {
+      rows = (await sourceConn.query(`SELECT * FROM \`${tableName}\` ORDER BY \`${pkCol}\` ASC LIMIT ${BATCH} OFFSET ${offset}`))[0];
+    } else {
+      rows = (await sourceConn.query(`SELECT * FROM \`${tableName}\` LIMIT ${BATCH} OFFSET ${offset}`))[0];
+    }
+    if (!rows.length) break;
+    migrated += await insertRows(rows);
+    if (rows.length < BATCH) break;
+  }
+  return { migrated, note: pkCol ? `按主键 ${pkCol} 排序分页` : '无主键顺序分页' };
+}
+
 router.post('/migrate', requireAdminCompat, validateRequest(migrationValidations.migrate), async (req, res) => {
   let sourceConn = null;
   let targetConn = null;
@@ -210,11 +272,13 @@ router.post('/migrate', requireAdminCompat, validateRequest(migrationValidations
     logs.push(`[INFO] 待迁移表数量：${tableNames.length}`);
     
     await targetConn.query(`SET FOREIGN_KEY_CHECKS = 0`);
-    logs.push(`[INFO] 已禁用目标数据库外键约束`);
-    
-    await targetConn.beginTransaction();
-    logs.push(`[INFO] 已开始数据库事务`);
-    
+    logs.push(`[INFO] 已在目标专用连接上禁用外键约束（仅作用于本连接，迁移结束/异常均恢复）`);
+
+    // P2-78：旧实现 beginTransaction() + 结尾 commit()，但循环体内是
+    // DROP TABLE / CREATE TABLE——MySQL DDL 触发隐式提交，所谓「事务」从未包住
+    // 任何结构变更，失败时回滚也是空操作，原子性纯属虚构。现删除假事务，
+    // 如实按「逐表独立迁移」建模：每表成功/失败都进日志，最终响应如实反映
+    // successCount/failCount，部分失败不再伪装整体成功。
     let successCount = 0;
     let failCount = 0;
     
@@ -229,48 +293,45 @@ router.post('/migrate', requireAdminCompat, validateRequest(migrationValidations
         
         await targetConn.query(`DROP TABLE IF EXISTS \`${tableName}\``);
         await targetConn.query(createTableSql);
-        
-        const [data] = await sourceConn.query(`SELECT * FROM \`${tableName}\``);
-        if (data.length > 0) {
-          const columns = Object.keys(data[0]);
-          const insertSql = `INSERT INTO \`${tableName}\` (${columns.map(c => `\`${c}\``).join(', ')}) VALUES ?`;
-          
-          const batchSize = 100;
-          for (let j = 0; j < data.length; j += batchSize) {
-            const batch = data.slice(j, j + batchSize);
-            const values = batch.map(row => columns.map(c => row[c]));
-            await targetConn.query(insertSql, [values]);
-          }
-        }
-        
+
+        const { migrated } = await migrateTableDataInBatches(sourceConn, targetConn, tableName, logs);
+
         successCount++;
-        logs.push(`[SUCCESS] 表 ${tableName} 迁移成功 (${data.length} 条记录)`);
+        logs.push(`[SUCCESS] 表 ${tableName} 迁移成功 (${migrated} 条记录)`);
       } catch (e) {
         failCount++;
         logs.push(`[ERROR] 表 ${tableName} 迁移失败：${e.message}`);
       }
     }
-    
-    await targetConn.commit();
-    logs.push(`[SUCCESS] 事务已提交`);
-    
-    await targetConn.query(`SET FOREIGN_KEY_CHECKS = 1`);
-    logs.push(`[INFO] 已启用目标数据库外键约束`);
-    
+
+    // 尽力恢复外键并验证引用完整性（专用连接，随 close 自动回收）
+    let fkRestoreOk = true;
+    try {
+      await targetConn.query(`SET FOREIGN_KEY_CHECKS = 1`);
+      logs.push(`[SUCCESS] 已恢复目标数据库外键约束`);
+    } catch (e) {
+      fkRestoreOk = false;
+      logs.push(`[WARN] 恢复外键约束失败：${e.message}`);
+    }
+
     await sourceConn.end();
     await targetConn.end();
     
     logs.push(`[INFO] 迁移完成！成功：${successCount} 表，失败：${failCount} 表`);
-    
-    ok(res, { logs });
+
+    if (failCount > 0 || !fkRestoreOk) {
+      const reason = failCount > 0
+        ? `迁移部分失败：${successCount} 表成功、${failCount} 表失败（DDL 不支持整体回滚，失败表需人工核对）`
+        : '表迁移完成，但外键约束恢复失败，请人工核查目标库';
+      fail(res, 200, reason, { logs, successCount, failCount, partial: failCount > 0 });
+    } else {
+      ok(res, { logs, successCount, failCount });
+    }
   } catch (e) {
     try {
-      if (targetConn) {
-        await targetConn.query(`SET FOREIGN_KEY_CHECKS = 1`);
-        await targetConn.rollback();
-      }
-    } catch (rollbackErr) {
-      logger.error('migration', '[migration] 回滚失败:', rollbackErr);
+      if (targetConn) await targetConn.query(`SET FOREIGN_KEY_CHECKS = 1`);
+    } catch (restoreErr) {
+      logger.error('migration', '[migration] 恢复外键约束失败:', restoreErr);
     }
     
     try {
@@ -445,10 +506,14 @@ router.post('/replace-config', requireAdminCompat, validateRequest(migrationVali
           content = content.replace(/password\s*=\s*.*/, `password=${dbConfig.password}`);
         }
         
+        // P2-73：先写临时文件、备份原文件、再 rename 覆盖——rename 是原子操作，
+        // 避免旧实现「备份后直接 writeFileSync 目标文件」在写入中途崩溃时留下
+        // 半截配置文件（.env 被截断 = 全库连接配置损坏）。
         const backupPath = fullPath + '.bak.' + Date.now();
-        fs.writeFileSync(backupPath, fs.readFileSync(fullPath, 'utf8'), 'utf8');
-        
-        fs.writeFileSync(fullPath, content, 'utf8');
+        const tmpPath = fullPath + '.tmp';
+        fs.writeFileSync(tmpPath, content, 'utf8');
+        fs.copyFileSync(fullPath, backupPath);
+        fs.renameSync(tmpPath, fullPath);
         results.push({ file: filePath, success: true, message: '配置已更新' });
       } catch (e) {
         results.push({ file: filePath, success: false, error: e.message });

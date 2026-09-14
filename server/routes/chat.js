@@ -12,7 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
-const { getPool, getAvatarUrl, handleError, sendError, ErrorCodes, createFileFilter, secureUpload } = require('../utils');
+const { getPool, getAvatarUrl, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, paginate } = require('../utils');
 const { requireAuth } = require('../auth');
 const { hybridStore } = require('../middleware/rate_limit_store');
 // §67: 引入 ws_service 以在成员变更后失效群成员缓存
@@ -95,9 +95,7 @@ router.get('/history/:userId', requireChatAuth, async (req, res) => {
     const uid = req.session.userId;
     const otherId = parseInt(req.params.userId);
     if (isNaN(otherId)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
-    const page = parseInt(req.query.page) || 1;
-    const pageSize = Math.min(parseInt(req.query.pageSize) || 50, 100);
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 50, maxSize: 100 });
     const [rows] = await getPool().query(
       `SELECT id, sender_id AS senderId, receiver_id AS receiverId, content, media_url AS mediaUrl, media_type AS mediaType, file_size AS fileSize, is_read AS isRead, created_at AS createdAt
        FROM messages WHERE deleted_at IS NULL AND ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?))
@@ -371,9 +369,7 @@ router.get('/groups/:groupId/messages', requireChatAuth, async (req, res) => {
     const [memCheck] = await getPool().query(
       `SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?`, [gid, uid]);
     if (memCheck.length === 0) return sendError(res, 403, ErrorCodes.FORBIDDEN, '你不是该群成员');
-    const page = parseInt(req.query.page) || 1;
-    const pageSize = Math.min(parseInt(req.query.pageSize) || 50, 100);
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 50, maxSize: 100 });
     const [rows] = await getPool().query(`
       SELECT m.id, m.sender_id AS senderId, m.content, m.msg_type AS msgType, m.media_url AS mediaUrl, m.media_type AS mediaType, m.file_size AS fileSize,
              m.lat, m.lng, m.created_at AS createdAt,
@@ -586,9 +582,7 @@ router.get('/search', requireChatAuth, async (req, res) => {
       if (keyword.length > 100) {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '搜索关键词不能超过100个字符');
       }
-      const page = parseInt(req.query.page) || 1;
-      const pageSize = Math.min(parseInt(req.query.pageSize) || 20, 50);
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
       const likeKeyword = `%${keyword}%`;
       const results = { privateMessages: [], groupMessages: [], privateMessagesTotal: 0, groupMessagesTotal: 0 };
       if (scope === 'all' || scope === 'private') {

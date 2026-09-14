@@ -24,6 +24,10 @@ services:
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
+      # P2-71：MySQL 服务端时区对齐应用连接（server/db.js timezone '+08:00'）与
+      # 定时任务 Asia/Shanghai（server/tasks.js）。不设此项目时 NOW()/CURDATE() 按
+      # UTC 计，日报统计在 00:00-08:00（北京时间）之间会统计错日。
+      - --default-time-zone=+08:00
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
@@ -64,6 +68,20 @@ services:
       KOOK_URL: ${KOOK_URL:-}
       OOPZ_URL: ${OOPZ_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # 站点对外地址（邮件内链接、sitemap 等使用；留空则代码回退本地默认值，生产务必设置）
+      APP_URL: ${APP_URL:-}
+      # 数据库恢复接口口令：留空时 /api/db-recover 写接口直接 503（安全默认）
+      RECOVERY_TOKEN: ${RECOVERY_TOKEN:-}
+      # 邮件通知（可选）：SMTP_HOST 留空则全部邮件功能静默跳过；
+      # 口令变量 SMTP_PASS 优先、SMTP_PASSWORD 为历史兼容（见 server/mailer.js）
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       # Redis 缓存（可选）：留空即完全关闭，应用回退进程内实现；
       # 容器内如需 Redis，请自行添加 redis 服务并把 REDIS_HOST 指向该服务名
       REDIS_HOST: ${REDIS_HOST:-}

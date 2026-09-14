@@ -16,6 +16,8 @@ module.exports = function createAdminNameChangeRouter() {
       if (!newName || !newName.trim()) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入新显示名');
       const newNameTrim = newName.trim();
       if (newNameTrim.length > 50) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '显示名不能超过50字');
+      // 控制字符黑名单是显示名校验的本意，no-control-regex 在此为误报
+      // eslint-disable-next-line no-control-regex
       if (/[<>\u0000-\u001f\u007f]/.test(newNameTrim)) {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '显示名包含不允许的字符');
       }

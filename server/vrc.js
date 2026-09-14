@@ -838,7 +838,6 @@ async function vrchatGetFriendsOnlineMap(cookie, options = {}) {
       ageVerificationStatus: f.ageVerificationStatus || '',
       ageVerified: f.ageVerified === true,
       trustLevel: f.trustLevel || '',
-      statusDescription: f.statusDescription || '',
       tags: Array.isArray(f.tags) ? f.tags : [],
       source: 'friends',
     });
@@ -918,7 +917,6 @@ async function vrchatResolveOnlineStatuses(cookie, userIds, options = {}) {
             ageVerificationStatus: userData.ageVerificationStatus || '',
             ageVerified: userData.ageVerified === true,
             trustLevel: userData.trustLevel || '',
-            statusDescription: userData.statusDescription || '',
             tags: Array.isArray(userData.tags) ? userData.tags : [],
             source: 'user',
           });

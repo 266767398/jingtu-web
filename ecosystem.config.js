@@ -21,6 +21,16 @@ module.exports = {
       autorestart: true,
       watch: false,
       max_memory_restart: '1024M',
+      // P2-80：PM2 stdout/stderr 落盘位置。应用业务日志由 server/logger.js 写入
+      // logs/（按天 + 10MB 上限轮转），这里承接的是 console 输出（启动横幅、
+      // 未捕获异常栈等），避免默认 ~/.pm2/pm2.log 无限增长。
+      out_file: path.join(__dirname, 'logs', 'pm2-out.log'),
+      error_file: path.join(__dirname, 'logs', 'pm2-error.log'),
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      // pm2-*.log 自身的按大小轮转与保留份数由 pm2-logrotate 模块管理：
+      //   pm2 install pm2-logrotate
+      // （install.sh 启动阶段会尝试自动安装，失败时手动执行上句即可）
       env: {
         NODE_ENV: 'production'
       }

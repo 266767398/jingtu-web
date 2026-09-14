@@ -114,7 +114,8 @@ function sendEmail(to, subject, html, text) {
 }
 
 async function sendPasswordReset(email, token) {
-  const url = `${process.env.APP_URL || 'http://localhost:3000'}/reset-password?token=${token}`;
+  // P2-72：默认端口由 3000 修正为实际监听端口 3456（APP_URL 未配置时的本地兜底）
+  const url = `${process.env.APP_URL || 'http://localhost:3456'}/reset-password?token=${token}`;
   const html = `
     <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif;">
       <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px 10px 0 0;">

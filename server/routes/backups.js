@@ -1,6 +1,11 @@
 /**
  * 境途同游 — 备份系统路由
- * 
+ *
+ * P1-12 / P1-16 / P2-75：备份的创建/恢复/清理统一委托 backup-core，
+ * 由其做「退出码 + 文件体积 + mysqldump 文件头」三重校验并实时读取当前库名
+ * （holder.dbName），避免旧实现中 mysqldump 失败仍留 0 字节假备份、
+ * 空备份"恢复成功"、DB_NAME 模块加载期快照过期等问题。
+ *
  * @swagger
  * tags:
  *   name: Backups
@@ -9,18 +14,24 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
 const { requireAdminCompat } = require('../auth');
-const { ok, handleError , sendError, ErrorCodes } = require('../utils');
-const { DB_NAME, DB_CONFIG } = require('../db');
+const { ok, handleError, sendError, ErrorCodes } = require('../utils');
+const {
+  BACKUP_DIR: backupDir,
+  AUTO_PREFIX,
+  ensureBackupDir,
+  formatSize,
+  createBackup,
+  restoreBackup,
+  cleanupAutoBackups
+} = require('../backup-core');
 
 const router = express.Router();
-const backupDir = path.join(__dirname, '..', '..', 'backups');
 
 router.get('/admin/backups', requireAdminCompat, (req, res) => {
   try {
     if (!fs.existsSync(backupDir)) {
-      fs.mkdirSync(backupDir, { recursive: true });
+      ensureBackupDir();
       return res.json({ backups: [], total: 0 });
     }
 
@@ -30,10 +41,9 @@ router.get('/admin/backups', requireAdminCompat, (req, res) => {
         const stat = fs.statSync(path.join(backupDir, f));
         return {
           name: f,
+          type: f.startsWith(AUTO_PREFIX) ? 'auto' : 'manual',
           size: stat.size,
-          sizeFormatted: stat.size < 1024 * 1024 
-            ? `${(stat.size / 1024).toFixed(1)} KB` 
-            : `${(stat.size / 1024 / 1024).toFixed(2)} MB`,
+          sizeFormatted: formatSize(stat.size),
           createdAt: stat.birthtime.toISOString(),
           modifiedAt: stat.mtime.toISOString()
         };
@@ -85,79 +95,29 @@ router.post('/admin/backups/cleanup', requireAdminCompat, (req, res) => {
   try {
     const { keepDays } = req.body;
     const days = parseInt(keepDays) || 30;
-    const threshold = Date.now() - days * 24 * 60 * 60 * 1000;
 
     if (!fs.existsSync(backupDir)) {
       return ok(res, {deleted: 0, message: '备份目录不存在'});
     }
 
-    let deleted = 0;
-    const files = fs.readdirSync(backupDir).filter(f => f.endsWith('.sql'));
+    // P2-75：只清理过期的自动备份（auto_ 前缀）；手动备份仅能由管理员显式删除
+    const deleted = cleanupAutoBackups(days);
 
-    for (const f of files) {
-      const filePath = path.join(backupDir, f);
-      const stat = fs.statSync(filePath);
-      if (stat.birthtime.getTime() < threshold) {
-        fs.unlinkSync(filePath);
-        deleted++;
-      }
-    }
-
-    ok(res, {deleted, message: `已清理 ${deleted} 个过期备份`});
+    ok(res, {deleted, message: `已清理 ${deleted} 个过期自动备份（手动备份不受自动清理影响）`});
   } catch (e) { handleError(res, e, '[backups/cleanup]'); }
 });
 
 router.post('/admin/backups/create', requireAdminCompat, async (req, res) => {
   try {
-    if (!fs.existsSync(backupDir)) {
-      fs.mkdirSync(backupDir, { recursive: true });
-    }
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `${DB_NAME}_${timestamp}.sql`;
-    const filePath = path.join(backupDir, filename);
-
-    const args = [
-      '-h', DB_CONFIG.host,
-      '-P', DB_CONFIG.port,
-      '-u', DB_CONFIG.user,
-      DB_NAME
-    ];
-
-    const mysqldump = spawn('mysqldump', args, {
-      env: { ...process.env, MYSQL_PWD: DB_CONFIG.password || '' }
-    });
-    const writeStream = fs.createWriteStream(filePath);
-
-    mysqldump.stdout.pipe(writeStream);
-
-    return new Promise((resolve, reject) => {
-      mysqldump.on('error', (err) => {
-        if (err.code === 'ENOENT') {
-          handleError(res, new Error('mysqldump 命令未找到，请确保 MySQL 已正确安装且 mysqldump 在 PATH 中'), 'backups');
-          return resolve();
-        }
-        reject(err);
-      });
-
-      mysqldump.on('close', (code) => {
-        if (code === 0) {
-          const stat = fs.statSync(filePath);
-          resolve(ok(res, {filename,
-            size: stat.size,
-            sizeFormatted: stat.size < 1024 * 1024 
-              ? `${(stat.size / 1024).toFixed(1)} KB` 
-              : `${(stat.size / 1024 / 1024).toFixed(2)} MB`,
-            createdAt: stat.birthtime.toISOString(),
-            message: '数据库备份创建成功'}));
-        } else {
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-          }
-          handleError(res, new Error('备份失败，mysqldump 退出码: ' + code), 'backups');
-          resolve();
-        }
-      });
+    // P1-12：backup-core 内做 mysqldump 三重校验（退出码/体积/文件头），
+    // 校验不通过自动丢弃残file并抛错，不再产生"看起来成功"的空备份
+    const info = await createBackup();
+    ok(res, {
+      filename: info.filename,
+      size: info.size,
+      sizeFormatted: info.sizeFormatted,
+      createdAt: info.createdAt,
+      message: '数据库备份创建成功'
     });
   } catch (e) { handleError(res, e, '[backups/create]'); }
 });
@@ -170,45 +130,21 @@ router.post('/admin/backups/restore/:filename', requireAdminCompat, async (req, 
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的备份文件名');
     }
 
-    const filePath = path.join(backupDir, filename);
-    if (!fs.existsSync(filePath)) {
-      return sendError(res, 404, ErrorCodes.NOT_FOUND, '备份文件不存在');
+    // P1-12：恢复前强制完整性校验，空/截断/伪造备份直接拒绝
+    const info = await restoreBackup(filename);
+    ok(res, {
+      filename: info.filename,
+      message: '数据库恢复成功'
+    });
+  } catch (e) {
+    if (e && /无效的备份文件名|备份文件不存在|完整性校验/.test(e.message)) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, e.message);
     }
-
-    const args = [
-      '-h', DB_CONFIG.host,
-      '-P', DB_CONFIG.port,
-      '-u', DB_CONFIG.user,
-      DB_NAME
-    ];
-
-    const mysql = spawn('mysql', args, {
-      env: { ...process.env, MYSQL_PWD: DB_CONFIG.password || '' }
-    });
-    const readStream = fs.createReadStream(filePath);
-
-    readStream.pipe(mysql.stdin);
-
-    return new Promise((resolve, reject) => {
-      mysql.on('error', (err) => {
-        if (err.code === 'ENOENT') {
-          handleError(res, new Error('mysql 命令未找到，请确保 MySQL 已正确安装且 mysql 在 PATH 中'), 'backups');
-          return resolve();
-        }
-        reject(err);
-      });
-
-      mysql.on('close', (code) => {
-        if (code === 0) {
-          resolve(ok(res, {filename,
-            message: '数据库恢复成功'}));
-        } else {
-          handleError(res, new Error('恢复失败，mysql 退出码: ' + code), 'backups');
-          resolve();
-        }
-      });
-    });
-  } catch (e) { handleError(res, e, '[backups/restore]'); }
+    if (e && /命令未找到/.test(e.message)) {
+      return sendError(res, 500, ErrorCodes.INTERNAL_ERROR, e.message);
+    }
+    handleError(res, e, '[backups/restore]');
+  }
 });
 
 module.exports = router;

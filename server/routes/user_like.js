@@ -5,7 +5,7 @@
  */
 
 const express = require('express');
-const { getPool, handleError , sendError, ErrorCodes } = require('../utils');
+const { getPool, handleError , sendError, ErrorCodes, paginate } = require('../utils');
 const { requireAuth } = require('../auth');
 
 module.exports = function (notificationService) {
@@ -133,9 +133,7 @@ router.get('/:userId/stats', requireAuth, async (req, res) => {
 router.get('/:userId/likers', requireAuth, async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const pageSize = Math.min(50, Math.max(1, parseInt(req.query.pageSize) || 20));
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
 
     if (!userId) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
@@ -178,9 +176,7 @@ router.get('/:userId/likers', requireAuth, async (req, res) => {
 router.get('/me/given', requireAuth, async (req, res) => {
   try {
     const userId = req.session.userId;
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const pageSize = Math.min(50, Math.max(1, parseInt(req.query.pageSize) || 20));
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
 
     const [count] = await getPool().query(
       `SELECT COUNT(DISTINCT to_user_id) as total FROM user_like WHERE from_user_id = ?`,
@@ -263,9 +259,7 @@ router.get('/me/today-stats', requireAuth, async (req, res) => {
 router.get('/leaderboard', requireAuth, async (req, res) => {
   try {
     const period = req.query.period || 'all';
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const pageSize = Math.min(50, Math.max(1, parseInt(req.query.pageSize) || 20));
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
 
     let dateCondition = '';
     const now = new Date();

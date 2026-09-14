@@ -6,7 +6,7 @@
  * 接口契约（入参/出参/越权/错误码）严格遵循 docs/10 §3.3。
  */
 const express = require('express');
-const { ok,  getPool, getAvatarUrl, handleError, sendError, ErrorCodes  } = require('../utils');;
+const { ok,  getPool, getAvatarUrl, handleError, sendError, ErrorCodes, paginate  } = require('../utils');;
 const { requireAuth } = require('../auth');
 
 module.exports = function (notificationService) {
@@ -436,9 +436,7 @@ module.exports = function (notificationService) {
   router.get('/feed', requireAuth, async (req, res) => {
     try {
       const me = req.session.userId;
-      const page = Math.max(1, parseInt(req.query.page) || 1);
-      const pageSize = Math.min(50, Math.max(1, parseInt(req.query.pageSize) || 20));
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
       const pool = getPool();
 
       // 取出已接受好友 id 列表（空则直接返回空 feed，避免 IN () 语法错误）
@@ -566,9 +564,7 @@ module.exports = function (notificationService) {
       }
       const vrcid = urows[0].vrchat_name;
 
-      const page = Math.max(1, parseInt(req.query.page) || 1);
-      const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize) || 30));
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 30, maxSize: 100 });
 
       const [cntRows] = await pool.query(
         `SELECT COUNT(*) AS c FROM friend_log WHERE vrchat_id = ?`, [vrcid]

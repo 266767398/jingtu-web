@@ -121,8 +121,16 @@ function _verifyClient(info, cb) {
     if (!sessionData || !sessionData.userId) {
       // 未认证 / 会话无效：拒绝，并记录一次失败用于异常监测
       _wsAuthFailStreak++;
-      if (_wsAuthFailStreak >= 10 && typeof securityAlert === 'function') {
-        try { securityAlert('ws_unauth_flood', { ip: req.ip, fails: _wsAuthFailStreak }); } catch (_) {}
+      // P2-68 首轮 lint 修复：旧代码 `typeof securityAlert === 'function'` 永假
+      // （本模块从未定义 securityAlert），ws 未认证风暴告警从未触发过。
+      // 按 P1-16（db-recover.js）先例改为显式引入 onSecurityBreach。
+      if (_wsAuthFailStreak >= 10) {
+        try {
+          const { onSecurityBreach } = require('./security_alert');
+          if (typeof onSecurityBreach === 'function') {
+            onSecurityBreach('WebSocket 未认证连接风暴', { ip: req.ip, fails: _wsAuthFailStreak });
+          }
+        } catch (_) {}
       }
       logger && logger.warn('[ws]', 'verifyClient: no auth session', { ip: req.ip, fails: _wsAuthFailStreak });
       return cb(false, 401, 'Unauthorized');

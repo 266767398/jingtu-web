@@ -359,7 +359,7 @@ function renderGroupMessages(messages, members) {
       // 位置消息（来自群聊实时位置共享保存的消息）
       return `<div class="chat-msg chat-msg-other">
         <div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy">` : ''} ${esc(senderName)}</div>
-        <div class="chat-msg-bubble chat-msg-location" onclick="openMapLocation(${m.lat},${m.lng})">${__('chat.location_sharing')}</div>
+        <div class="chat-msg-bubble chat-msg-location" onclick="window.openMapLocation&&openMapLocation(${m.lat},${m.lng})">${__('chat.location_sharing')}</div>
         <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
       </div>`;
     }

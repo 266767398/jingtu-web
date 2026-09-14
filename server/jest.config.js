@@ -2,7 +2,8 @@ module.exports = {
   testEnvironment: 'node',
   // 仅匹配 __tests__/ 目录下的 Jest 测试。
   // 注意：test/ 目录下的 security.test.js、share-auth-boundary.test.js 是 node:test 原生测试，
-  // 由 `node --test` 运行，不能用宽泛的 '**/*.test.js' 误匹配进来。
+  // 由 `npm run test:node`（node --test test/*.test.js）运行，P2-68 起已挂入 CI node-test job；
+  // 不能用宽泛的 '**/*.test.js' 误匹配进 Jest。
   testMatch: ['**/__tests__/**/*.js'],
   testPathIgnorePatterns: ['/node_modules/', '/test/'],
   coverageDirectory: './coverage',

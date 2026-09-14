@@ -20,7 +20,7 @@ function prefixFromSource(src) {
   // 还原被转义的斜杠
   p = p.replace(/\\\//g, '/');
   // 仍含正则特征 → 复杂挂载（正则/参数前缀），放弃静态还原
-  if (/[()\[\]|+*?\\]/.test(p)) return null;
+  if (/[()[\]|+*?\\]/.test(p)) return null;
   return p;
 }
 

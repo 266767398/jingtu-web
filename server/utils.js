@@ -152,6 +152,31 @@ function fail(res, status, message, extra) {
 }
 
 /**
+ * 分页参数统一解析（P2-70）：收口全站 34 处 page/pageSize/limit 钳位写法。
+ * 与站点原语义一致，仅两处刻意统一（docs/21 勾销注记已记）：
+ *   1) page 恒有下界 1、pageSize 恒有下界 1 —— 原缺下界的站点传负数会产生
+ *      负 OFFSET 直接 SQL 500，借收口顺带修复；
+ *   2) parseInt 统一 radix 10 —— "0x10" 之类十六进制串改判非法回落默认值。
+ * 不新增上界：原本无上限的站点保持 maxSize=Infinity，不改变 API 行为。
+ * @param {object} req Express 请求（读 req.query.page 与 req.query[sizeParam]）
+ * @param {object} opts
+ *   sizeParam   页大小参数名，默认 'pageSize'，历史上叫 limit 的传 'limit'
+ *   defaultSize 参数缺失/非法时的默认页大小（fixedSize 未给时必须提供）
+ *   maxSize     页大小上限，默认 Infinity（不设 cap）
+ *   minSize     页大小下界，默认 1
+ *   fixedSize   恒定页大小（忽略查询参数，如相册列表的 40）
+ * @returns {{page:number,pageSize:number,offset:number}}
+ */
+function paginate(req, opts = {}) {
+  const { sizeParam = 'pageSize', defaultSize = 20, maxSize = Infinity, minSize = 1, fixedSize } = opts;
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = fixedSize !== undefined
+    ? fixedSize
+    : Math.min(maxSize, Math.max(minSize, parseInt(req.query[sizeParam], 10) || defaultSize));
+  return { page, pageSize, offset: (page - 1) * pageSize };
+}
+
+/**
  * 统一错误响应
  * @param {object} res - Express response
  * @param {Error} e - 捕获的异常
@@ -394,4 +419,4 @@ function getAvatarUrl(user) {
   return null;
 }
 
-module.exports = { getPool, IS_DEV, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, validateFields, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar };
+module.exports = { getPool, IS_DEV, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, validateFields, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };

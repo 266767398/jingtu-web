@@ -8,7 +8,7 @@
 //   ④ 客户端账号注册联动（仅超管可创建账号文件——客户端超管即网站 super_admin，为同一角色；普通用户不可自助创建；凭一次性绑定码注册，TOFU 首次信任）
 const express = require('express');
 const crypto = require('crypto');
-const { ok, getPool, handleError, sendError, ErrorCodes } = require('../utils');
+const { ok, getPool, handleError, sendError, ErrorCodes, paginate } = require('../utils');
 const { requireAuth, requireRole } = require('../auth');
 
 const router = express.Router();
@@ -272,8 +272,7 @@ router.post('/accounts/issue', requireRole('super_admin'), async (req, res) => {
 // GET /api/jtt/accounts — 签发记录列表（契约 §3.2）
 router.get('/accounts', requireRole('super_admin'), async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 20));
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 100 });
     const pool = getPool();
     const where = [];
     const params = [];
@@ -289,7 +288,7 @@ router.get('/accounts', requireRole('super_admin'), async (req, res) => {
     const [rows] = await pool.query(
       'SELECT id, user_id, account_id, display_name, role, issued_at, expires_at, revoked, fingerprint FROM jtt_accounts' + whereSql +
       ' ORDER BY id DESC LIMIT ? OFFSET ?',
-      params.concat([pageSize, (page - 1) * pageSize])
+      params.concat([pageSize, offset])
     );
     const accounts = rows.map(r => ({
       id: r.id,
@@ -497,8 +496,7 @@ router.get('/states/me', jttAuth, async (req, res) => {
 // GET /api/jtt/states/online — 当前"正在玩"成员列表（契约 §4.6，Web 展示用）
 router.get('/states/online', requireAuth, async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 20));
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 100 });
     const gameKey = req.query.gameKey ? String(req.query.gameKey) : null;
     // 仅返回 visibility != 'private' 且 updated_at 距今 ≤15 分钟（TTL 可配置，契约 §7-3）的记录
     const pool = getPool();
@@ -511,7 +509,7 @@ router.get('/states/online', requireAuth, async (req, res) => {
     const [rows] = await pool.query(
       'SELECT s.user_id, u.display_name, s.game_key, s.game_name, s.started_at, s.updated_at FROM jtt_game_states s LEFT JOIN users u ON u.id = s.user_id' + whereSql +
       ' ORDER BY s.updated_at DESC LIMIT ? OFFSET ?',
-      params.concat([pageSize, (page - 1) * pageSize])
+      params.concat([pageSize, offset])
     );
     const online = rows.map(r => ({
       userId: r.user_id,

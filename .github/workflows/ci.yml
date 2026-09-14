@@ -42,3 +42,50 @@ jobs:
           name: coverage-report-node${{ matrix.node-version }}
           path: server/coverage/lcov-report
           retention-days: 7
+
+  # P2-68：ESLint 平铺配置（server/eslint.config.js）门禁。
+  # 服务端/面板目录 error 级为 0 容忍；前端 public/js 存量整体降为 warn（棘轮）。
+  # no-unused-vars 存量 86 处亦为 warn 记账，清偿后升级回 error。
+  lint:
+    name: 代码静态检查（ESLint 0 error 门禁）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 运行 ESLint
+        run: npm run lint
+
+  # P2-68：server/test/ 下的 node:test 套件（security.test.js 等）此前从未进 CI，
+  # 通过 npm run test:node（node --test test/*.test.js，通配符兼容目录参数失效的环境）补上执行通道。
+  node-test:
+    name: 服务端测试（node:test 原生套件）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 运行 node:test 套件
+        run: npm run test:node

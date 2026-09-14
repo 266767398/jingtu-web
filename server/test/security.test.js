@@ -1,6 +1,6 @@
 /**
  * 安全函数单元测试（纯函数，无需数据库）
- * 运行：node --test server/test
+ * 运行：npm run test:node（node --test test/*.test.js；P2-68 起挂入 CI node-test job）
  */
 const test = require('node:test');
 const assert = require('node:assert');
@@ -22,8 +22,20 @@ Module._load = function (request, parent, isMain) {
     };
   }
   if (request === 'express-rate-limit') {
-    // 被测函数均不依赖限流中间件，stub 掉以移除其加载时创建的句柄，保证测试进程干净退出
-    return function rateLimit() { return (req, res, next) => next(); };
+    // 被测函数均不依赖限流中间件，stub 掉以移除其加载时创建的句柄，保证测试进程干净退出。
+    // v7 的 MemoryStore 是同模块命名导出，rate_limit_store.js 在模块加载期解构并 new，
+    // 因此 stub 必须带上 MemoryStore 形状，否则 security.js 一加载即崩溃。
+    class StubMemoryStore {
+      init() {}
+      get() { return undefined; }
+      set() {}
+      increment() { return { total: 1 }; }
+      decrement() {}
+      disconnect() {}
+    }
+    const rateLimitStub = function rateLimit() { return (req, res, next) => next(); };
+    rateLimitStub.MemoryStore = StubMemoryStore;
+    return rateLimitStub;
   }
   return _origLoad.call(this, request, parent, isMain);
 };

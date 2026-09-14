@@ -42,8 +42,13 @@ COPY --from=builder /app/server/node_modules ./server/node_modules
 COPY server/ ./server/
 COPY public/ ./public/
 COPY assets/ ./assets/
-# 暴露 .env 模板（真实配置优先通过环境变量 / 挂载 .env 注入）
-COPY .env.example ./server/../.env.example
+# P2-74：容器采用「不可变配置」设计——环境变量（docker-compose / -e）是唯一配置来源。
+# 应用中三条写 .env 的通道（/setup 向导、配置管理页、db-recover 写回）在容器内
+# 会因代码目录属 root、进程跑 node 用户而写入失败，这是刻意保留的：
+# 容器进程不应能自行修改自身配置。改配置的正确姿势是编辑 docker.env.example /
+# compose 文件后 `docker compose up -d --build` 重建容器，下面的模板仅供阅读变量清单。
+# 暴露 .env 模板（真实配置优先通过环境变量注入）
+COPY .env.example /app/.env.example
 
 # 运行时需要可写的目录（同时声明为卷，便于持久化与备份）
 RUN mkdir -p uploads backups logs \

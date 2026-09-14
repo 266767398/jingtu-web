@@ -155,7 +155,7 @@ async function loadMyEvents() {
         const evtTime = e.eventTime ? new Date(e.eventTime) : null;
         const cls = evtTime && evtTime < now ? 'text-muted2' : 'text-green';
         const label = evtTime && evtTime < now ? __('events.status_ended') : __('events.status_ongoing_or_not_started');
-        return `<div class="me-event-item" onclick="showEventDetail(${e.id})">
+        return `<div class="me-event-item" onclick="window.showEventDetail&&showEventDetail(${e.id})">
           <span class="mee-time">${fmtDate(e.eventTime)}</span>
           <span class="mee-title">${esc(e.title)}</span>
           <span class="mee-status ${cls}">${label}</span>

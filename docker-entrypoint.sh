@@ -6,24 +6,25 @@ set -euo pipefail
 cd /app/server
 
 # ---------- 等待数据库就绪 ----------
-DB_HOST="${MYSQL_HOST:-}"
+# P2-74：默认值对齐 db.js 中 `process.env.MYSQL_HOST || '127.0.0.1'` 的代码默认。
+# 旧实现 MYSQL_HOST 为空时整段「跳过等待」，但应用照样会去连 127.0.0.1——
+# 等待缺口毫无意义，容器首启时反而更容易撞上数据库未就绪。改为恒等待。
+DB_HOST="${MYSQL_HOST:-127.0.0.1}"
 DB_PORT="${MYSQL_PORT:-3306}"
 
-if [ -n "$DB_HOST" ]; then
-  echo "[entrypoint] 等待数据库 ${DB_HOST}:${DB_PORT} 就绪 ..."
-  ready=0
-  for i in $(seq 1 60); do
-    if (exec 3<>/dev/tcp/"${DB_HOST}"/"${DB_PORT}") 2>/dev/null; then
-      exec 3>&- 3<&-
-      echo "[entrypoint] 数据库端口已可达"
-      ready=1
-      break
-    fi
-    sleep 2
-  done
-  if [ "$ready" -ne 1 ]; then
-    echo "[entrypoint] 警告：等待数据库超时，仍尝试继续启动（服务将以未就绪状态监听）"
+echo "[entrypoint] 等待数据库 ${DB_HOST}:${DB_PORT} 就绪（最长 120 秒）..."
+ready=0
+for i in $(seq 1 60); do
+  if (exec 3<>/dev/tcp/"${DB_HOST}"/"${DB_PORT}") 2>/dev/null; then
+    exec 3>&- 3<&-
+    echo "[entrypoint] 数据库端口已可达"
+    ready=1
+    break
   fi
+  sleep 2
+done
+if [ "$ready" -ne 1 ]; then
+  echo "[entrypoint] 警告：等待数据库超时（120s），仍尝试继续启动（服务将以未就绪状态监听）"
 fi
 
 # ---------- 初始化数据库（建表 / 应用迁移） ----------

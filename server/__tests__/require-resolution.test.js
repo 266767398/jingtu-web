@@ -33,7 +33,15 @@ function extractRequires(src) {
     if (c === '/' && src[i + 1] === '*') { i += 2; while (i < n && !(src[i] === '*' && src[i + 1] === '/')) i++; i += 2; continue; }
     if (c === "'" || c === '"' || c === '`') {
       const q = c; i++;
-      while (i < n) { if (src[i] === '\\') { i += 2; continue; } if (src[i] === q) { i++; break; } i++; }
+      // JS 语法保证 ' 与 " 字符串内不会出现未转义换行，遇裸换行即截断退出。
+      // 这样正则字面量（如 /['"]/ 匹配引号字符类）里的裸引号最多打乱本行，
+      // 不会跨行吞掉注释/字符串标记造成全文件引号状态失同步（幻影 require 误报）。
+      while (i < n) {
+        if (src[i] === '\\') { i += 2; continue; }
+        if (q !== '`' && src[i] === '\n') break;
+        if (src[i] === q) { i++; break; }
+        i++;
+      }
       continue;
     }
     if (src.startsWith('require', i) && /[\w$]/.test(src[i - 1] || ' ')) { i += 7; continue; }

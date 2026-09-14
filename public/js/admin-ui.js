@@ -251,7 +251,7 @@
         '<td><span class="evt-status ' + (it.isArchive ? 'archived' : (ended ? 'ended' : 'ongoing')) + '">' + escapeHtml(status) + '</span></td>' +
         '<td>' + sign + '</td>' +
         '<td class="evt-actions">' +
-          '<button class="btn btn-sm btn-outline" onclick="showEventDetail(\'' + it.id + '\')">👁 ' + (__('events.view') || __('auto_admin_ui_40')) + '</button> ' +
+          '<button class="btn btn-sm btn-outline" onclick="window.showEventDetail&&showEventDetail(\'' + it.id + '\')">👁 ' + (__('events.view') || __('auto_admin_ui_40')) + '</button> ' +
           '<button class="btn btn-sm btn-outline" onclick="adminEditEvent(\'' + it.id + '\')">✏️ ' + (__('events.edit_event') || '编辑') + '</button> ' +
           '<button class="btn btn-sm btn-outline" onclick="adminArchiveEvent(\'' + it.id + '\',' + (it.isArchive ? 1 : 0) + ')">' + (it.isArchive ? (__('events.unarchive') || __('auto_admin_ui_41')) : (__('events.archive') || __('auto_admin_ui_42'))) + '</button> ' +
           '<button class="btn btn-sm btn-outline" onclick="adminDeleteContent(\'events\',\'' + it.id + '\')">🗑 ' + (__('delete') || __('auto_admin_ui_43')) + '</button>' +

@@ -17,7 +17,7 @@ const {
   encryptAES, decryptAES, requireAuth, requireRole,
   requireAdminCompat, getAvatarUrl
 } = require('../auth');
-const { fail, ok,  getPool, safeError, validateFields, handleError, sendError, ErrorCodes, createErr, createFileFilter, secureUpload  } = require('../utils');;
+const { fail, ok,  getPool, safeError, validateFields, handleError, sendError, ErrorCodes, createErr, createFileFilter, secureUpload, paginate, logOper  } = require('../utils');;
 const { VRC_API, VRC_API_KEY } = require('../vrc');
 const logger = require('../logger');
 
@@ -96,9 +96,7 @@ function sanitizeUser(u) {
  */
 router.get('/list', requireAuth, async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const pageSize = parseInt(req.query.pageSize) || 100;
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 100 });
 
     const [count] = await getPool().query(
       `SELECT COUNT(*) as total FROM users WHERE deleted_at IS NULL AND approved = 1 AND banned = 0`
@@ -201,9 +199,7 @@ router.get('/list', requireAuth, async (req, res) => {
  */
 router.get('/', requireRole('admin'), async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const pageSize = parseInt(req.query.pageSize) || 20;
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 20 });
 
     const [count] = await getPool().query(
       `SELECT COUNT(*) as total FROM users WHERE deleted_at IS NULL`
@@ -835,8 +831,13 @@ router.post('/me/logout-all', requireAuth, async (req, res) => {
     const pool = getPool();
     // 真正登出该用户所有设备/浏览器会话：express-mysql-session 将 session 对象
     // 序列化为 JSON 存入 sessions.data 列（含 "userId":<id>），按 userId 清除全部行。
+    // P1-10 关联修复：旧 `data LIKE '%"userId":1%'` 会把 userId 12/100/123… 的会话
+    // 一并删除（前缀匹配），改为 JSON_EXTRACT 精确等值比较。
     try {
-      await pool.query(`DELETE FROM sessions WHERE data LIKE ?`, ['%"userId":' + uid + '%']);
+      await pool.query(
+        `DELETE FROM sessions WHERE JSON_UNQUOTE(JSON_EXTRACT(data,'$.userId')) = ?`,
+        [String(uid)]
+      );
     } catch (e) { logger.error('users', '[logout-all] clear sessions', e); }
     req.session.destroy(() => {
       res.clearCookie('connect.sid');

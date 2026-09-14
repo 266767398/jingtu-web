@@ -10,7 +10,7 @@
  *   description: VRChat账号在线状态检测接口
  */
 const express = require('express');
-const { ok, getPool, handleError, sendError, ErrorCodes } = require('../utils');
+const { ok, getPool, handleError, sendError, ErrorCodes, paginate } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 const { vrchatRequest, VRC_API_KEY } = require('../vrc');
 const { sleep } = require('./groups_helpers');
@@ -106,9 +106,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
   router.get('/vrc/status/list', requireAdminCompat, async (req, res) => {
     try {
-      const page = parseInt(req.query.page) || 1;
-      const pageSize = parseInt(req.query.pageSize) || 20;
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20 });
       const statusFilter = req.query.status ? req.query.status.trim() : '';
       
       let where = '1=1';

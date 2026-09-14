@@ -7,7 +7,7 @@
  *   description: 通知系统相关接口
  */
 const express = require('express');
-const { ok, getPool, handleError , sendError, ErrorCodes } = require('../utils');
+const { ok, getPool, handleError , sendError, ErrorCodes, paginate } = require('../utils');
 const { requireAuth } = require('../auth');
 
 module.exports = function (authStateRef, notificationService) {
@@ -19,9 +19,7 @@ module.exports = function (authStateRef, notificationService) {
     try {
       const type = req.query.type;        // 按类型过滤：system/event/comment/announcement/... 或 'unread' 仅未读
       const onlyUnread = type === 'unread';
-      const pageSize = Math.min(parseInt(req.query.pageSize) || 30, 100);
-      const page = Math.max(parseInt(req.query.page) || 1, 1);
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 30, maxSize: 100 });
 
       const where = ['user_id = ?'];
       const params = [uid];

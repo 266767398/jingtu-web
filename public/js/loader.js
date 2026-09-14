@@ -71,12 +71,27 @@ var TAB_MODULES = {
 var _loadedMods = Object.create(null);
 var _loadingMods = Object.create(null);
 
+// P2-85：懒加载模块的版本戳不再写死，而是从 loader.js 自身 <script> 标签的 ?v= 继承。
+// 以前这里硬编码 '?v=20260906a'，与 index.html 的戳各管各的：改了懒加载模块却只
+// 更新 index.html 时，客户端仍会命中旧缓存。现在单一事实来源是 index.html 里的
+// loader.js?v=xxx——只改 loader.js 的戳即可让全部懒加载模块一次性失效。
+// 标签无戳（本地直开）时返回空串，保持无参请求便于开发调试。
+var _assetVer = (function () {
+  try {
+    var el = document.currentScript || document.querySelector('script[src*="/js/loader.js"]');
+    var m = /[?&]v=([^&]+)/.exec(el ? el.src : '');
+    return m ? '?v=' + m[1] : '';
+  } catch (e) {
+    return '';
+  }
+})();
+
 function _loadScriptOnce(src) {
   if (_loadedMods[src]) return Promise.resolve();
   if (_loadingMods[src]) return _loadingMods[src];
   var p = new Promise(function (resolve, reject) {
     var s = document.createElement('script');
-    s.src = '/js/' + src + '?v=20260906a';
+    s.src = '/js/' + src + _assetVer;
     s.async = false; // 同批脚本保持插入顺序，保证模块间相对依赖
     s.onload = function () { _loadedMods[src] = true; resolve(); };
     s.onerror = function () { reject(new Error('Failed to load ' + src)); };

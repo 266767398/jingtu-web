@@ -97,9 +97,9 @@ const LFI_PATTERNS = [
 ];
 
 const RFI_PATTERNS = [
-  /http:\/\/[^\/]+\/.+\.php/i,
-  /https:\/\/[^\/]+\/.+\.php/i,
-  /ftp:\/\/[^\/]+\/.+\.php/i,
+  /http:\/\/[^/]+\/.+\.php/i,
+  /https:\/\/[^/]+\/.+\.php/i,
+  /ftp:\/\/[^/]+\/.+\.php/i,
   /data:\/\/.+/i,
   /php:\/\/input/i,
 ];

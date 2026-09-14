@@ -3,7 +3,7 @@
  * 行为逐字保留：直播监管（强制结束/删除）+ 动态/公告/活动/相册后台管理（含级联清理）。
  */
 const express = require('express');
-const { fail, ok, getPool, handleError, logOper } = require('../utils');
+const { fail, ok, getPool, handleError, logOper, paginate } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 
 module.exports = function createAdminContentLiveRouter() {
@@ -12,9 +12,7 @@ module.exports = function createAdminContentLiveRouter() {
   // ==================== 直播管理（管理员监管） ====================
   router.get('/admin/live', requireAdminCompat, async (req, res) => {
     try {
-      const page = parseInt(req.query.page) || 1;
-      const pageSize = parseInt(req.query.pageSize) || 20;
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20 });
       const status = req.query.status === 'live' ? 'live' : (req.query.status === 'ended' ? 'ended' : '');
       const kw = req.query.kw ? req.query.kw.trim() : '';
       const where = [];
@@ -79,9 +77,7 @@ module.exports = function createAdminContentLiveRouter() {
     try {
       const type = CONTENT_TYPES[req.query.type] ? req.query.type : 'posts';
       const cfg = CONTENT_TYPES[type];
-      const page = parseInt(req.query.page) || 1;
-      const pageSize = parseInt(req.query.pageSize) || 20;
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20 });
       const kw = req.query.kw ? req.query.kw.trim() : '';
       const where = [];
       const params = [];

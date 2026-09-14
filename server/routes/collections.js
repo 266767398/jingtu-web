@@ -3,7 +3,7 @@
 // 提供统一的收藏 CRUD、分组(folders)、多维筛选、搜索、公开发现(discover)、评分与失效检测。
 const express = require('express');
 const router = express.Router();
-const { ok,  getPool, handleError, createErr, proxyVrcAvatar, ErrorCodes  } = require('../utils');;
+const { ok,  getPool, handleError, createErr, proxyVrcAvatar, ErrorCodes, paginate  } = require('../utils');;
 const { requireAuth, requireAdminCompat } = require('../auth');
 const {
   vrchatGetAvatar, vrchatGetUser, vrchatSetAvatar, vrchatCloneAvatar,
@@ -168,9 +168,7 @@ router.get('/', requireAuth, async (req, res) => {
       heat: 'c.heat DESC, c.updated_at DESC'
     };
     const sort = allowedSort[q.sort] || allowedSort.heat;
-    const page = Math.max(1, parseInt(q.page) || 1);
-    const pageSize = Math.min(60, Math.max(1, parseInt(q.pageSize) || 24));
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 24, maxSize: 60 });
 
     const whereSql = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     const [countRows] = await pool.query(`SELECT COUNT(*) AS total FROM collections c ${whereSql}`, params);
@@ -212,8 +210,7 @@ router.get('/discover', requireAuth, async (req, res) => {
       params.push(s, s, s);
     }
     const sort = q.sort === 'new' ? 'c.created_at DESC' : 'c.heat DESC, c.updated_at DESC';
-    const page = Math.max(1, parseInt(q.page) || 1);
-    const pageSize = Math.min(60, Math.max(1, parseInt(q.pageSize) || 24));
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 24, maxSize: 60 });
     // 同模型ID去重：公开发现页每个 target_id 仅保留热度最高的一个副本，避免重复展示
     conds.push(`c.id = (SELECT d2.id FROM collections d2 WHERE d2.target_id = c.target_id AND d2.visibility='public' ORDER BY d2.heat DESC, d2.id ASC LIMIT 1)`);
     const whereSql = `WHERE ${conds.join(' AND ')}`;
@@ -226,7 +223,7 @@ router.get('/discover', requireAuth, async (req, res) => {
        FROM collections c
        LEFT JOIN users u ON u.id = c.user_id ${whereSql}
        ORDER BY ${sort} LIMIT ? OFFSET ?`,
-      [...params, pageSize, (page - 1) * pageSize]
+      [...params, pageSize, offset]
     );
     rows.forEach(r => { if (r.thumbnail) r.thumbnail = proxyThumb(r.thumbnail); delete r.notes; r.public_duplicate = !!Number(r.public_duplicate); });
     ok(res, { items: rows, page, pageSize, total, totalPages });
@@ -713,14 +710,13 @@ router.get('/admin/stats', requireAdminCompat, async (req, res) => {
 router.get('/admin/invalid', requireAdminCompat, async (req, res) => {
   try {
     const pool = getPool();
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize) || 30));
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 30, maxSize: 100 });
     const [count] = await pool.query(`SELECT COUNT(*) AS c FROM collections WHERE kind='avatar_model' AND status='invalid'`);
     const total = count[0].c;
     const [rows] = await pool.query(
       `SELECT c.*, u.display_name AS owner_name FROM collections c LEFT JOIN users u ON u.id=c.user_id
        WHERE c.kind='avatar_model' AND c.status='invalid' ORDER BY c.invalid_at DESC LIMIT ? OFFSET ?`,
-      [pageSize, (page - 1) * pageSize]
+      [pageSize, offset]
     );
     const items = rows.map(r => ({
       id: r.id, modelId: r.target_id, modelName: r.name, ownerName: r.author,

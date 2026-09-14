@@ -3,8 +3,15 @@
 # 含真实密钥的临时 env 备份（切勿提交，提交即泄露）
 .env.e2e-bak
 .env.*.bak
+# P2-73：.env 写通道的自动备份/原子写产物（migration.js 的 .env.bak.<ts>、
+# setup.js 的 .env.broken-<ts>、写盘失败的 .env.tmp），全部含旧密钥，严禁入库
+.env.bak.*
+.env.broken-*
+.env.tmp
 .env.local
 .env.*.local
+# 运维面板密码哈希（PBKDF2，本地私有；删除后可重新初始化，见 docs/20）
+panel/panel-auth.json
 
 # 建站引导隔离状态（仅存引导进度/非敏感草稿，非站点配置）
 setup-wizard.json

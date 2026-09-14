@@ -11,7 +11,7 @@
  *   description: 管理后台相关接口
  */
 const express = require('express');
-const { ok, getPool, handleError, logOper, sendError, ErrorCodes } = require('../utils');
+const { ok, getPool, handleError, logOper, sendError, ErrorCodes, paginate } = require('../utils');
 const { requireAdminCompat, requireRole } = require('../auth');
 const logger = require('../logger');
 const settings = require('../settings');
@@ -76,8 +76,7 @@ module.exports = function (groupId, vrcCookieCfg) {
   // "unknown"。sys_oper_log 表被 20 处代码写入，却从来没有任何接口读取过。
   router.get('/admin/oper-logs', requireAdminCompat, async (req, res) => {
     try {
-      const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-      const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 20));
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 100 });
       const type = (req.query.type || '').trim();
       const user = (req.query.user || '').trim();
 
@@ -107,7 +106,7 @@ module.exports = function (groupId, vrcCookieCfg) {
          FROM sys_oper_log l ${joinSql} ${whereSql}
          ORDER BY l.create_time DESC, l.id DESC
          LIMIT ? OFFSET ?`,
-        [...params, pageSize, (page - 1) * pageSize]
+        [...params, pageSize, offset]
       );
 
       res.json({

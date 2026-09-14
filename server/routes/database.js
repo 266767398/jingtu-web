@@ -8,7 +8,7 @@
  */
 const express = require('express');
 const mysql = require('mysql2');
-const { getPool, safeError, logOper, handleError, sendError, fail, ErrorCodes } = require('../utils');
+const { getPool, safeError, logOper, handleError, sendError, fail, ErrorCodes, paginate } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 const { DB_NAME } = require('../db');
 const logger = require('../logger');
@@ -213,9 +213,7 @@ router.get('/admin/db/table/:name', requireAdminCompat, async (req, res) => {
       }
     }
 
-    const page = parseInt(req.query.page) || 1;
-    const pageSize = parseInt(req.query.pageSize) || 20;
-    const offset = (page - 1) * pageSize;
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 20 });
 
     const [countRes] = await getPool().query(`SELECT COUNT(*) AS total FROM ${mysql.escapeId(tableName)}`);
     const total = countRes[0].total;

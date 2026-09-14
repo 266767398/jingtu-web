@@ -1,13 +1,17 @@
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
-const { holder, DB_NAME, DB_CONFIG, recreatePool } = require('./db');
+const mysql = require('mysql2/promise');
+const { DB_CONFIG } = require('./db');
 
 async function runMigration() {
   console.log('🚀 开始数据库优化迁移...');
-  
+
+  // P2-77：旧实现在连接池上执行 `SET FOREIGN_KEY_CHECKS = 0`——池级 query 只落在
+  // 某一条连接上且状态随归还污染后续业务，属无效「表演」。本脚本全部是
+  // ADD INDEX 类 DDL，不触碰外键约束，直接删除该逻辑并改用专用连接执行。
+  let conn = null;
+  let failCount = 0;
   try {
-    recreatePool();
-    await holder.pool.query(`SET FOREIGN_KEY_CHECKS = 0`);
-    console.log('🔓 已临时禁用外键约束检查');
+    conn = await mysql.createConnection({ ...DB_CONFIG, connectTimeout: 10000 });
 
     const migrations = [];
 
@@ -230,11 +234,10 @@ async function runMigration() {
     // ==================== 执行迁移 ====================
     let successCount = 0;
     let skipCount = 0;
-    let failCount = 0;
 
     for (const sql of migrations) {
       try {
-        await holder.pool.query(sql);
+        await conn.query(sql);
         successCount++;
         console.log(`  ✓ ${sql.substring(0, 80)}${sql.length > 80 ? '...' : ''}`);
       } catch (e) {
@@ -250,8 +253,7 @@ async function runMigration() {
       }
     }
 
-    await holder.pool.query(`SET FOREIGN_KEY_CHECKS = 1`);
-    console.log('\n🔒 已重新启用外键约束检查');
+    console.log('\n🔒 外键约束保持默认开启（本迁移不涉及外键变更）');
 
     console.log(`\n=================== 迁移结果 ====================`);
     console.log(`成功: ${successCount}`);
@@ -265,10 +267,13 @@ async function runMigration() {
     }
 
   } catch (e) {
-    try { await holder.pool.query(`SET FOREIGN_KEY_CHECKS = 1`); } catch {}
     console.error('❌ 迁移过程出错:', e.message);
-    process.exit(1);
+    failCount++;
+  } finally {
+    if (conn) { try { await conn.end(); } catch (_) {} }
   }
+  // P2-77：存在失败项时以非零码退出，供 CI / shell 链路感知；同时关闭连接让进程可退出。
+  process.exit(failCount === 0 ? 0 : 1);
 }
 
 runMigration();

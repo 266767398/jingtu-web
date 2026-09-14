@@ -33,6 +33,17 @@ jest.mock('../utils', () => ({
   ok(res, fields) {
     return res.json(fields ? { success: true, ...fields } : { success: true });
   },
+  // P2-70 分页收口后 routes/friends.js 与 routes/follows.js 解构 paginate；
+  // 手写 mock 工厂必须同步补名，否则命中分页的处理器一调用即 TypeError→500。
+  // 实现与 utils.js 的 paginate 保持一致（page≥1、pageSize 受 defaultSize/maxSize 钳制）。
+  paginate(req, opts = {}) {
+    const { sizeParam = 'pageSize', defaultSize = 20, maxSize = Infinity, minSize = 1, fixedSize } = opts;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = fixedSize !== undefined
+      ? fixedSize
+      : Math.min(maxSize, Math.max(minSize, parseInt(req.query[sizeParam], 10) || defaultSize));
+    return { page, pageSize, offset: (page - 1) * pageSize };
+  },
   sendError(res, status, code, message) {
     return res.status(status).json({ success: false, error: { code, message } });
   },

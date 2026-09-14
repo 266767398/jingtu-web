@@ -39,18 +39,28 @@ const getBaseLogFile = () => {
   return path.join(LOG_DIR, `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}${envSuffix}.log`);
 };
 
+// P2-80：旧实现按 `f.startsWith(prefix + '.') && f.endsWith(ext)` 过滤轮转文件——
+// 轮转产物形如 "YYYY-MM-DD.log.N"，结尾是 .N 而不是 .log，条件永远不成立：
+// rotatedFiles 恒为空 → nextNum 恒为 1 → 每次轮转都覆盖上一个 .1，历史日志静默丢失；
+// 且 .sort() 是字典序，序号跨 10 位数（.10 < .2）时新旧错序。
+// 改为显式正则匹配 "<base>.<数字>" 并按数值排序，保留最新 MAX_ROTATED_FILES 份。
 const getRotatedFiles = async () => {
   const baseFile = getBaseLogFile();
   const dir = path.dirname(baseFile);
   const ext = path.extname(baseFile);
   const prefix = path.basename(baseFile, ext);
-  
+  const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const rotatedRe = new RegExp('^' + escapeRe(prefix) + escapeRe(ext) + '\\.(\\d+)$');
+
   try {
     const files = await fsPromises.readdir(dir);
-    return files
-      .filter(f => f.startsWith(prefix + '.') && f.endsWith(ext))
-      .map(f => path.join(dir, f))
-      .sort();
+    const matched = [];
+    for (const f of files) {
+      const m = rotatedRe.exec(f);
+      if (m) matched.push({ file: path.join(dir, f), num: parseInt(m[1], 10) });
+    }
+    matched.sort((a, b) => a.num - b.num);
+    return matched;
   } catch {
     return [];
   }
@@ -58,25 +68,23 @@ const getRotatedFiles = async () => {
 
 const rotateLog = async () => {
   const baseFile = getBaseLogFile();
-  
+
   try {
     const stats = await fsPromises.stat(baseFile);
     if (stats.size < MAX_FILE_SIZE) return;
   } catch {
     return;
   }
-  
-  const rotatedFiles = await getRotatedFiles();
-  const nextNum = rotatedFiles.length + 1;
-  
-  if (nextNum > MAX_ROTATED_FILES) {
-    for (let i = nextNum - MAX_ROTATED_FILES; i < rotatedFiles.length; i++) {
-      await fsPromises.unlink(rotatedFiles[i]).catch(() => {});
-    }
+
+  const rotated = await getRotatedFiles();
+  // 先删最旧（序号最小）的，保证轮转后总数不超过 MAX_ROTATED_FILES
+  const excess = rotated.length + 1 - MAX_ROTATED_FILES;
+  for (let i = 0; i < excess; i++) {
+    await fsPromises.unlink(rotated[i].file).catch(() => {});
   }
-  
-  const rotatedName = `${baseFile}.${nextNum}`;
-  await fsPromises.rename(baseFile, rotatedName).catch(() => {});
+
+  const nextNum = (rotated.length > 0 ? rotated[rotated.length - 1].num : 0) + 1;
+  await fsPromises.rename(baseFile, `${baseFile}.${nextNum}`).catch(() => {});
 };
 
 const safeStringify = (obj, maxDepth = 3, currentDepth = 0) => {

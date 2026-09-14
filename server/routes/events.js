@@ -2,11 +2,6 @@
  * 境途同游 V6.14 — 活动路由（从 server.js 提取）
  * 支持：活动 CRUD、报名/取消、签到、评论、VRChat 同步、生日派对、归档、日历导出
  * 通过工厂模式接收 notifyAllMembers 引用
- * 
- * @swagger
- * tags:
- *   name: Events
- *   description: 活动管理相关接口
  *
  * P0-3（2026-09-13 修复）：封堵活动可见性零执行洞——
  *   列表侧（活动列表/生日派对/iCal 导出/日历/有关联 World）统一按 visibilityFilter 过滤：
@@ -15,9 +10,18 @@
  *     收敛为组织者/管理员可见，人数保持公开（前端按 null 优雅跳过名单渲染）。
  *   另封堵两个同源泄露面：/:id/signs 匿名全量名单、/:id/google-calendar 匿名标题跳转。
  *   路由路径与数量不变，仅收紧数据可见范围。
+ *
+ * 注：说明文字不得置于 @swagger 之后——swagger-jsdoc 会把 @swagger 起的整块注释
+ * 按 YAML 解析，中文散文会导致解析报错、本文件 tags 规范被整体丢弃。
+ */
+/**
+ * @swagger
+ * tags:
+ *   name: Events
+ *   description: 活动管理相关接口
  */
 const express = require('express');
-const { fail, ok,  getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes  } = require('../utils');;
+const { fail, ok,  getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes, paginate  } = require('../utils');;
 const { requireAuth, requireAdminCompat, getAvatarUrl, ROLE_LEVEL } = require('../auth');
 const { vrchatGetGroupEvents } = require('../vrc');
 const cacheService = require('../cache_service');
@@ -152,9 +156,7 @@ router.get('/', async (req, res) => {
     try {
       const { status, type, include_archived } = req.query;
       const q = (req.query.q || '').trim(); // VN-9 命令面板：活动标题搜索
-       const page = Math.max(1, parseInt(req.query.page) || 1);
-      const pageSize = Math.min(50, Math.max(1, parseInt(req.query.pageSize) || 20));
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
       const uid = req.session?.userId || 0;
       
       const whereClauses = ['1=1'];

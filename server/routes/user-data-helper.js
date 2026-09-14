@@ -12,6 +12,8 @@ const { getPool } = require('../utils');
 // VRCX ExportFriendsListDialog 风格：CSV 字段转义（含逗号/引号/控制字符时加引号并转义内部引号）
 function csvField(v) {
   const s = v == null ? '' : String(v);
+  // CSV 转义必须识别控制字符，no-control-regex 在此为误报
+  // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f,"]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
   return s;
 }

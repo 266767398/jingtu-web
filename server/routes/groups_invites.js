@@ -10,7 +10,7 @@
  *   description: 群组邀请批量管理接口
  */
 const express = require('express');
-const { ok, getPool, handleError, sendError, ErrorCodes, logOper } = require('../utils');
+const { ok, getPool, handleError, sendError, ErrorCodes, logOper, paginate } = require('../utils');
 const { requireAuth, requireAdminCompat } = require('../auth');
 const { vrchatRequest, VRC_API_KEY } = require('../vrc');
 const { sleep } = require('./groups_helpers');
@@ -68,9 +68,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
   router.get('/group/invites', requireAdminCompat, async (req, res) => {
     try {
-      const page = parseInt(req.query.page) || 1;
-      const pageSize = parseInt(req.query.pageSize) || 20;
-      const offset = (page - 1) * pageSize;
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20 });
       const statusFilter = req.query.status ? req.query.status.trim() : '';
       
       let where = '1=1';

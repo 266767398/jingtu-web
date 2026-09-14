@@ -31,6 +31,17 @@ jest.mock('../utils', () => ({
     return res.status(status).json({ success: false, error: { code, message } });
   },
   logOper: jest.fn().mockResolvedValue(undefined),
+  // P2-70 分页收口后 routes/moderations.js 模块加载期即解构 paginate；
+  // mock 工厂缺名会导致路由调用 undefined 抛 TypeError 变 500。
+  // 以下实现与 utils.js 的 paginate 保持一致（page≥1、pageSize 受 defaultSize/maxSize 钳制）。
+  paginate(req, opts = {}) {
+    const { sizeParam = 'pageSize', defaultSize = 20, maxSize = Infinity, minSize = 1, fixedSize } = opts;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = fixedSize !== undefined
+      ? fixedSize
+      : Math.min(maxSize, Math.max(minSize, parseInt(req.query[sizeParam], 10) || defaultSize));
+    return { page, pageSize, offset: (page - 1) * pageSize };
+  },
   handleError(res, error) {
     const status = error.statusCode || error.status || 500;
     return res.status(status).json({ success: false, error: { code: error.code || 'INTERNAL_ERROR', message: error.message } });
