@@ -342,6 +342,11 @@ router.post('/admin/db/repair/:table', requireAdminCompat, async (req, res) => {
 
 router.post('/admin/db/kill/:pid', requireAdminCompat, async (req, res) => {
   try {
+    // MySQL 的 KILL 语句不支持占位符参数（prepared statement 限制），只能字符串拼接；
+    // 因此在路由入口做严格纯数字校验，杜绝任何非数字输入进入拼接点。
+    if (!/^\d+$/.test(String(req.params.pid))) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的 PID');
+    }
     const pid = parseInt(req.params.pid);
     
     await getPool().query(`KILL ${pid}`);

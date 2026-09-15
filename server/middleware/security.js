@@ -169,6 +169,22 @@ const searchLimiter = rateLimit({
   }
 });
 
+// P3-13：/api/jtt 联动接口专属限流。虽有 24bit 随机码 + ED25519 签名 + ±300s 时间窗 + nonce
+// 防重放使爆破不现实，但全局 ddosLimiter 600/min 对单客户端过于宽松；60/min 足够正常轮询，
+// 超额即拒（不设 skipSuccessfulRequests：verify 失败本就不计数会削弱防护，统一计数更稳）。
+const jttLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: hybridStore('security-jtt'),
+  message: { error: '联动请求过于频繁，请稍后再试', retryAfter: 60 },
+  handler: (req, res) => {
+    onRateLimitTriggered(req.ip, req.path);
+    fail(res, 429, '联动请求过于频繁，请稍后再试', { retryAfter: 60 });
+  }
+});
+
 function requestSizeLimiter(req, res, next) {
   // 阈值由超级管理员在后台「系统设置」可调（持久化于 system_config，启动时载入内存）。
   const { uploadMaxBytes, bodyMaxBytes, otherMaxBytes } = getLimits();
@@ -225,6 +241,7 @@ module.exports = {
   uploadLimiter,
   adminLimiter,
   searchLimiter,
+  jttLimiter,
   requestSizeLimiter, 
   suspiciousRequestDetector,
   validateUploadFile,

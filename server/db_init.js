@@ -149,7 +149,7 @@ async function initDatabase() {
         ends_at DATETIME NULL COMMENT '活动结束时间（用于状态判断）',
         create_admin VARCHAR(100),
         is_archive TINYINT DEFAULT 0,
-        visibility ENUM('public','members_only') DEFAULT 'public',
+        visibility ENUM('public','members_only','private') DEFAULT 'public',
         source ENUM('manual','vrchat') DEFAULT 'manual' COMMENT '活动来源',
         world_id VARCHAR(100) NULL COMMENT 'VRChat World ID',
         world_name VARCHAR(255) NULL COMMENT 'VRChat World 名称',
@@ -1437,6 +1437,14 @@ async function initDatabase() {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
         else { console.warn('  ⚠️ event V6.37 migration:', e.message); }
       }
+    }
+    // P3-10：event.visibility 扩 'private' 取值——路由层（P0-3 可见性执行）早已按 private 语义实现
+    // （列表过滤、详情 403、创建/更新校验），但旧库 ENUM 缺该值导致严格模式建 private 活动 500。
+    // MODIFY 幂等：已含 private 时重复执行仅重写相同定义。保持可空 + DEFAULT 'public' 与原建表一致。
+    try {
+      await holder.pool.query(`ALTER TABLE event MODIFY COLUMN visibility ENUM('public','members_only','private') DEFAULT 'public'`);
+    } catch (e) {
+      console.warn('  ⚠️ event visibility ENUM migration:', e.message);
     }
     const eventV637Indexes = [
       `ALTER TABLE event ADD INDEX idx_visibility(visibility)`,

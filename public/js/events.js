@@ -746,20 +746,25 @@ async function loadEventComments(eventId) {
         list.innerHTML = '<div class="text-muted text-12">' + __('events.no_comments') + '</div>';
         return;
       }
-      list.innerHTML = comments.map(c => `
-        <div class="det-comment-item" data-comment-id="${c.id}">
+      list.innerHTML = comments.map(c => {
+        const cid = Number(c.id);
+        const eid = Number(eventId);
+        if (!Number.isInteger(cid) || !Number.isInteger(eid)) return '';
+        return `
+        <div class="det-comment-item" data-comment-id="${cid}">
           <img src="${escAttr(c.avatarUrl || '/api/avatar/default')}" class="det-comment-avatar" alt="" loading="lazy">
           <div class="det-comment-body">
             <div class="det-comment-header">
               <span class="det-comment-user">${esc(c.userName || __('unknown_user'))}</span>
               <span class="det-comment-time">${fmtTime(c.createdAt)}</span>
               ${currentUser && (currentUser.id === c.userId || currentUser.role === 'super_admin' || currentUser.role === 'admin') ? 
-                `<button class="btn-text det-comment-del" onclick="editEventComment(${eventId}, ${c.id})">${__('edit')}</button><button class="btn-text det-comment-del" onclick="deleteEventComment(${eventId}, ${c.id})">${__('delete')}</button>` : ''}
+                `<button class="btn-text det-comment-del" onclick="editEventComment(${eid}, ${cid})">${__('edit')}</button><button class="btn-text det-comment-del" onclick="deleteEventComment(${eid}, ${cid})">${__('delete')}</button>` : ''}
             </div>
-            <div class="det-comment-content" id="eventCommentText-${c.id}">${esc(c.content)}</div>
+            <div class="det-comment-content" id="eventCommentText-${cid}">${esc(c.content)}</div>
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     }
   } catch { const list = document.getElementById('evtDetCommentList'); if (list) list.innerHTML = '<div class="text-muted text-12">' + __('events.load_failed') + '</div>'; }
 }

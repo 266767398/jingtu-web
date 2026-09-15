@@ -47,7 +47,7 @@ const startSchedule = require('./schedule');
 const { requireAdminCompat } = require('./auth');
 const {
   ddosLimiter, loginBruteForceLimiter,
-  uploadLimiter, adminLimiter, searchLimiter,
+  uploadLimiter, adminLimiter, searchLimiter, jttLimiter,
   requestSizeLimiter, suspiciousRequestDetector
 } = require('./middleware/security');
 const notificationService = require('./notification-service');
@@ -579,7 +579,8 @@ app.use('/api/world-tags', require('./routes/world_tags'));
 app.use('/api/event-teams', require('./routes/event_teams'));
 
 // 境途 × 境途同游 联动接口（/api/jtt，骨架阶段，契约 04-jingtu-web-integration.md）
-app.use('/api/jtt', require('./routes/jtt'));
+// P3-13：专属 per-IP 限流 60/min（全局 ddosLimiter 600/min 对单接口过宽）
+app.use('/api/jtt', jttLimiter, require('./routes/jtt'));
 
 // 启动期路由冲突自检（P2-15 / B-3，只读）：扫描全部已注册路由，
 // 报告「同方法同路径完全重复（死代码）」与「参数路由先注册截胡字面路由」两类隐患。

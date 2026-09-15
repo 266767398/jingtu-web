@@ -503,12 +503,12 @@ function renderBackups(backups) {
           const encodedFilename = encodeURIComponent(filename);
           return `
           <tr style="border-bottom:1px solid var(--border);transition:background 0.2s" onmouseenter="this.style.background='var(--hover)'" onmouseleave="this.style.background='transparent'">
-            <td style="padding:8px;font-size:12px">${filename}</td>
+            <td style="padding:8px;font-size:12px">${esc(filename)}</td>
             <td style="padding:8px;font-size:12px">${b.sizeFormatted}</td>
             <td style="padding:8px;font-size:12px">${new Date(b.createdAt).toLocaleString()}</td>
             <td style="padding:8px;font-size:12px">
-              <button onclick="downloadBackup('${encodedFilename}')" class="btn btn-sm btn-outline" style="padding:2px 8px" data-i18n="admin.download">下载</button>
-              <button onclick="deleteBackup('${encodedFilename}')" class="btn btn-sm btn-red" style="padding:2px 8px" data-i18n="admin.delete">删除</button>
+              <button onclick="downloadBackup('${escJsStr(encodedFilename)}')" class="btn btn-sm btn-outline" style="padding:2px 8px" data-i18n="admin.download">下载</button>
+              <button onclick="deleteBackup('${escJsStr(encodedFilename)}')" class="btn btn-sm btn-red" style="padding:2px 8px" data-i18n="admin.delete">删除</button>
             </td>
           </tr>
         `; }).join('')}
