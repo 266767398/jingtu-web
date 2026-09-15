@@ -606,7 +606,7 @@ router.post('/', requireAuth, async (req, res) => {
     const [r] = await pool.query(
       `INSERT INTO collections
         (user_id, kind, target_id, name, author, author_id, thumbnail, description, world_type, platform, load_type, size_bytes, size_category, category, content_rating, tags, status, unity_version, asset_url, unity_package_url, booth_url, favorite_count, rating_avg, rating_count, heat, visibility, show_author, folder_id, notes, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())`,
       [uid, kind, targetId, rec.name, rec.author, rec.author_id, rec.thumbnail, rec.description, rec.world_type, rec.platform, rec.load_type, rec.size_bytes, rec.size_category, rec.category, rec.content_rating, rec.tags, rec.status, rec.unity_version, rec.asset_url, rec.unity_package_url, boothUrl, rec.favorite_count, rec.rating_avg, rec.rating_count, rec.heat, visibility, showAuthor, folderId, notes]
     );
     await refreshAggregates(pool, targetId, kind);
