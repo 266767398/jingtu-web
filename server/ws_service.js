@@ -856,6 +856,7 @@ module.exports = {
   broadcastOnlineUsers,
   broadcastToUser,
   broadcastToGroup,
+  broadcastToGroupWithTier,
   broadcastAllExcept,
   gracefulShutdown,
   getOnlineUsers,

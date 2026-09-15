@@ -142,6 +142,9 @@ router.post('/send', requireChatAuth, secureUpload(chatUpload.single('file')), a
       const notifyContent = mediaType ? `${senderName} 发送了${mediaType === 'image' ? '图片' : mediaType === 'video' ? '视频' : '语音'}` : `${senderName}: ${trimmed.substring(0, 50)}`;
       notificationService.notifyUser(rId, 'chat', '💬 新消息', notifyContent, { targetType: 'chat', targetId: uid });
     }
+    // HTTP 路径（图片/媒体必走此处）实时下发：此前只发通知，对端在线也要刷新才能看到。
+    // 自发自收场景由前端 chat:new 分支的 senderId 判等过滤，不会重复渲染。
+    wsService.broadcastToUser(rId, { type: 'chat:new', message: msg });
     res.json({ ok: true, message: msg });
   } catch (e) { handleError(res, e, '[chat/send]'); }
 });
@@ -458,6 +461,10 @@ router.post('/groups/:groupId/messages', requireChatAuth, secureUpload(chatUploa
       fileSize,
       createdAt: new Date().toISOString()
     };
+    // HTTP 路径实时下发群消息（图片必走此处）：排除发送者避免与本地回显重复，
+    // 走 tier 版广播以复用离线汇总与成员缓存，与 WS handleGroupChat 行为对齐
+    wsService.broadcastToGroupWithTier(gid, { type: 'group:new', groupId: gid, message }, uid)
+      .catch(() => {});
     res.json({ ok: true, messageId: result.insertId, message });
   } catch (e) { handleError(res, e, '[chat/group-send]'); }
 });
