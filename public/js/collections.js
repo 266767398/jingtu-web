@@ -12,6 +12,27 @@
   }
   const __ = ensureI18n();
 
+  // 复制文本到剪贴板（兼容 http/内网 IP 等非安全上下文，navigator.clipboard 不可用时降级 execCommand）
+  function copyTextToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(String(text));
+    }
+    return new Promise(function (resolve, reject) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = String(text);
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        ok ? resolve() : reject(new Error('copy failed'));
+      } catch (e) { reject(e); }
+    });
+  }
+
   // 全局状态
   const state = {
     kind: 'avatar_model',
@@ -179,7 +200,7 @@
     if (act === 'detail') return openDetail(id);
     if (act === 'copyid') {
       try {
-        await navigator.clipboard.writeText(id);
+        await copyTextToClipboard(id);
         toast(__('common.operation_success', __('auto_collections_17')));
       } catch (e) { toast(e.message, 'error'); }
       return;
@@ -481,7 +502,7 @@
     });
     const copyIdBtn = $('collDetailCopyId');
     if (copyIdBtn) copyIdBtn.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(it.target_id); toast(__('common.operation_success', __('auto_collections_71'))); } catch (e) { toast(e.message, 'error'); }
+      try { await copyTextToClipboard(it.target_id); toast(__('common.operation_success', __('auto_collections_71'))); } catch (e) { toast(e.message, 'error'); }
     });
     const folderSelEl = $('collDetailFolder');
     if (folderSelEl) folderSelEl.addEventListener('change', async () => {
