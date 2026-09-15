@@ -62,6 +62,19 @@ function Write-Line([string]$text, [string]$color = 'White') {
     if ($color -and $color -ne 'White') { Write-Host $text -ForegroundColor $color } else { Write-Host $text }
 }
 
+# 中文在控制台占两列，用 {0,-10} 按字符数补齐会让表格错位，这里按显示宽度补
+function Get-DisplayWidth([string]$s) {
+    $w = 0
+    foreach ($ch in $s.ToCharArray()) { if ([int]$ch -gt 127) { $w += 2 } else { $w += 1 } }
+    return $w
+}
+
+function Pad-Display([string]$s, [int]$width) {
+    $pad = $width - (Get-DisplayWidth $s)
+    if ($pad -lt 1) { $pad = 1 }
+    return $s + (' ' * $pad)
+}
+
 function Banner {
     Clear-Host
     Write-Host ''
@@ -92,7 +105,7 @@ if (-not (Test-Path $LogDir)) { [void](New-Item -ItemType Directory -Path $LogDi
 # ---------- 工具自身配置加载（jingtu.config.json + 环境变量覆盖） ----------
 function Load-ToolConfig {
     $defaults = [pscustomobject]@{
-        mysql = [pscustomobject]@{ enabled = $true;  bin = $null; conf = $null; waitSeconds = 30 }
+        mysql = [pscustomobject]@{ enabled = $true;  bin = $null; conf = $null; waitSeconds = 30; password = $null }
         nginx = [pscustomobject]@{ enabled = $false; bin = $null; conf = $null }
     }
     if (Test-Path $ToolConfig) {
@@ -103,6 +116,7 @@ function Load-ToolConfig {
                 if ($raw.mysql.bin)  { $defaults.mysql.bin  = [string]$raw.mysql.bin }
                 if ($raw.mysql.conf) { $defaults.mysql.conf = [string]$raw.mysql.conf }
                 if ($raw.mysql.waitSeconds) { $defaults.mysql.waitSeconds = [int]$raw.mysql.waitSeconds }
+                if ($raw.mysql.password)    { $defaults.mysql.password    = [string]$raw.mysql.password }
             }
             if ($raw.nginx) {
                 if ($null -ne $raw.nginx.enabled) { $defaults.nginx.enabled = [bool]$raw.nginx.enabled }
@@ -116,6 +130,7 @@ function Load-ToolConfig {
     # 环境变量覆盖
     if ($env:JINGTU_MYSQL_BIN)  { $defaults.mysql.bin  = $env:JINGTU_MYSQL_BIN }
     if ($env:JINGTU_MYSQL_CONF) { $defaults.mysql.conf = $env:JINGTU_MYSQL_CONF }
+    if ($env:JINGTU_MYSQL_PWD)  { $defaults.mysql.password = $env:JINGTU_MYSQL_PWD }
     if ($env:JINGTU_NGINX_BIN)  { $defaults.nginx.bin  = $env:JINGTU_NGINX_BIN }
     if ($env:JINGTU_NGINX_CONF) { $defaults.nginx.conf = $env:JINGTU_NGINX_CONF }
     return $defaults
@@ -156,7 +171,7 @@ function Resolve-Nginx {
     $bin  = $cfg.nginx.bin
     $conf = $cfg.nginx.conf
     if ($bin -and (Test-Path $bin)) { return [pscustomobject]@{ Bin = $bin; Conf = $conf; Enabled = $cfg.nginx.enabled } }
-    $candidates = @('D:\phpstudy_pro','C:\phpstudy_pro','E:\phpstudy_pro','D:\BtSoft','D:\phpStudy')
+    $candidates = @('D:\phpstudy_pro','C:\phpstudy_pro','E:\phpstudy_pro','D:\BtSoft','D:\phpStudy',(Join-Path $env:USERPROFILE 'phpstudy_pro'))
     foreach ($base in $candidates) {
         if (-not (Test-Path $base)) { continue }
         $bins = Get-ChildItem -Path $base -Recurse -Filter 'nginx.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -168,6 +183,55 @@ function Resolve-Nginx {
         }
     }
     return [pscustomobject]@{ Bin = $null; Conf = $null; Enabled = $cfg.nginx.enabled }
+}
+
+# 统一解析 nginx 运行时三元组：前缀(-p)、配置(-c)、pid 文件。
+# 启动与停止必须共用同一份解析结果，否则 nginx 会把「当前工作目录」当作前缀，
+# 于是去 <项目目录>/logs/nginx.pid 找 pid 文件并报 CreateFile() ... failed。
+function Get-NginxRuntime {
+    $info = Resolve-Nginx
+    if (-not $info.Bin) {
+        return [pscustomobject]@{ Bin = $null; Conf = $null; Prefix = $null; PidFile = $null; Enabled = $info.Enabled }
+    }
+    $prefix = (Split-Path $info.Bin).TrimEnd('\')
+    $conf = $info.Conf
+    if (-not $conf) {
+        # 自动探测 nginx 自带的 conf\nginx.conf（绝对路径），与启动路径保持一致
+        $auto = Get-ChildItem -Path $prefix -Filter 'nginx.conf' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($auto) { $conf = $auto.FullName }
+    }
+    # pid 路径：以配置中的 pid 指令为准，未显式配置时用 nginx 默认的 <前缀>\logs\nginx.pid
+    $pidRel = 'logs/nginx.pid'
+    if ($conf -and (Test-Path $conf)) {
+        try {
+            $m = Select-String -Path $conf -Pattern '^\s*pid\s+(\S+)\s*;' -List | Select-Object -First 1
+            if ($m) { $pidRel = $m.Matches[0].Groups[1].Value }
+        } catch {}
+    }
+    $pidFile = $pidRel
+    try { if (-not [System.IO.Path]::IsPathRooted($pidFile)) { $pidFile = Join-Path $prefix ($pidRel -replace '/', '\') } } catch {}
+    return [pscustomobject]@{ Bin = $info.Bin; Conf = $conf; Prefix = $prefix; PidFile = $pidFile; Enabled = $info.Enabled }
+}
+
+# 读取 pid 文件并确认其中的主进程仍然存活；返回存活 PID，否则 0。
+function Get-NginxPidAlive([string]$pidFile) {
+    if (-not $pidFile -or -not (Test-Path $pidFile)) { return 0 }
+    $procId = 0
+    try { $procId = [int](((Get-Content -Raw -Path $pidFile) -replace '[^0-9]', '')) } catch { return 0 }
+    if ($procId -le 0) { return 0 }
+    if (Get-Process -Id $procId -ErrorAction SilentlyContinue) { return $procId }
+    return 0
+}
+
+# 清理失效的 nginx.pid：进程已经不在了还留着它，下次优雅停止会报 OpenEvent(...) failed。
+function Clear-StaleNginxPid($rt) {
+    try {
+        if (-not $rt -or -not $rt.PidFile -or -not (Test-Path $rt.PidFile)) { return }
+        if ((Get-NginxPidAlive $rt.PidFile) -gt 0) { return }
+        if (Get-Process -Name 'nginx' -ErrorAction SilentlyContinue) { return }
+        Remove-Item -Path $rt.PidFile -Force -ErrorAction Stop
+        Write-Line ('[清理] 已删除失效的 pid 文件: ' + $rt.PidFile) $Cfg.C_Dim
+    } catch {}
 }
 
 # ---------- 端口/进程工具 ----------
@@ -316,8 +380,8 @@ function Stop-MySql {
     $used = $false
     if ($admin -and (Test-Path $admin)) {
         $cfg = Load-ToolConfig
-        $pw = if ($cfg.mysql.password) { $cfg.mysql.password } else { $env:JINGTU_MYSQL_PWD }
-        $base = @('-h','127.0.0.1','-P','3306','-u','root')
+        $pw = $cfg.mysql.password
+        $base = @('-h','127.0.0.1','-P',"$MysqlPort",'-u','root')
         # 用逗号包裹保证「参数数组」作为嵌套元素入列，避免 @( @(...) ) 被扁平化后逐字符串试跑
         $argLists = @( ,($base + @('shutdown')) )
         $tmpCnf = $null
@@ -357,27 +421,20 @@ function Ensure-MySql {
 
 # ---------- Nginx 启停 ----------
 function Start-Nginx {
-    $info = Resolve-Nginx
-    if (-not $info.Bin) {
+    $rt = Get-NginxRuntime
+    if (-not $rt.Bin) {
         Write-Line '[错误] 找不到 nginx.exe。请在 jingtu.config.json 中配置 nginx.bin。' $Cfg.C_Fail
         return $false
     }
     if ($null -ne (Test-Port $NginxPort)) { Write-Line "[提示] Nginx 已在运行。" $Cfg.C_Warn; return $true }
-    # 必须用绝对 -c，避免工作目录不同导致相对路径解析到错误位置（如 D:\...\jingtu-web/conf/nginx.conf）。
-    $launchArgs = @()
-    $conf = $info.Conf
-    if (-not $conf) {
-        # 自动探测 nginx 自带的 conf/nginx.conf（绝对路径），回退到 nginx 内置默认
-        $auto = Get-ChildItem -Path (Split-Path $info.Bin) -Filter 'nginx.conf' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($auto) { $conf = $auto.FullName }
-    }
-    if ($conf) { $launchArgs += @('-c', $conf) }
+    # -p 指定前缀（pid / error.log 等相对路径的基准），-c 必须是绝对路径；
+    # 缺 -p 时 nginx 以当前工作目录为前缀，pid 会落到 <项目目录>\logs\nginx.pid。
+    $launchArgs = @('-p', $rt.Prefix)
+    if ($rt.Conf) { $launchArgs += @('-c', $rt.Conf) }
     $outLog = Join-Path $LogDir 'nginx.out'
     $errLog = Join-Path $LogDir 'nginx.err'
-    Write-Line ('[信息] 启动 Nginx: ' + $info.Bin + ($(if ($conf) { '  -c ' + $conf } else { '' }))) $Cfg.C_Dim
-    $spParams = @{ FilePath = $info.Bin; WorkingDirectory = (Split-Path $info.Bin); WindowStyle = 'Hidden'; RedirectStandardOutput = $outLog; RedirectStandardError = $errLog }
-    if ($launchArgs.Count -gt 0) { $spParams['ArgumentList'] = $launchArgs }
-    Start-Process @spParams
+    Write-Line ('[信息] 启动 Nginx: ' + $rt.Bin + '  -p ' + $rt.Prefix + $(if ($rt.Conf) { '  -c ' + $rt.Conf } else { '' })) $Cfg.C_Dim
+    Start-Process -FilePath $rt.Bin -ArgumentList $launchArgs -WorkingDirectory $rt.Prefix -WindowStyle 'Hidden' -RedirectStandardOutput $outLog -RedirectStandardError $errLog
     $wait = 0
     while ($null -eq (Test-Port $NginxPort) -and $wait -lt 10) { Start-Sleep -Seconds 1; $wait++ }
     if ($null -ne (Test-Port $NginxPort)) { Write-Line "[成功] Nginx 已启动（端口 $NginxPort）" $Cfg.C_Ok; return $true }
@@ -385,16 +442,28 @@ function Start-Nginx {
 }
 
 function Stop-Nginx {
-    $info = Resolve-Nginx
-    if (-not $info.Bin) { Write-Line '[提示] 未配置 nginx，跳过' $Cfg.C_Warn; return }
-    if ($null -eq (Test-Port $NginxPort)) { Write-Line '[提示] Nginx 未在运行' $Cfg.C_Warn; return }
-    # 先尝试优雅 stop（用与启动一致的 -c）；若失败（如 pid 文件缺失/路径错），回落到按端口强杀。
-    $stopArgs = @('-s', 'stop')
-    if ($info.Conf) { $stopArgs = @('-c', $info.Conf, '-s', 'stop') }
-    try { Start-Process -FilePath $info.Bin -ArgumentList $stopArgs -Wait -NoNewWindow -ErrorAction SilentlyContinue | Out-Null } catch {}
-    $wait = 0
-    while ($null -ne (Test-Port $NginxPort) -and $wait -lt 6) { Start-Sleep -Seconds 1; $wait++ }
-    # 兜底：直接杀掉监听 80 端口的进程（兼容被错误 -c 启动、pid 文件失效的情况）
+    $rt = Get-NginxRuntime
+    if (-not $rt.Bin) { Write-Line '[提示] 未配置 nginx，跳过' $Cfg.C_Warn; return }
+    if ($null -eq (Test-Port $NginxPort)) {
+        Clear-StaleNginxPid $rt
+        Write-Line '[提示] Nginx 未在运行' $Cfg.C_Warn; return
+    }
+    # 优雅停止的前提：pid 文件存在且其中的主进程仍存活。
+    # 不满足时跳过 -s stop，直接走端口兜底，避免 nginx 往运维窗口吐 CreateFile()/OpenEvent() 错误。
+    if ((Get-NginxPidAlive $rt.PidFile) -gt 0) {
+        $stopArgs = @('-p', $rt.Prefix, '-s', 'stop')
+        if ($rt.Conf) { $stopArgs = @('-p', $rt.Prefix, '-c', $rt.Conf, '-s', 'stop') }
+        try {
+            Start-Process -FilePath $rt.Bin -ArgumentList $stopArgs -WorkingDirectory $rt.Prefix -Wait -NoNewWindow `
+                -RedirectStandardOutput (Join-Path $LogDir 'nginx.stop.out') -RedirectStandardError (Join-Path $LogDir 'nginx.stop.err') `
+                -ErrorAction SilentlyContinue | Out-Null
+        } catch {}
+        $wait = 0
+        while ($null -ne (Test-Port $NginxPort) -and $wait -lt 6) { Start-Sleep -Seconds 1; $wait++ }
+    } else {
+        Write-Line '[提示] pid 文件缺失或已失效，跳过优雅停止，按端口直接停止' $Cfg.C_Dim
+    }
+    # 兜底：直接杀掉监听 80 端口的进程（兼容被错误 -c/-p 启动、pid 文件失效的情况）
     $nginxPid = Test-Port $NginxPort
     if ($nginxPid) {
         try {
@@ -405,6 +474,7 @@ function Stop-Nginx {
         $wait = 0
         while ($null -ne (Test-Port $NginxPort) -and $wait -lt 6) { Start-Sleep -Seconds 1; $wait++ }
     }
+    Clear-StaleNginxPid $rt
     if ($null -eq (Test-Port $NginxPort)) { Write-Line '[完成] Nginx 已停止' $Cfg.C_Ok }
     else { Write-Line '[失败] Nginx 未能停止（端口仍被占用，可能被其它程序占用 80）' $Cfg.C_Fail }
 }
@@ -425,19 +495,20 @@ function Show-Status {
         @{ Name = 'MySQL';    Port = $MysqlPort  },
         @{ Name = 'Nginx';    Port = $NginxPort  }
     )
-    Write-Line '  服务名称           端口     进程状态                HTTP 探测' $Cfg.C_Dim
-    Write-Line '  --------------------------------------------------------------' $Cfg.C_Dim
+    Write-Line ('  ' + (Pad-Display '服务名称' 12) + (Pad-Display '端口' 6) + '进程状态       HTTP 探测') $Cfg.C_Dim
+    Write-Line '  ------------------------------------------------------------' $Cfg.C_Dim
     foreach ($r in $rows) {
         $procId = Test-Port $r.Port
+        $head = '  ' + (Pad-Display $r.Name 12) + (Pad-Display ([string]$r.Port) 6)
         if ($null -ne $procId) {
             $http = Test-Http $r.Port
             $color = if ($http -like 'HTTP 2*' -or $http -like 'HTTP 3*') { $Cfg.C_Ok } elseif ($http -like 'HTTP 5*') { $Cfg.C_Warn } else { $Cfg.C_Info }
-            Write-Line ('  {0,-10}     {1,-7}  运行中  PID:{2,-7}  {3}' -f $r.Name, $r.Port, $procId, $http) $color
+            Write-Line ($head + ('运行中  PID:{0,-7} {1}' -f $procId, $http)) $color
         } else {
-            Write-Line ('  {0,-10}     {1,-7}  已停止' -f $r.Name, $r.Port) $Cfg.C_Dim
+            Write-Line ($head + '已停止') $Cfg.C_Dim
         }
     }
-    Write-Line '  --------------------------------------------------------------' $Cfg.C_Dim
+    Write-Line '  ------------------------------------------------------------' $Cfg.C_Dim
     # 路径提示
     $mi = Resolve-MySql
     $ng = Resolve-Nginx
@@ -455,7 +526,7 @@ function Start-Site {
     # "Node 活着但 Nginx 挂了 → 80 端口进不来" 的假活状态。
     if (-not (Ensure-MySql)) { Write-Line '[错误] MySQL 拉起失败，无法启动网站（业务依赖数据库）' $Cfg.C_Fail; return }
     if (-not (Ensure-Nginx)) {
-        Write-Line '[警告] Nginx 未能启动，网站将只能通过 http://localhost:3456 直接访问（80 入口不可用）' $Cfg.C_Warn
+        Write-Line "[警告] Nginx 未能启动，网站将只能通过 http://localhost:$SitePort 直接访问（80 入口不可用）" $Cfg.C_Warn
     }
     if ($null -ne (Test-Port $SitePort)) {
         $url = Get-SiteUrl
@@ -800,6 +871,13 @@ function Clear-InputBuffer {
     } catch {}
 }
 
+function Pause {
+    # 菜单里每个动作结束后都要等用户回车再看结果；此函数此前只有调用没有定义，
+    # 导致每次操作都会吐一条红色的「无法将 Pause 识别为 cmdlet」错误。
+    Clear-InputBuffer
+    try { [void](Read-Host '  按 Enter 返回主菜单...') } catch { Start-Sleep -Seconds 2 }
+}
+
 function Menu-Loop {
     while ($true) {
         Clear-InputBuffer
@@ -813,18 +891,18 @@ function Menu-Loop {
             '5' { Stop-Panel;  Pause; }
             '6' { Open-Site;   Pause; }
             '7' { Restart-Panel;Pause; }
-            '8' { Start-MySql; if (-not (Ensure-Nginx)) { Write-Line '[警告] Nginx 未能启动，网站将只能通过 http://localhost:3456 直接访问' $Cfg.C_Warn }; Start-Site; Start-Panel; Pause; }
+            '8' { Start-MySql | Out-Null; if (-not (Ensure-Nginx)) { Write-Line "[警告] Nginx 未能启动，网站将只能通过 http://localhost:$SitePort 直接访问" $Cfg.C_Warn }; Start-Site; Start-Panel; Pause; }
             '9' { Stop-Site; Stop-Panel; Stop-Nginx; Stop-MySql; Pause; }
-            'M' { Start-MySql; Pause; }
-            'm' { Start-MySql; Pause; }
+            'M' { Start-MySql | Out-Null; Pause; }
+            'm' { Start-MySql | Out-Null; Pause; }
             'N' { Stop-MySql;  Pause; }
             'n' { Stop-MySql;  Pause; }
-            'G' { Start-Nginx; Pause; }
-            'g' { Start-Nginx; Pause; }
+            'G' { Start-Nginx | Out-Null; Pause; }
+            'g' { Start-Nginx | Out-Null; Pause; }
             'H' { Stop-Nginx;  Pause; }
             'h' { Stop-Nginx;  Pause; }
-            'E' { Export-Site; Read-Host '  按 Enter 返回主菜单...' | Out-Null }
-            'e' { Export-Site; Read-Host '  按 Enter 返回主菜单...' | Out-Null }
+            'E' { Export-Site; Pause }
+            'e' { Export-Site; Pause }
             'O' { Open-LogsDir; Pause; }
             'o' { Open-LogsDir; Pause; }
             'K' { Clean-StrayCmdWindows; Pause; }
@@ -904,15 +982,15 @@ switch -Regex ($cmd) {
     '^panel-restart$'   { Restart-Panel; exit 0 }
     '^status$'          { Banner; Show-Status; exit 0 }
     '^panel-status$'    { Banner; Show-Status; exit 0 }
-    '^start-all$'       { Start-MySql; if (-not (Ensure-Nginx)) { Write-Line '[警告] Nginx 未能启动，网站将只能通过 http://localhost:3456 直接访问' $Cfg.C_Warn }; Start-Site; Start-Panel; exit 0 }
+    '^start-all$'       { Start-MySql | Out-Null; if (-not (Ensure-Nginx)) { Write-Line "[警告] Nginx 未能启动，网站将只能通过 http://localhost:$SitePort 直接访问" $Cfg.C_Warn }; Start-Site; Start-Panel; exit 0 }
     '^stop-all$'        { Stop-Site; Stop-Panel; Stop-Nginx; Stop-MySql; exit 0 }
-    '^restart-all$'     { Stop-Site; Stop-Panel; Start-Sleep 2; Start-MySql; if (-not (Ensure-Nginx)) { Write-Line '[警告] Nginx 未能启动，网站将只能通过 http://localhost:3456 直接访问' $Cfg.C_Warn }; Start-Site; Start-Panel; exit 0 }
-    '^mysql-start$'     { Start-MySql; exit 0 }
-    '^mstart$'          { Start-MySql; exit 0 }
+    '^restart-all$'     { Stop-Site; Stop-Panel; Start-Sleep 2; Start-MySql | Out-Null; if (-not (Ensure-Nginx)) { Write-Line "[警告] Nginx 未能启动，网站将只能通过 http://localhost:$SitePort 直接访问" $Cfg.C_Warn }; Start-Site; Start-Panel; exit 0 }
+    '^mysql-start$'     { Start-MySql | Out-Null; exit 0 }
+    '^mstart$'          { Start-MySql | Out-Null; exit 0 }
     '^mysql-stop$'      { Stop-MySql; exit 0 }
     '^mstop$'           { Stop-MySql; exit 0 }
-    '^nginx-start$'     { Start-Nginx; exit 0 }
-    '^nstart$'          { Start-Nginx; exit 0 }
+    '^nginx-start$'     { Start-Nginx | Out-Null; exit 0 }
+    '^nstart$'          { Start-Nginx | Out-Null; exit 0 }
     '^nginx-stop$'      { Stop-Nginx; exit 0 }
     '^nstop$'           { Stop-Nginx; exit 0 }
     '^clean$'           { Clean-StrayCmdWindows; exit 0 }
