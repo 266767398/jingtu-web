@@ -63,7 +63,19 @@ function worldToRow(world, worldId) {
 }
 
 // 获取世界详情：优先读缓存（cached_at 距今 ≤ CACHE_TTL_HOURS 视为有效），miss 回源并回写。
+// P1-34: single-flight 防惊群——同一世界并发 miss 时共享一次回源，
+// 否则热门世界（如收藏列表批量渲染）会瞬间对 VRChat 打出 N 倍重复请求。
+const _worldInflight = new Map();
 async function getCachedWorld(worldId, cookie = null) {
+  const key = String(worldId);
+  const existing = _worldInflight.get(key);
+  if (existing) return existing;
+  const p = _loadWorld(worldId, cookie).finally(() => _worldInflight.delete(key));
+  _worldInflight.set(key, p);
+  return p;
+}
+
+async function _loadWorld(worldId, cookie) {
   const safeId = sanitizeWorldId(worldId);
   const pool = getPool();
   const [rows] = await pool.query(

@@ -183,7 +183,7 @@ function renderPermGroups(groups) {
       <div class="text-12 text-muted2">${esc(g.description || __('admin_perms.no_desc'))}</div>
       <div class="text-12 text-muted mt-4">${__('admin_perms.permissions_label')}：${__('admin_perms.perm_enabled_count', {enabled: enabledCount, total: permCount})}</div>
       <div class="perm-group-actions mt-6">
-        <button class="btn btn-sm btn-accent" onclick="showEditPermGroupPerms(${g.id}, '${esc(g.name)}')">${__('admin_perms.set_perms')}</button>
+        <button class="btn btn-sm btn-accent" onclick="showEditPermGroupPerms(${g.id}, '${escJsStr(g.name)}')">${__('admin_perms.set_perms')}</button>
         <button class="btn btn-sm btn-outline" onclick="showEditPermGroup(${g.id})">${__('admin_perms.edit_group')}</button>
         ${delBtn}
       </div>

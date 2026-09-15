@@ -28,6 +28,8 @@ server/data/activation-codes.json
 
 # i18n 审计脚本的可再生成产物（node server/scripts/audit-i18n-full.js 随时重建）
 server/scripts/i18n-missing.json
+# install.sh 按用户域名/证书路径渲染的 nginx 配置产物（P3-16 附带收口）
+deploy/nginx/jingtu.conf.generated
 
 # 备份
 backup/

@@ -262,7 +262,59 @@ function switchTab(tab, force) {
   // P2-16 离开资源密集页时停掉对应定时器，避免隐藏页面空转
   if (tab !== 'vrc' && typeof stopGroupPolling === 'function') stopGroupPolling();
   if (tab !== 'map' && typeof window.__mapTeardown === 'function') window.__mapTeardown();
+  syncTabHash(tab);
 }
+
+// ==================== P2-98：Tab 深链路由（history + hash） ====================
+// 全站此前 0 处 pushState/popstate：刷新/后退/分享都无法回到当前 Tab。
+// 约定：home 保持干净 URL（state 携带 tab），其余 Tab 用 #<tab> 形式，可直接分享。
+const ROUTABLE_TABS = ['home', 'members', 'vrc', 'announcements', 'events', 'album', 'map', 'chat', 'birthday', 'admin', 'me', 'profile-user', 'posts', 'live', 'friends', 'follows', 'notifications'];
+let _suppressHashSync = false;
+let _hashReplaceNext = true; // 首个由启动同步写入的条目用 replace，刷新不额外增加历史
+
+function tabFromUrl() {
+  const name = decodeURIComponent((location.hash || '').replace(/^#\/?/, ''));
+  return ROUTABLE_TABS.includes(name) ? name : 'home';
+}
+
+function syncTabHash(tab) {
+  if (_suppressHashSync || typeof history === 'undefined' || !history.pushState) return;
+  const url = tab === 'home' ? location.pathname + location.search : '#' + tab;
+  try {
+    if (_hashReplaceNext) {
+      history.replaceState({ tab }, '', url);
+      _hashReplaceNext = false;
+    } else {
+      history.pushState({ tab }, '', url);
+    }
+  } catch (_) {}
+}
+
+window.addEventListener('popstate', function (e) {
+  const guess = (e.state && ROUTABLE_TABS.includes(e.state.tab)) ? e.state.tab : tabFromUrl();
+  if (guess === activeTab) return;
+  _suppressHashSync = true;
+  _hashReplaceNext = true; // URL 已随前进/后退变更，只需补写 state，不可再 push
+  try {
+    switchTab(guess, true);
+  } finally {
+    _suppressHashSync = false;
+    _hashReplaceNext = false;
+  }
+});
+
+// 手动改地址栏 hash（含外部深链、站内锚点）也同步切页
+window.addEventListener('hashchange', function () {
+  const t = tabFromUrl();
+  _suppressHashSync = true;
+  _hashReplaceNext = true; // URL 已是目标 hash，switchTab 内部的同步改为 replace，避免多压一条历史
+  try {
+    if (t !== activeTab) switchTab(t, true);
+  } finally {
+    _suppressHashSync = false;
+    _hashReplaceNext = false;
+  }
+});
 
 // 底部功能栏：点击后高亮当前项（被 index.html 内联脚本调用）
 function mobileTabHit(btn) {
@@ -448,7 +500,7 @@ async function markNotificationRead(id) {
 async function markAllNotificationsRead() {
   try {
     const res = await api('/api/notifications/read-all', { method: 'POST' });
-    if (res.ok) { toast(__('ui.all_read'), 'success'); loadNotifications(); }
+    if (res.ok) { toast(__('ui.all_read'), 'success'); loadNotifications(true); }
   } catch { toast(__('ui.op_failed'), 'error'); }
 }
 
@@ -826,9 +878,22 @@ function isModalOpen(modalEl) {
   return modalEl.classList.contains('show');
 }
 
+const MODAL_FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function getVisibleFocusables(container) {
+  const list = [];
+  container.querySelectorAll(MODAL_FOCUSABLE_SELECTOR).forEach(function (el) {
+    if (el.getClientRects().length > 0 && !el.hasAttribute('aria-hidden')) list.push(el);
+  });
+  return list;
+}
+
 function activateModalA11y(modalEl) {
   if (!modalEl || !isModalOpen(modalEl)) return;
   if (_modalStack.indexOf(modalEl) === -1) {
+    // P1-26: 记录打开前的焦点，关闭时归还（轻量页焦点找回触发按钮）
+    modalEl._previouslyFocused = document.activeElement && document.activeElement !== document.body
+      ? document.activeElement : null;
     _modalStack.push(modalEl);
   }
   if (modalEl.getAttribute('role') !== 'dialog') {
@@ -846,13 +911,19 @@ function activateModalA11y(modalEl) {
 function deactivateModalA11y(modalEl) {
   if (!modalEl) return;
   const idx = _modalStack.indexOf(modalEl);
-  if (idx !== -1) _modalStack.splice(idx, 1);
+  const wasOpen = idx !== -1;
+  if (wasOpen) _modalStack.splice(idx, 1);
   if (modalEl.getAttribute('aria-hidden') !== 'true') {
     modalEl.setAttribute('aria-hidden', 'true');
   }
   if (modalEl.hasAttribute('role')) modalEl.removeAttribute('role');
   if (modalEl.hasAttribute('aria-modal')) modalEl.removeAttribute('aria-modal');
   unlockBodyScroll(modalEl);
+  // P1-26: 关闭时把焦点还给打开前的元素，键盘用户不丢焦点
+  if (wasOpen && modalEl._previouslyFocused && modalEl._previouslyFocused.isConnected) {
+    try { modalEl._previouslyFocused.focus(); } catch (e) { /* 元素已不可聚焦则忽略 */ }
+  }
+  modalEl._previouslyFocused = null;
 }
 
 function syncModalA11y() {
@@ -886,10 +957,27 @@ function syncModalA11y() {
 
 function handleModalKeydown(e) {
   if (!_activeModal || !isModalOpen(_activeModal)) return;
-  // 焦点陷阱：无打开弹窗时不拦截；有弹窗时按需处理 Tab 循环（此处保持简洁，不拦截页面级 Tab）
   if (e.key === 'Tab') {
-    // 预留焦点陷阱扩展点；当前不 preventDefault，避免破坏页面级 Tab 顺序
+    // P1-26: 真实焦点陷阱——Tab/Shift+Tab 只在栈顶弹窗内循环，
+    // 焦点不得逃出遮罩落到背后页面（此前为空占位，键盘用户可 Tab 出弹窗）
+    const focusables = getVisibleFocusables(_activeModal);
+    if (!focusables.length) { e.preventDefault(); return; }
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey) {
+      if (active === first || !_activeModal.contains(active)) { e.preventDefault(); last.focus(); }
+    } else {
+      if (active === last || !_activeModal.contains(active)) { e.preventDefault(); first.focus(); }
+    }
     return;
+  }
+  if (e.key === 'Escape') {
+    // P1-26: 只关栈顶（最上层）弹窗，保留下层嵌套弹窗；统一走 closeModal 释放滚动锁
+    if (typeof closeModal === 'function' && _activeModal.id) {
+      e.stopPropagation();
+      closeModal(_activeModal.id);
+    }
   }
 }
 
@@ -898,10 +986,13 @@ function handleModalBackdropClick(e) {
   const target = e.target;
   if (target && target.closest && target.closest('.modal-close')) {
     const modal = target.closest('.modal');
-    if (modal) {
-      modal.classList.remove('show');
-      if (modal.style.display === 'flex') modal.style.display = 'none';
-    }
+    if (!modal) return;
+    // P1-26: 经统一入口关闭。此前直接 remove('show') 绕开 core.js closeModal，
+    // showModal 加的 'modal:'+id 滚动锁永不释放 → 嵌套弹窗后 body 永久 overflow:hidden
+    if (typeof closeModal === 'function' && modal.id) { closeModal(modal.id); return; }
+    modal.classList.remove('show');
+    if (modal.style.display === 'flex') modal.style.display = 'none';
+    if (modal.id) unlockBodyScroll('modal:' + modal.id);
   }
 }
 

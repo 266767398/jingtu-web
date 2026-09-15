@@ -19,6 +19,9 @@ module.exports = {
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
+      // P2-96：崩溃重启采用指数退避（500ms 起步逐次翻倍），防止持续失败
+      // 窗口（配置错误/数据库不可达）高频拉起放大日志与数据库压力。
+      exp_backoff_restart_delay: 500,
       watch: false,
       max_memory_restart: '1024M',
       // P2-80：PM2 stdout/stderr 落盘位置。应用业务日志由 server/logger.js 写入

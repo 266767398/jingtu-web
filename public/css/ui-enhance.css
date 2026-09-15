@@ -72,10 +72,12 @@
 }
 
 /* ========== 5. 骨架屏加载（V9.5 统一渐变到 --skeleton-shimmer） ========== */
+/* P2-98: 原先写成 .skeleton.skeleton-stat 双类选择器，但全站实际 markup 只有
+   单类 skeleton-stat（如 index.html .hs-value.skeleton-stat），规则永不命中。 */
 .skeleton-card-grid,
 .skeleton-card,
 .skeleton-text,
-.skeleton.skeleton-stat,
+.skeleton-stat,
 .skeleton-circle {
   background: var(--skeleton-shimmer);
   background-size: var(--skeleton-shimmer-size);
@@ -84,7 +86,7 @@
 .skeleton-card-grid { border-radius: var(--radius); min-height: 180px; }
 .skeleton-card { border-radius: var(--radius); min-height: 80px; margin-bottom: 12px; }
 .skeleton-text { display: inline-block; height: 12px; border-radius: 6px; }
-.skeleton.skeleton-stat { border-radius: var(--radius-sm); min-width: 40px; min-height: 26px; display: inline-block; }
+.skeleton-stat { border-radius: var(--radius-sm); min-width: 40px; min-height: 26px; display: inline-block; }
 .skeleton-circle { border-radius: 50%; }
 
 /* ========== 6. 卡片微交互 ========== */

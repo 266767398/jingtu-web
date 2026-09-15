@@ -39,6 +39,15 @@ function getWizardPath() {
 function defaultWizard() {
   return { version: 1, completed: false, step: 1, drafts: {}, updatedAt: new Date().toISOString() };
 }
+// P2-97：向导总步数，必须与前端 public/js/setup.js 的 TOTAL_STEPS 保持同步。
+// 旧实现对 req.body.step 只判 typeof==='number'，NaN/Infinity/小数/越界值会直接
+// 写进 setup-wizard.json（JSON.stringify(NaN)=null 污染状态文件），读写两端统一钳制。
+const WIZARD_TOTAL_STEPS = 6;
+function sanitizeStep(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(Math.max(Math.round(n), 1), WIZARD_TOTAL_STEPS);
+}
 function readWizard() {
   try {
     const raw = fs.readFileSync(getWizardPath(), 'utf8');
@@ -62,13 +71,22 @@ const NON_SECRET_DRAFT_KEYS = [
 ];
 
 // ============ .env 读写（合并模式用）============
+// P2-95：解析口径与 dotenv v16 / panel-server.js envValue 三方对齐：捕获 '=' 后整段，
+// 仅剥一层「成对」首尾引号。旧正则 ^\s*([A-Z0-9_]+)\s*=\s*"?([^"]*)"?\s*$ 在值内嵌
+// 双引号（如 p"ass 被写成 "p"ass"）时整行不匹配 → 键被静默丢弃 → 向导整文件重生成
+// 时该键消失（round-trip 逐次腐化的真身）。新实现任何可识别的 KEY= 行都不丢键。
 function readEnv(envPath) {
   const obj = {};
   try {
     const raw = fs.readFileSync(envPath, 'utf8');
     raw.split(/\r?\n/).forEach((line) => {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*"?([^"]*)"?\s*$/);
-      if (m) obj[m[1]] = m[2];
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+      if (!m) return;
+      let v = m[2].trim();
+      if (v.length >= 2 && ((v[0] === '"' && v[v.length - 1] === '"') || (v[0] === "'" && v[v.length - 1] === "'"))) {
+        v = v.slice(1, -1);
+      }
+      obj[m[1]] = v;
     });
   } catch (_) {}
   return obj;
@@ -93,7 +111,10 @@ function writeEnv(envPath, obj) {
   const isSensitive = (k) => /SECRET|PASSWORD|PASS|KEY|TOKEN/i.test(k);
   const lines = keys.map((k) => {
     const v = sanitize(obj[k]);
-    return isSensitive(k) ? `${k}="${v}"` : `${k}=${v}`;
+    // P2-95：值含双引号时必须裸写（不加包裹引号）。dotenv v16 的双引号分支在第一个
+    // 未转义 " 处即终止（KEY="p"ass" 运行时只会读到 p），且 dotenv 不还原 \" 转义，
+    // 两种包裹写法都会篡改值；裸写则运行时（无引号分支）与 readEnv 均能原样还原。
+    return isSensitive(k) && !v.includes('"') ? `${k}="${v}"` : `${k}=${v}`;
   });
   // 临时名带 pid+时间戳，避免并发安装/重走时两个请求互相覆盖同一 .tmp
   const tmpPath = `${envPath}.${process.pid}-${Date.now()}.tmp`;
@@ -178,7 +199,7 @@ router.get('/setup/state', (req, res) => {
   const wiz = readWizard() || defaultWizard();
   // P2-67：站点安装完成后仅超管可见配置拓扑/草稿；其余调用方拿到空草稿（前端预填降级为手动填写）
   if (isSiteInstalled() && !isSuperAdminSession(req)) {
-    return res.json({ configured: true, restricted: true, wizard: { completed: !!wiz.completed, step: wiz.step || 1, drafts: {} } });
+    return res.json({ configured: true, restricted: true, wizard: { completed: !!wiz.completed, step: sanitizeStep(wiz.step), drafts: {} } });
   }
   let drafts = wiz.drafts || {};
   if (envExists && (!drafts || Object.keys(drafts).length === 0)) {
@@ -191,7 +212,7 @@ router.get('/setup/state', (req, res) => {
       smtpFrom: env.SMTP_FROM, smtpSecure: env.SMTP_SECURE
     };
   }
-  res.json({ configured: envExists, wizard: { completed: !!wiz.completed, step: wiz.step || 1, drafts } });
+  res.json({ configured: envExists, wizard: { completed: !!wiz.completed, step: sanitizeStep(wiz.step), drafts } });
 });
 
 // 持久化引导进度 + 非敏感草稿（隔离存储，不含任何密码/密钥）
@@ -202,7 +223,10 @@ router.post('/setup/state', (req, res) => {
       return sendError(res, 403, ErrorCodes.FORBIDDEN, '系统已安装，仅超级管理员可写入建站草稿');
     }
     const wiz = readWizard() || defaultWizard();
-    if (typeof req.body.step === 'number') wiz.step = req.body.step;
+    // P2-97：step 只接受有限数值并钳制到 1..6，防止异常值污染状态文件
+    if (typeof req.body.step === 'number' || typeof req.body.step === 'string') {
+      wiz.step = sanitizeStep(req.body.step);
+    }
     if (req.body.drafts && typeof req.body.drafts === 'object') {
       const clean = {};
       for (const k of NON_SECRET_DRAFT_KEYS) {

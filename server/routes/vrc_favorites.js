@@ -47,7 +47,19 @@ function favMetaSet(id, meta) {
   favMetaCache.set(id, { at: Date.now(), meta });
 }
 
-async function fetchFavoriteMeta(type, targetId, cookie) {
+// P1-34: single-flight 防惊群——TTL 缓存只挡先后请求，挡不住同时 miss 的并发请求；
+// 同一目标的并发富化共享一次回源（世界一层另有 world_cache 去重，此处覆盖 avatar/friend）。
+const favMetaInflight = new Map();
+function fetchFavoriteMeta(type, targetId, cookie) {
+  const key = `${type}:${targetId}`;
+  const existing = favMetaInflight.get(key);
+  if (existing) return existing;
+  const p = _fetchFavoriteMeta(type, targetId, cookie).finally(() => favMetaInflight.delete(key));
+  favMetaInflight.set(key, p);
+  return p;
+}
+
+async function _fetchFavoriteMeta(type, targetId, cookie) {
   try {
     if (type === 'world' && /^wrld_/.test(targetId)) {
       const w = await getCachedWorld(targetId, cookie);

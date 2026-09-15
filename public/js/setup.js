@@ -26,6 +26,19 @@ const DRAFT_KEYS = [
   'groupId', 'groupUrl', 'vrcApiKey', 'smtpHost', 'smtpPort', 'smtpUser', 'smtpFrom', 'smtpSecure'
 ];
 
+// P2-97：统一带超时的 fetch。旧实现只有 checkConfigured/test-db/test-email/save
+// 挂了 AbortController，state 读写与 reset 均为裸 fetch——网络半挂起时 Promise
+// 永不 resolve，向导会无声卡死在加载/保存中间态。
+async function fetchWithTimeout(url, opts, ms) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, Object.assign({}, opts, { signal: controller.signal }));
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // ==================== 事件委托 ====================
 function initSetupEventDelegates() {
   // 挂到 .container 以同时捕获「重走建站引导」横幅按钮（横幅是 .form-box 的兄弟节点）
@@ -90,7 +103,7 @@ async function checkConfigured() {
 // 加载引导隔离状态并预填（仅非敏感项）；重走模式下密钥/密码留空（沿用现有值）
 async function loadWizardState() {
   try {
-    const r = await fetch('/api/setup/state');
+    const r = await fetchWithTimeout('/api/setup/state', {}, 5000);
     const st = await r.json();
     const drafts = (st.wizard && st.wizard.drafts) || {};
     applyDrafts(drafts);
@@ -365,12 +378,16 @@ function collectStep(step) {
   }
 }
 function refillStep(step) {
+  // P2-97：密码/API Key/SMTP 口令等敏感值不再回填 DOM。旧实现会把 config 中的
+  // dbPass/adminPass/vrcApiKey/smtpPass 写回输入框的 value，明文残留在 DOM 里
+  // （他人 shoulder-surfing、浏览器表单自动填充、恶意扩展读 DOM 均是暴露面）。
+  // 留空语义与重走模式一致：保存时后端对空值沿用 .env 现有配置。
   if (step === 1) {
     document.getElementById('dbHost').value = config.dbHost || '127.0.0.1';
     document.getElementById('dbPort').value = config.dbPort || '3306';
     document.getElementById('dbName').value = config.dbName || 'jingtu_group';
     document.getElementById('dbUser').value = config.dbUser || 'jingtu_user';
-    document.getElementById('dbPass').value = config.dbPass || '';
+    document.getElementById('dbPass').value = '';
   } else if (step === 2) {
     document.getElementById('sitePort').value = config.sitePort || '3456';
     document.getElementById('sessionSecret').value = config.sessionSecret || '';
@@ -379,18 +396,18 @@ function refillStep(step) {
   } else if (step === 3) {
     document.getElementById('adminUser').value = config.adminUser || '';
     document.getElementById('adminDisplayName').value = config.adminDisplayName || '';
-    document.getElementById('adminPass').value = config.adminPass || '';
-    document.getElementById('adminPassConfirm').value = config.adminPass || '';
+    document.getElementById('adminPass').value = '';
+    document.getElementById('adminPassConfirm').value = '';
     document.getElementById('adminEmail').value = config.adminEmail || '';
   } else if (step === 4) {
     document.getElementById('groupId').value = config.groupId || 'grp_7a45b436-159c-4d9c-8303-e186ec25fc35';
     document.getElementById('groupUrl').value = config.groupUrl || 'https://vrchat.com/home/group/grp_7a45b436-159c-4d9c-8303-e186ec25fc35';
-    document.getElementById('vrcApiKey').value = config.vrcApiKey || '';
+    document.getElementById('vrcApiKey').value = '';
   } else if (step === 5) {
     document.getElementById('smtpHost').value = config.smtpHost || '';
     document.getElementById('smtpPort').value = config.smtpPort || '587';
     document.getElementById('smtpUser').value = config.smtpUser || '';
-    document.getElementById('smtpPass').value = config.smtpPass || '';
+    document.getElementById('smtpPass').value = '';
     document.getElementById('smtpFrom').value = config.smtpFrom || '';
     document.getElementById('smtpSecure').value = config.smtpSecure || 'false';
   }
@@ -402,13 +419,13 @@ function saveDraft() {
   for (const k of DRAFT_KEYS) {
     if (config[k] !== undefined && config[k] !== '') drafts[k] = config[k];
   }
-  try {
-    fetch('/api/setup/state', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ step: currentStep, drafts })
-    });
-  } catch (_) { /* 草稿持久化失败不影响主流程 */ }
+  // P2-97：草稿持久化为 fire-and-forget，失败静默不影响主流程；
+  // 改用带超时版本并显式 catch，避免网络半挂起时留下永不 resolve 的请求与未处理 rejection
+  fetchWithTimeout('/api/setup/state', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ step: currentStep, drafts })
+  }, 10000).catch(() => { /* 草稿持久化失败不影响主流程 */ });
 }
 
 function nextStep(step) {
@@ -653,10 +670,10 @@ async function resetWizard() {
   const btn = document.querySelector('[data-setup-action="reset-wizard"]');
   if (btn) { btn.disabled = true; btn.textContent = __('setup.resetting'); }
   try {
-    const r = await fetch('/api/setup/reset', { method: 'POST', credentials: 'same-origin' });
+    const r = await fetchWithTimeout('/api/setup/reset', { method: 'POST', credentials: 'same-origin' }, 15000);
     const data = await r.json();
     if (data.success) {
-      const st = await (await fetch('/api/setup/state')).json();
+      const st = await (await fetchWithTimeout('/api/setup/state', {}, 5000)).json();
       // 敏感字段留空（沿用现有值）
       config.adminPass = ''; config.dbPass = ''; config.smtpPass = ''; config.sessionSecret = ''; config.encryptKey = '';
       maxStepReached = 1;

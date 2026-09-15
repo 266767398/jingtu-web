@@ -2,6 +2,8 @@
  * 境途同游 V5.2 — VRChat API 共享模块
  * 统一管理 VRChat API 常量和请求方法
  */
+const logger = require('./logger');
+
 const VRC_API = 'https://api.vrchat.cloud/api/1';
 const VRC_API_KEY = process.env.VRC_API_KEY || '';
 const USER_AGENT = process.env.VRC_USER_AGENT || 'JingTuWeb/1.3.0';
@@ -154,11 +156,23 @@ function vrcAcquire() {
   });
 }
 
-// 429 惩罚：罚没一批令牌制造短暂冷却，避免立即重试再次被打
-function vrcPenalize() {
+// 429 惩罚：罚没一批令牌制造短暂冷却，避免立即重试再次被打。
+// VRChat 风控轮（P1-34）：连续 429 递增惩罚 —— 第 1 次罚 12（≈18s），第 2 次罚 24（≈36s），
+// 第 3 次起封顶罚满整窗 40（≈60s 全局冷却），任意一次 2xx 成功即清零。
+// 目的：VRChat 一旦继续回 429，说明我们的真实请求形态被上游标记，指数式自我降温
+// 远好于固定惩罚——继续以原速率撞墙才是账号被人工审查的真正诱因。
+let vrc429Streak = 0;
+function vrcPenalize(streak = 1) {
   vrcRefill();
-  vrcTokens = Math.max(0, vrcTokens - 12); // 约 18s 冷却
+  const penalty = Math.min(VRC_RATE_LIMIT, 12 * (2 ** Math.min(Math.max(streak - 1, 0), 2)));
+  vrcTokens = Math.max(0, vrcTokens - penalty);
   vrcLastTs = Date.now();
+}
+
+// 当前令牌桶排队深度：>0 表示已有请求在排队等额度。
+// 定时任务据此判断「桶已饱和」，主动让路给交互请求（cron 可等下一轮，用户点击不能）。
+function vrcBacklog() {
+  return vrcQueue.length;
 }
 
 /**
@@ -182,10 +196,14 @@ async function vrchatRequest(method, endpoint, body = null, cookie = null, _retr
     if (_retry < 3) { await sleep(800 * (_retry + 1)); return vrchatRequest(method, endpoint, body, cookie, _retry + 1); }
     throw e;
   }
-  // 429 = 触发限流：罚没令牌退避后重试，不让其冒泡成业务错误
+  // 429 = 触发限流：罚没令牌退避后重试，不让其冒泡成业务错误。
+  // 连续 429 时惩罚与退避同步递增（见 vrcPenalize），成功后清零计数。
   if (res.status === 429) {
-    vrcPenalize();
-    if (_retry < 3) { await sleep(Math.min(4000, 800 * (_retry + 1))); return vrchatRequest(method, endpoint, body, cookie, _retry + 1); }
+    vrc429Streak += 1;
+    vrcPenalize(vrc429Streak);
+    if (_retry < 3) { await sleep(Math.min(4000 * vrc429Streak, 15000)); return vrchatRequest(method, endpoint, body, cookie, _retry + 1); }
+  } else if (res.status >= 200 && res.status < 300) {
+    vrc429Streak = 0;
   }
   const data = await readJsonResponse(res);
   const setCookie = getSetCookieHeaders(res.headers);
@@ -199,16 +217,32 @@ async function vrchatRequest(method, endpoint, body = null, cookie = null, _retr
 
 /**
  * 按 VRCX 的顺序使用 Basic Auth 登录 VRChat。
+ * VRChat 风控轮（P1-34）：/auth/user 登录请求此前直接 fetchWithTimeout 绕过全局令牌桶，
+ * 现汇入同一闸门；排队超时按 429 形状返回（调用方统一读 data.error.message 提示稍后重试）。
  */
 async function vrchatBasicLogin(username, password) {
   await vrchatRequest('GET', '/config');
   const encodedUsername = encodeURIComponent(username);
   const encodedPassword = encodeURIComponent(password);
   const basic = Buffer.from(`${encodedUsername}:${encodedPassword}`, 'utf8').toString('base64');
-  const loginRes = await fetchWithTimeout(`${VRC_API}/auth/user`, {
-    method: 'GET',
-    headers: { 'User-Agent': USER_AGENT, 'Authorization': `Basic ${basic}` }
-  });
+  let loginRes;
+  try {
+    await vrcAcquire();
+    loginRes = await fetchWithTimeout(`${VRC_API}/auth/user`, {
+      method: 'GET',
+      headers: { 'User-Agent': USER_AGENT, 'Authorization': `Basic ${basic}` }
+    });
+  } catch (e) {
+    if (e && e.code === 'VRC_RATE_TIMEOUT') {
+      return {
+        status: 429,
+        data: { error: { message: 'VRChat 请求已达全站限速排队上限，请稍后再试' } },
+        cookie: '',
+        needs2fa: false
+      };
+    }
+    throw e;
+  }
   const data = await readJsonResponse(loginRes);
   const cookie = mergeCookieHeaders('', getSetCookieHeaders(loginRes.headers));
   const needs2fa = Array.isArray(data?.requiresTwoFactorAuth) && data.requiresTwoFactorAuth.length > 0;
@@ -247,14 +281,6 @@ async function vrchatGetCurrentUserResult(cookie) {
 async function vrchatGetCurrentUser(cookie) {
   const { status, data } = await vrchatGetCurrentUserResult(cookie);
   return status >= 200 && status < 300 ? data : null;
-}
-
-/**
- * 验证 VRChat Cookie 是否有效（内部使用）
- */
-async function vrchatVerifyCookie(cookie) {
-  const user = await vrchatGetCurrentUser(cookie);
-  return user !== null;
 }
 
 /**
@@ -923,10 +949,8 @@ async function vrchatResolveOnlineStatuses(cookie, userIds, options = {}) {
         }
       } catch (err) {
         // 单个用户查询失败（被删号、限流等）不影响整体
-        if (process.env.NODE_ENV !== 'production') {
-          // eslint-disable-next-line no-console
-          console.warn('[vrc] resolveOnlineStatuses fallback failed for', id, err.message);
-        }
+        // P3-17：vrc 链路唯一 console.*，改走统一 logger（自带级别与文件落盘）
+        logger.warn('[vrc] resolveOnlineStatuses fallback failed for', id, err.message);
       }
       if (fallbackDelayMs) await sleep(fallbackDelayMs);
     }
@@ -1112,5 +1136,6 @@ module.exports = {
   vrchatRemoveFavorite,
   vrchatGetFavoriteGroups,
   vrchatUpdateFavoriteGroup,
-  vrchatClearFavoriteGroup
+  vrchatClearFavoriteGroup,
+  vrcBacklog
 };

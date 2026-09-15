@@ -91,13 +91,20 @@ function requireRecoveryToken(req, res, next) {
 }
 
 // ============ .env 读写（仅 MYSQL_*）============
+// P2-95：与 setup.js readEnv 同口径（值全捕获、仅剥一层成对引号），旧正则遇内嵌
+// 双引号的值会整行不匹配丢键，恢复页会误判「.env 缺少 MYSQL_* 键」。
 function readEnv() {
   const obj = {};
   try {
     const raw = fs.readFileSync(ENV_PATH, 'utf8');
     raw.split(/\r?\n/).forEach((line) => {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*"?([^"]*)"?\s*$/);
-      if (m) obj[m[1]] = m[2];
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+      if (!m) return;
+      let v = m[2].trim();
+      if (v.length >= 2 && ((v[0] === '"' && v[v.length - 1] === '"') || (v[0] === "'" && v[v.length - 1] === "'"))) {
+        v = v.slice(1, -1);
+      }
+      obj[m[1]] = v;
     });
   } catch (_) {}
   return obj;
@@ -112,7 +119,12 @@ function writeEnv(obj) {
   const sanitize = (v) => String(v == null ? '' : v).replace(/[\r\n]/g, '');
   const targets = {};
   for (const k of MYSQL_KEYS) {
-    if (k in obj) targets[k] = `${k}="${sanitize(obj[k])}"`;
+    if (k in obj) {
+      const v = sanitize(obj[k]);
+      // P2-95：与 setup.js writeEnv 同规则——值含双引号必须裸写，包裹写法会让
+      // dotenv 在第一个未转义 " 处截断值（静默改密），裸写两侧解析均可原样还原。
+      targets[k] = v.includes('"') ? `${k}=${v}` : `${k}="${v}"`;
+    }
   }
 
   const raw = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : '';

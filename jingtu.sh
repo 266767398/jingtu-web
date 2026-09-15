@@ -13,12 +13,14 @@
 #
 # 先给执行权限: chmod +x jingtu.sh
 # ============================================================
-set -u
+# P2-94：set -e 让任何未显式容错的命令失败即终止，避免带着半成品 staging 继续打包；
+# pipefail 让 find|wc|tr 这类管道在左端失败时不被右端 0 掩盖；-u 保留（已在用）。
+set -euo pipefail
 
 # ---------- 定位项目根（脚本所在目录） ----------
 SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
 ROOT="$(cd "$(dirname "$SCRIPT_PATH")" >/dev/null 2>&1 && pwd)"
-[ -z "$ROOT" ] && ROOT="$(pwd)"
+if [ -z "$ROOT" ]; then ROOT="$(pwd)"; fi
 
 # ---------- 参数解析 ----------
 OUTDIR="$(dirname "$ROOT")"   # 默认输出到项目根的上一级（与 Windows 版一致）
@@ -28,8 +30,14 @@ HELP=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    -o|--outdir) OUTDIR="$2"; shift 2 ;;
-    -n|--name)   NAME="$2";   shift 2 ;;
+    # P2-94：-o/-n 缺值时 $2 是 unbound，set -u 直接崩在 case 里并给出无意义报错；
+    # 这里显式校验参数个数并给出可用提示。
+    -o|--outdir)
+      [ $# -ge 2 ] || { echo "[ERR] $1 需要一个目录参数" >&2; exit 1; }
+      OUTDIR="$2"; shift 2 ;;
+    -n|--name)
+      [ $# -ge 2 ] || { echo "[ERR] $1 需要一个文件名参数" >&2; exit 1; }
+      NAME="$2"; shift 2 ;;
     -d|--includedata) INCLUDE_DATA=1; shift ;;
     -h|--help)   HELP=1; shift ;;
     *) echo "[WARN] 忽略未知参数: $1"; shift ;;
@@ -47,8 +55,28 @@ fi
 if [ -z "$NAME" ]; then
   NAME="jingtu-web-$(date +%Y%m%d-%H%M%S).zip"
 fi
+# P2-94：NAME 参与 OUTFILE 拼接且下方会 rm -f 旧包，必须限定为纯文件名，
+# 否则 -n ../../etc/x.zip 会把删除动作引到输出目录之外。
+case "$NAME" in
+  */*|.*|*..*) echo "[ERR] -n 只接受纯文件名（不允许路径分隔符、隐藏名与 ..）：$NAME" >&2; exit 1 ;;
+esac
+mkdir -p "$OUTDIR"
+OUTDIR="$(cd "$OUTDIR" && pwd)"
+if [ "$OUTDIR" = "/" ]; then echo "[ERR] 输出目录不能是文件系统根目录" >&2; exit 1; fi
 OUTFILE="$OUTDIR/$NAME"
 STAGING="$(mktemp -d -t jingtu-export.XXXXXX)"
+# P2-94：STAGING 含整站副本，旧实现只在成功路径末尾 rm，报错/Ctrl-C 即残留。
+# 改为 EXIT trap 兜底，并在删除前校验目录名匹配 mktemp 模板，
+# 杜绝变量意外为空或被改写时 rm -rf "" 这类失控。
+cleanup_staging() {
+  local p="${STAGING:-}"
+  [ -n "$p" ] && [ -d "$p" ] || return 0
+  case "$(basename "$p")" in
+    jingtu-export.??????) rm -rf -- "$p" ;;
+    *) printf '[WARN] 临时目录名异常，跳过清理：%s\n' "$p" >&2 ;;
+  esac
+}
+trap cleanup_staging EXIT
 
 echo "========================================"
 echo "  境途同游 网站导出打包工具 (Linux/macOS)"
@@ -59,7 +87,9 @@ if [ "$INCLUDE_DATA" -eq 1 ]; then echo "  包含用户数据: 是 (相册/头�
 echo ""
 
 # ---------- 复制封装 ----------
-have_rsync=0; command -v rsync >/dev/null 2>&1 && have_rsync=1
+have_rsync=0
+# P2-94：写成 if 而非 `cmd && var=1`，避免 set -e 语义下读者误判失败传播路径。
+if command -v rsync >/dev/null 2>&1; then have_rsync=1; fi
 
 copy_tree() {
   # $1=src $2=dst $3=exclude-dirs(空格分隔) $4=exclude-files(空格分隔)
@@ -112,8 +142,10 @@ done
 
 # ---------- 打包 ----------
 step "创建压缩包..."
-mkdir -p "$OUTDIR"
-[ -f "$OUTFILE" ] && rm -f "$OUTFILE"
+# P2-94：OUTDIR 已在前面 mkdir -p 并规范化为绝对路径，这里只删同名旧包。
+if [ -e "$OUTFILE" ]; then
+  if [ -f "$OUTFILE" ]; then rm -f -- "$OUTFILE"; else echo "[ERR] 输出路径已存在且不是普通文件：$OUTFILE" >&2; exit 1; fi
+fi
 
 FILE_COUNT=$(find "$STAGING" -type f | wc -l | tr -d ' ')
 if command -v zip >/dev/null 2>&1; then
@@ -124,10 +156,9 @@ else
   ( cd "$STAGING" && tar -czf "$OUTFILE" . )
 fi
 
-PKG_SIZE=$(du -m "$OUTFILE" 2>/dev/null | cut -f1)
-
-# ---------- 清理 ----------
-rm -rf "$STAGING"
+# P2-94：pipefail 下 du 失败会让整条管道把脚本直接带走，看不到已生成包的路径。
+PKG_SIZE=$(du -m "$OUTFILE" 2>/dev/null | cut -f1 || true)
+[ -n "$PKG_SIZE" ] || PKG_SIZE="?"
 
 echo ""
 echo "========================================"
@@ -137,3 +168,5 @@ echo "  包大小: ${PKG_SIZE} MB"
 echo "  位置:   $OUTFILE"
 echo "========================================"
 echo ""
+# 清理交给 EXIT trap（cleanup_staging），这里提前回收一次以尽早释放磁盘。
+cleanup_staging

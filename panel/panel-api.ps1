@@ -444,6 +444,10 @@ try {
             $pass = [string]$req.pass
             $login = [string]$req.login
             if (-not $login) { $login = "super_admin" }
+            # P2-95：login 值经数组直传给 node，但值本身若以 - 开头会被
+            # reset-superadmin.js 的 parseArgs 当作新 flag（如注入 --pass）。
+            # 白名单：任意文字/数字/._@-，1-64 位，且禁止 - 开头。
+            if ($login -notmatch '^[\p{L}\p{N}_.@-]{1,64}$' -or $login.StartsWith('-')) { throw "账号名不合法（仅允许文字、数字与 ._@-，且不能以 - 开头），已中止" }
             $node = Get-Command node -ErrorAction SilentlyContinue
             if (-not $node) { throw "未找到 node，请确认 Node.js 已安装并在 PATH 中" }
             $script = Join-Path $ProjectRoot "server\scripts\reset-superadmin.js"
@@ -454,9 +458,14 @@ try {
             $stdout = & node @argList 2>&1
             $code = $LASTEXITCODE
             Pop-Location
-            if ($code -ne 0) { throw "重置脚本执行失败：$($stdout | Out-String | ForEach-Object Trim)" }
+            if ($code -ne 0) {
+                # P2-95：脚本原始输出（可能含表名/路径等内部上下文）只进审计日志，
+                # HTTP 响应仅回显单行安全原因。
+                Write-Audit "重置超级管理员密码：$login 失败（退出码 $code）：$($stdout | Out-String | ForEach-Object Trim)"
+                throw "重置脚本执行失败（退出码 $code），详情见面板审计日志"
+            }
             $out.message = "✅ 超级管理员密码已重置（账号：$login）"
-            $out.data = @{ login = $login; output = ($stdout | Out-String) }
+            $out.data = @{ login = $login }
             $out.ok = $true
             Write-Audit "重置超级管理员密码：$login 成功"
         }
@@ -490,8 +499,14 @@ try {
     }
 } catch {
     $out.ok = $false
-    $out.message = ($_ | Out-String).Trim()
-    try { Write-Audit "$Action 异常：$($out.message)" } catch {}
+    # P2-95：完整异常堆栈只写审计日志；HTTP 响应透出的 message 收敛为
+    # 异常的单行描述（显式 throw 的中文短原因仍会显示），不外泄内部上下文。
+    $detail = ($_ | Out-String).Trim()
+    try { Write-Audit "$Action 异常：$detail" } catch {}
+    $msg = if ($_.Exception -and $_.Exception.Message) { ([string]$_.Exception.Message).Trim() } else { "" }
+    if (-not $msg) { $msg = "操作 $Action 失败，详情见面板审计日志" }
+    if ($msg.Length -gt 300) { $msg = $msg.Substring(0, 300) }
+    $out.message = $msg
 }
 # stdout 只输出一行 JSON，供 Node 端解析
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8

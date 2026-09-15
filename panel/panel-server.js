@@ -8,7 +8,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { spawn, spawnSync, exec } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const PANEL_DIR = __dirname;
@@ -152,7 +152,13 @@ function runPs(action, arg, onChunk) {
         if (t.startsWith('{')) { try { parsed = JSON.parse(t); } catch (e) { parsed = null; } if (parsed) break; }
       }
       if (parsed && parsed.ok) return resolve(parsed);
-      const msg = (parsed && parsed.message) || stderr.trim() || stdout.trim() || ('执行失败（退出码 ' + code + '）');
+      // P2-95：响应只保留 PS 侧结构化 message（PS 端已收敛为单行安全原因）。
+      // 原始 stderr/stdout 不再拼进 Error.message 回显到 HTTP 响应，改为只写
+      // 本地面板审计日志，避免异常堆栈/绝对路径/账号名等内部上下文外泄。
+      if (!parsed) {
+        auditPanel(action + ' PS 未返回结构化结果（退出码 ' + code + '）：' + (stderr.trim() || stdout.trim()).slice(0, 500));
+      }
+      const msg = (parsed && parsed.message) || ('执行失败（退出码 ' + code + '），详情见面板审计日志');
       reject(new Error(msg));
     });
   });
@@ -197,11 +203,19 @@ function isLoopback(req) {
 }
 
 /* ---------- 桌面打开操作 ---------- */
+// P2-95：弃用 `cmd /c start "" …` 字符串拼接——路径/URL 会再过一次 cmd 解析（引号、
+// & 等特殊字符即注入面）。改为 spawn 数组参数直传 explorer.exe，任何情况下不过 shell；
+// explorer 打开窗口后即退出（退出码不可靠），以「进程能否拉起」（spawn/error 事件）判定成败。
 function openDesktop(target, onDone) {
-  exec('cmd /c start "" ' + target, { cwd: ROOT, windowsHide: true }, (err) => onDone(err ? false : true));
+  try {
+    const child = spawn('explorer.exe', [target], { cwd: ROOT, windowsHide: true });
+    let settled = false;
+    child.once('error', () => { if (!settled) { settled = true; onDone(false); } });
+    child.once('spawn', () => { if (!settled) { settled = true; onDone(true); } });
+  } catch (e) { onDone(false); }
 }
 function openInBrowser(url) {
-  exec('cmd /c start "" "' + url + '"', { cwd: ROOT, windowsHide: true }, () => {});
+  openDesktop(url, () => {});
 }
 
 /* ---------- 权限管理：权限键与中文标签（与主站 permission_groups.js 保持一致） ---------- */
@@ -257,6 +271,8 @@ function auditPanel(msg) {
 }
 
 function envValue(key) {
+  // P2-95：key 参与 RegExp 拼接，先做标识符白名单，杜绝正则注入面（当前调用方均为常量，属防御）
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(key))) return undefined;
   try {
     const p = path.join(ROOT, '.env');
     if (!fs.existsSync(p)) return undefined;
@@ -627,7 +643,11 @@ async function handleApi(req, res, token) {
     const npwd = String(body.newPassword || '');
     if (npwd.length < 8) return sendErr(res, 400, '新密码至少 8 位');
     createAuth(npwd);
-    return sendJson(res, 200, { ok: true, message: '面板管理密码已更新' });
+    // P2-93：改密后必须让所有旧 token 立即失效——否则攻击者持改前签发的
+    // 会话可在改密后继续操作面板。sessions 为内存 Map，清空即全局踢出。
+    sessions.clear();
+    auditPanel('面板管理密码已更新，已注销全部会话');
+    return sendJson(res, 200, { ok: true, message: '面板管理密码已更新，请重新登录' });
   }
   if (pathName === '/api/reset-superadmin') {
     if (String(body.confirm || '') !== 'CONFIRM-DELETE-ALL-DATA' && String(body.confirm || '') !== 'CONFIRM-RESET-SUPERADMIN') {
@@ -641,9 +661,18 @@ async function handleApi(req, res, token) {
   }
   if (pathName === '/api/settings') {
     if (typeof body.lan === 'boolean') {
+      // P2-93：lan=true 会把面板从「仅本机」放开到整个局域网，属安全边界变更，
+      // 必须再认证一次当前密码（防止 token 被盗/忘锁屏时被人顺手开洞）。
+      if (body.lan) {
+        const auth = authRead();
+        if (!auth || !verifyPassword(String(body.password || ''), auth)) {
+          return sendErr(res, 403, '开启局域网访问需重新输入面板密码');
+        }
+      }
       settings.lan = body.lan;
       LAN_MODE = body.lan;
       saveSettings(settings);
+      auditPanel('面板访问模式变更：' + (body.lan ? '允许局域网访问' : '仅本机访问'));
       return sendJson(res, 200, { ok: true, message: '设置已保存' + (body.lan ? '，重启面板后允许局域网访问生效' : '') });
     }
     return sendErr(res, 400, '无效设置');
@@ -651,6 +680,12 @@ async function handleApi(req, res, token) {
 
   /* ---- 重置初始化（对齐 start-services.ps1 功能 #1） ---- */
   if (pathName === '/api/reset-init') {
+    // P2-93：与本文件其它危险操作（:595 kill-port、:633 reset-superadmin）同口径，
+    // 重建初始状态前必须携带确认短语。
+    if (String(body.confirm || '') !== 'CONFIRM-RESET-INIT') {
+      return sendErr(res, 400, '确认短语不正确');
+    }
+    auditPanel('面板执行重置初始化');
     const r = await runPs('reset');
     return sendJson(res, 200, { ok: true, message: r.message });
   }
@@ -742,6 +777,7 @@ async function handleApi(req, res, token) {
     if (!id) return sendErr(res, 400, '缺少用户 ID');
     try {
       await dbQuery(`UPDATE users SET banned=? WHERE id=? AND deleted_at IS NULL`, [banned, id]);
+      auditPanel((banned ? '禁用用户 #' : '启用用户 #') + id);
       return sendJson(res, 200, { ok: true, message: banned ? '用户已禁用' : '用户已启用' });
     } catch (e) {
       return sendErr(res, 500, '操作失败：' + e.message);
@@ -756,6 +792,7 @@ async function handleApi(req, res, token) {
     try {
       const hash = await _bcrypt.hash(pwd, 12);
       await dbQuery(`UPDATE users SET password_hash=? WHERE id=? AND deleted_at IS NULL`, [hash, id]);
+      auditPanel('重置站内用户密码 #' + id);
       return sendJson(res, 200, { ok: true, message: '密码已重置' });
     } catch (e) {
       return sendErr(res, 500, '重置失败：' + e.message);
@@ -779,6 +816,7 @@ async function handleApi(req, res, token) {
       const baseGroupId = role === 'super_admin' ? 1 : role === 'admin' ? 2 : 3;
       await dbQuery(`INSERT IGNORE INTO user_group_membership (user_id, group_id) VALUES (?, ?)`, [id, baseGroupId]);
       await dbQuery(`DELETE FROM user_group_membership WHERE user_id=? AND group_id IN (1,2,3) AND group_id<>?`, [id, baseGroupId]);
+      auditPanel('变更站内用户角色 #' + id + ' → ' + role);
       return sendJson(res, 200, { ok: true, message: '已更新为：' + ({ super_admin: '超级管理员', admin: '管理员', member: '成员' }[role] || role) });
     } catch (e) { return sendErr(res, 500, '更新失败：' + e.message); }
   }
@@ -791,6 +829,7 @@ async function handleApi(req, res, token) {
       if (rows[0].role === 'super_admin') return sendErr(res, 400, '不能删除超级管理员（可先降级再删除）');
       await dbQuery(`UPDATE users SET deleted_at=NOW() WHERE id=?`, [id]);
       await dbQuery(`DELETE FROM notifications WHERE user_id=?`, [id]);
+      auditPanel('删除站内用户 #' + id + '（软删除）');
       return sendJson(res, 200, { ok: true, message: '用户已删除（软删除）' });
     } catch (e) { return sendErr(res, 500, '删除失败：' + e.message); }
   }
@@ -816,6 +855,7 @@ async function handleApi(req, res, token) {
       const dup = await dbQuery(`SELECT id FROM permission_groups WHERE name=?`, [name]);
       if (dup.length) return sendErr(res, 400, '权限组名称已存在');
       await dbQuery(`INSERT INTO permission_groups (name, description) VALUES (?, ?)`, [name, description || null]);
+      auditPanel('创建权限组：' + name);
       return sendJson(res, 200, { ok: true, message: '权限组已创建' });
     } catch (e) { return sendErr(res, 500, '创建失败：' + e.message); }
   }
@@ -831,6 +871,7 @@ async function handleApi(req, res, token) {
       for (const k of on) {
         await dbQuery(`INSERT INTO group_permission_entries (group_id, permission_key, permission_value) VALUES (?,?,1)`, [groupId, k]);
       }
+      auditPanel('保存权限组 #' + groupId + ' 权限（' + on.length + ' 项开启）');
       return sendJson(res, 200, { ok: true, message: '权限已保存（' + on.length + ' 项开启）' });
     } catch (e) { return sendErr(res, 500, '保存失败：' + e.message); }
   }
@@ -855,6 +896,7 @@ async function handleApi(req, res, token) {
       for (const gid of custom) {
         await dbQuery(`INSERT IGNORE INTO user_group_membership (user_id, group_id) VALUES (?,?)`, [id, gid]);
       }
+      auditPanel('更新用户 #' + id + ' 权限组（自定义组 ' + custom.join(',') + '）');
       return sendJson(res, 200, { ok: true, message: '用户权限组已更新' });
     } catch (e) { return sendErr(res, 500, '操作失败：' + e.message); }
   }
@@ -883,6 +925,7 @@ async function handleApi(req, res, token) {
       const data = body.data;
       if (!data || typeof data !== 'object') return sendErr(res, 400, '缺少备份数据');
       const imported = await importUserDataPanel(id, data);
+      auditPanel('导入站内用户数据 #' + id);
       return sendJson(res, 200, { ok: true, success: true, imported });
     } catch (e) { return sendErr(res, e.statusCode || 500, '导入失败：' + e.message); }
   }
@@ -922,6 +965,7 @@ async function handleApi(req, res, token) {
           imported.push({ userId: id, imported: counts });
         } catch (err) { failed[id] = err.message; }
       }
+      auditPanel('批量导入站内用户数据：成功 ' + imported.length + ' 人' + (Object.keys(failed).length ? '，失败 ' + Object.keys(failed).join(',') : ''));
       return sendJson(res, 200, { ok: true, success: true, imported, failed });
     } catch (e) { return sendErr(res, e.statusCode || 500, '批量导入失败：' + e.message); }
   }
@@ -941,8 +985,8 @@ async function handleApi(req, res, token) {
   }
 
   /* ---- 桌面打开 ---- */
-  if (pathName === '/api/open-dir') { openDesktop('"' + ROOT + '"', ok => sendJson(res, 200, { ok, message: ok ? '已在资源管理器中打开项目根目录' : '打开失败' })); return null; }
-  if (pathName === '/api/open-logs') { openDesktop('"' + LOGS_DIR + '"', ok => sendJson(res, 200, { ok, message: ok ? '已在资源管理器中打开日志目录' : '打开失败' })); return null; }
+  if (pathName === '/api/open-dir') { openDesktop(ROOT, ok => sendJson(res, 200, { ok, message: ok ? '已在资源管理器中打开项目根目录' : '打开失败' })); return null; }
+  if (pathName === '/api/open-logs') { openDesktop(LOGS_DIR, ok => sendJson(res, 200, { ok, message: ok ? '已在资源管理器中打开日志目录' : '打开失败' })); return null; }
   if (pathName === '/api/open-site') {
     openInBrowser('http://localhost:3456');
     return sendJson(res, 200, { ok: true, message: '已在浏览器打开网站首页' });
@@ -1003,7 +1047,7 @@ server.listen(settings.port, HOST, () => {
   global.__startedAt = Date.now();
   console.log('==============================================');
   console.log('  境途同游 网页版运维后台');
-  console.log('  地址: http://' + (LAN_MODE ? '127.0.0.1' : '127.0.0.1') + ':' + settings.port);
+  console.log('  地址: http://127.0.0.1:' + settings.port + (LAN_MODE ? '（本机；局域网设备请用本机内网 IP 访问）' : ''));
   console.log('  监听: ' + HOST + (LAN_MODE ? '（局域网模式）' : '（仅本机）'));
   console.log('  关闭: 关闭本窗口即可停止面板');
   console.log('==============================================');

@@ -41,10 +41,12 @@ describe('进入应用时首页必须真的被加载', () => {
 
   test('init 用 force 渲染初始标签，否则 loadHome 永远不会跑', () => {
     // 该 force 渲染原在 auth.js 的 showApp() 里，现移至 main.js 的 init()：
-    // 骨架屏先展开展开，随后用 switchTab('home', true) 强制跑 loadHome()。
+    // 骨架屏先展开，随后强制渲染初始标签。P2-98 深链改造后优先走
+    // switchTab(tabFromUrl(), true)，无 tabFromUrl 时保留 home 兜底分支。
     const call = mainJs.match(/switchTab\(\s*['"]home['"]\s*,\s*true\s*\)/);
     expect(call).not.toBeNull();
-    expect(mainJs).toMatch(/if\s*\(\s*activeTab\s*===\s*['"]home['"]\s*\)\s*switchTab\(\s*['"]home['"]\s*,\s*true\s*\)/);
+    expect(mainJs).toMatch(/if\s*\(\s*activeTab\s*===\s*['"]home['"]\s*\)\s*\{?\s*switchTab\(\s*['"]home['"]\s*,\s*true\s*\)/);
+    expect(mainJs).toMatch(/switchTab\(\s*tabFromUrl\(\)\s*,\s*true\s*\)/);
   });
 
   test('home 标签的分支仍然会调用 loadHome', () => {

@@ -44,10 +44,24 @@
     navs.forEach(function (n) {
       n.classList.toggle('active', n.getAttribute('data-target') === target);
     });
-    // 懒加载（仅首次）
+    // 懒加载（仅首次成功加载后标记）
     if (!_panelLoaded[target] && PANEL_LOADERS[target]) {
-      try { PANEL_LOADERS[target](); } catch (e) { console.error('[admin] load panel', target, e); }
-      _panelLoaded[target] = true;
+      // P1-28: 此前 catch 后仍无条件置 _panelLoaded=true，瞬时错误（网络抖动/401）
+      // 会让面板永久空白只能刷新整页。改为：同步抛错不标记；loader 返回 Promise 时
+      // 等 resolve 再标记，reject 不标记——下次进入自动重试
+      var okSync = true;
+      var ret;
+      try { ret = PANEL_LOADERS[target](); } catch (e) { okSync = false; console.error('[admin] load panel', target, e); }
+      if (okSync) {
+        if (ret && typeof ret.then === 'function') {
+          ret.then(
+            function () { _panelLoaded[target] = true; },
+            function (e) { console.error('[admin] load panel', target, e); }
+          );
+        } else {
+          _panelLoaded[target] = true;
+        }
+      }
     } else if (_panelLoaded[target] && target === 'stats') {
       // 数据统计支持手动刷新，重复进入时重绘
       try { loadAdminAnalytics(); } catch (e) {}

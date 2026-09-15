@@ -84,6 +84,10 @@
       if (testOnly) {
         showResult('success', __('db_recover.db_ok_save'));
       } else {
+        // P1-29: 恢复成功后令牌使命已完成——它是 db-recover 端点的 Bearer 凭据，
+        // 继续留在 localStorage 会让任何 XSS/共享电脑场景多一个可用凭证的窗口期。
+        // 测试连接（testOnly）时保留，避免用户还没保存就把输入清空。
+        try { localStorage.removeItem(RECOVERY_TOKEN_KEY); } catch (_) {}
         const warn = data.warning ? '<br><span style="color:var(--warning)">' + data.warning + '</span>' : '';
         showResult('success', __('db_recover.saved_reconnect') + warn);
         setTimeout(() => { window.location.href = '/'; }, 1200);

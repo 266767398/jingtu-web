@@ -12,11 +12,8 @@
 const express = require('express');
 const { ok, getPool, handleError, sendError, ErrorCodes } = require('../utils');
 const { requireAuth } = require('../auth');
-const { vrchatGetUserPublicAvatars, VRC_API_KEY, USER_AGENT } = require('../vrc');
+const { vrchatGetUserPublicAvatars, vrchatGetUser, VRC_API_KEY } = require('../vrc');
 const { parseVrcLocation, vrcWithFallback } = require('./groups_helpers');
-
-const VRC = require('../vrc');
-const VRC_API = VRC.VRC_API || 'https://api.vrchat.cloud/api/1';
 
 module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   const router = express.Router();
@@ -214,18 +211,13 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     const TRUST_CN = { 'negative': '恶劣玩家', 'visitor': '游客', 'new': '新用户', 'user': '用户', 'known': '常驻玩家', 'trusted': '信任', 'vetted': '审核', 'veteran': '资深玩家', 'legend': '资深玩家' };
     const DEV_CN = { 'none': '普通用户', 'trusted': '可信开发者', 'internal': '内部人员', 'moderator': '管理员' };
 
+    // P1-34: 改走 vrchatGetUser，汇入全站统一令牌桶（旧裸 fetch 是旁路，
+    // 且复用 vrchatRequest 的超时控制与 429 退避），保持 {status, data} 语义。
     const vrcFetch = async (cookie) => {
-      const ac = new AbortController();
-      const t = setTimeout(() => ac.abort(), 5000); // 5s 快速失败，避免详情实时资料拖到十几秒
       try {
-        const r = await fetch(`${VRC_API}/users/${encodeURIComponent(vrchatId)}?apiKey=${VRC_API_KEY}`, {
-          headers: { 'User-Agent': USER_AGENT, 'Cookie': cookie },
-          signal: ac.signal
-        });
-        if (!r.ok) return { status: r.status, data: null };
-        return { status: r.status, data: await r.json() };
+        const r = await vrchatGetUser(vrchatId, cookie);
+        return { status: r.status, data: (r.status >= 200 && r.status < 300) ? r.data : null };
       } catch { return { status: 0, data: null }; }
-      finally { clearTimeout(t); }
     };
     const { cookie: vrcCookie, result: vrc } = await vrcWithFallback(req, (c) => vrcFetch(c), getVRCCookieFn, getUserVRCCookieFn);
     const user = vrc?.data;

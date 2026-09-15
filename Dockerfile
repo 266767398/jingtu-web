@@ -8,16 +8,22 @@
 #   docker build -t jingtu-web:latest .
 
 # ---------- 阶段 1：依赖安装 ----------
-FROM node:20-slim AS builder
+# P2-96：基础镜像由 ARG 统一钉定、两阶段共用，升级只改一处。
+# Node 20 已于 2026-04 EOL，迁移到 node:22-slim（CI matrix 已覆盖 22 并验证）。
+# 如需更强供应链保障，用 `docker buildx imagetools inspect node:22-slim`
+# 取当前 digest，再以 node:22-slim@sha256:<digest> 形式替换。
+ARG NODE_IMAGE=node:22-slim
+FROM ${NODE_IMAGE} AS builder
 WORKDIR /app/server
-# 先拷贝依赖清单，利用层缓存
+# 先拷贝依赖清单，利用层缓存；runtime 阶段直接复用这里的 node_modules，
+# devDependencies（测试/工具链）不进镜像，缩小体积与攻击面
 COPY server/package.json server/package-lock.json ./
-RUN npm ci
+RUN npm ci --omit=dev --no-audit --no-fund
 # 再拷贝源码（sharp 等包的 postinstall 已在 npm ci 阶段完成）
 COPY server/ ./
 
 # ---------- 阶段 2：运行 ----------
-FROM node:20-slim AS runtime
+FROM ${NODE_IMAGE} AS runtime
 LABEL org.opencontainers.image.title="境途同游 Web" \
       org.opencontainers.image.description="VRChat 群组网站 (Node.js + MySQL)" \
       org.opencontainers.image.licenses="ISC"
@@ -59,6 +65,12 @@ VOLUME ["/app/uploads", "/app/backups", "/app/logs"]
 USER node
 
 EXPOSE 3456
+
+# P2-96：存活探针指向 /api/health/live（routes/health.js，纯进程存活、
+# 不依赖 MySQL/Redis），避免数据库瞬时抖动触发容器重启风暴；
+# 入口脚本需等库就绪并执行 db_init，故给足 start-period。
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+  CMD curl -fsS "http://127.0.0.1:${PORT:-3456}/api/health/live" || exit 1
 
 # 入口：等待数据库就绪 → 执行 db_init → 启动服务
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

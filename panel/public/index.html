@@ -202,7 +202,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
 <script>
 /* ===== 全局状态 ===== */
 const S={token:null,initialized:false,status:null,page:'dashboard',openTasks:{},statTimer:null};
-const CONFIRMS={high:'CONFIRM-DELETE-ALL-DATA',restore:'CONFIRM-RESTORE-FROM-BACKUP',kill:'CONFIRM-KILL-PORT',reset:'CONFIRM-RESET-SUPERADMIN'};
+const CONFIRMS={high:'CONFIRM-DELETE-ALL-DATA',restore:'CONFIRM-RESTORE-FROM-BACKUP',kill:'CONFIRM-KILL-PORT',reset:'CONFIRM-RESET-SUPERADMIN',resetInit:'CONFIRM-RESET-INIT'};
 const IC={dash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
 svc:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><circle cx="6" cy="7" r="1"/><circle cx="6" cy="17" r="1"/></svg>',
 backup:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 8v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M3 8l3.5-5H13l4 5"/><path d="M8 13h8M12 9v8"/></svg>',
@@ -611,8 +611,8 @@ p.innerHTML=`
 <div class="form-row"><button class="btn btn-danger" onclick="resetInit()">执行重置初始化</button></div>
 <div class="muted" style="font-size:12px">查找并运行项目自带的重置脚本（tools/reset.* 或根目录 reset.*）。</div></div>
 </div>`;loadDisk();}
-function resetInit(){confirmModal('重置初始化',`将运行项目自带的重置脚本（<span class="mono">tools/reset.*</span> 或根目录 <span class="mono">reset.*</span>）。\n此操作会重建网站初始状态。`,'btn-danger','执行重置',()=>{
-api('/api/reset-init',{method:'POST',body:'{}'}).then(r=>{toast(r.message);opLog(r.message,'ok');}).catch(e=>toast(e.message,'err'));});}
+function resetInit(){confirmModal('重置初始化',`将运行项目自带的重置脚本（<span class="mono">tools/reset.*</span> 或根目录 <span class="mono">reset.*</span>）。\n此操作会重建网站初始状态。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.resetInit}</span>`,'btn-danger','执行重置',(v)=>{
+api('/api/reset-init',{method:'POST',body:JSON.stringify({confirm:v})}).then(r=>{toast(r.message);opLog(r.message,'ok');}).catch(e=>toast(e.message,'err'));},CONFIRMS.resetInit);}
 async function loadDisk(){const el=$('diskBox');if(!el)return;try{const r=await api('/api/disk');
 el.innerHTML=`<div class="stat"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div><div><div class="num">${r.freeGB!=null?r.freeGB:'--'} <span style="font-size:12px;color:var(--muted)">GB 剩余</span></div><div class="lbl">${r.freeGB!=null&&r.freeGB<=r.warnGB?'<span style="color:#fbbf24">⚠ 空间紧张，请及时清理</span>':'空间充足'}</div></div></div>`;}
 catch(e){el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
@@ -637,7 +637,8 @@ p.innerHTML=`
 <button class="btn btn-brand" onclick="changePwd()">更新密码</button></div>
 <div class="card"><div class="card-title">${IC.sec} 局域网访问</div>
 <div class="muted" style="font-size:12.5px;line-height:1.9" id="lanDesc">当前仅本机可访问（127.0.0.1:3457）。开启后同一局域网设备可访问此运维后台。</div>
-<div class="form-row" style="margin-top:10px"><label class="check"><input type="checkbox" id="lanChk"> 允许局域网访问（需重启面板生效）</label></div>
+<div class="form-row" style="margin-top:10px"><label class="check"><input type="checkbox" id="lanChk" oninput="$('lanPwdRow').style.display=this.checked?'':'none'"> 允许局域网访问（需重启面板生效）</label></div>
+<div class="form-row" id="lanPwdRow" style="display:none"><input type="password" id="lanPwd" placeholder="开启局域网访问须重新输入面板密码" autocomplete="off"></div>
 <button class="btn btn-ghost" onclick="saveLan()">保存设置</button></div>
 </div>
 <div class="danger-zone"><div class="dz-title">⚠ 破窗恢复 · 重置超级管理员密码</div>
@@ -647,9 +648,10 @@ p.innerHTML=`
 $('lanChk').checked=!!(S.status&&S.status.lan);}
 function changePwd(){const o=$('cpOld').value,n=$('cpNew').value,n2=$('cpNew2').value;
 if(n.length<8)return toast('新密码至少 8 位','warn');if(n!==n2)return toast('两次新密码不一致','warn');
-api('/api/change-password',{method:'POST',body:JSON.stringify({old:o,newPassword:n})}).then(r=>{toast(r.message);opLog(r.message,'ok');['cpOld','cpNew','cpNew2'].forEach(i=>$(i).value='');}).catch(e=>toast(e.message,'err'));}
-function saveLan(){const lan=$('lanChk').checked;
-api('/api/settings',{method:'POST',body:JSON.stringify({lan})}).then(r=>{toast(r.message);$('lanDesc').textContent=lan?'⚠ 已允许局域网访问（重启面板后生效），请确保密码强度足够。':'已设为仅本机访问（重启面板后生效）。';}).catch(e=>toast(e.message,'err'));}
+api('/api/change-password',{method:'POST',body:JSON.stringify({old:o,newPassword:n})}).then(r=>{toast(r.message);opLog(r.message,'ok');['cpOld','cpNew','cpNew2'].forEach(i=>$(i).value='');doLogoutUI();}).catch(e=>toast(e.message,'err'));}
+function saveLan(){const lan=$('lanChk').checked;const pwd=$('lanPwd').value;
+if(lan&&!pwd)return toast('开启局域网访问需重新输入面板密码','warn');
+api('/api/settings',{method:'POST',body:JSON.stringify({lan,password:pwd})}).then(r=>{toast(r.message);$('lanDesc').textContent=lan?'⚠ 已允许局域网访问（重启面板后生效），请确保密码强度足够。':'已设为仅本机访问（重启面板后生效）。';$('lanPwd').value='';opLog(r.message,'ok');}).catch(e=>{$('lanChk').checked=!!(S.status&&S.status.lan);toast(e.message,'err');});}
 function resetSuperAdmin(){const login=$('rsLogin').value.trim()||'super_admin';const pass=$('rsPass').value.trim();
 if(!pass)return toast('请填写临时密码','warn');
 confirmModal('重置超级管理员密码',`将重置 <span class="mono">${esc(login)}</span> 的密码为：<b class="mono">${esc(pass)}</b>\n此操作会影响网站登录。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.reset}</span>`,'btn-danger','确认重置',()=>{

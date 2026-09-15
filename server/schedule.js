@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const dbMod = require('./db');
 const { getPool, safeError } = require('./utils');
-const { vrchatGetUser, vrchatResolveOnlineStatuses } = require('./vrc');
+const { vrchatGetUser, vrchatResolveOnlineStatuses, vrcBacklog } = require('./vrc');
 const cacheService = require('./cache_service');
 const { scanAvatarModels } = require('./routes/collections');
 
@@ -194,6 +194,9 @@ function startSchedule() {
   jobs.push(schedule.scheduleJob('0 * * * * *', async () => {
     if (!_getVRCCookie) return;
     if (onlineRefreshInFlight) return;
+    // VRChat 风控轮（P1-34）：令牌桶已有排队请求（多为交互流量）时本周期直接让路。
+    // cron 每 60s 一轮，错过一轮无感；用户点击排队 12s 超时有感——额度永远优先还给交互。
+    if (vrcBacklog() > 0) return;
     onlineRefreshInFlight = true;
     try {
       const vrcCookie = _getVRCCookie({ session: {} });
@@ -258,6 +261,11 @@ function startSchedule() {
           fallbackDelayMs: 500,
           maxPages: 20,
           delayMs: 0,
+          // VRChat 风控轮（P1-34）：显式收紧非好友回退上限（默认 25）。
+          // 好友翻页最坏 maxPages(20) + 回退 25 + 信任补充 20 单轮需求可逼近 65 req/min，
+          // 超过全局 40/min 令牌桶容量会自噬（cron 占满桶→交互排队超时）。压到 12 后
+          // 单轮最坏 ~32，给交互请求与信任补充都留出余量；未覆盖者交给共享态/DB 旧值兜底。
+          maxFallback: 12,
         });
       }
 
@@ -438,9 +446,13 @@ function startSchedule() {
            LIMIT ?`,
           [TRUST_ENRICH_BATCH]
         );
-        if (missingTrust.length > 0 && systemCookieUsable) {
+        // P1-34: 有用户在排队等令牌时本轮跳过信任补充——它是纯后台增强任务，
+        // 错过一轮 30 分钟无感；用户请求被拖到 12s 超时有感。
+        if (missingTrust.length > 0 && systemCookieUsable && vrcBacklog() === 0) {
           let enriched = 0;
           for (const row of missingTrust) {
+            // P1-34: 循环中途若用户请求开始排队，立即收手，剩余名额留给下一轮
+            if (vrcBacklog() > 2) break;
             try {
               const resp = await vrchatGetUser(row.vrchat_id, vrcCookie);
               // P2-56: vrchatGetUser 返回 {status, data, ...}，数据在 resp.data，

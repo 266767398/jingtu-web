@@ -9,10 +9,15 @@ on:
   pull_request:
     branches: [jingtu-web, main, master]
 
+# P2-96：默认最小权限（只读 GITHUB_TOKEN）；某 job 确需写权限时在其内部单独升级。
+permissions:
+  contents: read
+
 jobs:
   server-test:
     name: 服务端测试（Jest：单元 + supertest 集成）
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: server
@@ -49,6 +54,7 @@ jobs:
   lint:
     name: 代码静态检查（ESLint 0 error 门禁）
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: server
@@ -72,6 +78,7 @@ jobs:
   node-test:
     name: 服务端测试（node:test 原生套件）
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: server
@@ -89,3 +96,65 @@ jobs:
 
       - name: 运行 node:test 套件
         run: npm run test:node
+
+  # P2-96：Shell 脚本静态检查。error 起步为阻断门禁，
+  # warning/style 存量清偿后可收紧 --severity 逐级升级。
+  shellcheck:
+    name: Shell 脚本静态检查（shellcheck）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: 运行 shellcheck
+        run: >-
+          shellcheck --severity=error
+          docker-entrypoint.sh install.sh jingtu.sh
+          start-services.sh test_api.sh
+
+  # P2-96：面板 PowerShell API 静态检查（PS5.1 兼容层）。
+  # 仅 Error 级阻断（解析失败/明显错误），警告与规范项不纳入门禁。
+  psscript-analyzer:
+    name: PowerShell 静态检查（PSScriptAnalyzer）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 PSScriptAnalyzer
+        run: pwsh -NoProfile -Command "Install-Module PSScriptAnalyzer -Force -Scope CurrentUser"
+
+      - name: 运行 PSScriptAnalyzer（panel/ 目录，Error 级阻断）
+        run: >-
+          pwsh -NoProfile -Command
+          '$r = Invoke-ScriptAnalyzer -Path panel -Recurse -Severity Error;
+          if ($r) { $r | Format-Table -AutoSize | Out-String | ForEach-Object { Write-Host $_ }; exit 1 }'
+
+  # P2-96：秘密扫描（Gitleaks，含全量历史）。报告模式：始终产出 JSON 报告
+  # 供人工复核、不阻断合并——本仓库存在刻意不入库的本地秘密约定
+  # （panel/panel-auth.json 已在 .gitignore），待确认历史干净后升级为硬门禁。
+  secret-scan:
+    name: 密钥扫描（Gitleaks 报告模式）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks detect（--exit-code 0 只报告不阻断）
+        run: >-
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.18.4
+          detect --source /repo --red --exit-code 0
+          --report-format json --report-path /repo/gitleaks-report.json
+
+      - name: 上传扫描报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+          retention-days: 7

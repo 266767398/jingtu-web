@@ -52,6 +52,20 @@ prompt() {
   printf '%s' "$val"
 }
 
+# P2-92：秘密输入专用——read -s 不回显，避免密码进终端屏幕与 shell 历史
+prompt_secret() {
+  # $1=变量名 $2=提示语
+  local var="$1" text="$2" val
+  if [ -n "${!var:-}" ]; then val="${!var}"; else
+    if [ -t 0 ]; then
+      read -r -s -p "$text: " val; echo "" >&2
+    else
+      val=""
+    fi
+  fi
+  printf '%s' "$val"
+}
+
 echo "========================================"
 echo "      境途同游 Web — 部署脚本"
 echo "========================================"
@@ -59,10 +73,21 @@ echo "========================================"
 DOMAIN=$(prompt DOMAIN "网站域名（如 jingtu.example.com，留空用服务器IP）" "")
 DB_NAME=$(prompt DB_NAME "数据库名" "jingtu_group")
 DB_USER=$(prompt DB_USER "数据库用户名" "jingtu_user")
-DB_PASS=$(prompt DB_PASS "数据库密码" "")
-MYSQL_ROOT_PASSWORD=$(prompt MYSQL_ROOT_PASSWORD "MySQL root 密码（留空则跳过自动建库）" "")
+DB_PASS=$(prompt_secret DB_PASS "数据库密码")
+MYSQL_ROOT_PASSWORD=$(prompt_secret MYSQL_ROOT_PASSWORD "MySQL root 密码（留空则跳过自动建库）")
 PORT=$(prompt PORT "站点端口（Node 监听）" "3456")
 REPO_URL=${REPO_URL:-""}
+
+# P2-92：库名/用户名字符白名单——两者会被拼进 SQL heredoc（标识符/字符串字面量），
+# 白名单校验比事后转义可靠；不合法直接终止，不做静默清洗。
+if ! printf '%s' "$DB_NAME" | grep -Eq '^[A-Za-z0-9_]+$'; then
+  err "数据库名非法（仅允许字母、数字、下划线）：$DB_NAME"
+  exit 1
+fi
+if ! printf '%s' "$DB_USER" | grep -Eq '^[A-Za-z0-9_]+$'; then
+  err "数据库用户名非法（仅允许字母、数字、下划线）：$DB_USER"
+  exit 1
+fi
 
 # ---------- 确定项目目录 ----------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -184,6 +209,14 @@ if [ -n "$MYSQL_ROOT_PASSWORD" ]; then
     # 虽已加引号，但仍会出现在 /proc 进程列表里，同机任意用户可见。
     # SQL 字面量里的密码需把单引号翻倍转义，否则含 ' 的密码会截断语句。
     MYSQL_CNF=$(mktemp)
+    # P2-94：此临时文件内含 MySQL root 明文密码。旧实现只在 mysql 成功后 rm，
+    # 一旦中途报错退出（set -e）就会把带密码的文件留在 /tmp。改为 EXIT trap 兜底。
+    cleanup_mysql_cnf() {
+      local p="${MYSQL_CNF:-}"
+      [ -n "$p" ] && rm -f -- "$p"
+      return 0
+    }
+    trap cleanup_mysql_cnf EXIT
     chmod 600 "$MYSQL_CNF"
     printf '[client]\nuser=root\npassword=%s\n' "$MYSQL_ROOT_PASSWORD" > "$MYSQL_CNF"
     DB_PASS_ESC=${DB_PASS//\'/\'\'}
@@ -195,15 +228,18 @@ CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS_ESC}
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
-    rm -f "$MYSQL_CNF"
+    rm -f -- "$MYSQL_CNF"
     ok "数据库初始化 SQL 已执行"
   else
     warn "未找到 mysql 客户端，跳过自动建库。请通过宝塔数据库面板手动创建："
-    warn "  数据库名=$DB_NAME  用户名=$DB_USER  密码=$DB_PASS  权限=本地(127.0.0.1/localhost)"
+    warn "  数据库名=$DB_NAME  用户名=$DB_USER  权限=本地(127.0.0.1/localhost)"
+    warn "  密码：不在此回显，请从 $ENV_FILE 的 MYSQL_PASSWORD 行取值保持一致（P2-92）。"
   fi
 else
   warn "未提供 MYSQL_ROOT_PASSWORD，跳过自动建库。"
-  warn "请通过宝塔数据库面板先创建：数据库名=$DB_NAME 用户名=$DB_USER 密码=$DB_PASS"
+  # P2-92：密码不再屏显回显，终端历史记录/截屏/远程会话日志都会带走明文。
+  warn "请通过宝塔数据库面板先创建：数据库名=$DB_NAME 用户名=$DB_USER"
+  warn "  密码：不在此回显，请从 $ENV_FILE 的 MYSQL_PASSWORD 行取值保持一致。"
 fi
 
 # ---------- 初始化数据表 / 迁移 ----------
@@ -255,6 +291,17 @@ cat > "$NGINX_CONF" <<EOF
 # 境途同游 Web — Nginx 反向代理配置
 # 适用：宝塔「网站 → 设置 → 配置文件」整体替换，或独立 Nginx 引入。
 # 站点根目录请设为：${PROJECT_DIR}/public （静态资源由 Node 提供，此处仅作反代）
+# P2-91/P2-92 级联：本生成块与 deploy/nginx/jingtu.conf 模板保持同步。
+
+# P2-91：Upgrade 头联动 Connection——避免硬编码 Connection "upgrade" 破坏普通 HTTP keep-alive。
+map \$http_upgrade \$connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# P2-91：接口级限流（登录/注册 5r/m，其余 API 30r/s 突发 60），仅作用于 API。
+limit_req_zone \$binary_remote_addr zone=jingtu_api:10m rate=30r/s;
+limit_req_zone \$binary_remote_addr zone=jingtu_auth:10m rate=5r/m;
 
 server {
     listen 80;
@@ -276,10 +323,39 @@ server {
 
     client_max_body_size 500m;
 
+    # P2-91：安全响应头（CSP / X-Frame-Options / HSTS / nosniff / Referrer-Policy）
+    # 由 Node 统一设置（server/server.js 安全头中间件，含面板路径豁免），
+    # 这里刻意不用 add_header 重复添加，避免双份头与豁免冲突。
+
     # 屏蔽公开的 API 文档（生产安全）
     location = /api-docs.json { return 404; }
     location ^~ /api-docs { return 404; }
 
+    # P2-91：登录/注册等认证接口单独限流（防撞库），超出直接 429
+    location ^~ /api/auth/ {
+        limit_req zone=jingtu_auth burst=10 nodelay;
+        limit_req_status 429;
+        proxy_pass http://127.0.0.1:${PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    # P2-91：其余 API 匀速限流，容忍突发
+    location ^~ /api/ {
+        limit_req zone=jingtu_api burst=60 nodelay;
+        limit_req_status 429;
+        proxy_pass http://127.0.0.1:${PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    # WebSocket（/ws）与常规请求共用反代
     location / {
         proxy_pass http://127.0.0.1:${PORT};
         proxy_http_version 1.1;
@@ -288,7 +364,7 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection \$connection_upgrade;
         proxy_read_timeout 120s;
         proxy_send_timeout 120s;
     }

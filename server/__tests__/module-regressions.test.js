@@ -24,10 +24,25 @@ function extractFunction(source, name) {
   let escaped = false;
   for (let i = match.index; i < source.length; i++) {
     const ch = source[i];
+    const next = source[i + 1];
     if (inString) {
       if (escaped) { escaped = false; continue; }
       if (ch === '\\') { escaped = true; continue; }
       if (ch === inString) inString = null;
+      continue;
+    }
+    // 注释里的引号不参与字符串配平（须先判字符串再判注释：'http://…' 这类
+    // URL 字面量里的 // 不能被误当成行注释起点）。
+    if (ch === '/' && next === '/') {
+      const nl = source.indexOf('\n', i);
+      if (nl === -1) break;
+      i = nl;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      const end = source.indexOf('*/', i + 2);
+      if (end === -1) break;
+      i = end + 1;
       continue;
     }
     if (ch === '"' || ch === "'" || ch === '`') { inString = ch; continue; }

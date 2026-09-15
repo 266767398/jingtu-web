@@ -99,7 +99,12 @@ async function init() {
     document.getElementById('mainContainer')?.classList.remove('d-none');
     document.getElementById('appFooter')?.classList.remove('d-none');
     bindEvents();
-    if (activeTab === 'home') switchTab('home', true);
+    // P2-98: 支持 #<tab> 深链直达（无 hash 或非法值回落 home）
+    if (typeof tabFromUrl === 'function') {
+      switchTab(tabFromUrl(), true);
+    } else if (activeTab === 'home') {
+      switchTab('home', true);
+    }
 
     // 登录态检查不再阻塞首屏渲染
     checkAutoLogin().then(isAutoLogged => {
@@ -243,8 +248,9 @@ function connectWebSocket() {
       }
       if (msg.type === 'new_notification' && msg.notification) {
         const n = msg.notification;
-        // 刷新通知列表（如果打开则自动更新）
-        if (typeof loadNotifications === 'function') loadNotifications();
+        // 刷新通知列表（如果打开则自动更新）；P1-25：必须传 reset=true，
+        // 否则 notifPage 不归 1 且走追加分支，每次推送列表成倍增长
+        if (typeof loadNotifications === 'function') loadNotifications(true);
         // 显示 toast 提示（除非用户当前在通知面板中）
         const notifPanel = document.getElementById('notificationPanel');
         if (!notifPanel || !notifPanel.classList.contains('show')) {

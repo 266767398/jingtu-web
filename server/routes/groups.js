@@ -13,7 +13,7 @@ const { requireAuth, requireAdminCompat } = require('../auth');
 const {
   vrchatRequest, vrchatGetCurrentUser, vrchatGetCurrentUserResult, vrchatGetGroupMembers,
   vrchatGetUser, vrchatResolveOnlineStatuses, vrchatGetFriendsOnlineMap, vrchatGetWorld, vrchatGetInstance, vrchatSearchWorlds,
-  vrchatSearchAvatars, vrchatGetAvatar, vrchatSetAvatar, vrchatGetUserPublicAvatars, VRC_API_KEY, USER_AGENT,
+  vrchatSearchAvatars, vrchatGetAvatar, vrchatSetAvatar, vrchatGetUserPublicAvatars, VRC_API_KEY,
   vrchatGetGroupAnnouncements, vrchatCreateGroupAnnouncement, vrchatDeleteGroupAnnouncement,
   vrchatGetGroupGalleries, vrchatCreateGroupGallery, vrchatGetGroupGallery, vrchatUpdateGroupGallery, vrchatDeleteGroupGallery,
   vrchatGetGroupRoles, vrchatCreateGroupRole, vrchatUpdateGroupRole, vrchatDeleteGroupRole,
@@ -65,27 +65,21 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       const { query } = req.body;
       if (!query) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入搜索内容');
       const encoded = encodeURIComponent(query);
-      const vrcFetch = async (url, cookie) => {
-        const ac = new AbortController();
-        const t = setTimeout(() => ac.abort(), 15000);
-        try {
-          const r = await fetch(url, {
-            headers: { 'User-Agent': USER_AGENT, 'Cookie': cookie },
-            signal: ac.signal
-          });
-          // 交给 vrcWithFallback 识别 401 并降级
-          return { status: r.status, res: r };
-        } finally { clearTimeout(t); }
+      // P1-34: 改走 vrchatRequest，汇入全站统一令牌桶（旧裸 fetch 是旁路，
+      // 高峰期可与定时任务叠加超过 VRChat 官方限速），并复用其超时/429 退避。
+      const vrcFetch = async (endpoint, cookie) => {
+        const r = await vrchatRequest('GET', endpoint, null, cookie);
+        return { status: r.status, ok: r.status >= 200 && r.status < 300, data: r.data };
       };
       const { cookie: vrcCookie, result: direct } = await vrcWithFallback(req,
-        (c) => vrcFetch(`${VRC_API}/users/${encoded}?apiKey=${VRC_API_KEY}`, c));
-      if (!direct.res.ok) {
-        const searchOut = await vrcFetch(`${VRC_API}/users?search=${encoded}&n=5&apiKey=${VRC_API_KEY}`, vrcCookie);
-        if (!searchOut.res.ok) return sendVrcError(res, { status: searchOut.status }, '查询 VRChat 用户');
-        const users = await searchOut.res.json();
+        (c) => vrcFetch(`/users/${encoded}?apiKey=${VRC_API_KEY}`, c));
+      if (!direct.ok) {
+        const searchOut = await vrcFetch(`/users?search=${encoded}&n=5&apiKey=${VRC_API_KEY}`, vrcCookie);
+        if (!searchOut.ok) return sendVrcError(res, { status: searchOut.status }, '查询 VRChat 用户');
+        const users = Array.isArray(searchOut.data) ? searchOut.data : [];
         return res.json({ users: users.map(u => ({ id: u.id, displayName: u.displayName, avatarUrl: u.currentAvatarThumbnailImageUrl || u.userIcon || '' })) });
       }
-      const user = await direct.res.json();
+      const user = direct.data;
       res.json({ user: { id: user.id, displayName: user.displayName, avatarUrl: user.currentAvatarThumbnailImageUrl || user.userIcon || '' } });
     } catch (e) { handleError(res, e, 'groups/vrc-lookup'); }
   });
