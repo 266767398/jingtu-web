@@ -601,7 +601,9 @@
         <div id="chatBox" class="chat-box"></div>
         <div id="chatInputArea" class="chat-input-area d-none">
           <textarea id="chatInput" class="chat-input" placeholder="输入消息…" data-i18n-placeholder="chat.input_placeholder" rows="2" aria-label="消息内容"></textarea>
-          <button class="btn btn-sm" data-i18n="chat.send">发送</button>
+          <button type="button" id="chatImageBtn" class="btn btn-xs btn-outline" onclick="pickChatImage()" data-i18n-title="chat.upload_image" title="发送图片" aria-label="发送图片">🖼️</button>
+          <input type="file" id="chatImageInput" accept="image/jpeg,image/png,image/gif,image/webp" class="d-none" data-i18n-aria="chat.upload_image" onchange="onChatImageSelected(this)">
+          <button type="button" id="chatSendBtn" class="btn btn-sm" data-i18n="chat.send">发送</button>
         </div>
       </div>
     </div>
@@ -2337,7 +2339,7 @@
 <script defer src="/js/auth.js?v=20260906a"></script>
 <!-- 路由模块懒加载器：包裹 switchTab，按需 / 空闲预载（见 loader.js）。
      当前语言包由 <head> 内联引导按偏好注入，其余语言包在切换时按需加载。 -->
-<script defer src="/js/loader.js?v=20260915b"></script>
+<script defer src="/js/loader.js?v=20260915c"></script>
 <!-- 全局命令面板（VN-9，VRCNext SmartSearch 借鉴）：依赖 core.js 的 api/esc 等 -->
 <script defer src="/js/smartsearch.js?v=20260906a"></script>
 <!-- 引导启动：调用 initI18n / switchTab，必须在 loader.js 之后 -->
@@ -2573,7 +2575,8 @@ document.addEventListener('DOMContentLoaded', function() {
   bindClick('locationToggleBtn', function() { toggleLocationTracking(); });
 
   // ===== Chat =====
-  var chatSendBtn = document.querySelector('#chatInputArea .btn');
+  // 按 id 绑定发送按钮：输入区新增 📎 图片按钮同为 .btn，类选择器会抢绑定。
+  var chatSendBtn = document.getElementById('chatSendBtn');
   if (chatSendBtn) {
     chatSendBtn.addEventListener('click', function() { sendChatMessage(); });
   }

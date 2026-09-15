@@ -189,6 +189,49 @@ async function sendChatMessage() {
   } catch (e) { if (isApiHandledError(e)) return; toast(__('chat.send_failed'), 'error'); }
 }
 
+// 图片上传入口：WS 不承载二进制，媒体只能走 HTTP multipart；
+// api() 会 JSON.stringify FormData，必须用 apiForm()（浏览器自设 boundary）。
+function pickChatImage() {
+  if (!currentUser) { toast(__('please_login'), 'error'); return; }
+  if (!chatActiveGroupId && !chatActiveUserId) return;
+  const input = document.getElementById('chatImageInput');
+  if (input) input.click();
+}
+
+async function onChatImageSelected(el) {
+  const file = el.files && el.files[0];
+  el.value = ''; // 允许重选同一文件
+  if (!file) return;
+  const ext = '.' + (file.name.split('.').pop() || '').toLowerCase();
+  const IMG_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+  if (!file.type.startsWith('image/') || !IMG_EXTS.includes(ext)) { toast(__('chat.image_type_error'), 'error'); return; }
+  if (file.size > 100 * 1024 * 1024) { toast(__('chat.image_too_large'), 'error'); return; }
+  if (!chatActiveGroupId && !chatActiveUserId) return;
+  const btn = document.getElementById('chatImageBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    let url;
+    if (chatActiveGroupId) { url = `/api/chat/groups/${chatActiveGroupId}/messages`; fd.append('msgType', 'image'); }
+    else { url = '/api/chat/send'; fd.append('receiverId', chatActiveUserId); }
+    const res = await apiForm(url, fd);
+    if (!res.ok) {
+      const d = await res.json().catch(() => null);
+      toast((d && d.error && (d.error.message || d.error)) || __('chat.send_failed'), 'error');
+      return;
+    }
+    const d = await res.json().catch(() => null);
+    if (!d || !d.message) return;
+    if (chatActiveGroupId) appendGroupMessage(d.message);
+    else appendReceivedMessage(d.message, true);
+  } catch (e) {
+    if (!isApiHandledError(e)) toast(__('chat.send_failed'), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 function closeChatDetail() {
   stopTypingIndicator();
   chatActiveUserId = null;
