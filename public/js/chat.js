@@ -584,6 +584,7 @@ function handleChatMessage(msg) {
   }
   if (msg.type === 'chat:sent') {
     const sentMsg = msg.message;
+    if (!sentMsg) return;
     // 仅当仍处于对应私聊会话时才渲染回执，避免切走会话后消息串台显示到其它会话（聊天问题 9.1）
     if (chatActiveUserId === sentMsg.receiverId) {
       appendReceivedMessage(sentMsg, true);
@@ -597,6 +598,18 @@ function handleChatMessage(msg) {
     } else {
       loadChatConversations();
     }
+  }
+  // 自发群消息回执（服务端 group:sent）：渲染自己刚发出的消息
+  if (msg.type === 'group:sent') {
+    if (chatActiveGroupId === msg.groupId && msg.message) {
+      appendGroupMessage(msg.message);
+    }
+    return;
+  }
+  // WS 发送失败反馈（非成员/异常），避免静默丢消息
+  if (msg.type === 'chat:error') {
+    toast(msg.error || __('chat.send_failed'), 'error');
+    return;
   }
   // 群聊实时位置（仅群内可见，不持久化）
   if (msg.type === 'group:location:update') {
@@ -980,15 +993,32 @@ async function regenerateInvite(groupId) {
   } catch (e) { if (isApiHandledError(e)) return; toast(__('chat.op_failed'), 'error'); }
 }
 
-function copyGroupInvite(code) {
-  if (!code) return;
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(code)
-      .then(() => toast(__('chat.copied'), 'success'))
-      .catch(() => toast(__('chat.copy_failed'), 'error'));
-  } else {
-    toast(__('chat.copy_failed'), 'error');
+// 复制文本到剪贴板（兼容 http/内网 IP 等非安全上下文，navigator.clipboard 不可用时降级 execCommand）
+function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
   }
+  return new Promise(function (resolve, reject) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok ? resolve() : reject(new Error('copy failed'));
+    } catch (e) { reject(e); }
+  });
+}
+
+function copyGroupInvite(code) {
+  if (!code) { toast(__('chat.copy_failed'), 'error'); return; }
+  copyTextToClipboard(String(code))
+    .then(() => toast(__('chat.copied'), 'success'))
+    .catch(() => toast(__('chat.copy_failed'), 'error'));
 }
 
 function showInviteCodeModal(code, name) {
@@ -1057,7 +1087,7 @@ function prependMessages(messages) {
   const newContent = messages.map(m => {
     const isMe = m.senderId === currentUser.id;
     return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
-      <div class="chat-msg-bubble">${esc(m.content)}</div>
+      <div class="chat-msg-bubble">${chatMediaBlock(m)}${m.content ? esc(m.content) : ''}</div>
       <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
     </div>`;
   }).join('');
@@ -1073,9 +1103,16 @@ function prependGroupMessages(messages) {
   const prevHeight = chatBox.scrollHeight;
   const newContent = messages.map(m => {
     const isMe = m.senderId === currentUser.id;
+    if (m.msgType === 'location' && m.lat != null && m.lng != null) {
+      return `<div class="chat-msg chat-msg-other">
+        <div class="chat-msg-sender">${esc(m.senderName || '')}</div>
+        <div class="chat-msg-bubble chat-msg-location" onclick="window.openMapLocation&&openMapLocation(${m.lat},${m.lng})">${__('chat.location_sharing')}</div>
+        <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
+      </div>`;
+    }
     return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
       ${!isMe ? `<div class="chat-msg-sender">${esc(m.senderName || '')}</div>` : ''}
-      <div class="chat-msg-bubble">${esc(m.content)}</div>
+      <div class="chat-msg-bubble">${chatMediaBlock(m)}${m.content ? esc(m.content) : ''}</div>
       <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
     </div>`;
   }).join('');

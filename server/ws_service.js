@@ -517,8 +517,10 @@ async function handleGroupChat(userId, msg, ws) {
     };
 
     await broadcastToGroupWithTier(groupId, messageData, userId);
-    
-    ws.send(JSON.stringify({ ...messageData, type: 'chat:sent' }));
+
+    // 发送者回执用独立类型 group:sent（此前复用 chat:sent 且消息无 receiverId，
+    // 前端 chat:sent 分支比对私聊会话永远失配，自发群消息永不回显）
+    ws.send(JSON.stringify({ type: 'group:sent', groupId, message: messageData.message }));
   } catch (e) {
     ws.send(JSON.stringify({ type: 'chat:error', error: '消息发送失败' }));
   }

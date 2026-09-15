@@ -249,8 +249,8 @@ router.get('/groups/:groupId', requireChatAuth, async (req, res) => {
       id: g.id, name: g.name, creatorId: g.creatorId, createdAt: g.createdAt,
       isPublic: g.is_public === null ? true : !!g.is_public
     };
-    // 邀请码仅返回给群主，避免泄露私密群入口
-    if (g.creator_id === uid && g.invite_code) group.inviteCode = g.invite_code;
+    // 邀请码仅返回给群主，避免泄露私密群入口（SQL 已别名 creatorId，勿再读 creator_id）
+    if (g.creatorId === uid && g.invite_code) group.inviteCode = g.invite_code;
     const [members] = await getPool().query(`
       SELECT u.id, u.display_name AS displayName, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url
       FROM chat_group_members gm JOIN users u ON u.id = gm.user_id WHERE gm.group_id = ?`, [gid]);
@@ -426,11 +426,11 @@ router.post('/groups/:groupId/messages', requireChatAuth, secureUpload(chatUploa
     const [result] = await getPool().query(
       `INSERT INTO chat_group_messages (group_id, sender_id, content, msg_type, lat, lng, media_url, media_type, file_size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [gid, uid, trimmed, safeMsgType, safeLat, safeLng, mediaUrl, mediaType, fileSize]);
+    const [senderRow] = await getPool().query(`SELECT display_name FROM users WHERE id = ?`, [uid]);
+    const senderName = senderRow[0]?.display_name || '用户';
     if (notificationService) {
       const [group] = await getPool().query(`SELECT name FROM chat_groups WHERE id = ?`, [gid]);
       const groupName = group[0]?.name || '群聊';
-      const [sender] = await getPool().query(`SELECT display_name FROM users WHERE id = ?`, [uid]);
-      const senderName = sender[0]?.display_name || '用户';
       const notifyContent = mediaType ? `${senderName} 发送了${mediaType === 'image' ? '图片' : mediaType === 'video' ? '视频' : '语音'}` : trimmed.substring(0, 50);
       const [members] = await getPool().query(`SELECT user_id FROM chat_group_members WHERE group_id = ? AND user_id != ?`, [gid, uid]);
       for (const member of members) {
@@ -443,7 +443,22 @@ router.post('/groups/:groupId/messages', requireChatAuth, secureUpload(chatUploa
         );
       }
     }
-    res.json({ ok: true, messageId: result.insertId });
+    // 返回完整消息对象（字段与 GET /groups/:id/messages 对齐），供 HTTP 兜底路径前端直接渲染
+    const message = {
+      id: result.insertId,
+      groupId: gid,
+      senderId: uid,
+      senderName,
+      content: trimmed,
+      msgType: safeMsgType,
+      lat: safeLat,
+      lng: safeLng,
+      mediaUrl,
+      mediaType,
+      fileSize,
+      createdAt: new Date().toISOString()
+    };
+    res.json({ ok: true, messageId: result.insertId, message });
   } catch (e) { handleError(res, e, '[chat/group-send]'); }
 });
 
