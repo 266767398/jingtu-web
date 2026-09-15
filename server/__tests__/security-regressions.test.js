@@ -346,7 +346,8 @@ describe('security regressions', () => {
   test('wires every rate limiter to the shared hybrid store', () => {
     const countLimiters = (source) => (source.match(/rateLimit\(\{/g) || []).length;
     const countStores = (source) => (source.match(/store:\s*hybridStore\(/g) || []).length;
-    expect(countLimiters(files.securityMiddleware)).toBe(5);
+    // P3-13（2026-09-15）为 /api/jtt 新增 jttLimiter，security 中间件 limiter 数 5→6
+    expect(countLimiters(files.securityMiddleware)).toBe(6);
     expect(countStores(files.securityMiddleware)).toBe(countLimiters(files.securityMiddleware));
     expect(countLimiters(files.rateLimitMiddleware)).toBe(6);
     expect(countStores(files.rateLimitMiddleware)).toBe(countLimiters(files.rateLimitMiddleware));
