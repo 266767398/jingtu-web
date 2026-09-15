@@ -115,6 +115,8 @@
 .world-grid-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }
 .world-grid-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .world-grid-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.world-grid-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.world-grid-thumb { width: 32px; height: 32px; border-radius: 8px; object-fit: cover; flex-shrink: 0; border: 1px solid var(--border); background: var(--card); }
 
 /* ===== 缇ょ粍鎴愬憳鍗＄墖锛氫俊浠荤瓑绾ф敼鐢ㄥご鍍?淇′换鐜?锛圴RCX 椋庢牸锛夛紝涓庡彸涓嬭鍦ㄧ嚎鐘舵€佺偣鍖哄垎锛堜慨澶嶄袱涓豢鍦堟贩娣嗭級 ===== */
 /* 淇¤獕鏂囨湰锛氬崱鐗囦俊鎭尯鏄惧紡灞曠ず淇′换绛夌骇锛屽讥琛?璇︽儏鐪嬩笉鐫€淇¤獕" */

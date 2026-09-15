@@ -736,7 +736,7 @@ function _renderMapWorldsPanel(worlds) {
           region: (parsed.region || '').toUpperCase(),
           isPrivate: !!parsed.isPrivate,
           memberCount: 0,
-          worldName: w.worldName,
+          worldName: w.worldDisplayName || w.worldName,
           members: []
         });
       }
@@ -836,10 +836,15 @@ function _renderMapGrid(worlds) {
       instMap.get(key).members.push(m);
     }
     const instArr = Array.from(instMap.values());
+    const wName = w.worldDisplayName || w.worldName;
+    const wThumb = w.worldImageUrl || '';
     return `
       <div class="world-grid-card">
         <div class="world-grid-header">
-          <span class="world-grid-name" title="${esc(w.worldName)}">🌐 ${esc(w.worldName)}</span>
+          <span class="world-grid-title">
+            ${wThumb ? `<img class="world-grid-thumb" src="${escAttr(wThumb)}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+            <span class="world-grid-name" title="${esc(wName)}">🌐 ${esc(wName)}</span>
+          </span>
           <div class="world-grid-meta">
             <span class="world-grid-count" title="${__('map.world_total_label', {n: w.totalCount})}${w.totalCountEstimated ? '（' + __('map.world_total_estimated') + '）' : ''}">${__('map.world_total_label', {n: w.totalCount})}</span>
             <span class="world-grid-sub">${__('map.world_friend_label', {n: w.friendCount})} · ${__('map.world_member_label', {n: w.count})}</span>

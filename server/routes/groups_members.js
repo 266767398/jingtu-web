@@ -15,6 +15,7 @@ const { requireAuth, requireAdminCompat } = require('../auth');
 const { vrchatGetInstance } = require('../vrc');
 const logger = require('../logger');
 const { vrcWithFallback } = require('./groups_helpers');
+const { getCachedWorld } = require('../world_cache');
 
 const VRC = require('../vrc');
 const VRC_INSTANCE_PATTERN = VRC.VRC_INSTANCE_PATTERN || /^wrld_[0-9a-fA-F-]+:.+$/;
@@ -256,9 +257,45 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
           await Promise.all(batch.map(item => fetchInstance(item.instanceId)));
         }
       })();
-      await Promise.race([
-        drain,
-        new Promise(r => setTimeout(() => r('timeout'), INSTANCE_TOTAL_TIMEOUT))
+
+      // P2-99：group_roster.world_name 存的是 VRCX location 首段——通常是 wrld_ 裸 ID 而非世界名，
+      // 面板头会显示 ID。这里接 world_cache 批量富化真实名称/缩略图：
+      // 缓存（vrc_worlds_cache，24h）命中零回源；miss 才回源 VRChat，与收藏富化同口径：并发 5、冷回源预算 25。
+      const WRID_PATTERN = /^wrld_[0-9a-fA-F-]+$/i;
+      const enrichQueue = [];
+      for (const entry of worldMap.values()) {
+        if (WRID_PATTERN.test(entry.worldName) && !enrichQueue.includes(entry.worldName)) {
+          enrichQueue.push(entry.worldName);
+        }
+      }
+      enrichQueue.splice(25); // 单次请求冷回源上限，超额条目维持裸 ID 展示
+      const worldMetaMap = new Map();
+      let enrichCursor = 0;
+      async function enrichWorker() {
+        while (enrichCursor < enrichQueue.length) {
+          const worldId = enrichQueue[enrichCursor++];
+          try {
+            const { result } = await vrcWithFallback(req, (c) => getCachedWorld(worldId, c), getVRCCookieFn, getUserVRCCookieFn);
+            const w = result && typeof result === 'object' && (result.name || result.imageUrl) ? result : null;
+            if (w) {
+              worldMetaMap.set(worldId, {
+                name: w.name || '',
+                image: w.imageUrl || w.thumbnailImageUrl || (w.thumbnail && w.thumbnail.url) || ''
+              });
+            }
+          } catch (err) {
+            logger.warn(`[groups/worlds] 世界信息富化失败 ${worldId}: ${err.message || err}`);
+          }
+        }
+      }
+      const enrich = Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, enrichQueue.length) }, () => enrichWorker())
+      );
+
+      await Promise.all([
+        Promise.race([drain, new Promise(r => setTimeout(() => r('timeout'), INSTANCE_TOTAL_TIMEOUT))]),
+        // 富化以 DB 缓存读为主，整体限时 6s：超时后未完成的世界按裸 ID 展示，不拖慢接口返回
+        Promise.race([enrich, new Promise(r => setTimeout(() => r('timeout'), 6000))])
       ]);
 
       const result = [];
@@ -277,8 +314,12 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
           totalCount = entry.count;
         }
 
+        const meta = WRID_PATTERN.test(entry.worldName) ? worldMetaMap.get(entry.worldName) : null;
         result.push({
           worldName: entry.worldName,
+          worldId: WRID_PATTERN.test(entry.worldName) ? entry.worldName : '',
+          worldDisplayName: (meta && meta.name) || entry.worldName,
+          worldImageUrl: (meta && meta.image) || '',
           count: entry.count,
           friendCount: entry.friendCount,
           totalCount,

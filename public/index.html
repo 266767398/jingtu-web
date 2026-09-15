@@ -33,7 +33,7 @@
      首屏默认落在 home Tab，members/collections/social/地图/“更多”菜单等样式多为
      第二屏或弹层，异步加载后由浏览器空闲补全，导航到对应 Tab 时已就绪（P2-21） -->
 <link rel="stylesheet" href="/css/06b-presence.css?v=20260906a" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/06-members.css?v=20260906a" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/06-members.css?v=20260915a" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="/css/collections.css?v=20260906a" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="/css/10-social.css?v=20260906a" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="/css/baidu-modern.css?v=20260906a" media="print" onload="this.media='all'">
@@ -43,7 +43,7 @@
 <!-- 无 JS 兜底：保证禁用 JS 时样式仍加载 -->
 <noscript>
   <link rel="stylesheet" href="/css/06b-presence.css?v=20260906a">
-  <link rel="stylesheet" href="/css/06-members.css?v=20260906a">
+  <link rel="stylesheet" href="/css/06-members.css?v=20260915a">
   <link rel="stylesheet" href="/css/collections.css?v=20260906a">
   <link rel="stylesheet" href="/css/10-social.css?v=20260906a">
   <link rel="stylesheet" href="/css/baidu-modern.css?v=20260906a">
@@ -2337,7 +2337,7 @@
 <script defer src="/js/auth.js?v=20260906a"></script>
 <!-- 路由模块懒加载器：包裹 switchTab，按需 / 空闲预载（见 loader.js）。
      当前语言包由 <head> 内联引导按偏好注入，其余语言包在切换时按需加载。 -->
-<script defer src="/js/loader.js?v=20260913a"></script>
+<script defer src="/js/loader.js?v=20260915a"></script>
 <!-- 全局命令面板（VN-9，VRCNext SmartSearch 借鉴）：依赖 core.js 的 api/esc 等 -->
 <script defer src="/js/smartsearch.js?v=20260906a"></script>
 <!-- 引导启动：调用 initI18n / switchTab，必须在 loader.js 之后 -->
