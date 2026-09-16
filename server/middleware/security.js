@@ -9,38 +9,47 @@ const { getLimits } = require('../settings');
 const { hybridStore } = require('./rate_limit_store');
 const { fail } = require('../utils');
 
+// 魔数表：值为首字节起逐字节比对，null 表示该字节位置通配（跳过比对）。
+// ISO-BMFF 容器（mp4/mov/m4a）前 4 字节是可变的 atom size、第 4-8 字节才是 'ftyp'，
+// 故用 [null×4, ftyp] 表达，避免旧写法 [0,0,0,0x14,ftyp] 只匹配 size=20 文件的漏判。
 const FILE_SIGNATURES = {
   'image/jpeg': [0xFF, 0xD8, 0xFF],
   'image/png': [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
   'image/gif': [0x47, 0x49, 0x46, 0x38],
   'image/webp': [0x52, 0x49, 0x46, 0x46],
-  'video/mp4': [0x00, 0x00, 0x00, 0x14, 0x66, 0x74, 0x79, 0x70],
+  'video/mp4': [null, null, null, null, 0x66, 0x74, 0x79, 0x70],
+  'video/quicktime': [null, null, null, null, 0x66, 0x74, 0x79, 0x70],
+  'audio/mp4': [null, null, null, null, 0x66, 0x74, 0x79, 0x70],
   'video/webm': [0x1A, 0x45, 0xDF, 0xA3],
-  'video/ogg': [0x4F, 0x67, 0x67, 0x53]
+  'video/x-matroska': [0x1A, 0x45, 0xDF, 0xA3],
+  'video/ogg': [0x4F, 0x67, 0x67, 0x53],
+  'audio/wav': [0x52, 0x49, 0x46, 0x46, null, null, null, null, 0x57, 0x41, 0x56, 0x45],
+  'video/x-msvideo': [0x52, 0x49, 0x46, 0x46, null, null, null, null, 0x41, 0x56, 0x49, 0x20]
 };
 
 const DANGEROUS_EXTENSIONS = ['exe', 'bat', 'sh', 'cmd', 'com', 'scr', 'pif', 'msi', 'dll', 'sys', 'ps1', 'jar', 'php', 'py', 'pl', 'rb', 'asp', 'aspx', 'jsp', 'jspx', 'html', 'htm', 'js', 'vbs', 'hta', 'wsf', 'cpl', 'lnk', 'url', 'hta'];
 
-const SAFE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'ogg', 'pdf', 'zip', 'rar', '7z', 'txt', 'json'];
+const SAFE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'webm', 'mkv', 'avi', 'ogg', 'mp3', 'wav', 'm4a', 'pdf', 'zip', 'rar', '7z', 'txt', 'json'];
 
 function verifyFileSignature(filePath, mimeType) {
-  if (!FILE_SIGNATURES[mimeType]) return true;
-
   const expected = FILE_SIGNATURES[mimeType];
-  // 仅读取前 8 字节做魔数比对，避免 readFileSync 整个文件造成内存峰值
-  const buf = Buffer.alloc(8);
+  if (!expected) return true;
+
+  // 按签名长度读取头部字节（最长 RIFF 子格式需 12 字节），避免整文件读入内存。
+  const len = expected.length;
+  const buf = Buffer.alloc(len);
   let fd;
   try {
     fd = fs.openSync(filePath, 'r');
-    // 签名最长 8 字节，读取前 8 字节足够覆盖所有 FILE_SIGNATURES
-    fs.readSync(fd, buf, 0, 8, 0);
+    fs.readSync(fd, buf, 0, len, 0);
   } catch (e) {
     return false;
   } finally {
     if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
   }
 
-  for (let i = 0; i < expected.length; i++) {
+  for (let i = 0; i < len; i++) {
+    if (expected[i] === null) continue; // 通配字节位置（如容器 atom size / RIFF 长度字段）
     if (buf[i] !== expected[i]) {
       return false;
     }
@@ -80,8 +89,14 @@ async function validateUploadFile(file, maxSize = 200 * 1024 * 1024) {
   else if (ext === 'gif') expectedMimeType = 'image/gif';
   else if (ext === 'webp') expectedMimeType = 'image/webp';
   else if (ext === 'mp4') expectedMimeType = 'video/mp4';
+  else if (ext === 'mov') expectedMimeType = 'video/quicktime';
+  else if (ext === 'm4a') expectedMimeType = 'audio/mp4';
   else if (ext === 'webm') expectedMimeType = 'video/webm';
+  else if (ext === 'mkv') expectedMimeType = 'video/x-matroska';
+  else if (ext === 'avi') expectedMimeType = 'video/x-msvideo';
   else if (ext === 'ogg') expectedMimeType = 'video/ogg';
+  else if (ext === 'wav') expectedMimeType = 'audio/wav';
+  // mp3 不设魔数闸：文件可能以 ID3 标签或裸帧同步字（0xFF Ex/Fx）开头，单一签名会误杀合法音频
   
   if (expectedMimeType && !verifyFileSignature(file.path, expectedMimeType)) {
     errors.push('文件内容与扩展名不匹配');
