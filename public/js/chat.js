@@ -189,31 +189,38 @@ async function sendChatMessage() {
   } catch (e) { if (isApiHandledError(e)) return; toast(__('chat.send_failed'), 'error'); }
 }
 
-// 图片上传入口：WS 不承载二进制，媒体只能走 HTTP multipart；
+// 媒体上传入口（图片/视频/语音）：WS 不承载二进制，媒体只能走 HTTP multipart；
 // api() 会 JSON.stringify FormData，必须用 apiForm()（浏览器自设 boundary）。
-function pickChatImage() {
+// 三类入口仅校验规则与按钮 id 不同，收敛到共享实现，保留各入口函数名供 DOM 内联调用。
+const CHAT_MEDIA_RULES = {
+  image: { btn: 'chatImageBtn', kind: 'image/', exts: ['.jpg', '.jpeg', '.png', '.gif', '.webp'], typeKey: 'chat.image_type_error', sizeKey: 'chat.image_too_large' },
+  video: { btn: 'chatVideoBtn', kind: 'video/', exts: ['.mp4', '.mov', '.webm', '.avi', '.mkv'], typeKey: 'chat.video_type_error', sizeKey: 'chat.video_too_large' },
+  audio: { btn: 'chatAudioBtn', kind: 'audio/', exts: ['.mp3', '.wav', '.ogg', '.m4a'], typeKey: 'chat.audio_type_error', sizeKey: 'chat.audio_too_large' }
+};
+
+function pickChatMedia(inputId) {
   if (!currentUser) { toast(__('please_login'), 'error'); return; }
   if (!chatActiveGroupId && !chatActiveUserId) return;
-  const input = document.getElementById('chatImageInput');
+  const input = document.getElementById(inputId);
   if (input) input.click();
 }
 
-async function onChatImageSelected(el) {
+async function uploadChatMedia(el, media) {
+  const rule = CHAT_MEDIA_RULES[media];
   const file = el.files && el.files[0];
   el.value = ''; // 允许重选同一文件
   if (!file) return;
   const ext = '.' + (file.name.split('.').pop() || '').toLowerCase();
-  const IMG_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-  if (!file.type.startsWith('image/') || !IMG_EXTS.includes(ext)) { toast(__('chat.image_type_error'), 'error'); return; }
-  if (file.size > 100 * 1024 * 1024) { toast(__('chat.image_too_large'), 'error'); return; }
+  if (!file.type.startsWith(rule.kind) || !rule.exts.includes(ext)) { toast(__(rule.typeKey), 'error'); return; }
+  if (file.size > 100 * 1024 * 1024) { toast(__(rule.sizeKey), 'error'); return; }
   if (!chatActiveGroupId && !chatActiveUserId) return;
-  const btn = document.getElementById('chatImageBtn');
+  const btn = document.getElementById(rule.btn);
   if (btn) btn.disabled = true;
   try {
     const fd = new FormData();
     fd.append('file', file);
     let url;
-    if (chatActiveGroupId) { url = `/api/chat/groups/${chatActiveGroupId}/messages`; fd.append('msgType', 'image'); }
+    if (chatActiveGroupId) { url = `/api/chat/groups/${chatActiveGroupId}/messages`; fd.append('msgType', media); }
     else { url = '/api/chat/send'; fd.append('receiverId', chatActiveUserId); }
     const res = await apiForm(url, fd);
     if (!res.ok) {
@@ -231,6 +238,13 @@ async function onChatImageSelected(el) {
     if (btn) btn.disabled = false;
   }
 }
+
+function pickChatImage() { pickChatMedia('chatImageInput'); }
+function onChatImageSelected(el) { return uploadChatMedia(el, 'image'); }
+function pickChatVideo() { pickChatMedia('chatVideoInput'); }
+function onChatVideoSelected(el) { return uploadChatMedia(el, 'video'); }
+function pickChatAudio() { pickChatMedia('chatAudioInput'); }
+function onChatAudioSelected(el) { return uploadChatMedia(el, 'audio'); }
 
 function closeChatDetail() {
   stopTypingIndicator();
