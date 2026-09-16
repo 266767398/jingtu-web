@@ -361,6 +361,8 @@
 | `PUT /api/chat/groups/:groupId/messages/:msgId` | `{content}`；仅作者 | `{ok:true,message}` |
 | `DELETE /api/chat/groups/:groupId/messages/:msgId` | 作者/群权限 | `{ok:true,message}` |
 
+> **聊天媒体上传**（2026-09-16 起）：`POST /api/chat/send` 与 `POST /api/chat/groups/:groupId/messages` 均为 multipart，字段 `file` 可选，经 `chatUpload`（multer 100MB + `createFileFilter(['IMAGE','VIDEO','AUDIO'])`）校验。上传成功后按扩展名判定 `media_type` 入库：图片（`.jpg/.jpeg/.png/.gif/.webp`）→ `image`、视频（`.mp4/.mov/.webm/.avi/.mkv`）→ `video`、音频（`.mp3/.wav/.ogg/.m4a`）→ `audio`；消息响应体含 `media_url`/`media_type`/`file_size`，经 WS `chat:new`（私聊）/`group:new`（群聊）实时下发对端。群聊另以 `msgType` 字段（前端白名单 `text/image/video/audio/location`）标注消息类型。前端仅经 `apiForm`（勿用 JSON 序列化的 `api`）上传，字段 `file`；私聊附 `receiverId`、群聊附 `msgType`。
+
 ### 6.2 直播（`live.js`，前缀 `/api/live`）
 
 | 方法与路径 | 权限 | 请求 | 成功响应 |
