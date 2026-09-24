@@ -152,7 +152,7 @@ class CheckinModule {
       // api() 对 400/409（今日已签到）不抛异常，必须显式判断
       if (!res.ok) {
         let text = __('checkin.error');
-        try { const err = await res.json(); text = err.message || err.error?.message || text; } catch {}
+        try { const err = await res.json(); text = errText(err) || text; } catch {}
         setMsg(text, 'error');
         return;
       }

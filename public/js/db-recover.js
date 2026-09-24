@@ -14,6 +14,27 @@
     testResult.style.display = 'block';
     testResult.innerHTML = msg;
   }
+
+  // P2-100：本页不加载 core.js，内联轻量版错误文案提取（与 core.js errText 同逻辑）。
+  // 兼容 string / Error / 嵌套包络 {error:{code,message}} / 扁平包络 {error:'串',code} / {detail} / {message}；
+  // 命中 code 优先走 error.* 语言包翻译，回退后端原文；解析不出返回 ''。
+  function errText(d) {
+    if (d == null) return '';
+    if (typeof d === 'string') return d;
+    if (d instanceof Error) return d.message || '';
+    const code = (d.error && typeof d.error === 'object' && d.error.code) || (typeof d.code === 'string' ? d.code : '');
+    if (code) {
+      const translated = __('error.' + code);
+      if (translated && translated !== 'error.' + code) return translated;
+    }
+    if (typeof d.error === 'string') return d.error;
+    if (d.error && typeof d.error === 'object') {
+      return d.error.message || (typeof d.detail === 'string' ? d.detail : '') || code || '';
+    }
+    if (typeof d.detail === 'string') return d.detail;
+    if (typeof d.message === 'string') return d.message;
+    return '';
+  }
   function setLoading(btn, on) {
     btn.disabled = on;
     if (on) {
@@ -104,7 +125,7 @@
       return false;
     }
     // 业务错误：后端会给出可读 message / error
-    const msg = data.error || data.detail || (__('db_recover.request_failed') + ' (HTTP ' + res.status + ')');
+    const msg = errText(data) || (__('db_recover.request_failed') + ' (HTTP ' + res.status + ')');
     showResult('error', '✗ ' + msg);
     return false;
   }

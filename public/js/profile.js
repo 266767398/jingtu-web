@@ -364,7 +364,7 @@ async function bindVRChatWithPassword() {
       }
     } else {
       const err = await res.json();
-      toast(err.error || __('profile.bind_failed'), 'error');
+      toast(errText(err) || __('profile.bind_failed'), 'error');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.bind_failed') + ': ' + err.message, 'error'); }
   finally {
@@ -417,7 +417,7 @@ async function confirmVrcBind2fa() {
       }
     } else {
       const err = await res.json();
-      toast(err.error || __('profile.verify_failed'), 'error');
+      toast(errText(err) || __('profile.verify_failed'), 'error');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.verify_failed_msg') + ': ' + err.message, 'error'); }
   finally {

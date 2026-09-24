@@ -305,7 +305,11 @@ function connectWebSocket() {
           playNotificationSound();
         }
       }
-    } catch {}
+    } catch (err) {
+      // 消息处理异常不再静默吞掉：保留可诊断性（单条消息异常不影响后续消息）
+      // eslint-disable-next-line no-console
+      console.warn('WS 消息处理异常:', err && err.message ? err.message : err);
+    }
   };
   wsClient.onclose = (ev) => {
     clearInterval(wsPingTimer);
@@ -742,7 +746,7 @@ async function uploadPhoto(file, caption = '', cateId = null, eventId = null) {
       }
     } else {
       const data = await res.json().catch(() => ({}));
-      toast(data.error || __('main.upload_failed'), 'error');
+      toast(errText(data) || __('main.upload_failed'), 'error');
     }
   } catch (err) {
     if (isApiHandledError(err)) return;

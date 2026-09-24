@@ -398,7 +398,7 @@ async function saveMemberNote() {
       closeModal('memberNotesModal');
     } else {
       const err = await res.json();
-      if (errorEl) errorEl.textContent = err.error || __('members.notes_save_failed');
+      if (errorEl) errorEl.textContent = errText(err) || __('members.notes_save_failed');
       if (errorEl) errorEl.classList.remove('d-none');
     }
   } catch (e) {
@@ -488,7 +488,7 @@ async function submitUserReport() {
       closeModal('reportUserModal');
     } else {
       const err = await res.json();
-      if (errorEl) { errorEl.textContent = err.error || __('members.report_failed'); errorEl.classList.remove('d-none'); }
+      if (errorEl) { errorEl.textContent = errText(err) || __('members.report_failed'); errorEl.classList.remove('d-none'); }
     }
   } catch (e) {
     if (errorEl) { errorEl.textContent = __('members.report_failed'); errorEl.classList.remove('d-none'); }
@@ -1096,7 +1096,7 @@ async function vrcSendInvite(targetUserId, instanceId, btn) {
       toast(__('members.vrc_invite_sent'), 'success');
     } else {
       const err = await res.json().catch(() => ({}));
-      toast(err.error || __('members.vrc_invite_failed'), 'error');
+      toast(errText(err) || __('members.vrc_invite_failed'), 'error');
     }
   } catch (e) {
     toast(__('members.vrc_invite_failed'), 'error');
@@ -1118,7 +1118,7 @@ async function vrcSendFriendRequest(targetUserId, btn) {
       if (btn) btn.remove();
     } else {
       const err = await res.json().catch(() => ({}));
-      toast(err.error || __('members.vrc_friend_request_failed'), 'error');
+      toast(errText(err) || __('members.vrc_friend_request_failed'), 'error');
       if (btn) btn.disabled = false;
     }
   } catch (e) {
@@ -1247,7 +1247,7 @@ async function favoriteAvatar() {
       if (btn) { btn.disabled = true; btn.textContent = '✅ ' + __('members.avatar_favorited_label'); }
     } else {
       const err = await res.json().catch(() => ({}));
-      toast((err.error && err.error.message) || __('members.avatar_favorite_failed'), 'error');
+      toast(errText(err) || __('members.avatar_favorite_failed'), 'error');
     }
   } catch (e) {
     toast(__('members.avatar_favorite_failed'), 'error');
@@ -1269,7 +1269,7 @@ async function saveAvatarTags() {
       toast(__('members.avatar_tags_saved'), 'success');
     } else {
       const err = await res.json().catch(() => ({}));
-      toast((err.error && err.error.message) || __('members.avatar_tags_save_failed'), 'error');
+      toast(errText(err) || __('members.avatar_tags_save_failed'), 'error');
     }
   } catch (e) {
     toast(__('members.avatar_tags_save_failed'), 'error');

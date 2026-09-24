@@ -4,20 +4,6 @@
 (function () {
   'use strict';
 
-  // 错误文案：优先按 code 取语言包 error.*（与 core.js safeErrMsg 一致），回退后端 message
-  function errMsg(d) {
-    try {
-      if (!d) return '';
-      if (typeof d.error === 'string') return d.error;
-      if (d.error && typeof d.error === 'object') {
-        const code = d.error.code;
-        if (code) { const t = __('error.' + code); if (t && t !== 'error.' + code) return t; }
-        return d.error.message || code || '';
-      }
-      return '';
-    } catch (e) { return ''; }
-  }
-
   async function req(method, path, body) {
     const opts = { method };
     if (body !== undefined) {
@@ -124,7 +110,7 @@
     try {
       const res = await api('/api/friends/requests', { method: 'GET' });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errMsg(d))}</div>`; return; }
+      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
       const incoming = (d.incoming || []);
       const outgoing = (d.outgoing || []);
       if (!incoming.length && !outgoing.length) {
@@ -161,7 +147,7 @@
         api('/api/friends/mutuals', { method: 'GET' })
       ]);
       const d = await fRes.json().catch(() => ({}));
-      if (!fRes.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errMsg(d))}</div>`; return; }
+      if (!fRes.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
       const list = (d.list || []);
       const md = await mRes.json().catch(() => ({}));
       const counts = (md && md.counts) || {};
@@ -188,7 +174,7 @@
     try {
       const res = await api('/api/friends?status=blocked', { method: 'GET' });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errMsg(d))}</div>`; return; }
+      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
       const list = (d.list || []);
       if (!list.length) { el.innerHTML = `<div class="text-muted2 p-16">${esc(__('friends.no_friends'))}</div>`; return; }
       el.innerHTML = list.map(r => userRowHtml(r,
@@ -207,7 +193,7 @@
     try {
       const res = await api('/api/users/search?q=' + encodeURIComponent(q.trim()), { method: 'GET' });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-8">${esc(errMsg(d))}</div>`; return; }
+      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-8">${esc(errText(d))}</div>`; return; }
       const users = d.users || [];
       if (!users.length) { el.innerHTML = `<div class="text-muted2 p-8">${esc(__('friends.no_friends'))}</div>`; return; }
       el.innerHTML = users.map(u => userRowHtml(u,
@@ -268,7 +254,7 @@
     try {
       const res = await api(`/api/friends/feed?page=${_feedPage}&pageSize=15`, { method: 'GET' });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { if (reset) el.innerHTML = `<div class="text-muted2 p-16">${esc(errMsg(d))}</div>`; return; }
+      if (!res.ok) { if (reset) el.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
       const items = d.items || [];
       if (reset && !items.length) {
         el.innerHTML = `<div class="text-muted2 p-16">${esc(__('friends.feed_empty'))}</div>`;
@@ -321,7 +307,7 @@
     try {
       const res = await api('/api/friends/mutuals/' + id, { method: 'GET' });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { if (body) body.innerHTML = `<div class="text-muted2 p-16">${esc(errMsg(d))}</div>`; return; }
+      if (!res.ok) { if (body) body.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
       const list = d.mutualFriends || [];
       if (title) title.textContent = (__('friends.mutual_title') || __('auto_friends_6')) + '（' + (d.count || 0) + '）';
       if (body) body.innerHTML = list.length
@@ -377,7 +363,7 @@
     try {
       const res = await api('/api/friends/history/' + id, { method: 'GET' });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { if (body) body.innerHTML = `<div class="text-muted2 p-16">${esc(errMsg(d))}</div>`; return; }
+      if (!res.ok) { if (body) body.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
       const items = d.items || [];
       if (!items.length) {
         if (body) body.innerHTML = `<div class="text-muted2 p-16">${esc(__('friends.hist_empty'))}</div>`;
@@ -432,7 +418,7 @@
     try {
       const res = await api('/api/friends/world-history/' + id, { method: 'GET' });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { if (body) body.innerHTML = `<div class="text-muted2 p-16">${esc(errMsg(d))}</div>`; return; }
+      if (!res.ok) { if (body) body.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
       const items = (d.items || []);
       if (!items.length) {
         if (body) body.innerHTML = `<div class="text-muted2 p-16">${esc(__('friends.world_hist_empty'))}</div>`;
@@ -485,7 +471,7 @@
       else if (action === 'unblock') r = await req('DELETE', '/api/friends/block/' + id);
       else return;
 
-      if (!r.res.ok) { toast(errMsg(r.d) || __('friends.op_failed'), 'error'); return; }
+      if (!r.res.ok) { toast(errText(r.d) || __('friends.op_failed'), 'error'); return; }
       const msg = {
         add: __('friends.request_sent'),
         accept: __('friends.request_accepted'),

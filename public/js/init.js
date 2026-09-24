@@ -148,7 +148,7 @@ async function doInit() {
       }
     } else {
       const data = await res.json().catch(() => ({}));
-      toast(data.error || __('init.create_failed'), 'error');
+      toast(errText(data) || __('init.create_failed'), 'error');
     }
   } catch (err) {
     toast(__('init.request_failed') + ': ' + err.message, 'error');

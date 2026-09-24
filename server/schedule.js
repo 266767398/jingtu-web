@@ -773,3 +773,4 @@ module.exports.setNotificationService = setNotificationService;
 module.exports.setVRCCookieFn = setVRCCookieFn;
 module.exports.setWsService = setWsService;
 module.exports.forceRosterBroadcast = forceRosterBroadcast;
+module.exports.getGroupStatsSnapshot = getGroupStatsSnapshot;

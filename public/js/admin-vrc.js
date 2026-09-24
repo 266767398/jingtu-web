@@ -376,7 +376,7 @@ async function doSystemVrcLogin() {
     } else {
       const errData = await res.json();
       const errEl = document.getElementById('systemVrcError');
-      if (errEl) { errEl.textContent = errData.error || __('admin_vrc.login_failed'); errEl.classList.remove('d-none'); }
+      if (errEl) { errEl.textContent = errText(errData) || __('admin_vrc.login_failed'); errEl.classList.remove('d-none'); }
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.login_failed_msg') + ': ' + err.message, 'error'); }
 }
@@ -427,7 +427,7 @@ async function saveVrcCookieExpire() {
       checkSystemVrcStatus();
     } else {
       const err = await res.json();
-      toast(err.error || __('admin_vrc.save_failed'), 'error');
+      toast(errText(err) || __('admin_vrc.save_failed'), 'error');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.save_failed') + ': ' + err.message, 'error'); }
 }
@@ -448,7 +448,7 @@ async function adminSyncGroupMembers() {
       toast(__('admin_vrc.synced_members', {n: data.total || 0}), 'success');
     } else {
       const err = await res.json();
-      toast(err.error || __('admin_vrc.sync_err'), 'error');
+      toast(errText(err) || __('admin_vrc.sync_err'), 'error');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.sync_failed') + ': ' + err.message, 'error'); }
   finally {
@@ -607,7 +607,7 @@ async function saveSystemConfig() {
     } else {
       // 与同文件 vrcCookieExpire 一致：非 2xx 给明确失败提示，不再静默零反馈
       const err = await res.json().catch(() => ({}));
-      toast((typeof err.error === 'string' && err.error) || __('admin_vrc.save_failed'), 'error');
+      toast(errText(err) || __('admin_vrc.save_failed'), 'error');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.save_failed') + ': ' + err.message, 'error'); }
 }

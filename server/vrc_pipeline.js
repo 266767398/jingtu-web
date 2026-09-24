@@ -21,6 +21,8 @@ class VRCPipeline {
     this._connectTimeoutMs = 15000;
     this._maxReconnectDelayMs = 60000;
     this._warnedUnknownTypes = new Set();
+    this._sessionErrorCount = 0;
+    this._lastSessionError = null;
   }
 
   setAuthToken(token) {
@@ -39,7 +41,8 @@ class VRCPipeline {
 
     this._clearTimers();
 
-    const url = `${PIPELINE_URL}/?auth=${encodeURIComponent(this.authToken)}`;
+    // 官方 Pipeline 握手参数为 authToken（authcookie_xxx），对齐 VRCX 与官方文档。
+    const url = `${PIPELINE_URL}/?authToken=${encodeURIComponent(this.authToken)}`;
     console.log(`[VRCPipeline] 正在连接 VRChat Pipeline...`);
 
     const socketId = ++this._socketId;
@@ -103,7 +106,13 @@ class VRCPipeline {
       this._clearTimers();
       this.isConnected = false;
       const reasonText = reason ? reason.toString() : '';
-      console.log(`🔌 [VRCPipeline] 连接关闭 (${code}): ${reasonText || '无'}`);
+      // 1006 = 无关闭帧的异常关闭。若此前收到过服务端 err 帧（会话被拒），
+      // 此 1006 大概率为其闭环，直接把原因带上，避免"为什么循环"无从查起。
+      if (code === 1006 && this._lastSessionError && this._lastSessionError.err) {
+        console.error(`🔌 [VRCPipeline] 连接异常关闭 (1006)：${this._lastSessionError.err}`);
+      } else {
+        console.log(`🔌 [VRCPipeline] 连接关闭 (${code}): ${reasonText || '无'}`);
+      }
       this.emit('disconnected', { code, reason });
       this._scheduleReconnect();
     });
@@ -173,6 +182,13 @@ class VRCPipeline {
   }
 
   handleMessage(msg) {
+    // 服务端 err 帧（无 type 字段，如 "authToken doesn't correspond with an active session"）：
+    // 连接可成功打开但会话被拒（典型：出口 IP ≠ 签发 authToken 的 IP，代理/VPN/家宽出口漂移），
+    // 随后服务端关闭连接。F-28 修复：不再静默丢弃，记录原因并广播给上层，让 1006 循环可诊断。
+    if (msg && msg.err) {
+      this._handleSessionError(msg);
+      return;
+    }
     if (!msg || !msg.type) return;
 
     switch (msg.type) {
@@ -216,6 +232,27 @@ class VRCPipeline {
         }
         this.emit('unknown', msg);
     }
+  }
+
+  _maskToken(token) {
+    if (!token || token.length <= 12) return '***';
+    return token.slice(0, 4) + '***' + token.slice(-4);
+  }
+
+  _handleSessionError(msg) {
+    const err = typeof msg.err === 'string' ? msg.err : JSON.stringify(msg.err);
+    const ip = msg.ip || null;
+    const maskedToken = this._maskToken(msg.authToken || this.authToken);
+    this._sessionErrorCount++;
+    this._lastSessionError = {
+      err,
+      ip,
+      authToken: maskedToken,
+      at: new Date().toISOString()
+    };
+    const ipHint = ip ? `（服务端记录出口 IP: ${ip}）` : '';
+    console.error(`❌ [VRCPipeline] 服务端拒绝会话: ${err}${ipHint}${maskedToken ? `（authToken ${maskedToken}）` : ''}`);
+    this.emit('session-error', Object.assign({}, this._lastSessionError));
   }
 
   handleNotification(msg) {
@@ -299,7 +336,9 @@ class VRCPipeline {
     return {
       isConnected: this.isConnected,
       reconnectAttempts: this.reconnectAttempts,
-      authToken: this.authToken ? '***' : null
+      authToken: this.authToken ? '***' : null,
+      sessionErrorCount: this._sessionErrorCount,
+      lastSessionError: this._lastSessionError
     };
   }
 }

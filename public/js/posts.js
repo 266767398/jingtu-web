@@ -539,7 +539,7 @@ function submitEditPost(postId) {
       // apiForm 只对 401/403/429/5xx 抛错，400（内容超长、文件类型不支持等）
       // 会直接走到这里。不判 r.ok 就会在什么都没保存的情况下弹__('auto_posts_2')。
       return r.json().catch(function() { return {}; }).then(function(data) {
-        if (!r.ok) throw new Error(data.error || __('posts.edit_failed'));
+        if (!r.ok) throw new Error(errText(data) || __('posts.edit_failed'));
         return data;
       });
     })
@@ -656,7 +656,7 @@ function submitCreatePost() {
       // 同 submitEditPost：400 不会抛，必须自己判，
       // 否则内容被服务端拒了还会弹__('auto_posts_3')，用户以为发出去了。
       return r.json().catch(function() { return {}; }).then(function(data) {
-        if (!r.ok) throw new Error(data.error || __('posts.post_failed'));
+        if (!r.ok) throw new Error(errText(data) || __('posts.post_failed'));
         return data;
       });
     })

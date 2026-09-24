@@ -258,7 +258,7 @@ async function createUser() {
     }
     const errData = await res.json().catch(() => ({}));
     if (errorEl) {
-      errorEl.textContent = errData.error || errData.message || __('admin_users.create_failed') + ' (' + res.status + ')';
+      errorEl.textContent = errText(errData) || __('admin_users.create_failed') + ' (' + res.status + ')';
       if (errData.details && Array.isArray(errData.details)) {
         errorEl.textContent += __('admin_users.colon') + errData.details.join(__('admin_users.semicolon'));
       }
@@ -346,7 +346,7 @@ async function generateCodes() {
       return;
     }
     const errData = await res.json().catch(() => ({}));
-    showErr(errData.error || errData.message || __('admin_users.codes_gen_failed') + ' (' + res.status + ')');
+    showErr(errText(errData) || __('admin_users.codes_gen_failed') + ' (' + res.status + ')');
   } catch (err) {
     if (isApiHandledError(err)) return;
     showErr(err.message || __('admin_users.codes_gen_failed'));
@@ -452,7 +452,7 @@ async function createBackup() {
         toast(__('admin.backup_success') + ': ' + data.filename, 'success');
         loadBackups();
       } else {
-        toast(data.error || __('admin.backup_failed'), 'error');
+        toast(errText(data) || __('admin.backup_failed'), 'error');
       }
     }
   } catch (err) {
@@ -673,7 +673,7 @@ async function createAdmin() {
     } else {
       const errData = await res.json().catch(() => ({}));
       if (errorEl) {
-        errorEl.textContent = errData.error || __('admin.create_failed') + ' (' + res.status + ')';
+        errorEl.textContent = errText(errData) || __('admin.create_failed') + ' (' + res.status + ')';
         errorEl.classList.remove('d-none');
       }
     }

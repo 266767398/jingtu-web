@@ -71,7 +71,7 @@ async function loadActivationCodesPanel() {
     const res = await api('/api/admin/activation-codes', { method: 'GET' });
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
-      throw new Error(e.error || e.message || ('加载失败 (' + res.status + ')'));
+      throw new Error(errText(e) || ('加载失败 (' + res.status + ')'));
     }
     const data = await res.json();
     _activationCodes = data.codes || [];
@@ -161,7 +161,7 @@ function revokeActivationCode(code) {
         loadActivationCodesPanel();
       } else {
         const e = await res.json().catch(() => ({}));
-        toast(e.error || e.message || '作废失败', 'error');
+        toast(errText(e) || '作废失败', 'error');
       }
     } catch (err) {
       if (isApiHandledError(err)) return;

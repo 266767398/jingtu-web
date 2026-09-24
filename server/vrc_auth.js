@@ -13,6 +13,7 @@ const path = require('path');
 const logger = require('./logger');
 const wsService = require('./ws_service');
 const VRCPipeline = require('./vrc_pipeline');
+const schedule = require('./schedule');
 const { getPool, encryptCookie, decryptCookie } = require('./utils');
 
 const SESSION_FILE = path.join(__dirname, 'session.json');
@@ -65,6 +66,14 @@ module.exports = function setupVrcAuth() {
     logger.error('[vrc-pipeline]', `错误: ${err.message}`);
   });
 
+  // F-28: 服务端 err 帧（如 "authToken doesn't correspond with an active session"）。
+  // 多为「连接出口 IP ≠ 签发 authToken 的 IP」（代理/VPN/家宽出口漂移），无论重连多少次都会被拒。
+  // 记录原因并暴露到 /api/health，供运维定位而非盲目重试。
+  global.__getVrcPipelineStatus = () => vrcPipeline.getStatus();
+  vrcPipeline.on('session-error', (info) => {
+    logger.error('[vrc-pipeline]', `服务端拒绝会话: ${info.err}` + (info.ip ? `（IP ${info.ip}）` : ''));
+  });
+
   vrcPipeline.on('notification', (notification) => {
     logger.info('[vrc-pipeline]', `新通知: ${notification.notificationType}`);
 
@@ -90,13 +99,136 @@ module.exports = function setupVrcAuth() {
     logger.debug('[VRC]', `用户事件: ${msg.type}`);
   });
 
+  // ==================== Pipeline 好友事件实时快速路径（VRCX 同源低延迟） ====================
+  // Pipeline 直连 VRChat 事件总线，好友上下线/位置/状态变更即时可达：
+  //  - 无需等待 cron 的 30s+ 稳定窗口，也无需消耗 /auth/user/friends 的 API 令牌桶配额；
+  //  - 落库信任等级与 cron 的 TRUST_FRIEND(2) 同级，事件即系统账号好友的权威实时状态；
+  //  - 隐私/过渡占位符（offline/traveling/private/web）不写入 world_name，保护状态不被占位值污染。
+  // 处理策略：
+  //  - 先读当前行对比，仅在实际状态变化时 UPDATE + 广播（内容级去重，避免高频事件写风暴）；
+  //  - 同一用户串行处理（per-user promise 链），防止并发事件读改写竞态；
+  //  - 直写 is_online 并清空 status_candidate，绕过稳定窗口 = 即时生效（VRCX 同款行为）。
+  const PIPE_TRUST_FRIEND = 2;
+  const PIPE_LOC_PLACEHOLDER = new Set(['offline', 'traveling', 'private', 'web']);
+  const _friendPipeQueues = new Map();
+
+  function serializeFriendEvent(userId, task) {
+    const prev = _friendPipeQueues.get(userId) || Promise.resolve();
+    const run = prev.then(task);
+    const guard = run.catch(() => {});
+    _friendPipeQueues.set(userId, guard);
+    guard.finally(() => {
+      if (_friendPipeQueues.get(userId) === guard) _friendPipeQueues.delete(userId);
+    });
+    return run;
+  }
+
+  async function handleFriendPipelineEvent(msg) {
+    const userId = msg.userId || msg.userid || msg.id || (msg.user && (msg.user.id || msg.user.userId));
+    if (!userId) return;
+    const pool = getPool();
+
+    // friend-add / friend-remove：仅登记好友关系，不触碰在线/位置状态（载荷通常不含位置信息）
+    if (msg.type === 'friend-add' || msg.type === 'friend-remove') {
+      const isFriend = msg.type === 'friend-add';
+      const [rows] = await pool.query(
+        `SELECT vrchat_id, is_friend, is_member FROM group_roster WHERE vrchat_id = ? LIMIT 1`,
+        [userId]
+      );
+      if (!rows.length) return; // 未在 roster 跟踪名单中（既非群组成员也非好友），无需处理
+      if ((rows[0].is_friend === 1) === isFriend) return; // 无变化
+      await pool.query(
+        `UPDATE group_roster SET is_friend = ?, synced_at = NOW() WHERE vrchat_id = ?`,
+        [isFriend ? 1 : 0, userId]
+      );
+      logger.debug('[VRC]', `好友关系事件: ${msg.type} ${userId} → is_friend=${isFriend}`);
+      if (isFriend && rows[0].is_member === 1) {
+        const groups = await schedule.getGroupStatsSnapshot(pool);
+        wsService.broadcastRosterUpdate({ groups, members: [{ vrchatId: userId, isFriend: true }] });
+      }
+      return;
+    }
+
+    // 在线/位置类事件（friend-online/offline/active/location/update）
+    const userObj = (msg.user && typeof msg.user === 'object') ? msg.user : {};
+    const location = String(msg.location || userObj.location || '').trim();
+    const worldId = String(msg.worldId || userObj.worldId || '').trim();
+    const isOnline = msg.type !== 'friend-offline' && location !== 'offline';
+    // 在线且 location 非空/非 web/非 offline 即视为游戏内（与 schedule.js 判定一致；traveling 属游戏内过渡态）
+    const isInGame = isOnline && location !== '' && location !== 'web' && location !== 'offline';
+    const status = String(msg.status || userObj.status || (isOnline ? 'active' : 'offline'));
+    const statusDescription = String(msg.statusDescription != null ? msg.statusDescription : (userObj.statusDescription != null ? userObj.statusDescription : ''));
+
+    // 隐私/过渡占位符不写入 world_name；在线但位置未知（private/traveling/web）时保留上一已知世界名
+    let worldName = '';
+    if (!isOnline) {
+      worldName = '';
+    } else if (location && !PIPE_LOC_PLACEHOLDER.has(location)) {
+      worldName = worldId || location.split(':')[0] || '';
+    } else if (worldId && !PIPE_LOC_PLACEHOLDER.has(worldId)) {
+      worldName = worldId;
+    }
+
+    const [rows] = await pool.query(
+      `SELECT vrchat_id, is_online, is_in_game, vrchat_status, status_description, world_name, is_friend, is_member,
+              display_name, avatar_url
+       FROM group_roster WHERE vrchat_id = ? LIMIT 1`,
+      [userId]
+    );
+    if (!rows.length) return;
+    const row = rows[0];
+
+    const avatarUrl = userObj.currentAvatarThumbnailImageUrl || userObj.profilePicOverrideThumbnail || row.avatar_url || '';
+    const displayName = userObj.displayName || row.display_name || '';
+    const worldNameFinal = worldName || row.world_name || '';
+
+    // 内容级去重：任一关键字段变化才落库广播，避免同值高频事件（如活跃事件刷屏）打爆 DB
+    if (row.is_friend === 1 &&
+        (row.is_online === 1) === isOnline &&
+        (row.is_in_game === 1) === isInGame &&
+        (row.vrchat_status || '') === status &&
+        (row.status_description || '') === statusDescription &&
+        (row.world_name || '') === worldNameFinal &&
+        (row.avatar_url || '') === avatarUrl &&
+        (row.display_name || '') === displayName) {
+      return;
+    }
+
+    await pool.query(
+      `UPDATE group_roster SET display_name = ?, avatar_url = ?, is_online = ?, is_in_game = ?, vrchat_status = ?,
+              status_description = ?, world_name = ?, is_friend = 1,
+              status_trust = ?, status_candidate = NULL, status_changed_at = NULL,
+              last_seen = NOW(), synced_at = NOW()
+       WHERE vrchat_id = ?`,
+      [displayName, avatarUrl, isOnline ? 1 : 0, isInGame ? 1 : 0, status, statusDescription, worldNameFinal,
+       PIPE_TRUST_FRIEND, userId]
+    );
+    logger.debug('[VRC]', `好友事件快速路径: ${msg.type} ${userId} 在线=${isOnline} 游戏内=${isInGame} 状态=${status} 位置=${worldNameFinal}`);
+
+    // 仅群组成员广播增量（前端网格只渲染 is_member=1 的卡片；非成员无卡片可更新）
+    if (row.is_member === 1) {
+      const groups = await schedule.getGroupStatsSnapshot(pool);
+      wsService.broadcastRosterUpdate({
+        groups,
+        members: [{
+          vrchatId: userId,
+          isOnline,
+          isInGame,
+          isFriend: true,
+          status,
+          statusDescription,
+          worldName: worldNameFinal
+        }]
+      });
+    }
+  }
+
   vrcPipeline.on('friend', (msg) => {
     logger.debug('[VRC]', `好友事件: ${msg.type}`);
-
-    wsService.broadcastAllExcept(null, {
-      type: 'friend_event',
-      eventType: msg.type,
-      timestamp: Date.now()
+    const userId = msg.userId || msg.userid || msg.id || (msg.user && (msg.user.id || msg.user.userId));
+    if (!userId) return;
+    serializeFriendEvent(userId, () => handleFriendPipelineEvent(msg)).catch((e) => {
+      logger.error('[vrc-pipeline]', `好友事件快速路径处理失败(${msg.type}): ${e.message}`);
     });
   });
 

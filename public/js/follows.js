@@ -4,19 +4,6 @@
 (function () {
   'use strict';
 
-  function errMsg(d) {
-    try {
-      if (!d) return '';
-      if (typeof d.error === 'string') return d.error;
-      if (d.error && typeof d.error === 'object') {
-        const code = d.error.code;
-        if (code) { const t = __('error.' + code); if (t && t !== 'error.' + code) return t; }
-        return d.error.message || code || '';
-      }
-      return '';
-    } catch (e) { return ''; }
-  }
-
   async function req(method, path, body) {
     const opts = { method };
     if (body !== undefined) {
@@ -83,7 +70,7 @@
     try {
       const res = await api('/api/follows/following', { method: 'GET' });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errMsg(d))}</div>`; return; }
+      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
       const list = (d.list || []);
       if (!list.length) { el.innerHTML = `<div class="text-muted2 p-16">${esc(__('follows.no_following'))}</div>`; return; }
       el.innerHTML = list.map(r => userRowHtml(r, btn('unfollow', r.id, __('follows.unfollow'), 'btn-danger'))).join('');
@@ -99,7 +86,7 @@
     try {
       const res = await api('/api/follows/followers', { method: 'GET' });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errMsg(d))}</div>`; return; }
+      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
       const list = (d.list || []);
       if (!list.length) { el.innerHTML = `<div class="text-muted2 p-16">${esc(__('follows.no_followers'))}</div>`; return; }
       // 粉丝列表：提供关注/取关切换（后端幂等）
@@ -118,7 +105,7 @@
       const res = await api('/api/users/search?q=' + encodeURIComponent(q.trim()), { method: 'GET' });
       const d = await res.json().catch(() => ({}));
       const users = d.users || [];
-      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-8">${esc(errMsg(d))}</div>`; return; }
+      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-8">${esc(errText(d))}</div>`; return; }
       if (!users.length) { el.innerHTML = `<div class="text-muted2 p-8">${esc(__('follows.no_results'))}</div>`; return; }
       el.innerHTML = users.map(u => userRowHtml(u, btn('follow', u.id, __('follows.follow'), 'btn-accent'))).join('');
     } catch (e) {
@@ -135,7 +122,7 @@
       else if (action === 'unfollow') r = await req('DELETE', '/api/follows/' + id);
       else return;
 
-      if (!r.res.ok) { toast(errMsg(r.d) || __('follows.operation_failed'), 'error'); return; }
+      if (!r.res.ok) { toast(errText(r.d) || __('follows.operation_failed'), 'error'); return; }
       const msg = (action === 'follow') ? __('follows.followed') : __('follows.unfollowed');
       toast(msg, 'success');
       if (action === 'follow') { const s = document.getElementById('followSearch'); if (s) loadSearch(s.value); }

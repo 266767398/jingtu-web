@@ -477,7 +477,9 @@ app.get('/api/health', (req, res) => {
     vrcCookieSetAt: authState.cookieSetAt || null,
     vrcCookieExpiresAt: (getVRCCookieExpireDays() && authState.cookieSetAt)
       ? new Date(authState.cookieSetAt + getVRCCookieExpireDays() * 86400000).toISOString()
-      : null
+      : null,
+    // F-28: Pipeline 实时连接状态 + 最近一次服务端拒绝原因（诊断 1006 重连循环）
+    pipeline: typeof global.__getVrcPipelineStatus === 'function' ? global.__getVrcPipelineStatus() : null
   });
 });
 

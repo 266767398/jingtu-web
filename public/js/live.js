@@ -267,7 +267,7 @@ async function endLiveStream(streamId) {
       loadLiveStreams();
     } else {
       const data = await res.json();
-      toast(data.error || __('live.end_failed'), 'error');
+      toast(errText(data) || __('live.end_failed'), 'error');
     }
   } catch {
     toast(__('live.end_failed'), 'error');
@@ -364,7 +364,7 @@ async function submitCreateLive() {
       }
     } else {
       const data = await res.json();
-      toast(data.error || __('live.create_failed'), 'error');
+      toast(errText(data) || __('live.create_failed'), 'error');
     }
   } catch {
     toast(__('live.create_failed'), 'error');
@@ -381,7 +381,7 @@ async function startLiveStream(streamId) {
       loadLiveStreams();
     } else {
       const data = await res.json();
-      toast(data.error || __('live.start_failed'), 'error');
+      toast(errText(data) || __('live.start_failed'), 'error');
     }
   } catch {
     toast(__('live.start_failed'), 'error');

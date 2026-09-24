@@ -528,7 +528,7 @@ async function refreshGroupStatus() {
         } else if (errData.code === 'SYNC_COOLDOWN') {
           toast(errData.detail || __('group.refresh_cooldown'), 'warn');
         } else {
-          toast(errData.error || __('group.refresh_failed'), 'error');
+          toast(errText(errData) || __('group.refresh_failed'), 'error');
         }
       } catch { toast(__('group.refresh_failed'), 'error'); }
       return;
@@ -572,7 +572,7 @@ async function syncGroupMembers() {
         } else if (errData.code === 'SYNC_COOLDOWN') {
           toast(errData.detail || __('group.sync_cooldown'), 'warn');
         } else {
-          toast(errData.detail || errData.error || __('group.sync_failed'), 'error');
+          toast(errText(errData) || __('group.sync_failed'), 'error');
         }
       } catch { toast(__('group.sync_failed_vrc'), 'error'); }
       return;
@@ -636,7 +636,7 @@ function isAdminUser() {
 async function groupAdminFail(res) {
   try {
     const d = await res.json();
-    const msg = (d.error && typeof d.error === 'object' && d.error.message) || (typeof d.error === 'string' ? d.error : '') || d.detail || '';
+    const msg = errText(d);
     if (msg) toast(msg, 'error');
   } catch {}
 }

@@ -70,8 +70,7 @@
     let data;
     try { data = await res.json(); } catch (e) { data = {}; }
     if (!res.ok || data.success === false) {
-      const flat = typeof data.error === 'string' ? data.error : '';
-      throw new Error((data.error && data.error.message) || flat || ('HTTP ' + res.status));
+      throw new Error(errText(data) || ('HTTP ' + res.status));
     }
     return data;
   }
@@ -631,7 +630,8 @@
       const data = await res.json().catch(() => ({}));
       const results = Array.isArray(data.results) ? data.results : [];
       if (!results.length) {
-        const err = data.error ? ('：' + data.error) : '';
+        const errMsg = errText(data);
+        const err = errMsg ? ('：' + errMsg) : '';
         box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('model_coll.search_empty', __('auto_collections_94')) + err + '</div>';
         return;
       }
@@ -686,13 +686,13 @@
         url = '/api/collections/search-worlds?q=' + encodeURIComponent(worldDiscoverState.q) + '&n=24';
         const res = await fetch(url, { credentials: 'same-origin' });
         data = await res.json().catch(() => ({}));
-        if (!res.ok || data.success === false) throw new Error((data.error && data.error.message) || ('HTTP ' + res.status));
+        if (!res.ok || data.success === false) throw new Error(errText(data) || ('HTTP ' + res.status));
         renderWorldResults(data.results || []);
       } else {
         url = '/api/collections/popular-worlds?sort=' + encodeURIComponent(worldDiscoverState.sort) + '&n=24';
         const res = await fetch(url, { credentials: 'same-origin' });
         data = await res.json().catch(() => ({}));
-        if (!res.ok || data.success === false) throw new Error((data.error && data.error.message) || ('HTTP ' + res.status));
+        if (!res.ok || data.success === false) throw new Error(errText(data) || ('HTTP ' + res.status));
         renderWorldResults(data.results || []);
       }
     } catch (e) {

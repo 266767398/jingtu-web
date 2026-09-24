@@ -95,6 +95,8 @@ function hideGlobalLoading() {
 const MAX_TOASTS = 3;
 
 function toast(msg, type = 'info', duration) {
+  // 兜底：误传对象/Error 时走 errText 安全提取，避免渲染成 "[object Object]"
+  if (msg && typeof msg === 'object') msg = errText(msg) || '';
   // 根据类型自动分配持续时间
   if (duration === undefined) {
     const durationMap = { error: 5000, success: 2500, info: 3000 };
@@ -215,23 +217,8 @@ async function api(path, opt = {}) {
   try {
     // 安全提取后端错误文案：兼容扁平 {error:'字符串'} 与嵌套 {error:{code,message}} 两种包络，
     // 避免把对象渲染成 "[object Object]"（非中文界面会暴露此 bug）。
-    const safeErrMsg = (d) => {
-      if (!d) return '';
-      // P2-5：优先按 code 取语言包（error.* 命名空间）。兼容两种包络：
-      // 统一包络 {error:{code,message}}（utils.js sendError）与
-      // 旧式扁平包络 {error:'串', code:'WAF_BLOCKED', type}（waf.js 中间件，code 在顶层）。
-      // 未命中（__ 返回 key 本身）时回退到后端原文 message，保证未翻译的错误码不破版。
-      const code = (d.error && typeof d.error === 'object' && d.error.code) || (typeof d.code === 'string' ? d.code : '');
-      if (code) {
-        const translated = __('error.' + code);
-        if (translated && translated !== 'error.' + code) return translated;
-      }
-      if (typeof d.error === 'string') return d.error;
-      if (d.error && typeof d.error === 'object') {
-        return d.error.message || code || '';
-      }
-      return '';
-    };
+    // 实现统一收敛到全局 errText()（见下方"API 错误处理辅助"），避免多处复制解析逻辑。
+    const safeErrMsg = (d) => errText(d);
     if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
       await ensureCsrf();
       options.headers['X-CSRF-Token'] = csrfToken || '';
@@ -357,7 +344,7 @@ async function apiForm(path, formData, opt = {}) {
     }
     throw new Error('UNAUTHORIZED');
   }
-  if (res.status === 403) { csrfToken = null; try { const errData = await res.clone().json(); toast(errData.error || __('permission_denied'), 'error'); } catch(e) { toast(__('permission_denied'), 'error'); } throw new Error('FORBIDDEN'); }
+  if (res.status === 403) { csrfToken = null; try { const errData = await res.clone().json(); toast(errText(errData) || __('permission_denied'), 'error'); } catch(e) { toast(__('permission_denied'), 'error'); } throw new Error('FORBIDDEN'); }
   if (res.status === 429) { csrfToken = null; toast(__('rate_limited'), 'error'); throw new Error('RATE_LIMITED'); }
   if (res.status >= 500) { csrfToken = null; toast(__('server_error'), 'error'); throw new Error('SERVER_ERROR'); }
   // CSRF token 单次消费，请求成功后清除
@@ -366,6 +353,28 @@ async function apiForm(path, formData, opt = {}) {
 }
 
 // ==================== API 错误处理辅助 ====================
+// 从任意错误输入中安全提取可展示文案，绝不返回 "[object Object]"。
+// 兼容：字符串 / Error 对象 / 嵌套包络 {error:{code,message}}（utils.js sendError）/
+// 旧式扁平包络 {error:'串', code}（waf.js 中间件，code 在顶层）/ {detail} / {message}。
+// 优先按 code 走 error.* 语言包翻译（未命中则回退后端原文 message，未翻译的错误码不破版）；
+// 解析不出时返回 ''，由调用方继续走原有的 `|| __('xxx_failed')` 兜底。
+function errText(d) {
+  if (d == null) return '';
+  if (typeof d === 'string') return d;
+  if (d instanceof Error) return d.message || '';
+  const code = (d.error && typeof d.error === 'object' && d.error.code) || (typeof d.code === 'string' ? d.code : '');
+  if (code) {
+    const translated = __('error.' + code);
+    if (translated && translated !== 'error.' + code) return translated;
+  }
+  if (typeof d.error === 'string') return d.error;
+  if (d.error && typeof d.error === 'object') {
+    return d.error.message || (typeof d.detail === 'string' ? d.detail : '') || code || '';
+  }
+  if (typeof d.detail === 'string') return d.detail;
+  if (typeof d.message === 'string') return d.message;
+  return '';
+}
 // 如果 api() 已经处理过错误（toast + 抛出特定 Error），返回 true 让调用方跳过二次 toast
 function isApiHandledError(err) {
   return err.message === 'FORBIDDEN' || err.message === 'UNAUTHORIZED' || err.message === 'RATE_LIMITED' || err.message === 'SERVER_ERROR' || err.message === 'TIMEOUT';
@@ -409,7 +418,7 @@ async function uploadWithProgress(url, formData, onProgress) {
         csrfToken = null;
         try {
           const data = JSON.parse(xhr.responseText);
-          toast(data.error || __('permission_denied'), 'error');
+          toast(errText(data) || __('permission_denied'), 'error');
         } catch {
           toast(__('permission_denied'), 'error');
         }

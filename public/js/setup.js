@@ -485,6 +485,27 @@ function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// P2-100：setup.html 不加载 core.js，内联轻量版 errText（与 core.js 同逻辑），
+// 兼容 string / Error / 嵌套包络 {error:{code,message}} / 扁平包络 {error:'串',code} / {detail} / {message}；
+// 命中 code 优先走 error.* 语言包翻译，回退后端原文；解析不出返回 ''，由调用方走 __('setup.xxx') 兜底。
+function setupErrText(d) {
+  if (d == null) return '';
+  if (typeof d === 'string') return d;
+  if (d instanceof Error) return d.message || '';
+  const code = (d.error && typeof d.error === 'object' && d.error.code) || (typeof d.code === 'string' ? d.code : '');
+  if (code) {
+    const translated = __('error.' + code);
+    if (translated && translated !== 'error.' + code) return translated;
+  }
+  if (typeof d.error === 'string') return d.error;
+  if (d.error && typeof d.error === 'object') {
+    return d.error.message || (typeof d.detail === 'string' ? d.detail : '') || code || '';
+  }
+  if (typeof d.detail === 'string') return d.detail;
+  if (typeof d.message === 'string') return d.message;
+  return '';
+}
+
 // ==================== 测试数据库 ====================
 async function testDatabase() {
   collectStep(1);
@@ -525,7 +546,7 @@ async function testDatabase() {
       resultDiv.innerHTML = __('setup.db_ok');
     } else {
       resultDiv.className = 'test-result error';
-      resultDiv.innerHTML = __('setup.db_conn_fail', { err: escapeHtml(data.error || data.message || __('setup.unknown_err')) });
+      resultDiv.innerHTML = __('setup.db_conn_fail', { err: escapeHtml(setupErrText(data) || __('setup.unknown_err')) });
     }
   } catch (e) {
     clearTimeout(timeoutId);
@@ -574,7 +595,7 @@ async function testEmail() {
       resultDiv.innerHTML = __('setup.email_ok');
     } else {
       resultDiv.className = 'test-result error';
-      resultDiv.innerHTML = __('setup.email_send_fail', { err: escapeHtml(data.error || data.message || __('setup.unknown_err')) });
+      resultDiv.innerHTML = __('setup.email_send_fail', { err: escapeHtml(setupErrText(data) || __('setup.unknown_err')) });
     }
   } catch (e) {
     clearTimeout(timeoutId);
@@ -649,7 +670,7 @@ async function saveAndStart() {
       setTimeout(() => { window.location.href = '/'; }, 2500);
     } else {
       resultDiv.className = 'test-result error';
-      resultDiv.innerHTML = __('setup.save_fail', { err: escapeHtml(data.error || data.message || __('setup.unknown_err')) });
+      resultDiv.innerHTML = __('setup.save_fail', { err: escapeHtml(setupErrText(data) || __('setup.unknown_err')) });
       btn.disabled = false;
       btn.innerHTML = __('setup.save_start');
     }
@@ -681,7 +702,7 @@ async function resetWizard() {
       showStep(1); refillStep(1);
       showErrorSummary([__('setup.reset_done')]);
     } else {
-      alert(__('setup.reset_fail', { err: data.error || __('setup.unknown_err') }));
+      alert(__('setup.reset_fail', { err: setupErrText(data) || __('setup.unknown_err') }));
     }
   } catch (e) {
     alert(__('setup.reset_req_fail', { err: e.message }));

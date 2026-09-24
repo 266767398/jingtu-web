@@ -831,7 +831,7 @@ function initCheckinBtn() {
             showEventDetail(eventId);
           } else {
             const err = await res.json().catch(() => ({}));
-            toast(err.error || __('events.sign_in_failed'), 'error');
+            toast(errText(err) || __('events.sign_in_failed'), 'error');
           }
         } catch (err) { if (isApiHandledError(err)) return; toast(__('events.sign_in_failed'), 'error'); }
       });
@@ -1293,7 +1293,7 @@ async function submitCreateTeam(eventId) {
       loadEventTeams(eventId);
     } else {
       const data = await res.json();
-      toast(data.error || __('teams.create_failed'), 'error');
+      toast(errText(data) || __('teams.create_failed'), 'error');
     }
   } catch { toast(__('teams.create_failed'), 'error'); }
 }
@@ -1302,7 +1302,7 @@ async function joinTeam(teamId, eventId) {
   try {
     const res = await api(`/api/event-teams/${teamId}/join`, { method: 'POST' });
     if (res.ok) { toast(__('teams.joined'), 'success'); loadEventTeams(eventId); }
-    else { const data = await res.json(); toast(data.error || __('teams.join_failed'), 'error'); }
+    else { const data = await res.json(); toast(errText(data) || __('teams.join_failed'), 'error'); }
   } catch { toast(__('teams.join_failed'), 'error'); }
 }
 
@@ -1311,7 +1311,7 @@ async function leaveTeam(teamId, eventId) {
   try {
     const res = await api(`/api/event-teams/${teamId}/leave`, { method: 'POST' });
     if (res.ok) { toast(__('teams.left'), 'success'); loadEventTeams(eventId); }
-    else { const data = await res.json(); toast(data.error || __('teams.leave_failed'), 'error'); }
+    else { const data = await res.json(); toast(errText(data) || __('teams.leave_failed'), 'error'); }
   } catch { toast(__('teams.leave_failed'), 'error'); }
 }
 
@@ -1320,6 +1320,6 @@ async function disbandTeam(teamId, eventId) {
   try {
     const res = await api(`/api/event-teams/${teamId}`, { method: 'DELETE' });
     if (res.ok) { toast(__('teams.disbanded'), 'success'); loadEventTeams(eventId); }
-    else { const data = await res.json(); toast(data.error || __('teams.disband_failed'), 'error'); }
+    else { const data = await res.json(); toast(errText(data) || __('teams.disband_failed'), 'error'); }
   } catch { toast(__('teams.disband_failed'), 'error'); }
 }

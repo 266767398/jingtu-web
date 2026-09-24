@@ -875,7 +875,7 @@ async function importData() {
     const res = await api('/api/users/me/import', { method: 'POST', body });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || err.message || 'IMPORT_FAILED');
+      throw new Error(errText(err) || 'IMPORT_FAILED');
     }
     const data = await res.json();
     const counts = data.imported || {};

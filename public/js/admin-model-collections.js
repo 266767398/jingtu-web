@@ -107,7 +107,7 @@
     mcCurrentUserId = userId;
     try {
       const res = await api('/api/collections/admin/user/' + userId, { method: 'GET' });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); toast(d.error || __('model_coll.load_failed'), 'error'); return; }
+      if (!res.ok) { const d = await res.json().catch(() => ({})); toast(errText(d) || __('model_coll.load_failed'), 'error'); return; }
       const d = await res.json();
       const u = d.user || {};
       const s = d.summary || {};
@@ -155,7 +155,7 @@
       try {
         const res = await api('/api/collections/admin/' + id, { method: 'DELETE' });
         if (res.ok) { toast(__('model_coll.deleted'), 'success'); refreshMcAdmin(); }
-        else { const d = await res.json().catch(() => ({})); toast(d.error || __('model_coll.delete_failed'), 'error'); }
+        else { const d = await res.json().catch(() => ({})); toast(errText(d) || __('model_coll.delete_failed'), 'error'); }
       } catch (e) { if (isApiHandledError(e)) return; toast(__('model_coll.delete_failed') + ': ' + e.message, 'error'); }
     });
   }
@@ -169,7 +169,7 @@
           body: JSON.stringify({ notes: val || '' })
         });
         if (res.ok) { toast(__('model_coll.updated'), 'success'); refreshMcAdmin(); }
-        else { const d = await res.json().catch(() => ({})); toast(d.error || __('model_coll.update_failed'), 'error'); }
+        else { const d = await res.json().catch(() => ({})); toast(errText(d) || __('model_coll.update_failed'), 'error'); }
       } catch (e) { if (isApiHandledError(e)) return; toast(__('model_coll.update_failed') + ': ' + e.message, 'error'); }
     });
   }
@@ -179,7 +179,7 @@
       try {
         const res = await api('/api/collections/admin/user/' + userId, { method: 'DELETE' });
         if (res.ok) { const d = await res.json(); toast(__('model_coll.admin_deleted_n', { n: d.deleted || 0 }), 'success'); refreshMcAdmin(); }
-        else { const d = await res.json().catch(() => ({})); toast(d.error || __('model_coll.delete_failed'), 'error'); }
+        else { const d = await res.json().catch(() => ({})); toast(errText(d) || __('model_coll.delete_failed'), 'error'); }
       } catch (e) { if (isApiHandledError(e)) return; toast(__('model_coll.delete_failed'), 'error'); }
     });
   }
@@ -189,7 +189,7 @@
     try {
       const res = await api('/api/collections/admin/user/' + userId + '/scan', { method: 'POST' });
       if (res.ok) { const d = await res.json(); toast(__('model_coll.scan_done', { n: d.scanned || 0, m: d.newlyInvalid || 0 }), 'success'); refreshMcAdmin(); }
-      else { const d = await res.json().catch(() => ({})); toast(d.error || __('model_coll.scan_fail'), 'error'); }
+      else { const d = await res.json().catch(() => ({})); toast(errText(d) || __('model_coll.scan_fail'), 'error'); }
     } catch (e) { if (isApiHandledError(e)) return; toast(__('model_coll.scan_fail') + ': ' + e.message, 'error'); }
   }
 
@@ -198,7 +198,7 @@
     try {
       const res = await api('/api/collections/admin/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ batchSize: 200 }) });
       if (res.ok) { const d = await res.json(); toast(__('model_coll.scan_done', { n: d.scanned || 0, m: d.newlyInvalid || 0 }), 'success'); refreshMcAdmin(); }
-      else { const d = await res.json().catch(() => ({})); toast(d.error || __('model_coll.scan_fail'), 'error'); }
+      else { const d = await res.json().catch(() => ({})); toast(errText(d) || __('model_coll.scan_fail'), 'error'); }
     } catch (e) { if (isApiHandledError(e)) return; toast(__('model_coll.scan_fail') + ': ' + e.message, 'error'); }
   }
 

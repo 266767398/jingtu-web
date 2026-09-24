@@ -109,7 +109,7 @@ async function submitVrc2fa() {
       }
     } else {
       const err = await res.json();
-      document.getElementById('vrc2faError').textContent = err.error || __('vrc.code_error');
+      document.getElementById('vrc2faError').textContent = errText(err) || __('vrc.code_error');
       document.getElementById('vrc2faError').classList.remove('d-none');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('vrc.verify_failed'), 'error'); }

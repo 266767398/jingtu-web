@@ -39,7 +39,7 @@ async function login(loginId, password, remember = false) {
       return true;
     } else { 
       if (loginLoading) loginLoading.style.display = 'none';
-      toast(data.error || __('auth.login_failed'), 'error'); 
+      toast(errText(data) || __('auth.login_failed'), 'error'); 
       return false; 
     }
   } catch (err) {
@@ -260,7 +260,7 @@ async function doRegister() {
       toast(__('register.ok'), 'success');
       showApp();
     } else {
-      toast(data.error || __('register.failed'), 'error');
+      toast(errText(data) || __('register.failed'), 'error');
     }
   } catch (err) {
     if (!isApiHandledError(err)) toast(__('auth.network_error') + ': ' + err.message, 'error');
@@ -370,7 +370,7 @@ async function sendVrcLoginCode() {
         const sendBtn = document.getElementById('sendVrcCodeBtn');
         if (sendBtn) { sendBtn.disabled = false; sendBtn.querySelector('.login-btn-text').textContent = __('auth.ready'); }
       } else {
-        toast(data.error || __('auth.login_failed_vrc'), 'error');
+        toast(errText(data) || __('auth.login_failed_vrc'), 'error');
       }
     } else {
       try {
@@ -378,7 +378,7 @@ async function sendVrcLoginCode() {
         if (err.needBind) {
           showVrcBindGuide(err);
         } else {
-          toast(err.error || __('auth.vrc_login_failed'), 'error');
+          toast(errText(err) || __('auth.vrc_login_failed'), 'error');
         }
       } catch { toast(__('auth.vrc_login_failed'), 'error'); }
     }
@@ -455,10 +455,10 @@ async function doVrcLoginConfirm() {
         showApp();
         resetVrcLoginState();
       } else {
-        toast(data.error || __('auth.login_failed'), 'error');
+        toast(errText(data) || __('auth.login_failed'), 'error');
       }
     } else {
-      try { const err = await res.json(); toast(err.error || __('auth.login_failed'), 'error'); }
+      try { const err = await res.json(); toast(errText(err) || __('auth.login_failed'), 'error'); }
       catch { toast(__('auth.login_failed'), 'error'); }
     }
   } catch (err) {
@@ -730,7 +730,7 @@ async function sendForgotCode() {
         const titleEl = document.getElementById('forgotModalTitle'); if (titleEl) titleEl.textContent = __('forgot.verify_code');
         toast(__('forgot.code_sent'), 'success');
       } else {
-        if (errorEl) errorEl.textContent = data.error || __('forgot.send_failed');
+        if (errorEl) errorEl.textContent = errText(data) || __('forgot.send_failed');
       }
     } catch (e) {
       if (!isApiHandledError(e)) {
@@ -762,7 +762,7 @@ async function verifyForgotCode() {
       document.getElementById('forgotStep3')?.classList.remove('d-none');
       const titleEl = document.getElementById('forgotModalTitle'); if (titleEl) titleEl.textContent = __('forgot.set_new_password');
     } else {
-      if (errorEl) errorEl.textContent = data.error || __('forgot.verify_failed');
+      if (errorEl) errorEl.textContent = errText(data) || __('forgot.verify_failed');
       if (data.expired) {
         backToStep1();
         toast(__('forgot.code_expired'), 'info');
@@ -804,7 +804,7 @@ async function resetPassword() {
       closeForgotPassword();
       toast(data.message, 'success');
     } else {
-      if (errorEl) errorEl.textContent = data.error || __('forgot.reset_failed');
+      if (errorEl) errorEl.textContent = errText(data) || __('forgot.reset_failed');
       if (data.expired) {
         backToStep1();
         toast(__('forgot.link_expired'), 'info');

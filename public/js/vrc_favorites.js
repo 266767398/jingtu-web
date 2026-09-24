@@ -40,8 +40,7 @@
     let data;
     try { data = await res.json(); } catch (e) { data = {}; }
     if (!res.ok || data.success === false) {
-      const flat = typeof data.error === 'string' ? data.error : '';
-      throw new Error((data.error && data.error.message) || flat || ('HTTP ' + res.status));
+      throw new Error(errText(data) || ('HTTP ' + res.status));
     }
     return data;
   }

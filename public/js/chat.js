@@ -225,7 +225,7 @@ async function uploadChatMedia(el, media) {
     const res = await apiForm(url, fd);
     if (!res.ok) {
       const d = await res.json().catch(() => null);
-      toast((d && d.error && (d.error.message || d.error)) || __('chat.send_failed'), 'error');
+      toast(errText(d) || __('chat.send_failed'), 'error');
       return;
     }
     const d = await res.json().catch(() => null);
@@ -665,7 +665,7 @@ function handleChatMessage(msg) {
   }
   // WS 发送失败反馈（非成员/异常），避免静默丢消息
   if (msg.type === 'chat:error') {
-    toast(msg.error || __('chat.send_failed'), 'error');
+    toast(errText(msg) || __('chat.send_failed'), 'error');
     return;
   }
   // 群聊实时位置（仅群内可见，不持久化）
