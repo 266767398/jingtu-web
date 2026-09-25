@@ -628,6 +628,8 @@ module.exports = function setupVrcAuth() {
     clearVRCCredentials,
     hasVRCCredentials,
     autoRelogin,
+    // F-30: 主动清零自动重登连败熔断（人工登录/2FA 成功即视为成功，陈旧退避状态不再残留）
+    resetReloginGuard: _resetReloginGuard,
     getAutoReloginStatus
   };
 };

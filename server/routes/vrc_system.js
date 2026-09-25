@@ -26,6 +26,7 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
     saveVRCCredentials = async () => { throw new Error('未接入自动重登凭据保存'); },
     clearVRCCredentials = async () => { throw new Error('未接入自动重登凭据清除'); },
     hasVRCCredentials = () => false,
+    resetReloginGuard = () => {},
     getAutoReloginStatus = () => null
   } = vrcAuthHelpers || {};
 
@@ -51,6 +52,7 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
       authStateRef.userId = vrcUser.id;
       authStateRef.displayName = vrcUser.displayName;
       authStateRef.cookieSetAt = Date.now(); // V8.2: 记录 cookie 设置时间（用于软性过期判断）
+      resetReloginGuard(); // F-30: 人工登录成功 = 自动重登已成功完成，清零连败熔断/退避
       await saveAuthStateFn();
       ok(res, {user: vrcUser});
     } catch (e) { handleError(res, e, '[vrc-system/login]'); }
@@ -85,6 +87,7 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
       authStateRef.userId = finalUser.id;
       authStateRef.displayName = finalUser.displayName;
       authStateRef.cookieSetAt = Date.now(); // V8.2: 记录 cookie 设置时间（用于软性过期判断）
+      resetReloginGuard(); // F-30: 人工 2FA 完成 = 自动重登链路已成功闭环，清零连败熔断/退避
       delete req.session._vrcLoginCookie;
       delete req.session._vrcLoginMethods;
       await saveAuthStateFn();

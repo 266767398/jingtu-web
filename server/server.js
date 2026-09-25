@@ -424,7 +424,7 @@ const {
   getVRCCookie, getVRCCookieUserOnly,
   getVRCCookieExpireDays, setVRCCookieExpireDays,
   saveVRCCredentials, clearVRCCredentials,
-  hasVRCCredentials, getAutoReloginStatus
+  hasVRCCredentials, resetReloginGuard, getAutoReloginStatus
 } = setupVrcAuth();
 
 // ==================== 权限路由 ====================
@@ -465,6 +465,7 @@ const vrcSystemRouter = require('./routes/vrc_system')(authState, saveAuthState,
   saveVRCCredentials,
   clearVRCCredentials,
   hasVRCCredentials,
+  resetReloginGuard,
   getAutoReloginStatus
 });
 app.use('/api', vrcSystemRouter);

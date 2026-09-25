@@ -127,6 +127,11 @@ class VRCPipeline {
       if (!isCurrentSocket()) return;
       console.error(`❌ [VRCPipeline] 连接错误:`, err.message);
       this.emit('error', err);
+      // 主动关闭：error 后底层 socket 可能已损坏，但 ws 库未必会再触发 close 事件
+      // （如握手阶段被重置、部分网络栈的静默丢包）。不 terminate 的话 _scheduleReconnect
+      // 将永不被调用，重连机制会卡死在半开连接上。terminate 保证 close 事件必然触发，
+      // 由 close 处理器统一驱动重连（对 _sessionRejected 暂停语义无影响，它由 err 帧先行置位）。
+      try { ws.terminate(); } catch (e) {}
     });
   }
 
