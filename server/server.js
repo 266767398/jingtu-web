@@ -422,7 +422,9 @@ const { csrfCleanupInterval } = setupCsrf(app);
 const {
   authState, saveAuthState,
   getVRCCookie, getVRCCookieUserOnly,
-  getVRCCookieExpireDays, setVRCCookieExpireDays
+  getVRCCookieExpireDays, setVRCCookieExpireDays,
+  saveVRCCredentials, clearVRCCredentials,
+  hasVRCCredentials, getAutoReloginStatus
 } = setupVrcAuth();
 
 // ==================== 权限路由 ====================
@@ -459,7 +461,12 @@ app.use('/api/follows', require('./routes/follows')(notificationService));
 
 // ==================== VRChat 路由（系统级） ====================
 // 系统 VRChat 登录/2FA/登出 + 健康检查
-const vrcSystemRouter = require('./routes/vrc_system')(authState, saveAuthState);
+const vrcSystemRouter = require('./routes/vrc_system')(authState, saveAuthState, {
+  saveVRCCredentials,
+  clearVRCCredentials,
+  hasVRCCredentials,
+  getAutoReloginStatus
+});
 app.use('/api', vrcSystemRouter);
 
 // 健康检查（返回系统 VRChat 登录状态）
@@ -479,7 +486,11 @@ app.get('/api/health', (req, res) => {
       ? new Date(authState.cookieSetAt + getVRCCookieExpireDays() * 86400000).toISOString()
       : null,
     // F-28: Pipeline 实时连接状态 + 最近一次服务端拒绝原因（诊断 1006 重连循环）
-    pipeline: typeof global.__getVrcPipelineStatus === 'function' ? global.__getVrcPipelineStatus() : null
+    pipeline: typeof global.__getVrcPipelineStatus === 'function' ? global.__getVrcPipelineStatus() : null,
+    // F-29: 自动重登凭据是否已配置（前端据此渲染「保存/清除凭据」按钮状态）
+    vrcAutoReloginConfigured: hasVRCCredentials(),
+    // F-30: 自动重登熔断/退避状态（前端据此展示防封禁退避横幅）
+    vrcAutoRelogin: getAutoReloginStatus()
   });
 });
 

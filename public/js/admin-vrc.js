@@ -41,6 +41,15 @@ function handleVrcAction(e) {
         case 'load-notifications':
           loadVrcNotifications();
           break;
+        case 'toggle-credentials':
+          toggleSystemVrcCredentials();
+          break;
+        case 'save-credentials':
+          saveSystemVrcCredentials();
+          break;
+        case 'clear-credentials':
+          clearSystemVrcCredentials();
+          break;
       }
     } else if (el.hasAttribute('data-action')) {
       const action = el.dataset.action;
@@ -265,9 +274,12 @@ async function checkSystemVrcStatus() {
       const statusEl = document.getElementById('systemVrcStatus');
       const actionsEl = document.getElementById('systemVrcActions');
       if (!statusEl) return;
+      const credBtn = '<button class="btn btn-sm btn-outline ml-6" data-vrc-action="toggle-credentials">🔑 ' + __('admin_vrc.cred_btn') + '</button>';
+      const pipelineWarn = renderVrcPipelineWarning(data.pipeline);
+      const reloginWarn = renderVrcReloginWarning(data.vrcAutoRelogin);
       if (data.systemVrcLogin) {
-        statusEl.innerHTML = '<span class="text-green">🟢 ' + __('admin_vrc.logged_in') + '</span>';
-        if (actionsEl) actionsEl.innerHTML = '<button class="btn btn-sm btn-outline" data-vrc-action="hide-login">' + __('admin_vrc.refresh') + '</button><button class="btn btn-sm btn-danger ml-6" data-vrc-action="do-logout">' + __('admin_vrc.logout') + '</button>';
+        statusEl.innerHTML = '<span class="text-green">🟢 ' + __('admin_vrc.logged_in') + '</span>' + pipelineWarn + reloginWarn;
+        if (actionsEl) actionsEl.innerHTML = '<button class="btn btn-sm btn-outline" data-vrc-action="hide-login">' + __('admin_vrc.refresh') + '</button><button class="btn btn-sm btn-danger ml-6" data-vrc-action="do-logout">' + __('admin_vrc.logout') + '</button>' + credBtn;
         // V8.2: 展示系统 VRChat cookie 软性过期设置与剩余有效期
         const wrap = document.getElementById('systemVrcExpireWrap');
         if (wrap) {
@@ -293,11 +305,105 @@ async function checkSystemVrcStatus() {
       } else {
         const wrap = document.getElementById('systemVrcExpireWrap');
         if (wrap) wrap.classList.add('d-none');
-        statusEl.innerHTML = '<span class="text-muted">🔴 ' + __('admin_vrc.not_logged_in') + '</span>';
-        if (actionsEl) actionsEl.innerHTML = '<button class="btn btn-sm btn-accent" data-vrc-action="show-login">' + __('admin_vrc.login_vrc') + '</button>';
+        statusEl.innerHTML = '<span class="text-muted">🔴 ' + __('admin_vrc.not_logged_in') + '</span>' + pipelineWarn + reloginWarn;
+        if (actionsEl) actionsEl.innerHTML = '<button class="btn btn-sm btn-accent" data-vrc-action="show-login">' + __('admin_vrc.login_vrc') + '</button>' + credBtn;
       }
     }
   } catch { document.getElementById('systemVrcStatus') && (document.getElementById('systemVrcStatus').innerHTML = '<span class="text-red">' + __('admin_vrc.check_failed') + '</span>'); }
+}
+
+function renderVrcPipelineWarning(pipeline) {
+  if (!pipeline || !pipeline.sessionRejected) return '';
+  return '<div class="text-13 text-red mt-4">⚠️ ' + __('admin_vrc.session_rejected') + '</div>';
+}
+
+// F-30: 自动重登熔断/退避告警横幅（防封禁加固：连败指数退避进行中）
+function renderVrcReloginWarning(relogin) {
+  if (!relogin || !(relogin.failStreak > 0)) return '';
+  const sec = relogin.backoffRemainingSec || 0;
+  const msg = sec > 0
+    ? __('admin_vrc.relogin_backoff', { n: relogin.failStreak, s: sec })
+    : __('admin_vrc.relogin_backoff_end', { n: relogin.failStreak });
+  return '<div class="text-13 text-orange mt-4">🛡️ ' + msg + '</div>';
+}
+
+// ========== 系统 VRChat 自动重登凭据（防 1006 IP 不一致） ==========
+function toggleSystemVrcCredentials() {
+  const wrap = document.getElementById('systemVrcCredWrap');
+  if (!wrap) return;
+  const hiding = wrap.classList.toggle('d-none');
+  if (hiding) {
+    const userEl = document.getElementById('sysVrcCredUser');
+    const passEl = document.getElementById('sysVrcCredPass');
+    const totpEl = document.getElementById('sysVrcCredTotp');
+    if (userEl) userEl.value = '';
+    if (passEl) passEl.value = '';
+    if (totpEl) totpEl.value = '';
+  } else {
+    refreshSystemVrcCredStatus();
+  }
+}
+
+async function refreshSystemVrcCredStatus() {
+  if (!currentUser || currentUser.role !== 'super_admin') return;
+  const statusEl = document.getElementById('systemVrcCredStatus');
+  const clearBtn = document.getElementById('sysVrcCredClearBtn');
+  if (!statusEl) return;
+  try {
+    const res = await api('/api/vrc-credentials-status', { method: 'GET' });
+    if (res.ok) {
+      const data = await res.json();
+      statusEl.textContent = data.configured ? __('admin_vrc.cred_configured') : __('admin_vrc.cred_not_configured');
+      if (clearBtn) clearBtn.classList.toggle('d-none', !data.configured);
+    } else {
+      statusEl.textContent = __('admin_vrc.load_failed');
+    }
+  } catch { statusEl.textContent = __('admin_vrc.load_failed'); }
+}
+
+async function saveSystemVrcCredentials() {
+  if (!currentUser || currentUser.role !== 'super_admin') {
+    toast(__('admin_vrc.super_admin_only'), 'error');
+    return;
+  }
+  const username = document.getElementById('sysVrcCredUser')?.value?.trim();
+  const password = document.getElementById('sysVrcCredPass')?.value;
+  const totpSecret = document.getElementById('sysVrcCredTotp')?.value?.trim() || '';
+  if (!username || !password) { toast(__('admin_vrc.fill_cred_account'), 'error'); return; }
+  try {
+    const res = await api('/api/vrc-save-credentials', {
+      method: 'POST',
+      body: { username, password, totpSecret }
+    });
+    if (res.ok) {
+      toast(__('admin_vrc.cred_saved'), 'success');
+      refreshSystemVrcCredStatus();
+      checkSystemVrcStatus();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast(errText(err) || __('admin_vrc.save_failed'), 'error');
+    }
+  } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.save_failed') + ': ' + err.message, 'error'); }
+}
+
+function clearSystemVrcCredentials() {
+  if (!currentUser || currentUser.role !== 'super_admin') {
+    toast(__('admin_vrc.super_admin_only'), 'error');
+    return;
+  }
+  showConfirm(__('admin_vrc.confirm_clear_cred'), async () => {
+    try {
+      const res = await api('/api/vrc-clear-credentials', { method: 'POST' });
+      if (res.ok) {
+        toast(__('admin_vrc.cred_cleared'), 'info');
+        refreshSystemVrcCredStatus();
+        checkSystemVrcStatus();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast(errText(err) || __('admin_vrc.op_failed'), 'error');
+      }
+    } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.op_failed') + ': ' + err.message, 'error'); }
+  });
 }
 
 function showSystemVrcLogin() {

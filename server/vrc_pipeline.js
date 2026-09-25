@@ -23,10 +23,16 @@ class VRCPipeline {
     this._warnedUnknownTypes = new Set();
     this._sessionErrorCount = 0;
     this._lastSessionError = null;
+    // F-29: 会话被服务端拒绝（典型：出口 IP ≠ 签发 authToken 的 IP）后置为 true，
+    // 触发「暂停重连」语义：同一 authToken 下无论重连多少次都会被拒，
+    // 无限风暴只会空耗出口连接；必须等上层拿到新 cookie（setAuthToken）或管理员介入才恢复。
+    this._sessionRejected = false;
   }
 
   setAuthToken(token) {
     this.authToken = token;
+    // 新 authToken = 新会话，解除「会话被拒暂停」，允许重新发起连接
+    this._sessionRejected = false;
     if (this.isConnected) {
       this.disconnect();
       this.connect();
@@ -172,6 +178,13 @@ class VRCPipeline {
   _scheduleReconnect() {
     this._clearTimers();
     if (!this.authToken) return;
+    // F-29: 会话被服务端拒绝（如出口 IP ≠ 签发 IP）时暂停重连风暴。
+    // 同一 authToken 每次握手都会收到 err 帧 → close(1006)，无限循环，
+    // 只等上层自动重登拿到新 cookie（setAuthToken 解除暂停）或管理员介入。
+    if (this._sessionRejected) {
+      console.warn('[VRCPipeline] 会话被拒已暂停重连，等待新 authToken（自动重登）或管理员处理...');
+      return;
+    }
     this.reconnectAttempts++;
     const delay = Math.min(
       RECONNECT_DELAY * Math.pow(1.5, this.reconnectAttempts - 1),
@@ -250,9 +263,13 @@ class VRCPipeline {
       authToken: maskedToken,
       at: new Date().toISOString()
     };
+    // F-29: 会话被拒后暂停重连。服务端 err 帧即明确告知「这个 authToken 无效」，
+    // 继续重连只会重复握手→被拒→1006 的循环；由上层监听 session-rejected 触发自动重登。
+    this._sessionRejected = true;
     const ipHint = ip ? `（服务端记录出口 IP: ${ip}）` : '';
     console.error(`❌ [VRCPipeline] 服务端拒绝会话: ${err}${ipHint}${maskedToken ? `（authToken ${maskedToken}）` : ''}`);
     this.emit('session-error', Object.assign({}, this._lastSessionError));
+    this.emit('session-rejected', Object.assign({}, this._lastSessionError));
   }
 
   handleNotification(msg) {
@@ -338,7 +355,9 @@ class VRCPipeline {
       reconnectAttempts: this.reconnectAttempts,
       authToken: this.authToken ? '***' : null,
       sessionErrorCount: this._sessionErrorCount,
-      lastSessionError: this._lastSessionError
+      lastSessionError: this._lastSessionError,
+      // F-29: 会话被拒暂停中（重连风暴已中止，等待新 authToken / 管理员介入）
+      sessionRejected: this._sessionRejected
     };
   }
 }

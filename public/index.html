@@ -78,7 +78,7 @@
         return 'zh';
       }
       // 解析期 document.write 外部脚本为阻塞式，保证在 i18n.js 之前就绪
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260916a"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260925-1006"><\/script>');
     })();
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
@@ -1195,6 +1195,21 @@
       </div>
       <div id="systemVrcError" class="text-13 text-red d-none mt-4"></div>
       <div id="systemVrcExpireWrap" class="d-none mt-12"></div>
+      <div id="systemVrcCredWrap" class="d-none mt-12">
+        <div class="admin-card-header"><span class="admin-section-icon">🔑</span><h3 data-i18n="admin_vrc.cred_title">自动重登凭据（防 IP 不一致）</h3></div>
+        <p class="text-13 text-muted2 mt-4" data-i18n="admin_vrc.cred_hint">用于 1006 会话被拒（服务端 IP 不一致）时自动重新登录，凭据经 AES-256-GCM 加密存储。开启两步验证的账号请填写 TOTP 密钥。</p>
+        <div id="systemVrcCredStatus" class="text-13 mt-4"></div>
+        <div class="flex-row gap-8 flex-wrap mt-8" style="max-width:720px">
+          <input type="text" id="sysVrcCredUser" placeholder="VRChat 用户名" data-i18n-placeholder="admin_vrc.cred_user_placeholder" class="search-box" aria-label="自动重登 VRChat 用户名" style="flex:1;min-width:170px">
+          <input type="password" id="sysVrcCredPass" placeholder="密码" data-i18n-placeholder="admin_vrc.cred_pwd_placeholder" class="search-box" aria-label="自动重登 VRChat 密码" style="flex:1;min-width:170px">
+          <input type="text" id="sysVrcCredTotp" placeholder="TOTP 密钥（可选）" data-i18n-placeholder="admin_vrc.cred_totp_placeholder" class="search-box" aria-label="自动重登 TOTP 密钥" style="flex:1;min-width:170px">
+        </div>
+        <div class="flex-row gap-8 flex-wrap mt-8">
+          <button class="btn btn-sm btn-accent" data-vrc-action="save-credentials" data-i18n="admin_vrc.cred_save">保存凭据</button>
+          <button class="btn btn-sm btn-danger d-none" data-vrc-action="clear-credentials" id="sysVrcCredClearBtn" data-i18n="admin_vrc.cred_clear">清除凭据</button>
+          <button class="btn btn-sm btn-outline" data-vrc-action="toggle-credentials" data-i18n="admin_vrc.cred_collapse">收起</button>
+        </div>
+      </div>
       <div class="mt-12"><button id="btnSyncGroup" class="btn btn-sm btn-outline">🔄 同步群组成员</button><button id="adminOperLogBtn" class="btn btn-sm btn-outline ml-4">📋 操作日志</button><button class="btn btn-sm btn-outline ml-4" data-vrc-action="load-notifications">🔔 <span data-i18n="admin_vrc.notif_btn">官方通知</span></button></div>
       <div id="vrcNotifList" class="mt-8"></div>
     </div>
@@ -2332,7 +2347,7 @@
      移出解析阻塞路径，首屏可先完成首次绘制（P2-21） -->
 <script defer src="/js/core.js?v=20260924b"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
-<script defer src="/js/i18n.js?v=20260916a"></script>
+<script defer src="/js/i18n.js?v=20260925-1006"></script>
 <script defer src="/js/ui.js?v=20260906a"></script>
 <script defer src="/vendor/gsap/gsap.min.js?v=20260906a"></script>
 <script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260906a"></script>

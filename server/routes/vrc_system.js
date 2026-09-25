@@ -20,8 +20,14 @@ const { fail, ok, handleError , sendError, ErrorCodes } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 const logger = require('../logger');
 
-module.exports = function (authStateRef, saveAuthStateFn) {
+module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
   const router = express.Router();
+  const {
+    saveVRCCredentials = async () => { throw new Error('未接入自动重登凭据保存'); },
+    clearVRCCredentials = async () => { throw new Error('未接入自动重登凭据清除'); },
+    hasVRCCredentials = () => false,
+    getAutoReloginStatus = () => null
+  } = vrcAuthHelpers || {};
 
   // 系统 VRChat 登录（系统账号）
   router.post('/login', requireAdminCompat, async (req, res) => {
@@ -100,6 +106,34 @@ module.exports = function (authStateRef, saveAuthStateFn) {
     authStateRef.cookieSetAt = null;
     await saveAuthStateFn();
     ok(res);
+  });
+
+  // F-29: 保存系统账号自动重登凭据（用于会话被拒 / 服务端迁移后自动重新登录，加密存储于 session.json）
+  router.post('/vrc-save-credentials', requireAdminCompat, async (req, res) => {
+    try {
+      const { username, password, totpSecret } = req.body;
+      if (!username || !password) {
+        return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入 VRChat 账号和密码');
+      }
+      const result = await saveVRCCredentials({ username, password, totpSecret });
+      ok(res, result);
+    } catch (e) { handleError(res, e, '[vrc-system/save-credentials]'); }
+  });
+
+  // F-29: 清除系统账号自动重登凭据（停止自动重登，恢复仅手动登录/换 cookie 模式）
+  router.post('/vrc-clear-credentials', requireAdminCompat, async (req, res) => {
+    try {
+      await clearVRCCredentials();
+      ok(res, { cleared: true });
+    } catch (e) { handleError(res, e, '[vrc-system/clear-credentials]'); }
+  });
+
+  // F-29: 查询当前是否已配置自动重登凭据（供前端渲染保存按钮状态）
+  // F-30: 附带熔断/退避状态（供前端展示防封禁退避横幅）
+  router.get('/vrc-credentials-status', requireAdminCompat, async (req, res) => {
+    try {
+      ok(res, { configured: hasVRCCredentials(), autoRelogin: getAutoReloginStatus() });
+    } catch (e) { handleError(res, e, '[vrc-system/credentials-status]'); }
   });
 
   // F-19: 拉取系统 VRChat 账号的官方通知（REST 兜底，与 pipeline WS 实时推送互补）

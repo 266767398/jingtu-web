@@ -35,7 +35,7 @@ const LANG_ORDER = ['zh', 'en', 'ja', 'fr', 'de', 'ru'];
 // 语言包静态版本号（与 index.html 中 document.write 引入的语言包 ?v 保持一致）。
 // 动态按需加载的语言包同样必须带 ?v，否则 Service Worker 可能命中旧缓存，
 // 导致切换语言后文案仍显示旧语言（缓存问题 4.2）。语言包内容更新时需同步提升此版本号。
-const I18N_PACK_VERSION = '20260916a';
+const I18N_PACK_VERSION = '20260925-1006';
 
 // ==================== 翻译表（从语言文件加载） ====================
 

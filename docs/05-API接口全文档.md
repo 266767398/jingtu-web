@@ -71,7 +71,7 @@
 | `GET /api/avatar/default` | 公开 | — | SVG 图像 |
 | `GET /api/auth/check-init` | 公开 | — | `{hasUser}` |
 | `GET /api/csrf-token` | 公开 | — | `{csrfToken}` |
-| `GET /api/health` | 公开 | — | `{status:"ok",systemVrcLogin,systemVrcUser}` |
+| `GET /api/health` | 公开 | — | `{status:"ok",systemVrcLogin,systemVrcUser,vrcAutoRelogin,pipeline}`；其中 `vrcAutoRelogin`（2026-09-25 F-30）为自动重登熔断状态：`{failStreak,backoffUntil,backoffRemainingSec,lastResult,minIntervalMs,maxBackoffMs}`，`pipeline` 含 F-28/F-29 观测字段（`sessionErrorCount/lastSessionError/sessionRejected`） |
 | `GET /api/stats` | 登录 | — | `{members,photos,events,posts,online,checkins,memberGrowth,eventSignRate,postActivity,recentUsers}` |
 | `GET /api/public/stats` | 公开 | — | `{totalUsers,totalPhotos,totalEvents,totalPosts,onlineCount}`；查询失败时计数为 `"-"`/`0` |
 | `GET /api/search` | 登录 | 查询 `q`（少于 2 字符返回空集合） | `{announcements,events,users}` |
@@ -107,6 +107,10 @@
 | `POST /api/login` | 管理员 | `{username,password}` | `{success:true,user}` 或 `{need2fa:true,methods}` |
 | `POST /api/2fa` | 管理员；需先前登录状态 | `{code}` | `{success:true,user}` |
 | `POST /api/logout` | 管理员 | — | `{success:true}` |
+| `POST /api/vrc-save-credentials` | 管理员 | `{username,password,totpSecret?}` | `{success:true,sent:true,hasTotp}`；缺 username/password 返回 400（2026-09-24 F-29） |
+| `POST /api/vrc-clear-credentials` | 管理员 | — | `{success:true,cleared:true}`（2026-09-24 F-29） |
+| `GET /api/vrc-credentials-status` | 管理员 | — | `{success:true,configured,autoRelogin}`（2026-09-24 F-29 增加 `configured`；2026-09-25 F-30 增加 `autoRelogin` 熔断状态对象，结构与 `/api/health.vrcAutoRelogin` 一致） |
+| `GET /api/vrc-notifications` | 管理员 | `n,offset` | `{success:true,notifications:[...]}`；账号未登录返回 400（F-19 存量） |
 
 ## 4. 用户与个人主页
 
