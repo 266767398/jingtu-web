@@ -24,6 +24,10 @@ node_modules/
 # 运行时数据
 server/session.json
 server/data/activation-codes.json
+# SQLite 运行库（生产数据，永不入库）
+server/data/*.sqlite
+server/data/*.sqlite-wal
+server/data/*.sqlite-shm
 *.json.bak
 
 # i18n 审计脚本的可再生成产物（node server/scripts/audit-i18n-full.js 随时重建）

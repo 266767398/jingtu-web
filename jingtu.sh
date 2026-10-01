@@ -112,35 +112,45 @@ copy_tree() {
 step() { echo "  [导出] $1"; }
 
 step "复制 server 后端代码..."
-copy_tree "$ROOT/server" "$STAGING/server" "node_modules coverage __tests__ test logs" "*.log session.json _*.js _*.php _*.ps1 out.log"
+copy_tree "$ROOT/server" "$STAGING/server" "node_modules coverage __tests__ tests test logs _jt_trash ai-scratch data" "*.log session.json _*.js _*.php _*.ps1 out.log activation-codes.json"
 
 step "复制 public 前端资源..."
-copy_tree "$ROOT/public" "$STAGING/public" "ai-scratch" ""
+copy_tree "$ROOT/public" "$STAGING/public" "ai-scratch _jt_trash" ""
 
 step "复制 assets 媒体资源..."
 if [ "$INCLUDE_DATA" -eq 1 ]; then
-  copy_tree "$ROOT/assets" "$STAGING/assets" "" ""
+  copy_tree "$ROOT/assets" "$STAGING/assets" "_jt_trash" ""
 else
-  copy_tree "$ROOT/assets" "$STAGING/assets" "album avatar-cache" ""
+  copy_tree "$ROOT/assets" "$STAGING/assets" "album avatar-cache _jt_trash" ""
 fi
 
-step "复制 docs / deploy / tools..."
-copy_tree "$ROOT/docs"   "$STAGING/docs"   "" ""
-copy_tree "$ROOT/deploy" "$STAGING/deploy" "" ""
-copy_tree "$ROOT/tools"  "$STAGING/tools"  "" "_*.py _*.js _*.png _*.md"
+step "复制 docs / deploy / tools / panel..."
+copy_tree "$ROOT/docs"   "$STAGING/docs"   "_jt_trash" ""
+copy_tree "$ROOT/deploy" "$STAGING/deploy" "_jt_trash" ""
+copy_tree "$ROOT/tools"  "$STAGING/tools"  "_jt_trash" "_*.py _*.js _*.png _*.md"
+# P3-22④：jingtu.ps1/sh 此前漏掉 panel/ 目录，对齐 export-site.ps1 白名单
+copy_tree "$ROOT/panel"  "$STAGING/panel"  "backup _jt_trash" "panel-auth.json"
 
 if [ "$INCLUDE_DATA" -eq 1 ]; then
   step "复制 uploads 上传文件..."
-  copy_tree "$ROOT/uploads" "$STAGING/uploads" "" ""
+  copy_tree "$ROOT/uploads" "$STAGING/uploads" "_jt_trash" ""
 fi
 
 step "复制根目录配置文件..."
-ROOT_FILES=".env.example .gitignore .dockerignore .htaccess DEPLOY.md Dockerfile docker-compose.yml docker-entrypoint.sh docker.env.example ecosystem.config.js install.sh panel-config.json jingtu.bat jingtu.ps1 jingtu.sh start-services.sh"
+ROOT_FILES=".env.example .gitignore .dockerignore .htaccess DEPLOY.md Dockerfile docker-compose.yml docker-entrypoint.sh docker.env.example ecosystem.config.js install.sh panel-config.json jingtu.bat jingtu.ps1 jingtu.sh jingtu.config.json start-services.sh export-site.ps1 export-site.bat"
 for f in $ROOT_FILES; do
   if [ -f "$ROOT/$f" ]; then cp -a "$ROOT/$f" "$STAGING/$f"; fi
 done
 
 # ---------- 打包 ----------
+# P2-103 秘密红线终检：staging 内绝不允许出现 .env / panel-auth.json / 激活码文件
+LEAKS=$(find "$STAGING" -type f \( -name '.env' -o -name 'panel-auth.json' -o -name 'activation-codes.json' \) 2>/dev/null)
+if [ -n "$LEAKS" ]; then
+  printf '%s\n' "$LEAKS" | sed 's/^/  [导出] 红线拦截: /' >&2
+  rm -rf -- "$STAGING"
+  echo "[ERR] 压缩包内检测到密钥文件，导出中止" >&2
+  exit 1
+fi
 step "创建压缩包..."
 # P2-94：OUTDIR 已在前面 mkdir -p 并规范化为绝对路径，这里只删同名旧包。
 if [ -e "$OUTFILE" ]; then

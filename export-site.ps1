@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     境途WEB 站点导出工具（P3-16 恢复登记规格）。
 .DESCRIPTION
@@ -17,7 +17,8 @@
     .\export-site.ps1 -OutDir "D:\backup" -Name "site.zip" -IncludeData
 #>
 param(
-    [string]$OutDir = 'D:/phpstudy_pro/WWW',
+    # P3-22⑤：默认输出目录不再写死 D:/phpstudy_pro/WWW，运行时以脚本所在地上一级（项目根上级）兜底
+    [string]$OutDir = '',
     [string]$Name = '',
     [switch]$IncludeData
 )
@@ -51,6 +52,8 @@ function Copy-FilteredTree {
 $staging = $null
 try {
     $ProjectRoot = $PSScriptRoot
+    # P3-22⑤：-OutDir 未传时默认输出到项目根的上一级（与 jingtu.ps1 的 Split-Path 口径一致，不写死硬盘）
+    if (-not $OutDir) { $OutDir = Split-Path $ProjectRoot -Parent }
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     if (-not $Name) { $Name = "jingtu-web-$stamp.zip" }
     if (-not (Test-Path -LiteralPath $OutDir)) {
@@ -75,7 +78,7 @@ try {
 
     # ---- 白名单目录 ----
     $treeJobs = @()
-    $treeJobs += @{ Dir = 'server'; Dirs = @('node_modules', 'coverage', '__tests__', 'tests', 'logs', '_jt_trash', 'ai-scratch'); Files = { param($n) $n -like '_*.js' } }
+    $treeJobs += @{ Dir = 'server'; Dirs = @('node_modules', 'coverage', '__tests__', 'tests', 'logs', '_jt_trash', 'ai-scratch', 'data'); Files = { param($n) $n -like '_*.js' } }
     $treeJobs += @{ Dir = 'public'; Dirs = @('ai-scratch', '_jt_trash'); Files = $null }
     $treeJobs += @{ Dir = 'docs'; Dirs = @('_jt_trash'); Files = $null }
     $treeJobs += @{ Dir = 'deploy'; Dirs = @('_jt_trash'); Files = { param($n) $n -like '*.generated' } }
@@ -102,7 +105,7 @@ try {
         'DEPLOY.md', 'Dockerfile', 'docker-compose.yml', 'docker-entrypoint.sh',
         'docker.env.example', 'ecosystem.config.js', 'install.sh',
         'jingtu.bat', 'jingtu.config.json', 'jingtu.ps1', 'jingtu.sh',
-        'nginx.htaccess', 'panel-config.json', 'export-site.ps1', 'export-site.bat'
+        'panel-config.json', 'export-site.ps1', 'export-site.bat', 'start-services.sh'
     )
     foreach ($rf in $rootFiles) {
         $src = Join-Path $ProjectRoot $rf
@@ -123,9 +126,9 @@ try {
         }
     }
 
-    # ---- 秘密红线终检：staging 内绝不允许出现 .env / panel-auth.json ----
+    # ---- 秘密红线终检：staging 内绝不允许出现 .env / panel-auth.json / 激活码文件 ----
     $leaks = @(Get-ChildItem -LiteralPath $staging -Recurse -File -Force |
-        Where-Object { $_.Name -eq '.env' -or $_.Name -eq 'panel-auth.json' })
+        Where-Object { $_.Name -eq '.env' -or $_.Name -eq 'panel-auth.json' -or $_.Name -eq 'activation-codes.json' })
     if ($leaks.Count -gt 0) {
         foreach ($l in $leaks) { Write-Host ("[export] 红线拦截：{0}" -f $l.FullName) }
         throw '压缩包内检测到密钥文件，导出中止'

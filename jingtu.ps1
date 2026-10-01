@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
   境途WEB 统一运维工具（PowerShell 主程序，Windows）
   ----------------------------------------------------------
@@ -389,6 +389,11 @@ function Stop-MySql {
             # 密码经临时 defaults 文件传递，避免 -p 明文出现在进程命令行（任务管理器/其他用户可见）
             $tmpCnf = Join-Path $env:TEMP ('mysqladmin_' + [guid]::NewGuid().ToString('N') + '.cnf')
             Set-Content -Path $tmpCnf -Value ("[client]`r`npassword=`"$pw`"") -Encoding ascii
+            # P3-22③：临时密码文件收紧为仅当前用户可读写（等效 Linux chmod 600），
+            # 避免 TEMP 目录 ACL 过宽时其他本地用户读到 MySQL root 密码明文。
+            try {
+                & icacls $tmpCnf /inheritance:r /grant:r ("{0}:(R,W)" -f $env:USERNAME) 2>$null | Out-Null
+            } catch {}
             $argLists += @( ,($base + @('--defaults-extra-file=' + $tmpCnf, 'shutdown')) )
         }
         foreach ($al in $argLists) {
@@ -676,8 +681,15 @@ function Export-Site {
 
     $ErrorActionPreference = 'Stop'
 
+    try {
     if (-not $Name) {
         $Name = 'jingtu-web-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.zip'
+    }
+    # P3-22②：Name 参与 OutFile 拼接且下方会 Remove-Item 同名旧包，必须限定为纯文件名，
+    # 否则 -Name ..\x.zip 会把删除动作引到输出目录之外（对齐 jingtu.sh P2-94 校验口径）。
+    if ($Name -match '[\\/]' -or $Name -like '.*' -or $Name -match '\.\.') {
+        Write-Line ("[错误] -Name 只接受纯文件名（不允许路径分隔符、隐藏名与 ..）：" + $Name) $Cfg.C_Fail
+        exit 1
     }
     $outFile = Join-Path $OutDir $Name
     $staging = Join-Path $env:TEMP ('jingtu-export-' + [guid]::NewGuid().ToString('N'))
@@ -706,22 +718,24 @@ function Export-Site {
     New-Item -ItemType Directory -Path $staging -Force | Out-Null
 
     Write-Step '复制 server 后端代码...'
-    Copy-Robocopy (Join-Path $Root 'server') (Join-Path $staging 'server') @('node_modules', 'coverage', '__tests__', 'test', 'logs') @('*.log', 'session.json', '_*.js', '_*.php', '_*.ps1', 'out.log')
+    Copy-Robocopy (Join-Path $Root 'server') (Join-Path $staging 'server') @('node_modules', 'coverage', '__tests__', 'tests', 'test', 'logs', '_jt_trash', 'ai-scratch', 'data') @('*.log', 'session.json', '_*.js', '_*.php', '_*.ps1', 'out.log', 'activation-codes.json')
 
     Write-Step '复制 public 前端资源...'
-    Copy-Robocopy (Join-Path $Root 'public') (Join-Path $staging 'public') @('ai-scratch') @()
+    Copy-Robocopy (Join-Path $Root 'public') (Join-Path $staging 'public') @('ai-scratch', '_jt_trash') @()
 
     Write-Step '复制 assets 媒体资源...'
     if ($IncludeData) {
-        Copy-Robocopy (Join-Path $Root 'assets') (Join-Path $staging 'assets') @() @()
+        Copy-Robocopy (Join-Path $Root 'assets') (Join-Path $staging 'assets') @('_jt_trash') @()
     } else {
-        Copy-Robocopy (Join-Path $Root 'assets') (Join-Path $staging 'assets') @('album', 'avatar-cache') @()
+        Copy-Robocopy (Join-Path $Root 'assets') (Join-Path $staging 'assets') @('album', 'avatar-cache', '_jt_trash') @()
     }
 
-    Write-Step '复制 docs / deploy / tools...'
-    Copy-Robocopy (Join-Path $Root 'docs') (Join-Path $staging 'docs') @() @()
-    Copy-Robocopy (Join-Path $Root 'deploy') (Join-Path $staging 'deploy') @() @()
-    Copy-Robocopy (Join-Path $Root 'tools') (Join-Path $staging 'tools') @() @('_*.py', '_*.js', '_*.png', '_*.md')
+    Write-Step '复制 docs / deploy / tools / panel...'
+    Copy-Robocopy (Join-Path $Root 'docs') (Join-Path $staging 'docs') @('_jt_trash') @()
+    Copy-Robocopy (Join-Path $Root 'deploy') (Join-Path $staging 'deploy') @('_jt_trash') @()
+    Copy-Robocopy (Join-Path $Root 'tools') (Join-Path $staging 'tools') @('_jt_trash') @('_*.py', '_*.js', '_*.png', '_*.md')
+    # P3-22④：jingtu.ps1/sh 此前漏掉 panel/ 目录（面板源码不随交付包走），对齐 export-site.ps1 白名单
+    Copy-Robocopy (Join-Path $Root 'panel') (Join-Path $staging 'panel') @('backup', '_jt_trash') @('panel-auth.json')
 
     if ($IncludeData) {
         Write-Step '复制 uploads 上传文件...'
@@ -733,11 +747,20 @@ function Export-Site {
         '.env.example', '.gitignore', '.dockerignore', '.htaccess',
         'DEPLOY.md', 'Dockerfile', 'docker-compose.yml', 'docker-entrypoint.sh',
         'docker.env.example', 'ecosystem.config.js', 'install.sh',
-        'panel-config.json', 'jingtu.bat', 'jingtu.ps1', 'jingtu.sh', 'jingtu.config.json', 'start-services.sh'
+        'panel-config.json', 'jingtu.bat', 'jingtu.ps1', 'jingtu.sh', 'jingtu.config.json', 'start-services.sh',
+        'export-site.ps1', 'export-site.bat'
     )
     foreach ($f in $rootFiles) {
         $srcFile = Join-Path $Root $f
         if (Test-Path $srcFile) { Copy-Item -Path $srcFile -Destination (Join-Path $staging $f) -Force }
+    }
+
+    # ---- 秘密红线终检：staging 内绝不允许出现 .env / panel-auth.json / 激活码文件 ----
+    $leaks = @(Get-ChildItem -LiteralPath $staging -Recurse -File -Force |
+        Where-Object { $_.Name -eq '.env' -or $_.Name -eq 'panel-auth.json' -or $_.Name -eq 'activation-codes.json' })
+    if ($leaks.Count -gt 0) {
+        foreach ($l in $leaks) { Write-Host ("[导出] 红线拦截：{0}" -f $l.FullName) -ForegroundColor Red }
+        throw '压缩包内检测到密钥文件，导出中止'
     }
 
     Write-Step '创建压缩包...'
@@ -747,7 +770,6 @@ function Export-Site {
 
     $staged = Get-ChildItem $staging -Recurse -File
     $pkgSize = (Get-Item $outFile).Length / 1MB
-    Remove-Item $staging -Recurse -Force
 
     Write-Host ''
     Write-Host '========================================' -ForegroundColor Green
@@ -757,6 +779,13 @@ function Export-Site {
     Write-Host ('  位置:   ' + $outFile)
     Write-Host '========================================' -ForegroundColor Green
     Write-Host ''
+    }
+    finally {
+        # P3-22①：成功/红线拦截/任何异常路径统一清理 staging（对齐 jingtu.sh 的 EXIT trap 语义）
+        if ($staging -and (Test-Path $staging) -and $staging -like 'jingtu-export-*') {
+            Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 # ---------- 交互菜单 ----------
@@ -955,8 +984,15 @@ if ($cmd -eq 'export' -or $cmd -eq 'exp') {
     $exportArgs = @{}
     for ($i = 1; $i -lt $args.Count; $i++) {
         switch ($args[$i]) {
-            { $_ -in '-OutDir','-outdir' } { $exportArgs['OutDir'] = $args[++$i] }
-            { $_ -in '-Name','-name' }     { $exportArgs['Name'] = $args[++$i] }
+            { $_ -in '-OutDir','-outdir' } {
+                # P3-22②：缺值时 $args[++$i] 越界返回 $null，静默产出空路径；显式校验并给可用提示
+                if (($i + 1) -ge $args.Count) { Write-Line '[错误] -OutDir 需要一个目录参数' $Cfg.C_Fail; exit 1 }
+                $exportArgs['OutDir'] = $args[++$i]
+            }
+            { $_ -in '-Name','-name' }     {
+                if (($i + 1) -ge $args.Count) { Write-Line '[错误] -Name 需要一个文件名参数' $Cfg.C_Fail; exit 1 }
+                $exportArgs['Name'] = $args[++$i]
+            }
             { $_ -in '-IncludeData','-includedata' } { $exportArgs['IncludeData'] = $true }
             '-h' { $exportArgs['_help'] = $true }
             '--help' { $exportArgs['_help'] = $true }

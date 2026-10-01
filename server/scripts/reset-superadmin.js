@@ -24,11 +24,12 @@ const bcrypt = require('bcryptjs');
 const ROUNDS = 12;
 
 function parseArgs(argv) {
-  const a = { login: null, pass: null, create: false };
+  const a = { login: null, pass: null, create: false, yes: false };
   for (let i = 2; i < argv.length; i++) {
     if (argv[i] === '--login') a.login = argv[++i];
     else if (argv[i] === '--pass') a.pass = argv[++i];
     else if (argv[i] === '--create') a.create = true;
+    else if (argv[i] === '--yes') a.yes = true;
   }
   return a;
 }
@@ -47,6 +48,30 @@ function ask(question) {
     process.stdin.setEncoding('utf8');
     process.stdin.once('data', (d) => resolve((d || '').toString().trim()));
   });
+}
+
+async function confirmGuard(args) {
+  if (args.pass) {
+    if (typeof args.pass !== 'string' || args.pass.length < 8) {
+      console.error('✗ 指定密码过弱：至少 8 位（建议由脚本自动生成随机密码）');
+      process.exitCode = 1;
+      throw new Error('ABORT_WEAK_PASS');
+    }
+    console.warn('⚠️ --pass 会出现在进程参数中（ps/审计可见），建议改用自动生成或 --yes + 交互输入');
+  }
+  if (args.yes) return;
+  const isTTY = Boolean(process.stdin && process.stdin.isTTY);
+  if (!isTTY) {
+    console.error('✗ 非交互环境（管道/面板）执行重置必须显式加 --yes（面板调用由登录鉴权+确认短语兜底）');
+    process.exitCode = 1;
+    throw new Error('ABORT_BY_GUARD');
+  }
+  const ans = await ask('⚠️ 将重置超级管理员密码（破坏性操作，请确认当前环境可信），确认？[y/N] ');
+  if (ans.toLowerCase() !== 'y') {
+    console.log('已取消。');
+    process.exitCode = 0;
+    throw new Error('ABORT_BY_USER');
+  }
 }
 
 async function main() {
@@ -69,6 +94,7 @@ async function main() {
     );
 
     const args = parseArgs(process.argv);
+    await confirmGuard(args);
     let target = null;
     let tempPass = args.pass || genPassword();
 
@@ -145,6 +171,10 @@ async function main() {
     await conn.end();
     process.exit(0);
   } catch (e) {
+    if (e && /^ABORT_/.test(e.message)) {
+      try { await conn.end(); } catch {}
+      process.exit(process.exitCode || 0);
+    }
     console.error('✗ 重置失败：' + e.message);
     try { await conn.end(); } catch {}
     process.exit(1);

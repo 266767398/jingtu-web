@@ -5,6 +5,30 @@ const mysql = require('mysql2/promise');
 const ROOT = path.join(__dirname, '..', '..');
 const ENV_PATH = path.join(ROOT, '.env');
 
+function ask(question) {
+  return new Promise((resolve) => {
+    process.stdout.write(question);
+    process.stdin.setEncoding('utf8');
+    process.stdin.once('data', (d) => resolve((d || '').toString().trim()));
+  });
+}
+
+async function confirmGuard() {
+  const isTTY = Boolean(process.stdin && process.stdin.isTTY);
+  if (process.argv.includes('--yes')) return;
+  if (!isTTY) {
+    console.error('✗ 非交互环境（管道/面板）执行本脚本必须显式加 --yes（面板调用由确认短语兜底）');
+    process.exitCode = 1;
+    throw new Error('ABORT_BY_GUARD');
+  }
+  const ans = await ask('⚠️ 此操作将把全部超级管理员降级为 member（.env 与会话保留），确认？[y/N] ');
+  if (ans.toLowerCase() !== 'y') {
+    console.log('已取消。');
+    process.exitCode = 0;
+    throw new Error('ABORT_BY_USER');
+  }
+}
+
 function stripQuotes(value) {
   const v = String(value || '').trim();
   if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
@@ -30,6 +54,7 @@ function parseEnvFile(filePath) {
 }
 
 async function main() {
+  await confirmGuard();
   const env = parseEnvFile(ENV_PATH);
   const dbConfig = {
     host: env.MYSQL_HOST || '127.0.0.1',
@@ -65,4 +90,8 @@ async function main() {
   }
 }
 
-main();
+main().catch((e) => {
+  if (e && /^ABORT_/.test(e.message)) return;
+  console.error('重置失败：' + (e && e.message ? e.message : e));
+  process.exitCode = 1;
+});

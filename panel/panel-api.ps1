@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 # 境途同游 网页版运维后台 —— PowerShell 执行层（由 panel-server.js 调用，输出单行 JSON）
 param(
     [Parameter(Mandatory = $true)][string]$Action,
@@ -36,7 +36,24 @@ function Load-Config {
 $Config = Load-Config
 
 function Write-Audit([string]$msg) {
-    try { Add-Content -Path $AuditLog -Value ((Get-Date -Format "yyyy-MM-dd HH:mm:ss") + " | web-panel | $msg") -Encoding UTF8 } catch {}
+    # P3-24①：与 panel-server.js rotateAuditLog 同规则——超过 5MB 或跨天轮转，
+    # 改名 panel-audit.log.YYYYMMDD（同日复轮转追加 -HHmmss 去重），仅保留最近 7 份。
+    try {
+        if (Test-Path $AuditLog) {
+            $fi = Get-Item $AuditLog
+            $now = Get-Date
+            $sameDay = ($fi.LastWriteTime.Date -eq $now.Date)
+            if (-not $sameDay -or $fi.Length -ge 5MB) {
+                $suffix = $fi.LastWriteTime.ToString("yyyyMMdd")
+                $bak = "$AuditLog.$suffix"
+                if (Test-Path $bak) { $bak += "-" + $fi.LastWriteTime.ToString("HHmmss") }
+                Move-Item -Path $AuditLog -Destination $bak -Force
+                $old = @(Get-ChildItem -Path $LogsDir -Filter "panel-audit.log.*" -File -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -Skip 7)
+                foreach ($f in $old) { Remove-Item $f -Force -ErrorAction SilentlyContinue }
+            }
+        }
+        Add-Content -Path $AuditLog -Value ((Get-Date -Format "yyyy-MM-dd HH:mm:ss") + " | web-panel | $msg") -Encoding UTF8
+    } catch {}
 }
 
 function Get-FreeSpaceGB {
@@ -452,7 +469,7 @@ try {
             if (-not $node) { throw "未找到 node，请确认 Node.js 已安装并在 PATH 中" }
             $script = Join-Path $ProjectRoot "server\scripts\reset-superadmin.js"
             if (-not (Test-Path $script)) { throw "未找到重置脚本：$script" }
-            $argList = @($script, "--login", $login)
+            $argList = @($script, "--login", $login, "--yes")
             if ($pass) { $argList += @("--pass", $pass) }
             Push-Location $ProjectRoot
             $stdout = & node @argList 2>&1
@@ -490,7 +507,7 @@ try {
         "reset" {
             $script = Join-Path $ProjectRoot "server\scripts\reset-to-init.js"
             if (-not (Test-Path $script)) { throw "未找到重置脚本：$script" }
-            $p = Start-Process node.exe -ArgumentList @($script) -WorkingDirectory $ProjectRoot -WindowStyle Hidden -Wait -PassThru
+            $p = Start-Process node.exe -ArgumentList @($script, "--yes") -WorkingDirectory $ProjectRoot -WindowStyle Hidden -Wait -PassThru
             if ($p.ExitCode -ne 0) { throw "重置脚本执行失败（退出码 $($p.ExitCode)），请查看面板日志" }
             $out.message = "重置初始化执行完成：server\scripts\reset-to-init.js"
             $out.ok = $true
