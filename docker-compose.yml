@@ -1,8 +1,9 @@
 # ==================== 境途同游 Web — docker-compose ====================
 # 一键起站（应用 + MySQL）：
-#   cp docker.env.example .env      # 填写 SESSION_SECRET / ENCRYPT_KEY / 数据库密码
-#   docker compose up -d --build
+#   cp docker.env.example .env.docker  # 填写 SESSION_SECRET / ENCRYPT_KEY / 数据库密码
+#   docker compose --env-file .env.docker up -d --build
 #   curl -fsS http://127.0.0.1:3456/api/health/ready
+# 注意：勿 cp 到根目录 .env——该文件同时被 Node dotenv 读取，与裸机/宝塔实例并存会互相污染。
 #
 # 说明：
 # - 应用容器内部通过服务名 `db` 访问数据库（MYSQL_HOST 已在下方写死，不读取宿主 .env）。
@@ -11,8 +12,9 @@
 # - SESSION_SECRET / ENCRYPT_KEY 为必填，缺失时 compose 会直接报错提示。
 # - 端口默认只绑 127.0.0.1（APP_BIND），公网部署务必保持本机 Nginx / 宝塔反代并终结 TLS
 #   （见 DEPLOY.md 与 deploy/nginx/jingtu.conf）；确需直连暴露时显式设 APP_BIND=0.0.0.0。
-# - 公网部署（反代在后）TRUST_PROXY 默认 "1" 即可；若无反代直接暴露端口，请设 0，
-#   否则登录限流/IP 黑名单可被伪造 X-Forwarded-For 绕过。
+# - 公网部署（反代在后）请显式设 TRUST_PROXY=1（compose 默认 0 = 不信任代理，与 server.js
+#   安全默认一致）；若无反代直接暴露端口保持 0，否则登录限流/IP 黑名单可被伪造
+#   X-Forwarded-For 绕过。
 
 services:
   db:
@@ -53,8 +55,10 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3456
-      # 位于反代之后保持默认 1；无反代直连公网时设 0（防伪造 X-Forwarded-For 绕过限流/黑名单）
-      TRUST_PROXY: "${TRUST_PROXY:-1}"
+      # P3-25：默认 0（不信任代理）与 server.js 安全默认一致——端口直连公网时不至于
+      # 被伪造 X-Forwarded-For 绕过限流/黑名单；经本机 Nginx/宝塔/Docker 反代的标准部署
+      # 请显式设 TRUST_PROXY=1（或按实际跳数），否则 req.ip 坍缩为 127.0.0.1。
+      TRUST_PROXY: "${TRUST_PROXY:-0}"
       # 容器内访问数据库使用服务名
       MYSQL_HOST: db
       MYSQL_PORT: 3306
@@ -69,12 +73,22 @@ services:
       GROUP_ID: ${GROUP_ID:-}
       VRC_API_KEY: ${VRC_API_KEY:-}
       VRC_GROUP_URL: ${VRC_GROUP_URL:-}
+      # P3-19：VRChat 数据源附加（可选），留空代码回退默认值（见 server/vrc.js:9、
+      # server/routes/collections.js:326）
+      VRC_USER_AGENT: ${VRC_USER_AGENT:-}
+      VRCX_SEARCH_URL: ${VRCX_SEARCH_URL:-}
       KOOK_URL: ${KOOK_URL:-}
       OOPZ_URL: ${OOPZ_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # 站点对外地址（邮件内链接、sitemap 等使用；留空则代码回退本地默认值，生产务必设置）
       APP_URL: ${APP_URL:-}
-      # 数据库恢复接口口令：留空时 /api/db-recover 写接口直接 503（安全默认）
+      # P3-19：站点地址补充三件套（可选）——SITEMAP_BASE_URL 优先、APP_URL 次之、
+      # APP_BASE_URL 最后回退（server/routes/sitemap.js:18）；WS_URL 下发前端 WS 地址
+      # （server/routes/stats.js:21，留空前端按当前页面自动探测）
+      SITEMAP_BASE_URL: ${SITEMAP_BASE_URL:-}
+      APP_BASE_URL: ${APP_BASE_URL:-}
+      WS_URL: ${WS_URL:-}
+      # 数据库恢复接口口令：留空时 /api/system/db-recover 写接口直接 503（安全默认）
       RECOVERY_TOKEN: ${RECOVERY_TOKEN:-}
       # 邮件通知（可选）：SMTP_HOST 留空则全部邮件功能静默跳过；
       # 口令变量 SMTP_PASS 优先、SMTP_PASSWORD 为历史兼容（见 server/mailer.js）
@@ -97,6 +111,18 @@ services:
       RTMP_PORT: ${RTMP_PORT:-1935}
       RTMP_APP: ${RTMP_APP:-live}
       HLS_BASE_URL: ${HLS_BASE_URL:-}
+      # P2-102：激活码离线存储路径（Dockerfile 已 chown server/data，node 可写；
+      # 默认落 /app/server/data/activation-codes.json，如需自定义可通过此变量覆盖）
+      ACTIVATION_CODES_FILE: ${ACTIVATION_CODES_FILE:-}
+      # P3-19：数据保留策略（server/tasks.js 每日清理）——留空代码回退默认值
+      # （FILE=90 / NOTIFICATION=30 / BACKUP=7，见 tasks.js:58/144/172）
+      FILE_RETENTION_DAYS: ${FILE_RETENTION_DAYS:-}
+      NOTIFICATION_RETENTION_DAYS: ${NOTIFICATION_RETENTION_DAYS:-}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-}
+      # 第九批：SQLite 嵌入式模式键透传（docker.env.example 已登记）——留空即默认
+      # MySQL 模式；注意容器内切换 SQLite 需同时移除/绕过下方 db 服务与必填校验。
+      JINGTU_DB_ENGINE: ${JINGTU_DB_ENGINE:-}
+      JINGTU_SQLITE_PATH: ${JINGTU_SQLITE_PATH:-}
     ports:
       # 默认只绑回环，经本机反代对外；确需直连公网暴露时设 APP_BIND=0.0.0.0
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3456}:3456"
@@ -104,6 +130,9 @@ services:
       - uploads:/app/uploads
       - backups:/app/backups
       - logs:/app/logs
+      # P2-101：assets 具名卷持久化（用户相册落盘 + VRChat 头像代理缓存），
+      # 与上传/备份同模式——镜像内初始资产经首次挂载拷入卷，后续增删落卷不随容器销毁丢失
+      - assets:/app/assets
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3456/api/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
@@ -118,6 +147,9 @@ volumes:
   uploads:
   backups:
   logs:
+  assets:
+    # P2-101：相册/头像缓存持久化卷（对应 app 服务挂载 assets:/app/assets）
+    name: jingtu-assets
 
 networks:
   jingtu-net:

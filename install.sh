@@ -74,6 +74,12 @@ DOMAIN=$(prompt DOMAIN "网站域名（如 jingtu.example.com，留空用服务�
 DB_NAME=$(prompt DB_NAME "数据库名" "jingtu_group")
 DB_USER=$(prompt DB_USER "数据库用户名" "jingtu_user")
 DB_PASS=$(prompt_secret DB_PASS "数据库密码")
+# P3-21 ①：DB_PASS 必填——非交互环境下 prompt_secret 返回空串，
+# 空密码生成的 MYSQL_PASSWORD= 会让应用连库必失败，直接终止而非带病部署。
+if [ -z "$DB_PASS" ]; then
+  err "数据库密码不能为空（DB_PASS）。"
+  exit 1
+fi
 MYSQL_ROOT_PASSWORD=$(prompt_secret MYSQL_ROOT_PASSWORD "MySQL root 密码（留空则跳过自动建库）")
 PORT=$(prompt PORT "站点端口（Node 监听）" "3456")
 REPO_URL=${REPO_URL:-""}
@@ -86,6 +92,18 @@ if ! printf '%s' "$DB_NAME" | grep -Eq '^[A-Za-z0-9_]+$'; then
 fi
 if ! printf '%s' "$DB_USER" | grep -Eq '^[A-Za-z0-9_]+$'; then
   err "数据库用户名非法（仅允许字母、数字、下划线）：$DB_USER"
+  exit 1
+fi
+# P2-104/P3-21：DOMAIN 会被拼进 nginx heredoc（server_name）与 CERT_DIR 路径——
+# 无白名单时含 $( ) 被二次展开（命令注入）、含 ../ 造成证书目录穿越。
+# 域名仅允许字母、数字、-、.（可带端口号；留空=用服务器 IP）。
+if [ -n "$DOMAIN" ] && ! printf '%s' "$DOMAIN" | grep -Eq '^[A-Za-z0-9.-]+(:[0-9]+)?$'; then
+  err "网站域名非法（仅允许字母、数字、-、.，可选端口号）：$DOMAIN"
+  exit 1
+fi
+# P2-104/P3-21：PORT 会被拼进 nginx heredoc 与 .env，仅允许 1-65535 的数字。
+if ! printf '%s' "$PORT" | grep -Eq '^[0-9]+$' || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+  err "站点端口非法（仅允许 1-65535 的数字）：$PORT"
   exit 1
 fi
 
@@ -163,42 +181,77 @@ else
   info "生成根目录 .env ..."
   SESSION_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")
   ENCRYPT_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+  # P2-105：恢复令牌随机生成（≥32 字节 hex）——避免默认空值导致 /api/system/db-recover 永久 503。
+  # 令牌仅写入 .env（权限 600），脚本不打印明文；需要时可自行从 .env 读取。
+  RECOVERY_TOKEN=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
   GROUP_ID=${GROUP_ID:-grp_7a45b436-159c-4d9c-8303-e186ec25fc35}
   VRC_GROUP_URL=${VRC_GROUP_URL:-https://vrchat.com/home/group/$GROUP_ID}
-  cat > "$ENV_FILE" <<EOF
-# 由 install.sh 于 $(date '+%Y-%m-%d %H:%M:%S') 生成
+  # P2-104：全部动态值改用 printf %s 字面写入——未加引号的 heredoc 会对 ${VAR} 二次展开，
+  # 变量含反引号 / $( ) 时会被当作命令执行（注入到生成文件）；printf 仅做字面拼接，无此风险。
+  # 静态行用 <<'EOF'（引号定界）同样不做任何展开。DB_USER/DB_NAME 已在上文做白名单校验。
+  cat > "$ENV_FILE" <<'EOF'
+# 由 install.sh 生成
 MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
-MYSQL_USER=${DB_USER}
-MYSQL_DATABASE=${DB_NAME}
 EOF
-  # P2-80：密码单独用 printf 写入——未加引号的 heredoc 会对 ${DB_PASS} 二次展开：
-  # 密码含反引号 / $( ) 时会被当作命令执行（注入到生成文件）。printf %s 仅做字面拼接。
+  printf 'MYSQL_USER=%s\n' "$DB_USER" >> "$ENV_FILE"
+  printf 'MYSQL_DATABASE=%s\n' "$DB_NAME" >> "$ENV_FILE"
   printf 'MYSQL_PASSWORD=%s\n' "$DB_PASS" >> "$ENV_FILE"
-  cat >> "$ENV_FILE" <<EOF
-
-SESSION_SECRET=${SESSION_SECRET}
-ENCRYPT_KEY=${ENCRYPT_KEY}
-
+  printf 'SESSION_SECRET=%s\n' "$SESSION_SECRET" >> "$ENV_FILE"
+  printf 'ENCRYPT_KEY=%s\n' "$ENCRYPT_KEY" >> "$ENV_FILE"
+  cat >> "$ENV_FILE" <<'EOF'
 NODE_ENV=production
-PORT=${PORT}
 TRUST_PROXY=1
 LOG_LEVEL=INFO
-
-GROUP_ID=${GROUP_ID}
-VRC_GROUP_URL=${VRC_GROUP_URL}
-VRC_API_KEY=${VRC_API_KEY:-}
-KOOK_URL=${KOOK_URL:-https://www.kookapp.cn/}
-OOPZ_URL=${OOPZ_URL:-https://www.oopz.cc/}
-
-CORS_ORIGINS=${CORS_ORIGINS:-}
-RTMP_HOST=${RTMP_HOST:-}
-RTMP_PORT=1935
-RTMP_APP=live
-HLS_BASE_URL=${HLS_BASE_URL:-}
 EOF
+  printf 'PORT=%s\n' "$PORT" >> "$ENV_FILE"
+  printf 'GROUP_ID=%s\n' "$GROUP_ID" >> "$ENV_FILE"
+  printf 'VRC_GROUP_URL=%s\n' "$VRC_GROUP_URL" >> "$ENV_FILE"
+  printf 'VRC_API_KEY=%s\n' "${VRC_API_KEY:-}" >> "$ENV_FILE"
+  printf 'KOOK_URL=%s\n' "${KOOK_URL:-https://www.kookapp.cn/}" >> "$ENV_FILE"
+  printf 'OOPZ_URL=%s\n' "${OOPZ_URL:-https://www.oopz.cc/}" >> "$ENV_FILE"
+  printf 'CORS_ORIGINS=%s\n' "${CORS_ORIGINS:-}" >> "$ENV_FILE"
+  printf 'RTMP_HOST=%s\n' "${RTMP_HOST:-}" >> "$ENV_FILE"
+  printf 'RTMP_PORT=%s\n' "${RTMP_PORT:-1935}" >> "$ENV_FILE"
+  printf 'RTMP_APP=%s\n' "${RTMP_APP:-live}" >> "$ENV_FILE"
+  printf 'HLS_BASE_URL=%s\n' "${HLS_BASE_URL:-}" >> "$ENV_FILE"
+  # P2-105：补齐代码实际消费的关键变量（站点地址/恢复通道/SMTP/保留策略/面板/激活码/VRC 数据源）
+  printf 'APP_URL=%s\n' "${APP_URL:-}" >> "$ENV_FILE"
+  printf 'SITEMAP_BASE_URL=%s\n' "${SITEMAP_BASE_URL:-}" >> "$ENV_FILE"
+  printf 'APP_BASE_URL=%s\n' "${APP_BASE_URL:-}" >> "$ENV_FILE"
+  printf 'WS_URL=%s\n' "${WS_URL:-}" >> "$ENV_FILE"
+  printf 'RECOVERY_TOKEN=%s\n' "$RECOVERY_TOKEN" >> "$ENV_FILE"
+  printf 'SMTP_HOST=%s\n' "${SMTP_HOST:-}" >> "$ENV_FILE"
+  printf 'SMTP_PORT=%s\n' "${SMTP_PORT:-587}" >> "$ENV_FILE"
+  printf 'SMTP_USER=%s\n' "${SMTP_USER:-}" >> "$ENV_FILE"
+  printf 'SMTP_PASS=%s\n' "${SMTP_PASS:-}" >> "$ENV_FILE"
+  printf 'SMTP_PASSWORD=%s\n' "${SMTP_PASSWORD:-}" >> "$ENV_FILE"
+  printf 'SMTP_SECURE=%s\n' "${SMTP_SECURE:-false}" >> "$ENV_FILE"
+  printf 'SMTP_FROM=%s\n' "${SMTP_FROM:-}" >> "$ENV_FILE"
+  printf 'ADMIN_EMAIL=%s\n' "${ADMIN_EMAIL:-}" >> "$ENV_FILE"
+  printf 'FILE_RETENTION_DAYS=%s\n' "${FILE_RETENTION_DAYS:-90}" >> "$ENV_FILE"
+  printf 'NOTIFICATION_RETENTION_DAYS=%s\n' "${NOTIFICATION_RETENTION_DAYS:-30}" >> "$ENV_FILE"
+  printf 'BACKUP_RETENTION_DAYS=%s\n' "${BACKUP_RETENTION_DAYS:-7}" >> "$ENV_FILE"
+  printf 'PANEL_PORT=%s\n' "${PANEL_PORT:-3457}" >> "$ENV_FILE"
+  printf 'ACTIVATION_CODES_FILE=%s\n' "${ACTIVATION_CODES_FILE:-}" >> "$ENV_FILE"
+  printf 'VRC_USER_AGENT=%s\n' "${VRC_USER_AGENT:-}" >> "$ENV_FILE"
+  printf 'VRCX_SEARCH_URL=%s\n' "${VRCX_SEARCH_URL:-}" >> "$ENV_FILE"
+  # 第九批：补齐 cache.js 消费的 Redis 系与 db.js 消费的 SQLite 模式键（空值=关闭/MySQL，对齐 .env.example）
+  printf 'REDIS_HOST=%s\n' "${REDIS_HOST:-}" >> "$ENV_FILE"
+  printf 'REDIS_PORT=%s\n' "${REDIS_PORT:-6379}" >> "$ENV_FILE"
+  printf 'REDIS_PASSWORD=%s\n' "${REDIS_PASSWORD:-}" >> "$ENV_FILE"
+  printf 'REDIS_DB=%s\n' "${REDIS_DB:-0}" >> "$ENV_FILE"
+  printf 'JINGTU_DB_ENGINE=%s\n' "${JINGTU_DB_ENGINE:-}" >> "$ENV_FILE"
+  printf 'JINGTU_SQLITE_PATH=%s\n' "${JINGTU_SQLITE_PATH:-}" >> "$ENV_FILE"
   chmod 600 "$ENV_FILE"
   ok ".env 已生成（权限 600）"
+  # P2-105：未配置项提示——关键变量留空时的行为与补充指引
+  if [ -z "${APP_URL:-}" ]; then
+    warn "APP_URL 未设置：邮件内重置/通知链接将回退 http://localhost:3456，生产请编辑 $ENV_FILE 补全"
+  fi
+  if [ -z "${SMTP_HOST:-}" ]; then
+    warn "SMTP_HOST 未设置：全部邮件功能静默关闭（密码重置、系统通知、告警邮件均不会发送）"
+  fi
 fi
 
 # ---------- 可选：创建数据库与账号 ----------
@@ -220,14 +273,17 @@ if [ -n "$MYSQL_ROOT_PASSWORD" ]; then
     chmod 600 "$MYSQL_CNF"
     printf '[client]\nuser=root\npassword=%s\n' "$MYSQL_ROOT_PASSWORD" > "$MYSQL_CNF"
     DB_PASS_ESC=${DB_PASS//\'/\'\'}
-    mysql --defaults-extra-file="$MYSQL_CNF" <<SQL || warn "建库失败，请通过宝塔手动创建数据库 $DB_NAME / 用户 $DB_USER，并确保密码一致。"
-CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASS_ESC}';
-GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'127.0.0.1';
-CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS_ESC}';
-GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
-FLUSH PRIVILEGES;
-SQL
+    # P2-104：SQL heredoc 同步改为 printf 字面注入——未加引号的 <<SQL 会对 ${DB_PASS_ESC}
+    # 二次展开，密码含反引号 / $( ) 时会被当作命令执行；printf %s 仅做字面拼接。
+    # DB_NAME/DB_USER 已在上文白名单校验（仅字母数字下划线）。
+    {
+      printf 'CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n' "$DB_NAME"
+      printf "CREATE USER IF NOT EXISTS '%s'@'127.0.0.1' IDENTIFIED BY '%s';\n" "$DB_USER" "$DB_PASS_ESC"
+      printf "GRANT ALL PRIVILEGES ON \`%s\`.* TO '%s'@'127.0.0.1';\n" "$DB_NAME" "$DB_USER"
+      printf "CREATE USER IF NOT EXISTS '%s'@'localhost' IDENTIFIED BY '%s';\n" "$DB_USER" "$DB_PASS_ESC"
+      printf "GRANT ALL PRIVILEGES ON \`%s\`.* TO '%s'@'localhost';\n" "$DB_NAME" "$DB_USER"
+      printf 'FLUSH PRIVILEGES;\n'
+    } | mysql --defaults-extra-file="$MYSQL_CNF" || warn "建库失败，请通过宝塔手动创建数据库 $DB_NAME / 用户 $DB_USER，并确保密码一致。"
     rm -f -- "$MYSQL_CNF"
     ok "数据库初始化 SQL 已执行"
   else
@@ -253,25 +309,8 @@ if [ -f "$PROJECT_DIR/ecosystem.config.js" ]; then
   ok "已存在 ecosystem.config.js（仓库自带标准版，含 PM2 日志配置），保留不覆盖"
 else
   info "生成 PM2 配置 ecosystem.config.js ..."
-  cat > "$PROJECT_DIR/ecosystem.config.js" <<EOF
-module.exports = {
-  apps: [{
-    name: 'jingtu-web',
-    cwd: '${PROJECT_DIR}/server',
-    script: 'server.js',
-    instances: 1,
-    exec_mode: 'fork',
-    autorestart: true,
-    watch: false,
-    max_memory_restart: '1024M',
-    out_file: '${PROJECT_DIR}/logs/pm2-out.log',
-    error_file: '${PROJECT_DIR}/logs/pm2-error.log',
-    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-    merge_logs: true,
-    env: { NODE_ENV: 'production' }
-  }]
-};
-EOF
+  # P2-104：heredoc 引号定界 + printf 字面注入（PROJECT_DIR 若含 $( )/反引号不再被执行）
+  printf "module.exports = {\n  apps: [{\n    name: 'jingtu-web',\n    cwd: '%s',\n    script: 'server.js',\n    instances: 1,\n    exec_mode: 'fork',\n    autorestart: true,\n    exp_backoff_restart_delay: 500,\n    watch: false,\n    max_memory_restart: '1024M',\n    out_file: '%s',\n    error_file: '%s',\n    log_date_format: 'YYYY-MM-DD HH:mm:ss Z',\n    merge_logs: true,\n    env: { NODE_ENV: 'production' }\n  }]\n};\n" "$PROJECT_DIR/server" "$PROJECT_DIR/logs/pm2-out.log" "$PROJECT_DIR/logs/pm2-error.log" > "$PROJECT_DIR/ecosystem.config.js"
   ok "ecosystem.config.js 已生成"
 fi
 

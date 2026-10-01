@@ -73,10 +73,10 @@ curl -fsS http://127.0.0.1:3456/api/health/ready
 
 ### 1.3 镜像说明（`Dockerfile`）
 
-- 多阶段构建（`node:20-slim`），仅运行阶段保留依赖，体积更小。
+- 多阶段构建（`node:22-slim`，Node 20 已于 2026-04 EOL），仅运行阶段保留依赖，体积更小。
 - 应用以 **非 root**（node 用户）运行；`uploads/backups/logs` 为命名卷，可持久化与备份。
 - 启动顺序由 `docker-entrypoint.sh` 保证：等待 MySQL 端口 → 执行 `db_init.js` → 启动 `node server.js`。
-- 生产环境 Swagger 不加载，镜像可用 `npm ci --omit=dev` 思路精简（当前 `npm ci` 已足够）。
+- 生产环境 Swagger 不加载，镜像已用 `npm ci --omit=dev` 精简依赖（devDependencies 不进入运行镜像）。
 
 ### 1.4 公网 TLS
 
@@ -165,7 +165,7 @@ Cookie `secure` 改为 `'auto'`，经 HTTPS 时自动加 `Secure`。**反代上�
 | `ENCRYPT_KEY` | VRChat Cookie AES-256-GCM 密钥（64位十六进制） | 是 |
 | `NODE_ENV` | `production` 关闭 Swagger、启用 HSTS | 是 |
 | `PORT` | 监听端口，默认 3456 | 否 |
-| `TRUST_PROXY` | 反代信任（代码默认不信任；Docker compose 默认 `1`，直暴露设 `0`） | 否 |
+| `TRUST_PROXY` | 反代信任（代码默认不信任；Docker compose 默认 `0`，反代部署须显式设 `1`） | 否 |
 | `CORS_ORIGINS` | 允许的跨域来源，逗号分隔；生产必须设 | 强烈建议 |
 | `GROUP_ID` / `VRC_API_KEY` / `VRC_GROUP_URL` | VRChat 群组 | 可选 |
 | `KOOK_URL` / `OOPZ_URL` | 社区外链 | 可选 |

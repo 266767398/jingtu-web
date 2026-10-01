@@ -29,9 +29,10 @@ LABEL org.opencontainers.image.title="境途同游 Web" \
       org.opencontainers.image.licenses="ISC"
 
 # 运行时环境变量（可被 docker-compose / -e 覆盖）
+# P3-25：TRUST_PROXY 默认 0（不信任代理），与 server.js 安全默认一致；反代部署请显式设 1。
 ENV NODE_ENV=production \
     PORT=3456 \
-    TRUST_PROXY=1
+    TRUST_PROXY=0
 
 WORKDIR /app
 
@@ -57,8 +58,10 @@ COPY assets/ ./assets/
 COPY .env.example /app/.env.example
 
 # 运行时需要可写的目录（同时声明为卷，便于持久化与备份）
-RUN mkdir -p uploads backups logs \
- && chown -R node:node uploads backups logs
+# P2-101/102：assets（相册落盘 + 头像代理缓存）与 server/data（激活码离线存储）
+# 一并 chown 给 node——否则 USER node 后 mkdirSync/写入必 EACCES（相册/头像缓存/激活码全挂）。
+RUN mkdir -p uploads backups logs server/data \
+ && chown -R node:node uploads backups logs assets server/data
 VOLUME ["/app/uploads", "/app/backups", "/app/logs"]
 
 # 以非 root 用户运行

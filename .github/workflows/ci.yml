@@ -40,8 +40,10 @@ jobs:
       - name: 运行测试（含覆盖率门槛）
         run: npm run test:ci
 
+      # P3-23③：上传守卫——jest 崩溃/未产出 lcov-report 时不执行上传
+      # （此前 if: always() 会无条件跑，upload-artifact@v4 对缺失路径报错，掩盖真实失败原因）
       - name: 上传覆盖率报告
-        if: always()
+        if: always() && hashFiles('server/coverage/lcov-report/**') != ''
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report-node${{ matrix.node-version }}
@@ -151,8 +153,9 @@ jobs:
           detect --source /repo --red --exit-code 0
           --report-format json --report-path /repo/gitleaks-report.json
 
+      # P3-23③：上传守卫——gitleaks 未产出报告（如容器拉取失败）时不执行上传
       - name: 上传扫描报告
-        if: always()
+        if: always() && hashFiles('gitleaks-report.json') != ''
         uses: actions/upload-artifact@v4
         with:
           name: gitleaks-report
