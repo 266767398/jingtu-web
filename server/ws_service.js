@@ -148,6 +148,15 @@ const userWsMap = new Map();
 const groupMemberCache = new Map();
 const debounceTimers = new Map();
 
+// §RTC 实时通话语音房状态：roomKey -> Set<userId>
+// 私聊房 key: p:低id:高id；群语音房 key: g:群id
+const rtcRooms = new Map();
+const userRtcRooms = new Map(); // userId -> Set<roomKey>（断线清理用）
+const rtcRateMap = new Map();   // userId -> { count, windowStart }（信令限流）
+const RTC_RATE_WINDOW = 10 * 1000;
+const RTC_RATE_LIMIT = 90;      // 10 秒内最多 90 条信令
+const RTC_MAX_MSG = 256 * 1024; // 单条信令体上限（SDP/ICE 常 <64KB）
+
 function setupWebSocket(server) {
   _wss = new WebSocketServer({ server, path: '/ws', verifyClient: _verifyClient });
 
@@ -293,6 +302,15 @@ function setupWebSocket(server) {
           return;
         }
 
+        // §RTC 实时通话信令：复用 WS 通道透传 offer/answer/ICE（私聊 1v1 + 群语音房 mesh）
+        // 服务器端入口统一，内部按 msg.type 分发；userId 强制取连接绑定的 session userId
+        if (msg.type && msg.type.indexOf('rtc:') === 0 && userId) {
+          handleRtcSignal(userId, msg, ws).catch(e => {
+            console.warn('[ws] RTC 信令处理异常:', e.message);
+          });
+          return;
+        }
+
       } catch (e) {
         console.warn('⚠️ WS 消息处理异常:', e.message);
       }
@@ -300,6 +318,33 @@ function setupWebSocket(server) {
 
     ws.on('close', (code) => {
       clearInterval(pingInterval);
+
+      // §RTC 连接断开：清理其占用的语音房（含群语音房），并通知房内其他成员
+      if (userId) {
+        const userRooms = userRtcRooms.get(userId);
+        if (userRooms) {
+          for (const roomKey of userRooms) {
+            const members = rtcRooms.get(roomKey);
+            if (members) {
+              members.delete(userId);
+              if (members.size === 0) rtcRooms.delete(roomKey);
+            }
+            if (roomKey.indexOf('g:') === 0) {
+              const gid = parseInt(roomKey.slice(2), 10);
+              if (gid) {
+                broadcastToGroup(gid, {
+                  type: 'rtc:group:member:leave',
+                  groupId: gid,
+                  roomKey,
+                  userId,
+                  timestamp: Date.now()
+                });
+              }
+            }
+          }
+          userRtcRooms.delete(userId);
+        }
+      }
 
       if (userId) {
         const conns = userWsMap.get(userId);
@@ -809,6 +854,217 @@ function broadcastToGroup(groupId, message) {
   })();
 }
 
+// ==================== §RTC 实时通话信令（私聊 1v1 + 群语音房 mesh） ====================
+// 信令仅做转发/广播，不落库、不计未读。浏览器端 WebRTC 直接对连（STUN/TURN 由 /api/rtc/config 下发）。
+function rtcPrivateRoomKey(a, b) {
+  return `p:${Math.min(a, b)}:${Math.max(a, b)}`;
+}
+function rtcGroupRoomKey(gid) {
+  return `g:${gid}`;
+}
+function rtcCheckRate(userId, ws) {
+  const now = Date.now();
+  const rec = rtcRateMap.get(userId);
+  if (!rec || now - rec.windowStart > RTC_RATE_WINDOW) {
+    rtcRateMap.set(userId, { count: 1, windowStart: now });
+    return true;
+  }
+  rec.count++;
+  if (rec.count > RTC_RATE_LIMIT) {
+    try { ws.send(JSON.stringify({ type: 'rtc:error', error: '信令发送过于频繁，请稍后再试' })); } catch (e) {}
+    return false;
+  }
+  return true;
+}
+function rtcEnterRoom(roomKey, userId) {
+  if (!rtcRooms.has(roomKey)) rtcRooms.set(roomKey, new Set());
+  rtcRooms.get(roomKey).add(userId);
+  if (!userRtcRooms.has(userId)) userRtcRooms.set(userId, new Set());
+  userRtcRooms.get(userId).add(roomKey);
+}
+function rtcLeaveRoom(roomKey, userId) {
+  const members = rtcRooms.get(roomKey);
+  if (members) {
+    members.delete(userId);
+    if (members.size === 0) rtcRooms.delete(roomKey);
+  }
+  const userRooms = userRtcRooms.get(userId);
+  if (userRooms) {
+    userRooms.delete(roomKey);
+    if (userRooms.size === 0) userRtcRooms.delete(userId);
+  }
+}
+function rtcRoomMembers(roomKey) {
+  const members = rtcRooms.get(roomKey);
+  if (!members || members.size === 0) return [];
+  return Array.from(members);
+}
+function rtcUserBrief(userId) {
+  return {
+    userId,
+    displayName: onlineUsers.get(userId)?.displayName || '',
+    avatarUrl: onlineUsers.get(userId)?.avatarUrl || ''
+  };
+}
+function rtcSend(ws, payload) {
+  try {
+    if (ws.readyState === 1) ws.send(JSON.stringify(payload));
+  } catch (e) {}
+}
+// 仅向语音房内成员广播（群成员中实际已经「入房」的人），可排除指定用户
+async function broadcastRtcToRoom(roomKey, message, excludeUserId) {
+  const members = rtcRooms.get(roomKey);
+  if (!members || members.size === 0) return;
+  const str = JSON.stringify(message);
+  for (const uid of members) {
+    if (excludeUserId != null && uid === excludeUserId) continue;
+    const conns = userWsMap.get(uid);
+    if (!conns) continue;
+    for (const conn of conns) {
+      if (conn.readyState === 1) {
+        try { conn.send(str); } catch (e) {}
+      }
+    }
+  }
+}
+
+async function handleRtcSignal(userId, msg, ws) {
+  const type = msg.type || '';
+  if (!type) return;
+
+  // 信令体大小限制：超限直接丢弃（SDP/ICE 通常 <64KB，256KB 留足余量）
+  if (JSON.stringify(msg).length > RTC_MAX_MSG) {
+    rtcSend(ws, { type: 'rtc:error', error: '信令数据过大' });
+    return;
+  }
+  if (!rtcCheckRate(userId, ws)) return;
+
+  const targetId = parseInt(msg.targetId, 10) || 0;
+
+  // ----- 私聊 1v1 通话信令：按 canonical 房号透传给对端 -----
+  if (type === 'rtc:invite') {
+    if (!targetId || targetId === userId) return;
+    const conns = userWsMap.get(targetId);
+    if (!conns || conns.size === 0) {
+      rtcSend(ws, { type: 'rtc:invite:failed', error: '对方当前不在线', targetId });
+      return;
+    }
+    const roomId = rtcPrivateRoomKey(userId, targetId);
+    rtcEnterRoom(roomId, userId);
+    broadcastToUser(targetId, {
+      type: 'rtc:invite', senderId: userId, targetId, roomId,
+      callType: msg.callType === 'video' ? 'video' : 'voice',
+      caller: rtcUserBrief(userId), timestamp: Date.now()
+    });
+    return;
+  }
+  if (type === 'rtc:cancel') {
+    const roomId = rtcPrivateRoomKey(userId, targetId);
+    rtcLeaveRoom(roomId, userId);
+    broadcastToUser(targetId, { type: 'rtc:canceled', senderId: userId, targetId, roomId, timestamp: Date.now() });
+    return;
+  }
+  if (type === 'rtc:accept') {
+    if (!targetId || targetId === userId) return;
+    const roomId = rtcPrivateRoomKey(userId, targetId);
+    rtcEnterRoom(roomId, userId);
+    broadcastToUser(targetId, { type: 'rtc:accepted', senderId: userId, targetId, roomId, timestamp: Date.now() });
+    return;
+  }
+  if (type === 'rtc:decline') {
+    if (!targetId || targetId === userId) return;
+    const roomId = rtcPrivateRoomKey(userId, targetId);
+    broadcastToUser(targetId, { type: 'rtc:declined', senderId: userId, targetId, roomId, timestamp: Date.now() });
+    return;
+  }
+  if (type === 'rtc:offer' && targetId && targetId !== userId) {
+    broadcastToUser(targetId, {
+      type: 'rtc:offer', senderId: userId, targetId, roomId: rtcPrivateRoomKey(userId, targetId),
+      sdp: msg.sdp, timestamp: Date.now()
+    });
+    return;
+  }
+  if (type === 'rtc:answer' && targetId && targetId !== userId) {
+    broadcastToUser(targetId, {
+      type: 'rtc:answer', senderId: userId, targetId, roomId: rtcPrivateRoomKey(userId, targetId),
+      sdp: msg.sdp, timestamp: Date.now()
+    });
+    return;
+  }
+  if (type === 'rtc:candidate' && targetId && targetId !== userId) {
+    broadcastToUser(targetId, {
+      type: 'rtc:candidate', senderId: userId, targetId, roomId: rtcPrivateRoomKey(userId, targetId),
+      candidate: msg.candidate, timestamp: Date.now()
+    });
+    return;
+  }
+  if (type === 'rtc:hangup' && targetId && targetId !== userId) {
+    const roomId = rtcPrivateRoomKey(userId, targetId);
+    rtcLeaveRoom(roomId, userId);
+    broadcastToUser(targetId, { type: 'rtc:hangup', senderId: userId, targetId, roomId, timestamp: Date.now() });
+    return;
+  }
+
+  // ----- 群语音房信令（mesh，≤6 人逐对建连） -----
+  const groupId = parseInt(msg.groupId, 10);
+  if (!groupId) return;
+  const roomKey = rtcGroupRoomKey(groupId);
+  const memberSet = await getGroupMembers(groupId); // 60s 缓存，断言群成员身份
+
+  if (type === 'rtc:group:join') {
+    if (!memberSet.has(userId)) {
+      rtcSend(ws, { type: 'rtc:group:error', error: '您不是该群成员', groupId });
+      return;
+    }
+    const existing = rtcRoomMembers(roomKey).filter(id => id !== userId);
+    rtcEnterRoom(roomKey, userId);
+    // 回执房内现有成员列表给新加入者（前端据此向旧成员逐个发起 offer）
+    rtcSend(ws, {
+      type: 'rtc:group:joined', groupId, roomKey,
+      members: existing.map(rtcUserBrief), timestamp: Date.now()
+    });
+    // 通知房内旧成员有新人加入（排除发送者）
+    await broadcastRtcToRoom(roomKey, {
+      type: 'rtc:group:member:join', groupId, roomKey,
+      member: rtcUserBrief(userId), timestamp: Date.now()
+    }, userId);
+    return;
+  }
+  if (type === 'rtc:group:leave' || type === 'rtc:group:hangup') {
+    const wasIn = !!(rtcRooms.get(roomKey) && rtcRooms.get(roomKey).has(userId));
+    rtcLeaveRoom(roomKey, userId);
+    rtcSend(ws, { type: 'rtc:group:left', groupId, roomKey, timestamp: Date.now() });
+    if (wasIn) {
+      await broadcastRtcToRoom(roomKey, {
+        type: 'rtc:group:member:leave', groupId, roomKey, userId, timestamp: Date.now()
+      }, userId);
+    }
+    return;
+  }
+  if ((type === 'rtc:group:offer' || type === 'rtc:group:answer' || type === 'rtc:group:candidate') && targetId && targetId !== userId) {
+    if (!memberSet.has(userId) || !memberSet.has(targetId)) {
+      rtcSend(ws, { type: 'rtc:group:error', error: '非群成员不能发起通话', groupId });
+      return;
+    }
+    const room = rtcRooms.get(roomKey);
+    if (!room || !room.has(userId) || !room.has(targetId)) return; // 双方都必须在房内
+    const kind = type.slice(10); // offer | answer | candidate
+    const payload = { type: `rtc:group:${kind}`, groupId, roomKey, senderId: userId, targetId, timestamp: Date.now() };
+    if (msg.sdp) payload.sdp = msg.sdp;
+    if (msg.candidate) payload.candidate = msg.candidate;
+    broadcastToUser(targetId, payload);
+    return;
+  }
+}
+
+// RTC 房间状态查询（供测试/监控使用）
+function getRtcRoomStats() {
+  return {
+    roomCount: rtcRooms.size,
+    rooms: Array.from(rtcRooms.entries()).map(([key, ids]) => ({ roomKey: key, members: Array.from(ids) }))
+  };
+}
+
 function broadcastAllExcept(excludeWs, message) {
   if (!_wss) return;
 
@@ -861,6 +1117,7 @@ module.exports = {
   gracefulShutdown,
   getOnlineUsers,
   invalidateGroupMemberCache,
+  getRtcRoomStats,
   onlineUsers,
   userWsMap
 };

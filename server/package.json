@@ -36,6 +36,9 @@
     "sharp": "^0.35.3",
     "ws": "^8.21.0"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

@@ -124,11 +124,18 @@ router.post('/send', requireChatAuth, secureUpload(chatUpload.single('file')), a
     if (req.file) {
       mediaUrl = `/uploads/chat/${req.file.filename}`;
       const ext = path.extname(req.file.originalname).toLowerCase();
-      const imgExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-      const vidExts = ['.mp4', '.mov', '.webm', '.avi', '.mkv'];
-      if (imgExts.includes(ext)) mediaType = 'image';
-      else if (vidExts.includes(ext)) mediaType = 'video';
-      else mediaType = 'audio';
+      const mime = (req.file.mimetype || '').toLowerCase();
+      // §RTC 优先按 MIME 判定：audio/webm 按住说话录音不得被 vidExts 的 .webm 误判为视频
+      if (mime.startsWith('image/')) mediaType = 'image';
+      else if (mime.startsWith('audio/')) mediaType = 'audio';
+      else if (mime.startsWith('video/')) mediaType = 'video';
+      else {
+        const imgExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+        const vidExts = ['.mp4', '.mov', '.webm', '.avi', '.mkv'];
+        if (imgExts.includes(ext)) mediaType = 'image';
+        else if (vidExts.includes(ext)) mediaType = 'video';
+        else mediaType = 'audio';
+      }
       fileSize = req.file.size;
     }
     
@@ -417,11 +424,18 @@ router.post('/groups/:groupId/messages', requireChatAuth, secureUpload(chatUploa
     if (req.file) {
       mediaUrl = `/uploads/chat/${req.file.filename}`;
       const ext = path.extname(req.file.originalname).toLowerCase();
-      const imgExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
-      const vidExts = ['.mp4', '.mov', '.webm', '.avi', '.mkv'];
-      if (imgExts.includes(ext)) mediaType = 'image';
-      else if (vidExts.includes(ext)) mediaType = 'video';
-      else mediaType = 'audio';
+      const mime = (req.file.mimetype || '').toLowerCase();
+      // §RTC 优先按 MIME 判定：audio/webm 按住说话录音不得被 vidExts 的 .webm 误判为视频
+      if (mime.startsWith('image/')) mediaType = 'image';
+      else if (mime.startsWith('audio/')) mediaType = 'audio';
+      else if (mime.startsWith('video/')) mediaType = 'video';
+      else {
+        const imgExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+        const vidExts = ['.mp4', '.mov', '.webm', '.avi', '.mkv'];
+        if (imgExts.includes(ext)) mediaType = 'image';
+        else if (vidExts.includes(ext)) mediaType = 'video';
+        else mediaType = 'audio';
+      }
       fileSize = req.file.size;
     }
     
@@ -768,6 +782,29 @@ router.delete('/groups/:groupId/messages/:msgId', requireChatAuth, async (req, r
     } catch (e) { handleError(res, e, '[chat/delete-group-message]'); }
   });
 
+
+// ==================== RTC 通话信令配置（供 WebRTC 建立连接） ====================
+// 返回 iceServers：TURN 在管理设置里配置（rtc_turn_urls / rtc_turn_username / rtc_turn_credential），
+// STUN 内置兜底，未配置 TURN 时依然能用 P2P/中继退化场景。
+router.get('/rtc/config', requireChatAuth, async (req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT config_key AS configKey, config_value AS configValue
+       FROM system_config WHERE config_key IN ('rtc_turn_urls', 'rtc_turn_username', 'rtc_turn_credential')`
+    );
+    const cfg = {};
+    rows.forEach(r => { cfg[r.configKey] = r.configValue; });
+    const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+    const turnUrls = (cfg.rtc_turn_urls || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (turnUrls.length) {
+      const turn = { urls: turnUrls };
+      if (cfg.rtc_turn_username) turn.username = cfg.rtc_turn_username;
+      if (cfg.rtc_turn_credential) turn.credential = cfg.rtc_turn_credential;
+      iceServers.push(turn);
+    }
+    res.json({ iceServers, turnConfigured: turnUrls.length > 0 });
+  } catch (e) { handleError(res, e, '[chat/rtc/config]'); }
+});
 
 return router;
 };

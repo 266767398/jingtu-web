@@ -170,7 +170,7 @@ module.exports = function (groupId, vrcCookieCfg) {
       // 前端 saveSystemConfig 发送的是 { config: {...} }，兼容顶层直传两种形态，
       // 否则历史上会静默变成 no-op（改了不入库）。
       const incoming = (req.body && req.body.config && typeof req.body.config === 'object') ? req.body.config : req.body;
-      const allowedKeys = ['site_name', 'hero_title', 'hero_subtitle', 'hero_description', 'hero_bg_url', 'hero_bg_color', 'hero_bg_overlay_opacity', 'hero_accent_color', 'hero_badge_text', 'hero_show_stats', 'hero_show_badge', 'hero_animation', 'posts_per_page', 'post_max_images', 'post_max_videos', 'post_video_max_size_mb', 'vrcGroupUrl', 'kookUrl', 'oopzUrl', 'req_max_upload_mb', 'req_max_body_mb', 'req_max_other_mb', 'hide_forgot_password', 'media_provider_mirrors', 'media_provider_mirror_first', 'media_provider_timeout_ms'];
+      const allowedKeys = ['site_name', 'hero_title', 'hero_subtitle', 'hero_description', 'hero_bg_url', 'hero_bg_color', 'hero_bg_overlay_opacity', 'hero_accent_color', 'hero_badge_text', 'hero_show_stats', 'hero_show_badge', 'hero_animation', 'posts_per_page', 'post_max_images', 'post_max_videos', 'post_video_max_size_mb', 'vrcGroupUrl', 'kookUrl', 'oopzUrl', 'req_max_upload_mb', 'req_max_body_mb', 'req_max_other_mb', 'hide_forgot_password', 'media_provider_mirrors', 'media_provider_mirror_first', 'media_provider_timeout_ms', 'rtc_turn_urls', 'rtc_turn_username', 'rtc_turn_credential'];
       for (const key of allowedKeys) {
         if (incoming[key] !== undefined) {
           const val = typeof incoming[key] === 'string' ? incoming[key] : String(incoming[key]);

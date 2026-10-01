@@ -74,7 +74,8 @@ const app = express();
 // ==================== 反向代理信任 ====================
 // 经 Nginx / 宝塔 / Docker 反代后，req.ip、限流与登录失败告警都依赖此设置。
 // - 显式设置 TRUST_PROXY 时优先采用（值可是数字/逗号列表/"loopback"/"unix"/"false"）。
-// - 未设置时：生产环境默认信任第一跳（'1'），开发环境不信任。
+// - 未设置/留空时：一律不信任代理（安全默认）——防止端口直接暴露公网时伪造 X-Forwarded-For。
+//   经 Nginx/宝塔/Docker 反代的部署请务必显式设置 TRUST_PROXY（如 1 或具体跳数）。
 // 若把 3456 直接暴露到公网、前面没有任何可信反代，请把 TRUST_PROXY 设为 false，
 // 否则客户端可伪造 X-Forwarded-For 篡改限流与 IP 告警来源。
 const trustProxyRaw = process.env.TRUST_PROXY;

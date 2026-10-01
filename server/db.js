@@ -369,6 +369,12 @@ function parseCreateTable(tableName, sqlStr) {
   return { name: String(tableName), columns, colMap, tailPk, tailUnique, tailIndex, jsonCols: jsonColSet };
 }
 
+function sqliteDefaultExpr(mysqlDefault) {
+  const d = String(mysqlDefault);
+  if (/^CURRENT_TIMESTAMP\s*(?:\(\s*\d*\s*\))?$/i.test(d)) return "(datetime('now','localtime'))";
+  return d;
+}
+
 function generateSQLiteDDL(tableName, meta) {
   const pkCols = meta.tailPk || [];
   let useTailPk = pkCols.length > 0;
@@ -387,7 +393,9 @@ function generateSQLiteDDL(tableName, meta) {
     if (col.primary && !useTailPk) def += ' PRIMARY KEY';
     if (col.unique) def += ' UNIQUE';
     if (needNotNull) def += ' NOT NULL';
-    if (col.defaultInSql !== null && col.defaultInSql !== undefined) def += ' DEFAULT ' + col.defaultInSql;
+    if (col.defaultInSql !== null && col.defaultInSql !== undefined) {
+      def += ' DEFAULT ' + sqliteDefaultExpr(col.defaultInSql);
+    }
     return def;
   });
   let tail = '';
@@ -725,6 +733,7 @@ function transformSQL(sqlStr, params) {
   s = rewriteFunctionCalls(s);
   s = s.replace(/\bCURDATE\s*\(\s*\)/gi, "date('now','localtime')");
   s = s.replace(/\bNOW\s*\(\s*\)/gi, "datetime('now','localtime')");
+  s = s.replace(/\bCURRENT_TIMESTAMP\s*(?:\(\s*\d*\s*\))?/gi, "datetime('now','localtime')");
   s = s.replace(/\bVERSION\s*\(\s*\)/gi, "'8.0.0'");
   s = s.replace(/\bAS\s+UNSIGNED\b/gi, 'AS INTEGER');
   s = rewriteJsonUnquoteExtract(s);
@@ -911,7 +920,7 @@ function alterAddColumn(tableName, colDef) {
   let def = qid(colName) + ' ' + col.sqliteType;
   const hasDefault = col.defaultInSql !== null && col.defaultInSql !== undefined;
   if (col.notNull && hasDefault) def += ' NOT NULL';
-  if (hasDefault) def += ' DEFAULT ' + col.defaultInSql;
+  if (hasDefault) def += ' DEFAULT ' + sqliteDefaultExpr(col.defaultInSql);
   db.exec('ALTER TABLE ' + qid(tableName) + ' ADD COLUMN ' + def);
   const key = String(tableName).toLowerCase();
   let meta = tableMeta.get(key);

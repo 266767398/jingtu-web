@@ -304,10 +304,10 @@ const FileTypes = {
     description: 'MP4/MOV/WEBM/AVI/MKV'
   },
   AUDIO: {
-    exts: ['.mp3', '.wav', '.ogg', '.m4a'],
-    mime: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4'],
-    accept: 'audio/mpeg,audio/wav,audio/ogg,audio/mp4',
-    description: 'MP3/WAV/OGG/M4A'
+    exts: ['.mp3', '.wav', '.ogg', '.m4a', '.webm'],
+    mime: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/webm'],
+    accept: 'audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/webm',
+    description: 'MP3/WAV/OGG/M4A/WEBM'
   },
   DOCUMENT: {
     exts: ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.md', '.json'],

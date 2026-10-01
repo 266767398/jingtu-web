@@ -43,9 +43,10 @@ async function collectUserData(userId) {
   const vrcId = u.vrchat_id || '';
 
   const [tags] = await pool.query('SELECT tag_name, color, create_time FROM user_tags WHERE user_id = ? ORDER BY id ASC', [userId]);
-  const notes = vrcId
-    ? (await pool.query('SELECT target_vrcid, note_text, note_color, note_tags, update_time FROM member_note WHERE owner_vrcid = ? ORDER BY id ASC', [vrcId]))[0]
-    : [];
+  const [notes] = await pool.query(
+    'SELECT mn.id, mn.note_text, mn.note_color, mn.note_tags, mn.update_time, us.vrchat_id AS target_vrcid FROM member_note mn LEFT JOIN users us ON us.id = mn.target_id WHERE mn.owner_id = ? ORDER BY mn.id ASC',
+    [userId]
+  );
   const [friends] = await pool.query(
     `SELECT uf.friend_id, uf.status, uf.requested_by, uf.created_at, us.vrchat_id AS friend_vrchat_id, us.vrchat_name AS friend_vrchat_name, us.display_name AS friend_display_name
      FROM user_friends uf LEFT JOIN users us ON us.id = uf.friend_id
@@ -135,7 +136,7 @@ async function importUserData(userId, body) {
     }
   }
 
-  // 备注（以 VRChat ID 为键）
+  // 备注（member_note 已迁移为 owner_id/target_id = users.id，以 VRChat ID 反查本站用户后挂接）
   if (Array.isArray(body.notes) && vrcId) {
     for (const n of body.notes) {
       const target = String(n.targetVrcId || '').trim().slice(0, 100);
@@ -143,9 +144,11 @@ async function importUserData(userId, body) {
       const color = n.color == null ? null : String(n.color).slice(0, 16);
       const tags = n.tags == null ? null : String(n.tags).slice(0, 255);
       if (!target) continue;
+      const targetUserId = await resolveUserIdByVrcId(target);
+      if (!targetUserId) continue;
       await pool.query(
-        'INSERT INTO member_note (owner_vrcid, target_vrcid, note_text, note_color, note_tags) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE note_text = VALUES(note_text), note_color = VALUES(note_color), note_tags = VALUES(note_tags)',
-        [vrcId, target, text, color, tags]
+        'INSERT INTO member_note (owner_id, target_id, note_text, note_color, note_tags) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE note_text = VALUES(note_text), note_color = VALUES(note_color), note_tags = VALUES(note_tags)',
+        [userId, targetUserId, text, color, tags]
       );
       imported.notes++;
     }

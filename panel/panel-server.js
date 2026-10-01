@@ -66,7 +66,23 @@ function createAuth(pwd) {
 
 /* ---------- 会话（内存） ---------- */
 const sessions = new Map(); // token -> expireAt(ms)
-const loginFails = { count: 0, lockUntil: 0 };
+// P3-24②:登录失败锁定按来源 IP 分桶——旧实现为全局单例 (loginFails={count,lockUntil})，
+// LAN 模式下任意来源累计 5 次失败即全局锁 15 分钟，远程 DoS 面可锁死合法管理员。
+// 现改为 ip -> {count, lockUntil}，仅惩罚来源 IP；无界增长由 pruneLoginFails 惰性清理兜底。
+const loginFails = new Map();
+function clientIp(req) {
+  // 与 isLoopback 同口径：面板直连（本机/局域网），不信任 X-Forwarded-For（面板无反代部署场景）
+  let addr = String((req.socket && req.socket.remoteAddress) || 'unknown');
+  if (addr.startsWith('::ffff:')) addr = addr.slice(7);
+  return addr || 'unknown';
+}
+function pruneLoginFails() {
+  const now = Date.now();
+  for (const [ip, rec] of loginFails) {
+    if (rec.count === 0 && now > rec.lockUntil) loginFails.delete(ip);
+    else if (rec.lockUntil && now - rec.lockUntil > 24 * 3600 * 1000) loginFails.delete(ip);
+  }
+}
 function issueToken() {
   const token = crypto.randomBytes(24).toString('hex');
   sessions.set(token, Date.now() + settings.tokenHours * 3600 * 1000);
@@ -261,12 +277,39 @@ let _actCodes = null;
 try { _actCodes = require(path.join(ROOT, 'server', 'activation_code_service')); } catch (e) { _actCodes = null; }
 
 /* 面板操作审计：与 panel-api.ps1 的 Write-Audit 同格式，写入 logs/panel-audit.log */
+// P3-24①：日志按大小/日期轮转——panel-audit.log 原无限 append，长期运行单文件无界增长
+// （且刻意含 PS 异常堆栈）。规则：超过 AUDIT_LOG_MAX_BYTES（5MB）或跨天 → 改名为
+// panel-audit.log.YYYYMMDD（同日复轮转则 .YYYYMMDD-HHmmss 去重），仅保留最近 7 份。
+const AUDIT_LOG = path.join(ROOT, 'logs', 'panel-audit.log');
+const AUDIT_LOG_MAX_BYTES = 5 * 1024 * 1024;
+const AUDIT_LOG_KEEP = 7;
+function rotateAuditLog() {
+  try {
+    if (!fs.existsSync(AUDIT_LOG)) return;
+    const st = fs.statSync(AUDIT_LOG);
+    if (st.size < AUDIT_LOG_MAX_BYTES) {
+      const now = new Date();
+      if (now.getFullYear() === st.mtime.getFullYear() && now.getMonth() === st.mtime.getMonth() && now.getDate() === st.mtime.getDate()) return;
+    }
+    const p = (n) => String(n).padStart(2, '0');
+    const mt = st.mtime;
+    let bak = path.join(ROOT, 'logs', 'panel-audit.log.' + mt.getFullYear() + p(mt.getMonth() + 1) + p(mt.getDate()));
+    if (fs.existsSync(bak)) bak += '-' + p(mt.getHours()) + p(mt.getMinutes()) + p(mt.getSeconds());
+    fs.renameSync(AUDIT_LOG, bak);
+    if (!fs.existsSync(AUDIT_LOG)) fs.writeFileSync(AUDIT_LOG, '');
+    const keep = AUDIT_LOG_KEEP;
+    fs.readdirSync(path.join(ROOT, 'logs')).filter((f) => /^panel-audit\.log\.\d{8}(-\d{6})?$/.test(f))
+      .sort().reverse().slice(keep).forEach((f) => { try { fs.unlinkSync(path.join(ROOT, 'logs', f)); } catch (e) {} });
+    console.log('[panel] 审计日志已轮转: ' + path.basename(bak));
+  } catch (e) {}
+}
 function auditPanel(msg) {
   try {
     const d = new Date();
     const p = (n) => String(n).padStart(2, '0');
     const line = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) + ' | web-panel | ' + msg + '\n';
-    fs.appendFile(path.join(ROOT, 'logs', 'panel-audit.log'), line, () => {});
+    rotateAuditLog();
+    fs.appendFile(AUDIT_LOG, line, () => {});
   } catch (e) {}
 }
 
@@ -478,23 +521,26 @@ async function handleApi(req, res, token) {
   }
   if (pathName === '/api/login') {
     if (!authLoaded()) return sendErr(res, 400, '面板尚未初始化');
-    if (Date.now() < loginFails.lockUntil) {
-      const sec = Math.ceil((loginFails.lockUntil - Date.now()) / 1000);
+    const ip = clientIp(req);
+    pruneLoginFails();
+    const rec = loginFails.get(ip) || { count: 0, lockUntil: 0 };
+    if (Date.now() < rec.lockUntil) {
+      const sec = Math.ceil((rec.lockUntil - Date.now()) / 1000);
       return sendErr(res, 429, `尝试次数过多，请 ${sec} 秒后重试`);
     }
     const auth = authRead();
     const pwd = String(body.password || '');
     if (auth && verifyPassword(pwd, auth)) {
-      loginFails.count = 0;
+      loginFails.set(ip, { count: 0, lockUntil: 0 });
       return sendJson(res, 200, { ok: true, token: issueToken() });
     }
-    loginFails.count++;
-    if (loginFails.count >= 5) {
-      loginFails.lockUntil = Date.now() + 15 * 60 * 1000;
-      loginFails.count = 0;
+    rec.count++;
+    loginFails.set(ip, rec);
+    if (rec.count >= 5) {
+      loginFails.set(ip, { count: 0, lockUntil: Date.now() + 15 * 60 * 1000 });
       return sendErr(res, 429, '失败次数过多，已锁定 15 分钟');
     }
-    return sendErr(res, 401, `密码错误（还可尝试 ${5 - loginFails.count} 次）`);
+    return sendErr(res, 401, `密码错误（还可尝试 ${5 - rec.count} 次）`);
   }
   if (pathName === '/api/logout') {
     if (token) doLogout(token);
@@ -988,7 +1034,9 @@ async function handleApi(req, res, token) {
   if (pathName === '/api/open-dir') { openDesktop(ROOT, ok => sendJson(res, 200, { ok, message: ok ? '已在资源管理器中打开项目根目录' : '打开失败' })); return null; }
   if (pathName === '/api/open-logs') { openDesktop(LOGS_DIR, ok => sendJson(res, 200, { ok, message: ok ? '已在资源管理器中打开日志目录' : '打开失败' })); return null; }
   if (pathName === '/api/open-site') {
-    openInBrowser('http://localhost:3456');
+    // P3-18：不做硬编码——主站 PORT 由 .env 可配置，变更后按钮应指向实际地址
+    const sitePort = envValue('PORT') || '3456';
+    openInBrowser('http://localhost:' + sitePort);
     return sendJson(res, 200, { ok: true, message: '已在浏览器打开网站首页' });
   }
 
@@ -1018,7 +1066,10 @@ const server = http.createServer(async (req, res) => {
     // 静态页面
     let file = pathName === '/' ? 'index.html' : pathName.replace(/^\/+/, '');
     let full = path.resolve(PUBLIC_DIR, file);
-    if (!full.startsWith(PUBLIC_DIR)) { sendErr(res, 403, 'Forbidden'); return; }
+    // P3-18：前缀匹配加路径分隔符边界——PUBLIC_DIR 的兄弟路径（如 publicx/…）不应被误判为合法；
+    // 同时允许 full 恰等于 PUBLIC_DIR 本身（pathName='/' 场景）。
+    const pubPrefix = PUBLIC_DIR.endsWith(path.sep) ? PUBLIC_DIR : PUBLIC_DIR + path.sep;
+    if (full !== PUBLIC_DIR && !full.startsWith(pubPrefix)) { sendErr(res, 403, 'Forbidden'); return; }
     if (!fs.existsSync(full) || !fs.statSync(full).isFile()) { sendErr(res, 404, '页面不存在'); return; }
     const ext = path.extname(full).toLowerCase();
     const mime = {
