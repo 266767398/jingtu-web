@@ -100,6 +100,24 @@ function visibilityFilter(req, prefix = '') {
   return { clause: `(COALESCE(${prefix}visibility, 'public') <> 'private' OR ${prefix}create_user_id = ?)`, params: [uid] };
 }
 
+// P1-43：写操作/详情子资源入口的可见性闸门（与 detail 路由保持一致）：
+// members_only 需登录；private 仅组织者/管理员。返回 { ok, status, message, evt }，
+// 不通过时已写入响应，调用方直接 return。
+async function enforceEventVisibility(req, res) {
+  const uid = req.session?.userId || 0;
+  const [rows] = await getPool().query(
+    `SELECT visibility, create_user_id AS createUserId FROM event WHERE id = ?`, [req.params.id]);
+  if (rows.length === 0) return { ok: false, status: 404, message: '活动不存在' };
+  const evt = rows[0];
+  const vis = evt.visibility || 'public';
+  const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+  const isOwner = !!uid && evt.createUserId === uid;
+  const isAdmin = roleLevel >= ROLE_LEVEL.admin;
+  if (vis === 'members_only' && !uid) return { ok: false, status: 401, message: '请先登录后查看该活动' };
+  if (vis === 'private' && !isOwner && !isAdmin) return { ok: false, status: 403, message: '仅组织者或管理员可查看该活动' };
+  return { ok: true, evt };
+}
+
 /**
  * @param {Function} getVRCCookieFn - 获取 VRChat cookie 的函数
  * @param {object} notificationService - 通知服务
@@ -566,6 +584,9 @@ router.get('/', async (req, res) => {
   router.post('/:id/sign', async (req, res) => {
     const uid = req.session?.userId;
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
+    // P1-43：private/members_only 活动不得被非组织者报名
+    const gate = await enforceEventVisibility(req, res);
+    if (!gate.ok) return sendError(res, gate.status, gate.status === 404 ? ErrorCodes.NOT_FOUND : gate.status === 401 ? ErrorCodes.UNAUTHORIZED : ErrorCodes.FORBIDDEN, gate.message);
     // 封禁用户禁止报名
     const [[meRow]] = await getPool().query('SELECT banned FROM users WHERE id = ? AND deleted_at IS NULL', [uid]);
     if (meRow && meRow.banned) return sendError(res, 403, ErrorCodes.FORBIDDEN, '账户已被封禁，无法报名');
@@ -603,6 +624,9 @@ router.get('/', async (req, res) => {
   router.post('/:id/unsign', async (req, res) => {
     const uid = req.session?.userId;
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
+    // P1-43：private 活动同样不可被非组织者操作（防御性闸门）
+    const gate = await enforceEventVisibility(req, res);
+    if (!gate.ok) return sendError(res, gate.status, gate.status === 404 ? ErrorCodes.NOT_FOUND : gate.status === 401 ? ErrorCodes.UNAUTHORIZED : ErrorCodes.FORBIDDEN, gate.message);
     const [[meRow2]] = await getPool().query('SELECT banned FROM users WHERE id = ? AND deleted_at IS NULL', [uid]);
     if (meRow2 && meRow2.banned) return sendError(res, 403, ErrorCodes.FORBIDDEN, '账户已被封禁');
     try {
@@ -665,6 +689,9 @@ router.get('/', async (req, res) => {
   // ==================== 活动评论列表 ====================
   router.get('/:id/comments', async (req, res) => {
     try {
+      // P1-43：private 活动的评论（含用户 PII）仅组织者/管理员可见
+      const gate = await enforceEventVisibility(req, res);
+      if (!gate.ok) return sendError(res, gate.status, gate.status === 404 ? ErrorCodes.NOT_FOUND : gate.status === 401 ? ErrorCodes.UNAUTHORIZED : ErrorCodes.FORBIDDEN, gate.message);
       const [rows] = await getPool().query(
         `SELECT ec.id, ec.content, ec.create_time AS createdAt, u.id AS userId, u.display_name AS userName, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url
          FROM event_comment ec LEFT JOIN users u ON ec.user_id = u.id
@@ -679,6 +706,9 @@ router.get('/', async (req, res) => {
   router.post('/:id/comments', async (req, res) => {
     const uid = req.session?.userId;
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
+    // P1-43：private 活动不得被非组织者评论
+    const gate = await enforceEventVisibility(req, res);
+    if (!gate.ok) return sendError(res, gate.status, gate.status === 404 ? ErrorCodes.NOT_FOUND : gate.status === 401 ? ErrorCodes.UNAUTHORIZED : ErrorCodes.FORBIDDEN, gate.message);
     try {
       const { content } = req.body;
       if (!content) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入评论内容');
@@ -704,6 +734,9 @@ router.get('/', async (req, res) => {
   // ==================== 活动关联照片 ====================
   router.get('/:id/photos', async (req, res) => {
     try {
+      // P1-43：private 活动的照片同样遵循可见性闸门
+      const gate = await enforceEventVisibility(req, res);
+      if (!gate.ok) return sendError(res, gate.status, gate.status === 404 ? ErrorCodes.NOT_FOUND : gate.status === 401 ? ErrorCodes.UNAUTHORIZED : ErrorCodes.FORBIDDEN, gate.message);
       const [rows] = await getPool().query(
         `SELECT p.id, p.photo_path AS url, p.thumb_path AS thumbnail, p.photo_desc AS caption,
                 p.upload_vrcid AS uploader, p.upload_name AS uploaderName, p.like_count AS likes,

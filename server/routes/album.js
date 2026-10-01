@@ -13,6 +13,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { ok, getPool, logOper, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, paginate } = require('../utils');
 const { extractVideoThumbnail, getVideoDuration } = require('../video_utils');
 const { requireAdminCompat, ROLE_LEVEL, getAvatarUrl } = require('../auth');
@@ -217,7 +218,10 @@ module.exports = function (authStateRef, notificationService) {
     const photoPath = req.body.photo_path;
     const thumbPath = req.body.thumb_path;
     if (!photoPath || !thumbPath) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数不全');
-    if (!photoPath.startsWith('assets/album/') || !thumbPath.startsWith('assets/album/')) {
+    // P1-44: startsWith 不解析 `..`，可用 `assets/album/../../.env` 绕过；改为 path.resolve + isWithinAlbum 硬校验
+    const photoFull = path.resolve(ROOT_DIR, photoPath);
+    const thumbFull = path.resolve(ROOT_DIR, thumbPath);
+    if (!isWithinAlbum(photoFull) || !isWithinAlbum(thumbFull)) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '路径不合法');
     }
     try {
@@ -454,8 +458,14 @@ module.exports = function (authStateRef, notificationService) {
     try {
       const [photos] = await getPool().query(`SELECT photo_path, thumb_path FROM album_photo WHERE id = ? AND is_recycle = 1`, [req.params.id]);
       if (photos.length === 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '只能永久删除回收站中的照片');
-      try { fs.unlinkSync(path.join(ROOT_DIR, photos[0].photo_path)); } catch {}
-      if (photos[0].thumb_path !== photos[0].photo_path) { try { fs.unlinkSync(path.join(ROOT_DIR, photos[0].thumb_path)); } catch {} }
+      // P1-44: unlinkSync 前重新做 isWithinAlbum 校验，拒绝穿越路径入库后被越界删除
+      const photoFull = path.resolve(ROOT_DIR, photos[0].photo_path);
+      const thumbFull = path.resolve(ROOT_DIR, photos[0].thumb_path);
+      if (!isWithinAlbum(photoFull) || !isWithinAlbum(thumbFull)) {
+        return sendError(res, 400, ErrorCodes.BAD_REQUEST, '文件路径非法，已拒绝删除');
+      }
+      try { fs.unlinkSync(photoFull); } catch {}
+      if (photos[0].thumb_path !== photos[0].photo_path) { try { fs.unlinkSync(thumbFull); } catch {} }
       await getPool().query(`DELETE FROM album_like WHERE photo_id = ?`, [req.params.id]);
       await getPool().query(`DELETE FROM album_comment WHERE photo_id = ?`, [req.params.id]);
       await getPool().query(`DELETE FROM notifications WHERE target_type='comment' AND target_id=?`, [req.params.id]);
@@ -469,7 +479,7 @@ module.exports = function (authStateRef, notificationService) {
   const photoUpload = multer({
     storage: multer.diskStorage({
       destination: (req, file, cb) => { if (!fs.existsSync(ALBUM_DIR)) fs.mkdirSync(ALBUM_DIR, { recursive: true }); cb(null, ALBUM_DIR); },
-      filename: (req, file, cb) => { cb(null, `media_${Date.now()}_${Math.round(Math.random() * 1000)}${path.extname(file.originalname)}`); }
+      filename: (req, file, cb) => { cb(null, `media_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${path.extname(file.originalname)}`); }
     }),
     limits: { fileSize: 500 * 1024 * 1024 },
     fileFilter: createFileFilter(['IMAGE', 'VIDEO'])
@@ -488,7 +498,7 @@ module.exports = function (authStateRef, notificationService) {
       try {
         let photoPath, thumbPath, fileSize;
         if (isVideo) {
-          const videoName = `video_${Date.now()}_${Math.round(Math.random() * 10000)}${path.extname(req.file.originalname)}`;
+          const videoName = `video_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${path.extname(req.file.originalname)}`;
           const fullVideoPath = path.join(ALBUM_DIR, videoName);
           if (!isWithinAlbum(fullVideoPath)) { try { fs.unlinkSync(req.file.path); } catch {} return sendError(res, 400, ErrorCodes.BAD_REQUEST, '非法存储路径'); }
           photoPath = `assets/album/${videoName}`;
@@ -507,7 +517,7 @@ module.exports = function (authStateRef, notificationService) {
           }
         } else {
           const ext = '.jpg';
-          const photoName = `photo_${Date.now()}_${Math.round(Math.random() * 10000)}${ext}`;
+          const photoName = `photo_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`;
           const thumbName = `thumb_${photoName}`;
           photoPath = `assets/album/${photoName}`;
           thumbPath = `assets/album/${thumbName}`;
@@ -571,6 +581,32 @@ router.get('/album/search', async (req, res) => {
   }
 });
 
+// ==================== 回收站定时清理（P1-44 收敛到相册模块统一出口） ====================
+// 由 server/schedule.js 每天 2:00 惰性调用；unlink 前统一 isWithinAlbum 校验，
+// 杜绝「POST /photos 注入穿越路径 → 置回收站 → 定时任务越界删除」攻击链。
+async function cleanupRecycleBin() {
+  const pool = getPool();
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const [rows] = await pool.query(
+    `SELECT id, photo_path, thumb_path FROM album_photo WHERE is_recycle = 1 AND recycle_time < ?`,
+    [sevenDaysAgo]
+  );
+  let deleted = 0;
+  for (const row of rows) {
+    try {
+      const pp = path.resolve(ROOT_DIR, row.photo_path);
+      const tp = path.resolve(ROOT_DIR, row.thumb_path);
+      if (isWithinAlbum(pp) && fs.existsSync(pp)) fs.unlinkSync(pp);
+      if (tp !== pp && isWithinAlbum(tp) && fs.existsSync(tp)) fs.unlinkSync(tp);
+    } catch (e) { /* 文件删除失败忽略 */ }
+    await pool.query(`DELETE FROM album_like WHERE photo_id = ?`, [row.id]);
+    await pool.query(`DELETE FROM album_comment WHERE photo_id = ?`, [row.id]);
+    await pool.query(`DELETE FROM album_photo WHERE id = ?`, [row.id]);
+    deleted++;
+  }
+  return { deleted };
+}
+module.exports.cleanupRecycleBin = cleanupRecycleBin;
 
 return router;
 };

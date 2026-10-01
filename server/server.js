@@ -57,7 +57,7 @@ const { apiVersionMiddleware } = require('./middleware/api_version');
 const { enableWaf } = require('./middleware/waf');
 const { metricsMiddleware } = require('./middleware/metrics');
 const { setupPanelProxy } = require('./panel_proxy');
-const { setupUploadsAuth } = require('./middleware/uploads_auth');
+const { setupUploadsAuth, setupAssetsAlbumAuth } = require('./middleware/uploads_auth');
 const { setupCsrf } = require('./middleware/csrf');
 const cache = require('./cache');
 const cacheService = require('./cache_service');
@@ -250,6 +250,9 @@ app.use((req, res, next) => {
 //     这是 Web 端最接近 VRCX 桌面客户端"本地磁盘秒开"的手段。
 //  2) 无版本号的资源（index.html、sw.js、images 等）：maxAge:0 + ETag 协商，
 //     保证内容更新能即时拉取。
+// P1-53: 相册媒体鉴权（登录或分享令牌放行，游客直接访问 401）——
+// 必须在 /assets 静态挂载之前注册，否则 express.static 会先接管
+setupAssetsAlbumAuth(app);
 app.use('/assets', express.static(ASSETS_DIR, {
   maxAge: 0,
   etag: true,
@@ -382,6 +385,15 @@ app.use('/api', async (req, res, next) => {
       console.error('[session] 封禁状态校验失败:', e.message);
       return fail(res, 503, '服务暂时不可用，请稍后重试', { code: 'SERVICE_UNAVAILABLE' });
     }
+  }
+  next();
+});
+
+// P1-48: 数据库恢复期间全局只读（holder.restoring 由 backup-core 置位）——
+// 拦截非读请求，避免恢复过程中业务写入与 DROP/INSERT 交错留下半恢复状态
+app.use('/api', (req, res, next) => {
+  if (dbMod.holder.restoring && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    return fail(res, 503, '数据库维护中（正在恢复备份），请稍后重试', { code: 'MAINTENANCE' });
   }
   next();
 });

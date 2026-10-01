@@ -559,6 +559,15 @@ router.put('/:id', requireRole('admin'), async (req, res) => {
       );
       const roleChanged = curRoleRows.length && curRoleRows[0].role !== role;
       if (roleChanged) {
+        const curRole = curRoleRows[0].role || 'member';
+        // P1-52: 禁止非超管操作任何超管账号的角色（防止把唯一超管降级造成权限真空/接管）
+        if (curRole === 'super_admin' && req.session.role !== 'super_admin') {
+          return sendError(res, 403, ErrorCodes.FORBIDDEN, '只有超级管理员可以修改超级管理员的角色');
+        }
+        // P1-52: 普通 admin 不能修改其他管理员（admin/super_admin）的角色
+        if (req.session.role !== 'super_admin' && curRole !== 'member' && parseInt(req.params.id) !== req.session.userId) {
+          return sendError(res, 403, ErrorCodes.FORBIDDEN, '普通管理员不能修改其他管理员的角色');
+        }
         const selfOk = await verifySelfPassword(req.session.userId, req.body.confirmPassword);
         if (!selfOk) return sendError(res, 403, ErrorCodes.FORBIDDEN, '管理员密码验证失败，敏感操作已拒绝');
       }
@@ -656,11 +665,19 @@ router.post('/:id/reset-password', requireRole('admin'), async (req, res) => {
     }
 
     const [target] = await getPool().query(
-      `SELECT id FROM users WHERE id = ? AND deleted_at IS NULL`,
+      `SELECT id, role FROM users WHERE id = ? AND deleted_at IS NULL`,
       [req.params.id]
     );
     if (target.length === 0) {
       return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
+    }
+    // P1-51: 目标为 super_admin 时仅超管可重置；普通 admin 不能重置其他管理员的密码（防直接提权）
+    const targetRole = target[0].role || 'member';
+    if (targetRole === 'super_admin' && req.session.role !== 'super_admin') {
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, '只有超级管理员可以重置超级管理员的密码');
+    }
+    if (req.session.role !== 'super_admin' && targetRole !== 'member') {
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, '普通管理员不能重置其他管理员的密码');
     }
 
     const pwdHash = await hashPassword(newPassword);

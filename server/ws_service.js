@@ -285,13 +285,17 @@ function setupWebSocket(server) {
         if (msg.type === 'group:location:toggle' && userId) {
           const groupId = parseInt(msg.groupId);
           if (groupId) {
-            broadcastToGroup(groupId, {
-              type: 'group:location:toggle',
-              groupId,
-              userId,
-              displayName: onlineUsers.get(userId)?.displayName || msg.displayName || '',
-              sharing: !!msg.sharing
-            });
+            // P1-42：开关信令同样仅限群成员操作，防止伪造他人开关状态
+            getGroupMembers(groupId).then(memberSet => {
+              if (!memberSet.has(userId)) return;
+              broadcastToGroup(groupId, {
+                type: 'group:location:toggle',
+                groupId,
+                userId,
+                displayName: onlineUsers.get(userId)?.displayName || msg.displayName || '',
+                sharing: !!msg.sharing
+              });
+            }).catch(() => {});
           }
           return;
         }
@@ -575,34 +579,44 @@ function handleGroupLocation(userId, msg) {
   const groupId = parseInt(msg.groupId);
   if (!groupId) return;
 
-  const userInfo = onlineUsers.get(userId);
-  const locationData = {
-    type: 'group:location:update',
-    groupId,
-    userId,
-    displayName: userInfo?.displayName || msg.displayName || '',
-    avatarUrl: userInfo?.avatarUrl || '',
-    lat: msg.lat,
-    lng: msg.lng,
-    accuracy: msg.accuracy || null,
-    timestamp: Date.now()
-  };
+  // P1-42：位置投毒防线——非群成员拒收、坐标必须有限数、隐私闸与单人定位一致
+  getGroupMembers(groupId).then(memberSet => {
+    if (!memberSet.has(userId)) return; // 非成员不处理，也不向该群回任何数据
+    if (!Number.isFinite(Number(msg.lat)) || !Number.isFinite(Number(msg.lng))) return;
 
-  const debounceKey = `group:location:${groupId}:${userId}`;
-  debounce(debounceKey, () => {
-    broadcastToGroup(groupId, locationData);
-  });
+    const userInfo = onlineUsers.get(userId);
+    const locationData = {
+      type: 'group:location:update',
+      groupId,
+      userId,
+      displayName: userInfo?.displayName || msg.displayName || '',
+      avatarUrl: userInfo?.avatarUrl || '',
+      lat: Number(msg.lat),
+      lng: Number(msg.lng),
+      accuracy: msg.accuracy || null,
+      timestamp: Date.now()
+    };
+
+    const debounceKey = `group:location:${groupId}:${userId}`;
+    debounce(debounceKey, () => {
+      broadcastToGroup(groupId, { type: 'group:location:update', ...locationData });
+    });
+  }).catch(() => {});
 }
 
 function stopGroupLocation(userId, msg) {
   const groupId = parseInt(msg.groupId);
   if (!groupId) return;
 
-  broadcastToGroup(groupId, {
-    type: 'group:location:stop',
-    groupId,
-    userId
-  });
+  // P1-42：停止广播同样只允许群成员操作
+  getGroupMembers(groupId).then(memberSet => {
+    if (!memberSet.has(userId)) return;
+    broadcastToGroup(groupId, {
+      type: 'group:location:stop',
+      groupId,
+      userId
+    });
+  }).catch(() => {});
 }
 
 async function handleHistoryRequest(userId, ws, msg) {
@@ -771,15 +785,33 @@ async function sendOfflineSummaries() {
 // payload 形状：{ groups: [{ groupId, onlineCount, totalCount, offlineCount, members: {vrchatId, isOnline, status, worldName, lastLogin} }], timestamp }
 function broadcastRosterUpdate(payload) {
   if (!_wss) return;
-  const msg = JSON.stringify({
-    type: 'group:roster_update',
-    ...payload,
-    timestamp: payload.timestamp || Date.now()
+  const groups = payload.groups || [];
+  // P1-41：按群成员过滤接收者，杜绝私密/邀请制群成员清单泄漏给非成员。
+  // 逐群取成员集合（复用 groupMemberCache），再对每个在线客户端判定可见群后仅发该群数据。
+  const memberSets = new Map();
+  const fetchPromises = groups.map(g => {
+    const gid = parseInt(g.groupId, 10);
+    if (!gid) return null;
+    return getGroupMembers(gid).then(s => memberSets.set(gid, s)).catch(() => {});
   });
-  _wss.clients.forEach(client => {
-    if (client.readyState === 1) {
-      try { client.send(msg); } catch (e) {}
-    }
+  Promise.all(fetchPromises.filter(Boolean)).then(() => {
+    _wss.clients.forEach(client => {
+      if (client.readyState !== 1 || !client.userId) return;
+      const visibleGroups = groups.filter(g => {
+        const gid = parseInt(g.groupId, 10);
+        const set = gid && memberSets.get(gid);
+        return set && set.has(client.userId);
+      });
+      if (!visibleGroups.length) return;
+      try {
+        client.send(JSON.stringify({
+          type: 'group:roster_update',
+          ...payload,
+          groups: visibleGroups,
+          timestamp: payload.timestamp || Date.now()
+        }));
+      } catch (e) {}
+    });
   });
 }
 

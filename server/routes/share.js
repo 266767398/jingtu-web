@@ -30,12 +30,14 @@ module.exports = function () {
     return rows.length > 0;
   }
 
-  // 把响应体中的 /uploads/... 媒体 URL 改写为附带分享令牌的形式，
-  // 使匿名分享查看者可在 server.js 的 /uploads 鉴权中间件处凭 ?share=<code> 放行，
-  // 同时不暴露其它用户的上传资源。结构无关，全payload统一处理。
+  // 把响应体中的 /uploads/... 或 /assets/album/... 媒体 URL 改写为附带分享令牌的形式，
+  // 使匿名分享查看者可在 /uploads 与 /assets/album 鉴权中间件处凭 ?share=<code> 放行，
+  // 同时不暴露其它用户的上传资源。结构无关，全 payload 统一处理。
+  // P1-53: 补充 /assets/album 形态（相册媒体此前不带令牌，匿名分享一律 401）。
   function embedShareTokenInUrls(payload, code) {
     const json = JSON.stringify(payload);
-    const replaced = json.replace(/"(\/uploads\/[^"]+)"/g, (m, url) => {
+    const replaced = json.replace(/"(?:\/uploads\/|\/assets\/album\/)[^"]+"/g, (m) => {
+      const url = m.slice(1, -1);
       const sep = url.includes('?') ? '&' : '?';
       return `"${url}${sep}share=${code}"`;
     });
@@ -119,7 +121,12 @@ module.exports = function () {
         if (events.length > 0) content = events[0];
       } else if (link.type === 'album') {
         const [photos] = await getPool().query('SELECT id, cate_id AS cateId, photo_path AS url, thumb_path AS thumbnail, photo_desc AS caption, upload_vrcid AS uploader, upload_name AS uploaderName, like_count AS likes, create_time AS createTime FROM album_photo WHERE id = ? AND visibility = "public" AND is_recycle=0', [link.target_id]);
-        if (photos.length > 0) content = photos[0];
+        if (photos.length > 0) {
+          content = photos[0];
+          // P1-53: 相册路径存为无前导斜杠的 assets/album/...，补齐为绝对路径供 /assets/album 鉴权与令牌嵌入使用
+          if (content.url && !content.url.startsWith('/')) content.url = '/' + content.url;
+          if (content.thumbnail && !content.thumbnail.startsWith('/')) content.thumbnail = '/' + content.thumbnail;
+        }
       }
 
       if (!content) return sendError(res, 404, ErrorCodes.NOT_FOUND, '分享内容不存在');
@@ -174,7 +181,10 @@ module.exports = function () {
       let media = '';
       if (Array.isArray(content.media) && content.media.length) {
         media = '<div class="sp-media">' + content.media.map(m => {
-          const url = esc(m.mediaUrl) + (m.mediaUrl.includes('?') ? '&' : '?') + 'share=' + esc(link.share_code);
+          // P1-53: post media_url 存为无前导斜杠的 uploads/...，补齐为绝对路径（落地页 URL 解析正确）
+          const rawUrl = m.mediaUrl || '';
+          const absUrl = (rawUrl && !/^https?:/i.test(rawUrl) && !rawUrl.startsWith('/')) ? '/' + rawUrl : rawUrl;
+          const url = esc(absUrl) + (absUrl.includes('?') ? '&' : '?') + 'share=' + esc(link.share_code);
           if (m.mediaType === 'image') return `<img src="${url}" alt="${esc(m.thumbUrl || '')}" loading="lazy">`;
           if (m.mediaType === 'video') return `<video src="${url}" controls preload="metadata"></video>`;
           return '';
@@ -183,9 +193,18 @@ module.exports = function () {
       const meta = `<div class="sp-meta">${content.likes || 0} 赞 · ${content.comments || 0} 评论</div>`;
       body = `<article class="sp-post"><p class="sp-text">${text}</p>${media}${meta}</article>`;
     } else if (link.type === 'event') {
-      const img = content.worldImageUrl
-        ? `<img class="sp-cover" src="${esc(content.worldImageUrl)}" alt="">`
-        : '';
+      // P1-53: event 封面本地路径绝对化并附带 share 令牌（此前匿名落地页图片 401）
+      let img = '';
+      if (content.worldImageUrl) {
+        const rawUrl = String(content.worldImageUrl);
+        const absUrl = (/^https?:/i.test(rawUrl) || rawUrl.startsWith('/')) ? rawUrl : '/' + rawUrl;
+        if (/^https?:/i.test(absUrl)) {
+          img = `<img class="sp-cover" src="${esc(absUrl)}" alt="">`;
+        } else {
+          const src = absUrl + (absUrl.includes('?') ? '&' : '?') + 'share=' + esc(link.share_code);
+          img = `<img class="sp-cover" src="${esc(src)}" alt="">`;
+        }
+      }
       body = `<article class="sp-event">
         ${img}
         <h2>${esc(content.title)}</h2>
@@ -250,7 +269,12 @@ module.exports = function () {
         if (events.length > 0) content = events[0];
       } else if (link.type === 'album') {
         const [photos] = await getPool().query('SELECT id, cate_id AS cateId, photo_path AS url, thumb_path AS thumbnail, photo_desc AS caption, upload_vrcid AS uploader, upload_name AS uploaderName, like_count AS likes, create_time AS createTime FROM album_photo WHERE id = ? AND visibility = "public" AND is_recycle=0', [link.target_id]);
-        if (photos.length > 0) content = photos[0];
+        if (photos.length > 0) {
+          content = photos[0];
+          // P1-53: 相册路径存为无前导斜杠的 assets/album/...，补齐为绝对路径供 /assets/album 鉴权与令牌嵌入使用
+          if (content.url && !content.url.startsWith('/')) content.url = '/' + content.url;
+          if (content.thumbnail && !content.thumbnail.startsWith('/')) content.thumbnail = '/' + content.thumbnail;
+        }
       }
       if (!content) return res.status(404).send('<h1>分享内容不存在</h1>');
       res.type('html').send(renderSharePage(link, content));

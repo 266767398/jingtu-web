@@ -282,20 +282,36 @@ try {
             $bizName = if ($Config.businessService) { $Config.businessService } else { "NodeServer" }
             if (($status | Where-Object { $_.name -eq $bizName }).running) { throw "服务正在运行，请先停止服务再恢复" }
             $dataDir = Get-DataDir
+            # P1-49: 快照失败即中止恢复，绝不先删数据（损坏备份不得造成现网数据丢失）
             $snap = Join-Path $BackupDir ("userdata-snapshot-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".zip")
             $snapMsg = ""
-            if (Test-Path $dataDir) { try { Compress-Archive -Path $dataDir -DestinationPath $snap -Force; $snapMsg = "已生成快照：$snap" } catch {} }
-            if (Test-Path $dataDir) { Get-ChildItem $dataDir -Force | ForEach-Object { try { Remove-Item $_.FullName -Recurse -Force } catch {} } }
-            else { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
-            if ($target.EndsWith(".zip")) { Expand-Archive -Path $target -DestinationPath $dataDir -Force }
-            else {
-                Get-ChildItem $target -Recurse -File | ForEach-Object {
-                    $rel = $_.FullName.Substring($target.Length).TrimStart('\')
-                    $t = Join-Path $dataDir $rel
-                    $td = Split-Path $t
-                    if (-not (Test-Path $td)) { New-Item -ItemType Directory -Path $td -Force | Out-Null }
-                    Copy-Item $_.FullName $t -Force
+            if (Test-Path $dataDir) {
+                try { Compress-Archive -Path $dataDir -DestinationPath $snap -Force; $snapMsg = "已生成快照：$snap" } catch {}
+                if (-not (Test-Path $snap) -or (Get-Item $snap).Length -eq 0) { throw "快照生成失败，已中止恢复（当前数据未被清除）" }
+            }
+            # P1-49: 先解压/复制到临时目录并校验成功，再原子替换目标目录；
+            # 任何一步失败时目标目录尚未被触碰，配合快照可完整回滚
+            $staging = Join-Path $BackupDir ("restore-staging-" + [guid]::NewGuid().ToString("N"))
+            New-Item -ItemType Directory -Path $staging -Force | Out-Null
+            try {
+                if ($target.EndsWith(".zip")) { Expand-Archive -Path $target -DestinationPath $staging -Force }
+                else {
+                    Get-ChildItem $target -Recurse -File | ForEach-Object {
+                        $rel = $_.FullName.Substring($target.Length).TrimStart('\')
+                        $t = Join-Path $staging $rel
+                        $td = Split-Path $t
+                        if (-not (Test-Path $td)) { New-Item -ItemType Directory -Path $td -Force | Out-Null }
+                        Copy-Item $_.FullName $t -Force
+                    }
                 }
+                # 临时目录完整落盘后才清除目标目录，再整体搬入（新数据就绪前旧数据仍在）
+                if (Test-Path $dataDir) { Get-ChildItem $dataDir -Force | ForEach-Object { try { Remove-Item $_.FullName -Recurse -Force } catch {} } }
+                else { New-Item -ItemType Directory -Path $dataDir -Force | Out-Null }
+                Get-ChildItem $staging -Force | ForEach-Object { Move-Item $_.FullName (Join-Path $dataDir $_.Name) -Force }
+            } catch {
+                throw "恢复失败：$($_.Exception.Message)（快照 $snap 已保留，可手动回滚）"
+            } finally {
+                try { Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue } catch {}
             }
             $out.data = [ordered]@{ snapshot = $snap; snapMsg = $snapMsg }
             $out.message = "恢复完成：$name"

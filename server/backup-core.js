@@ -12,11 +12,14 @@
  */
 const fs = require('fs');
 const path = require('path');
+const mysql = require('mysql2');
 const { spawn } = require('child_process');
 const { holder, DB_CONFIG } = require('./db');
 
 const BACKUP_DIR = path.join(__dirname, '..', 'backups');
 const AUTO_PREFIX = 'auto_';
+// P1-48: 恢复前自动备份前缀（回滚锚点；不参与 auto_ 自动清理，管理员可手动删）
+const PRE_RESTORE_PREFIX = 'pre_restore_';
 const MIN_VALID_BYTES = 512;
 
 function ensureBackupDir() {
@@ -27,17 +30,26 @@ function ensureBackupDir() {
 }
 
 /**
- * 校验 dump 文件头（mysqldump 输出必以含 "MySQL dump" 的注释行开头）。
- * 空文件 / 被中断的截断文件 / 错误信息文件均不通过。
+ * 校验 dump 文件完整性（mysqldump 输出必以含 "MySQL dump" 的注释行开头、
+ * 完整 dump 必以 "-- Dump completed ..." 结尾）。
+ * 空文件 / 被 kill 的截断文件（头完整尾缺失） / 错误信息文件均不通过。
  */
 function dumpLooksValid(filePath) {
   try {
+    const stat = fs.statSync(filePath);
+    if (!stat || stat.size < MIN_VALID_BYTES) return false;
     const fd = fs.openSync(filePath, 'r');
     try {
-      const buf = Buffer.alloc(MIN_VALID_BYTES);
-      const bytes = fs.readSync(fd, buf, 0, MIN_VALID_BYTES, 0);
-      if (bytes < MIN_VALID_BYTES) return false;
-      return buf.toString('utf8', 0, bytes).includes('MySQL dump');
+      const head = Buffer.alloc(MIN_VALID_BYTES);
+      const headBytes = fs.readSync(fd, head, 0, MIN_VALID_BYTES, 0);
+      if (headBytes < MIN_VALID_BYTES) return false;
+      if (!head.toString('utf8', 0, headBytes).includes('MySQL dump')) return false;
+      // P1-48: 文件尾标记——被 kill 的截断 dump 头部完整照样能骗过旧校验
+      const tailLen = Math.min(stat.size, 1024);
+      const tail = Buffer.alloc(tailLen);
+      const tailBytes = fs.readSync(fd, tail, 0, tailLen, stat.size - tailLen);
+      if (tailBytes < 1) return false;
+      return tail.toString('utf8', 0, tailBytes).includes('-- Dump completed');
     } finally {
       fs.closeSync(fd);
     }
@@ -123,7 +135,77 @@ function createBackup({ prefix = '' } = {}) {
 }
 
 /**
- * 从备份文件恢复数据库（仅接受通过完整性校验的备份）。
+ * 把 dump 文件流式灌入当前库（内部经 holder.dbName 实时取库名，防 applyDbConfig 热切换后灌错库）。
+ * @param {string} filePath backups/ 目录下已通过校验的 .sql 文件绝对路径
+ * @returns {Promise<void>}
+ */
+function streamDumpToMysql(filePath) {
+  return new Promise((resolve, reject) => {
+    const dbName = holder.dbName || DB_CONFIG.database || 'jingtu_group';
+    const args = [
+      '-h', String(DB_CONFIG.host),
+      '-P', String(DB_CONFIG.port),
+      '-u', String(DB_CONFIG.user),
+      dbName
+    ];
+    const child = spawn('mysql', args, {
+      env: { ...process.env, MYSQL_PWD: DB_CONFIG.password || '' }
+    });
+    let stderr = '';
+    child.stderr.on('data', (d) => { stderr += d.toString(); });
+
+    child.on('error', (err) => {
+      if (err.code === 'ENOENT') {
+        return reject(new Error('mysql 命令未找到，请确保 MySQL 已正确安装且 mysql 在 PATH 中'));
+      }
+      reject(err);
+    });
+
+    const readStream = fs.createReadStream(filePath);
+    readStream.on('error', reject);
+    readStream.pipe(child.stdin);
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error('mysql 退出码: ' + code + (stderr ? '：' + stderr.trim().slice(0, 300) : '')));
+      }
+    });
+  });
+}
+
+/**
+ * P1-48: 恢复后逐表行数核对——dump 中实际含 INSERT 数据的表，恢复后行数必须 > 0。
+ * 不通过说明 dump 灌入中途丢表（部分恢复），判定为恢复失败并触发回滚。
+ */
+async function verifyRestoredTables(filePath) {
+  const pool = holder.pool;
+  if (!pool) return;
+  const content = fs.readFileSync(filePath, 'utf8');
+  const insertTables = new Map();
+  const re = /^(?:INSERT INTO `([^`]+)`|CREATE TABLE `([^`]+)`)/gm;
+  let m;
+  while ((m = re.exec(content))) {
+    if (m[1]) insertTables.set(m[1], (insertTables.get(m[1]) || 0) + 1);
+  }
+  const missing = [];
+  for (const [table, inserts] of insertTables) {
+    if (!inserts) continue;
+    try {
+      const [rows] = await pool.query(`SELECT COUNT(*) AS c FROM ${mysql.escapeId(table)}`);
+      if (!rows[0] || rows[0].c <= 0) missing.push(table);
+    } catch (e) { missing.push(table + '(核对查询失败)'); }
+  }
+  if (missing.length) {
+    throw new Error('恢复后逐表核对失败（以下表数据未灌入）：' + missing.join(', '));
+  }
+}
+
+/**
+ * 从备份文件恢复数据库（仅接受通过完整性与尾部标记校验的备份）。
+ * P1-48 加固：恢复前强制进入全局维护/只读态并自动备份当前库作为回滚锚点；
+ * 恢复后逐表行数核对；任何失败自动回滚到恢复前备份。
  * @param {string} filename backups/ 目录下的 .sql 文件名（内部会 path.basename 防穿越）
  */
 function restoreBackup(filename) {
@@ -138,40 +220,42 @@ function restoreBackup(filename) {
         return reject(new Error('备份文件不存在'));
       }
       if (!dumpLooksValid(filePath)) {
-        return reject(new Error('备份文件未通过完整性校验（空文件或非 mysqldump 输出），拒绝恢复'));
+        return reject(new Error('备份文件未通过完整性校验（空文件/截断/非 mysqldump 输出），拒绝恢复'));
+      }
+      if (holder.restoring) {
+        return reject(new Error('已有恢复任务进行中，请稍后再试'));
       }
 
-      const dbName = holder.dbName || DB_CONFIG.database || 'jingtu_group';
-      const args = [
-        '-h', String(DB_CONFIG.host),
-        '-P', String(DB_CONFIG.port),
-        '-u', String(DB_CONFIG.user),
-        dbName
-      ];
-      const child = spawn('mysql', args, {
-        env: { ...process.env, MYSQL_PWD: DB_CONFIG.password || '' }
-      });
-      let stderr = '';
-      child.stderr.on('data', (d) => { stderr += d.toString(); });
+      // 全局维护/只读态：server.js 中间件据此拦截恢复期间的写请求，杜绝业务写入交错
+      holder.restoring = true;
 
-      child.on('error', (err) => {
-        if (err.code === 'ENOENT') {
-          return reject(new Error('mysql 命令未找到，请确保 MySQL 已正确安装且 mysql 在 PATH 中'));
+      (async () => {
+        let pre = null;
+        try {
+          // 1) 恢复前强制自动备份：回滚锚点；备份失败即中止，绝不带病恢复
+          pre = await createBackup({ prefix: PRE_RESTORE_PREFIX });
+          // 2) 灌库恢复（维护态已置位，无业务写入交错）
+          await streamDumpToMysql(filePath);
+          // 3) 恢复后逐表行数核对
+          await verifyRestoredTables(filePath);
+          resolve({ filename: safeName, preBackup: pre.filename, message: '数据库恢复成功' });
+        } catch (restoreErr) {
+          // 4) 恢复失败：自动回滚到恢复前备份
+          if (pre) {
+            try {
+              await streamDumpToMysql(pre.filePath);
+              restoreErr.rolledBack = true;
+              restoreErr.rollbackNote = '已自动回滚到恢复前备份 ' + pre.filename;
+            } catch (rollbackErr) {
+              restoreErr.rolledBack = false;
+              restoreErr.rollbackFatal = rollbackErr.message;
+            }
+          }
+          reject(restoreErr);
+        } finally {
+          holder.restoring = false;
         }
-        reject(err);
-      });
-
-      const readStream = fs.createReadStream(filePath);
-      readStream.on('error', reject);
-      readStream.pipe(child.stdin);
-
-      child.on('close', (code) => {
-        if (code === 0) {
-          resolve({ filename: safeName });
-        } else {
-          reject(new Error('恢复失败，mysql 退出码: ' + code + (stderr ? '：' + stderr.trim().slice(0, 300) : '')));
-        }
-      });
+      })();
     } catch (e) {
       reject(e);
     }

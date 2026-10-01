@@ -325,6 +325,19 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       }
       const pool = getPool();
 
+      // P1-46: 只允许查询本群成员（group_roster）或本人绑定的 VRChat ID，
+      // 杜绝注册站内账号后借系统账号 cookie 批量枚举任意 VRChat 玩家实时资料并写缓存。
+      const isSelf = req.session && req.session.vrchatId === vrchatId;
+      if (!isSelf) {
+        const [[rosterRow]] = await pool.query(
+          `SELECT 1 FROM group_roster WHERE vrchat_id = ? AND is_member = 1 LIMIT 1`,
+          [vrchatId]
+        );
+        if (!rosterRow) {
+          return sendError(res, 403, ErrorCodes.FORBIDDEN, '仅群成员可查询 VRChat 实时资料');
+        }
+      }
+
       // 1) 先查服务端缓存：未过期直接返回，必要时后台静默刷新
       const cached = await vrcCacheRead(pool, vrchatId);
       if (cached.data && cached.age < VRC_CACHE_TTL) {

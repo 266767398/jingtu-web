@@ -137,11 +137,18 @@ router.post('/admin/backups/restore/:filename', requireAdminCompat, async (req, 
       message: '数据库恢复成功'
     });
   } catch (e) {
-    if (e && /无效的备份文件名|备份文件不存在|完整性校验/.test(e.message)) {
+    if (e && /无效的备份文件名|备份文件不存在|完整性校验|已有恢复任务/.test(e.message)) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, e.message);
     }
     if (e && /命令未找到/.test(e.message)) {
       return sendError(res, 500, ErrorCodes.INTERNAL_ERROR, e.message);
+    }
+    // P1-48: 恢复失败（含自动回滚结果）直接透出给管理员，不被通用安全消息吞掉
+    if (e && typeof e.rolledBack !== 'undefined') {
+      return sendError(res, 500, ErrorCodes.INTERNAL_ERROR,
+        '恢复失败：' + (e.message || '未知错误')
+        + (e.rollbackNote ? '；' + e.rollbackNote : '')
+        + (e.rollbackFatal ? '；回滚也失败，请立即人工介入：' + e.rollbackFatal : ''));
     }
     handleError(res, e, '[backups/restore]');
   }

@@ -59,7 +59,8 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   }
 
   // ==================== VRChat 用户查询 ====================
-  router.post('/vrc/lookup', async (req, res) => {
+  // P1-50: 补 requireAuth——系统账号 cookie 仅对已登录会话回退，匿名一律 401
+  router.post('/vrc/lookup', requireAuth, async (req, res) => {
     if (!getVRCCookieFn(req)) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const { query } = req.body;
@@ -85,7 +86,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   });
 
   // ==================== 获取群组信息 ====================
-  router.get('/group', async (req, res) => {
+  router.get('/group', requireAuth, async (req, res) => {
     if (!getVRCCookieFn(req)) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const { cookie: vrcCookie, result: groupRes } = await vrcWithFallback(req,
@@ -107,7 +108,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   });
 
   // ==================== VRChat World 详情 ====================
-  router.get('/vrc/world/:worldId', async (req, res) => {
+  router.get('/vrc/world/:worldId', requireAuth, async (req, res) => {
     if (!getVRCCookieFn(req)) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const { result: wr } = await vrcWithFallback(req, (c) => vrchatGetWorld(req.params.worldId, c));
@@ -117,7 +118,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   });
 
   // ==================== VRChat World 搜索 ====================
-  router.get('/vrc/worlds/search', async (req, res) => {
+  router.get('/vrc/worlds/search', requireAuth, async (req, res) => {
     if (!getVRCCookieFn(req)) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const q = req.query.q || '';
@@ -130,7 +131,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   });
 
   // ==================== VRChat Avatar 搜索 ====================
-  router.get('/vrc/avatars/search', async (req, res) => {
+  router.get('/vrc/avatars/search', requireAuth, async (req, res) => {
     if (!getVRCCookieFn(req)) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const q = req.query.q || '';
@@ -143,7 +144,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   });
 
   // ==================== VRChat Avatar 详情 ====================
-  router.get('/vrc/avatar/:avatarId', async (req, res) => {
+  router.get('/vrc/avatar/:avatarId', requireAuth, async (req, res) => {
     if (!getVRCCookieFn(req)) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {
       const { result: av } = await vrcWithFallback(req, (c) => vrchatGetAvatar(req.params.avatarId, c));

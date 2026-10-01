@@ -1,6 +1,4 @@
 const schedule = require('node-schedule');
-const fs = require('fs');
-const path = require('path');
 const dbMod = require('./db');
 const { getPool, safeError } = require('./utils');
 const { vrchatGetUser, vrchatResolveOnlineStatuses, vrcBacklog } = require('./vrc');
@@ -79,25 +77,15 @@ function startSchedule() {
   jobs.push(schedule.scheduleJob('0 0 2 * * *', async () => {
     console.log('🔄 [定时任务] 开始清理过期回收站图片...');
     try {
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      const [rows] = await dbMod.holder.pool.query(
-        `SELECT id, photo_path, thumb_path FROM album_photo WHERE is_recycle = 1 AND recycle_time < ?`,
-        [sevenDaysAgo]
-      );
-
-      for (const row of rows) {
-        try {
-          const pp = path.join(__dirname, '..', row.photo_path);
-          const tp = path.join(__dirname, '..', row.thumb_path);
-          if (fs.existsSync(pp)) fs.unlinkSync(pp);
-          if (tp !== pp && fs.existsSync(tp)) fs.unlinkSync(tp);
-        } catch (e) { /* 文件删除失败忽略 */ }
-
-        await dbMod.holder.pool.query(`DELETE FROM album_like WHERE photo_id = ?`, [row.id]);
-        await dbMod.holder.pool.query(`DELETE FROM album_comment WHERE photo_id = ?`, [row.id]);
-        await dbMod.holder.pool.query(`DELETE FROM album_photo WHERE id = ?`, [row.id]);
+      // P1-44: 删除逻辑收敛到相册模块统一出口（cleanupRecycleBin），
+      // unlink 前统一 isWithinAlbum 校验，杜绝穿越路径入库后被越界删除。
+      const albumMod = require('./routes/album');
+      if (!albumMod || typeof albumMod.cleanupRecycleBin !== 'function') {
+        console.warn('⚠️ [定时任务] 相册模块未就绪，跳过本轮回收站清理');
+        return;
       }
-      console.log(`✅ [定时任务] 清理完成，删除 ${rows.length} 张过期图片`);
+      const result = await albumMod.cleanupRecycleBin();
+      console.log(`✅ [定时任务] 清理完成，删除 ${result.deleted} 张过期图片`);
     } catch (e) {
       console.error('❌ [定时任务] 回收站清理失败:', e.message);
     }

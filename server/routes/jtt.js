@@ -713,11 +713,34 @@ router.post('/accounts/register', async (req, res) => {
       if (existRows.length) {
         return sendError(res, 409, ErrorCodes.JTT_ACCOUNT_EXISTS, '该 accountId 已注册');
       }
+      // P0-5：绑定码占用改为原子条件 UPDATE（双引擎通用，SQLite 下 FOR UPDATE 会被 transformSQL 丢弃）。
+      // 并发注册时仅首个请求 affectedRows===1；落败方（affectedRows===0）做幂等复查后回滚。
+      const [bindRes] = await conn.query(
+        'UPDATE jtt_bind_codes SET used_at = NOW(), used_by = ? WHERE id = ? AND used_at IS NULL',
+        [accountId, codeRow.id]
+      );
+      if (bindRes.affectedRows !== 1) {
+        const [dupRows] = await conn.query('SELECT * FROM jtt_accounts WHERE account_id = ? LIMIT 1', [accountId]);
+        if (dupRows.length) {
+          await conn.rollback();
+          const ex = dupRows[0];
+          return ok(res, {
+            accountId: ex.account_id,
+            userId: ex.user_id,
+            displayName: ex.display_name,
+            role: ex.role,
+            fingerprint: ex.fingerprint,
+            expiresAt: toIso(ex.expires_at),
+            webUrl: webLaunchUrl(req, ex.account_id)
+          });
+        }
+        await conn.rollback();
+        return sendError(res, 409, ErrorCodes.JTT_BIND_CODE_USED, '绑定码已使用');
+      }
       await conn.query(
         'INSERT INTO jtt_accounts (user_id, account_id, display_name, role, public_key, fingerprint, issued_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [codeRow.user_id, accountId, codeRow.display_name, codeRow.role, String(publicKey), fingerprint, codeRow.created_by || null]
       );
-      await conn.query('UPDATE jtt_bind_codes SET used_at = NOW(), used_by = ? WHERE id = ?', [accountId, codeRow.id]);
       await conn.commit();
     } catch (e) {
       await conn.rollback();

@@ -1269,6 +1269,8 @@ async function initDatabase() {
       `ALTER TABLE group_roster ADD COLUMN display_name VARCHAR(255) DEFAULT ''`,
       `ALTER TABLE group_roster ADD COLUMN avatar_url TEXT`,
       `ALTER TABLE group_roster ADD COLUMN is_online TINYINT DEFAULT 0`,
+      // P1-47: 老库升级补齐 is_in_game（新库 DDL 有、旧补列清单漏，导致统计错/写路径 500/索引静默失败）
+      `ALTER TABLE group_roster ADD COLUMN is_in_game TINYINT DEFAULT 0`,
       `ALTER TABLE group_roster ADD COLUMN vrchat_status VARCHAR(50) DEFAULT 'offline'`,
       `ALTER TABLE group_roster ADD COLUMN location VARCHAR(500) DEFAULT ''`,
       `ALTER TABLE group_roster ADD COLUMN world_name VARCHAR(255) DEFAULT ''`,
@@ -1326,6 +1328,8 @@ async function initDatabase() {
     for (const sql of rosterIndexes) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1061 || e.code === 'ER_DUP_KEYNAME') { /* index exists */ }
+        // P1-47: 目标列缺失属升级事故（补列清单漏列），按严重错误告警而非静默 warning
+        else if (e.errno === 1054 || e.code === 'ER_BAD_FIELD_ERROR') { console.error('  ❌ roster index 严重错误（目标列缺失，请检查 rosterCols 补列清单）:', e.message); }
         else { console.warn('  ⚠️ roster index:', e.message); }
       }
     }
