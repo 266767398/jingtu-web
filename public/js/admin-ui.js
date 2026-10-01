@@ -107,8 +107,8 @@
             '<div class="flex-1 min-w-0"><div class="text-14 fw-600">' + escapeHtml(s.title || __('auto_admin_ui_3')) + '</div>' +
             __('auto_admin_ui_4') + escapeHtml(s.displayName || s.username || '-') + __('auto_admin_ui_5') + (s.startedAt || '-') + '</div></div>' +
             '<span class="badge ' + (live ? 'badge-live' : 'badge-ended') + '">' + (live ? __('live.live_now') : __('auto_admin_ui_6')) + '</span>' +
-            (live ? '<button class="btn btn-sm btn-danger" onclick="adminEndLive(\'' + s.id + '\')">⏹ ' + __('admin_ui.end_live') + '</button>' : '') +
-            '<button class="btn btn-sm btn-outline" onclick="adminDeleteLive(\'' + s.id + '\')">🗑 ' + __('auto_admin_ui_7') + '</button>' +
+            (live ? '<button class="btn btn-sm btn-danger" onclick="adminEndLive(\'' + escJsStr(String(s.id)) + '\')">⏹ ' + __('admin_ui.end_live') + '</button>' : '') +
+            '<button class="btn btn-sm btn-outline" onclick="adminDeleteLive(\'' + escJsStr(String(s.id)) + '\')">🗑 ' + __('auto_admin_ui_7') + '</button>' +
             '</div>';
         }).join('');
         renderAdminLivePager(r.page || page, r.totalPages || 1, page);
@@ -223,12 +223,12 @@
               // 操作按钮：查看（公告/动态/相册）+ 编辑（公告/动态）+ 删除
               var actions = '';
               if (_contentTab === 'announcements' || _contentTab === 'posts' || _contentTab === 'album') {
-                actions += '<button class="btn btn-sm btn-outline" onclick="adminViewContent(\'' + _contentTab + '\',\'' + it.id + '\')">👁 ' + (__('events.view') || __('auto_admin_ui_view')) + '</button> ';
+                actions += '<button class="btn btn-sm btn-outline" onclick="adminViewContent(\'' + escJsStr(String(_contentTab)) + '\',\'' + escJsStr(String(it.id)) + '\')">👁 ' + (__('events.view') || __('auto_admin_ui_view')) + '</button> ';
               }
               if (_contentTab === 'announcements' || _contentTab === 'posts') {
-                actions += '<button class="btn btn-sm btn-outline" onclick="adminEditContent(\'' + _contentTab + '\',\'' + it.id + '\')">✏️ ' + (__('events.edit_event') || '编辑') + '</button> ';
+                actions += '<button class="btn btn-sm btn-outline" onclick="adminEditContent(\'' + escJsStr(String(_contentTab)) + '\',\'' + escJsStr(String(it.id)) + '\')">✏️ ' + (__('events.edit_event') || '编辑') + '</button> ';
               }
-              actions += '<button class="btn btn-sm btn-outline" onclick="adminDeleteContent(\'' + _contentTab + '\',\'' + it.id + '\')">🗑 ' + (__('delete') || __('auto_admin_ui_32')) + '</button>';
+              actions += '<button class="btn btn-sm btn-outline" onclick="adminDeleteContent(\'' + escJsStr(String(_contentTab)) + '\',\'' + escJsStr(String(it.id)) + '\')">🗑 ' + (__('delete') || __('auto_admin_ui_32')) + '</button>';
               return '<tr><td><input type="checkbox" class="admin-batch-check" data-id="' + it.id + '"></td>' +
                 '<td>' + escapeHtml(a) + '</td><td>' + cell + '</td>' +
                 '<td>' + actions + '</td></tr>';
@@ -265,10 +265,10 @@
         '<td><span class="evt-status ' + (it.isArchive ? 'archived' : (ended ? 'ended' : 'ongoing')) + '">' + escapeHtml(status) + '</span></td>' +
         '<td>' + sign + '</td>' +
         '<td class="evt-actions">' +
-          '<button class="btn btn-sm btn-outline" onclick="window.showEventDetail&&showEventDetail(\'' + it.id + '\')">👁 ' + (__('events.view') || __('auto_admin_ui_40')) + '</button> ' +
-          '<button class="btn btn-sm btn-outline" onclick="adminEditEvent(\'' + it.id + '\')">✏️ ' + (__('events.edit_event') || '编辑') + '</button> ' +
-          '<button class="btn btn-sm btn-outline" onclick="adminArchiveEvent(\'' + it.id + '\',' + (it.isArchive ? 1 : 0) + ')">' + (it.isArchive ? (__('events.unarchive') || __('auto_admin_ui_41')) : (__('events.archive') || __('auto_admin_ui_42'))) + '</button> ' +
-          '<button class="btn btn-sm btn-outline" onclick="adminDeleteContent(\'events\',\'' + it.id + '\')">🗑 ' + (__('delete') || __('auto_admin_ui_43')) + '</button>' +
+          '<button class="btn btn-sm btn-outline" onclick="window.showEventDetail&&showEventDetail(\'' + escJsStr(String(it.id)) + '\')">👁 ' + (__('events.view') || __('auto_admin_ui_40')) + '</button> ' +
+          '<button class="btn btn-sm btn-outline" onclick="adminEditEvent(\'' + escJsStr(String(it.id)) + '\')">✏️ ' + (__('events.edit_event') || '编辑') + '</button> ' +
+          '<button class="btn btn-sm btn-outline" onclick="adminArchiveEvent(\'' + escJsStr(String(it.id)) + '\',' + (it.isArchive ? 1 : 0) + ')">' + (it.isArchive ? (__('events.unarchive') || __('auto_admin_ui_41')) : (__('events.archive') || __('auto_admin_ui_42'))) + '</button> ' +
+          '<button class="btn btn-sm btn-outline" onclick="adminDeleteContent(\'events\',\'' + escJsStr(String(it.id)) + '\')">🗑 ' + (__('delete') || __('auto_admin_ui_43')) + '</button>' +
         '</td>' +
         '</tr>';
     }).join('');
@@ -449,14 +449,29 @@
       var vrc = document.getElementById('cfgVrcGroupUrl');
       var kook = document.getElementById('cfgKookUrl');
       var oopz = document.getElementById('cfgOopzUrl');
+      var turnUrls = document.getElementById('cfgTurnUrls');
+      var turnUser = document.getElementById('cfgTurnUsername');
+      var turnCred = document.getElementById('cfgTurnCredential');
       if (siteName) siteName.value = cfg.site_name || '';
       if (siteSlogan) siteSlogan.value = cfg.hero_title || '';
       if (siteWelcome) siteWelcome.value = cfg.hero_description || '';
       if (vrc) vrc.value = cfg.vrcGroupUrl || '';
       if (kook) kook.value = cfg.kookUrl || '';
       if (oopz) oopz.value = cfg.oopzUrl || '';
+      if (turnUrls) turnUrls.value = cfg.rtc_turn_urls || '';
+      if (turnUser) turnUser.value = cfg.rtc_turn_username || '';
+      if (turnCred) turnCred.value = cfg.rtc_turn_credential || '';
     }).catch(function () {});
   }
+
+  window.saveRtcTurn = function () {
+    var payload = {
+      rtc_turn_urls: val('cfgTurnUrls'), rtc_turn_username: val('cfgTurnUsername'), rtc_turn_credential: val('cfgTurnCredential')
+    };
+    api('/api/admin/config', { method: 'PUT', body: JSON.stringify(payload) })
+      .then(function () { toast(__('auto_admin_ui_61'), 'success'); })
+      .catch(function (e) { alert(__('auto_admin_ui_63') + (e && e.message || e)); });
+  };
 
   window.saveSiteInfo = function () {
     var payload = {
@@ -719,6 +734,7 @@
     // 主页/网站信息保存
     bind('saveSiteInfoBtn', function () { if (window.saveSiteInfo) window.saveSiteInfo(); });
     bind('saveSiteLinksBtn', function () { if (window.saveSiteInfo) window.saveSiteInfo(); });
+    bind('saveRtcTurnBtn', function () { if (window.saveRtcTurn) window.saveRtcTurn(); });
     // 数据统计
     bind('adminStatsRefreshBtn', function () { loadAdminAnalytics(); });
     bind('adminStatsRange', function () { loadAdminAnalytics(); }, 'change');

@@ -215,21 +215,23 @@
       return;
     }
     if (act === 'check') {
+      const release = btnBusy(event.target);
       try {
-        btnBusy(event.target);
         const d = await api('/api/collections/' + id + '/check', { method: 'POST' });
         toast(d.status === 'valid' ? __('model_coll.valid', __('auto_collections_20')) : __('model_coll.invalid', __('auto_collections_21')) + (d.invalidReason || ''));
         loadItems(true);
       } catch (e) { toast(e.message, 'error'); }
+      finally { release(); }
       return;
     }
     if (act === 'setavatar') {
       if (!confirm(__('model_coll.confirm_copy', __('auto_collections_22')))) return;
+      const release = btnBusy(event.target);
       try {
-        btnBusy(event.target);
         await api('/api/collections/' + id + '/set-avatar', { method: 'POST' });
         toast(__('model_coll.copied', __('auto_collections_23')));
       } catch (e) { toast(e.message, 'error'); }
+      finally { release(); }
       return;
     }
   }
@@ -626,7 +628,8 @@
     if (!q) { box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('collections.search_enter', __('auto_collections_92')) + '</div>'; return; }
     box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('common.loading', __('auto_collections_93')) + '</div>';
     try {
-      const res = await fetch('/api/collections/search-models?q=' + encodeURIComponent(q) + '&n=12', { credentials: 'same-origin' });
+      // P3-1: 改用全局 api()，统一获得超时、no-store 缓存控制与错误兜底；与模块内其他请求一致
+      const res = await api('/api/collections/search-models?q=' + encodeURIComponent(q) + '&n=12');
       const data = await res.json().catch(() => ({}));
       const results = Array.isArray(data.results) ? data.results : [];
       if (!results.length) {
@@ -681,18 +684,19 @@
     if (err) hideErr('collWorldDiscoverError');
     box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('common.loading', __('auto_collections_93')) + '</div>';
     try {
-      let url, data;
+      let data;
       if (worldDiscoverState.q) {
-        url = '/api/collections/search-worlds?q=' + encodeURIComponent(worldDiscoverState.q) + '&n=24';
-        const res = await fetch(url, { credentials: 'same-origin' });
+        // P3-1: 改用全局 api()，统一获得超时、no-store 缓存控制与错误兜底
+        const url = '/api/collections/search-worlds?q=' + encodeURIComponent(worldDiscoverState.q) + '&n=24';
+        const res = await api(url);
         data = await res.json().catch(() => ({}));
-        if (!res.ok || data.success === false) throw new Error(errText(data) || ('HTTP ' + res.status));
+        if (data.success === false) throw new Error(errText(data));
         renderWorldResults(data.results || []);
       } else {
-        url = '/api/collections/popular-worlds?sort=' + encodeURIComponent(worldDiscoverState.sort) + '&n=24';
-        const res = await fetch(url, { credentials: 'same-origin' });
+        const url = '/api/collections/popular-worlds?sort=' + encodeURIComponent(worldDiscoverState.sort) + '&n=24';
+        const res = await api(url);
         data = await res.json().catch(() => ({}));
-        if (!res.ok || data.success === false) throw new Error(errText(data) || ('HTTP ' + res.status));
+        if (data.success === false) throw new Error(errText(data));
         renderWorldResults(data.results || []);
       }
     } catch (e) {
@@ -788,7 +792,13 @@
   function showErr(id, msg) { const e = $(id); if (e) { e.textContent = msg; e.classList.remove('d-none'); } }
   function hideErr(id) { const e = $(id); if (e) e.classList.add('d-none'); }
   function toast(msg, type) { if (window.__toast) window.__toast(msg, type); else console.log(msg); }
-  function btnBusy(btn) { if (btn) { btn.disabled = true; setTimeout(() => btn.disabled = false, 1500); } }
+  // P2-1: 原实现固定 1500ms 后解禁按钮，不等待 api() 返回；接口耗时 >1.5s 时按钮提前恢复，
+  // 可被重复点击导致 set-avatar/recheck 重复提交。改为返回「解禁函数」，由调用方在 finally 中释放。
+  function btnBusy(btn) {
+    if (!btn) return function () {};
+    btn.disabled = true;
+    return function () { btn.disabled = false; };
+  }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
   function safeParseTags(s) { try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
   function platformLabel(p) { return ({ standalonewindows: 'PC', android: 'Android', ios: 'iOS' })[p] || p; }

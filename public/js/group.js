@@ -1011,6 +1011,9 @@ function startGroupPolling() {
 
 function stopGroupPolling() {
   if (groupPollTimer) { clearInterval(groupPollTimer); groupPollTimer = null; }
+  // P2-2: 离开 vrc Tab / 停止轮询时，增量更新留下的防抖重渲染定时器仍可能在 1500ms 内触发
+  // loadGroupMembers + loadGroupStats，导致隐藏 Tab 下发起无意义请求与 DOM 操作。一并清理。
+  if (_rosterRefreshTimer) { clearTimeout(_rosterRefreshTimer); _rosterRefreshTimer = null; }
 }
 
 // ==================== 初始化 ====================

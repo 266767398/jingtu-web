@@ -110,7 +110,7 @@ function renderMembers(members) {
   const roleLabels = { 'super_admin': __('members.role_super_admin'), 'admin': __('members.role_admin'), 'member': __('members.role_member') };
   container.innerHTML = members.map(m => `
     <div class="member-card">
-      <div class="member-card-click" onclick="goToProfile(${m.id})">
+      <div class="member-card-click" onclick="goToProfile('${escJsStr(String(m.id))}')">
         <img src="${escAttr(m.avatarUrl || '/api/avatar/default')}" class="member-avatar" alt="${escAttr(m.displayName || m.loginId)}" loading="lazy"
           data-avatars="${escAttr(m.avatarUrl || '/api/avatar/default')};${escAttr(m.profilePicOverrideThumbnail||'')};${escAttr(m.userIcon||'')}" onclick="cycleAvatar(this)" >
         <div class="member-info">
@@ -120,7 +120,7 @@ function renderMembers(members) {
         </div>
       </div>
       ${m.locationVisible ? `<div class="member-location">📍 ${esc(m.location || __('members.unknown_location'))}</div>` : ''}
-      <button class="btn btn-sm btn-outline ml-auto" onclick="event.stopPropagation();showMemberDetail('${m.id}')">${__('members.card')}</button>
+      <button class="btn btn-sm btn-outline ml-auto" onclick="event.stopPropagation();showMemberDetail('${escJsStr(String(m.id))}')">${__('members.card')}</button>
     </div>
   `).join('');
 }

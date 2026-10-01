@@ -998,8 +998,15 @@ function handleModalBackdropClick(e) {
 
 function initModalAccessibility() {
   if (typeof MutationObserver === 'undefined') return;
+  // P3-3: 原实现 observe(body, attributes+childList+subtree) 会在任意元素的 class/style
+  // 变更时触发 syncModalA11y 遍历全部 .modal。群组页 WS roster 高频 classList.toggle
+  // 会导致高频无意义重排。用 requestAnimationFrame 合帧：同一帧内多次变更只 sync 一次，
+  // 既保留对动态新增 .modal 的监听（subtree 仍 true），又消除性能浪费。与 main.js
+  // scheduleRefresh 的合帧思路一致。
+  let rafId = null;
   const observer = new MutationObserver(function () {
-    syncModalA11y();
+    if (rafId) return;
+    rafId = requestAnimationFrame(function () { rafId = null; syncModalA11y(); });
   });
   observer.observe(document.body, {
     attributes: true,

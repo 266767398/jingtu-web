@@ -16,10 +16,10 @@
 <link rel="dns-prefetch" href="https://assets.amlcdn.com">
 <link rel="dns-prefetch" href="https://assets.vrchat.com">
 <!-- 首屏关键 CSS：阻塞渲染（页面骨架 / 设计令牌 / 基础 UI / 导航 / 首页内容） -->
-<link rel="stylesheet" href="/css/style.css?v=20260914a">
-<link rel="stylesheet" href="/css/99-design-system.css?v=20260906a">
-<link rel="stylesheet" href="/css/ui-components.css?v=20260906a">
-<link rel="stylesheet" href="/css/ui-enhance.css?v=20260914b">
+<link rel="stylesheet" href="/css/style.css?v=20260930a">
+  <link rel="stylesheet" href="/css/99-design-system.css?v=20260906a">
+  <link rel="stylesheet" href="/css/ui-components.css?v=20260906a">
+  <link rel="stylesheet" href="/css/ui-enhance.css?v=20260930a">
 <link rel="stylesheet" href="/css/nav-scroller.css?v=20260906a">
 <link rel="stylesheet" href="/css/home-featured.css?v=20260906a">
 <link rel="stylesheet" href="/css/home-enhance.css?v=20260906a">
@@ -36,7 +36,7 @@
 <link rel="stylesheet" href="/css/06-members.css?v=20260915a" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="/css/collections.css?v=20260906a" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="/css/10-social.css?v=20260906a" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/baidu-modern.css?v=20260906a" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/baidu-modern.css?v=20260930a" media="print" onload="this.media='all'">
 <!-- V9.4 地图 VRChat 世界面板样式（异步加载） -->
 <link rel="stylesheet" href="/css/worlds-panel.css?v=20260906a" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20260906a"></noscript>
@@ -46,7 +46,7 @@
   <link rel="stylesheet" href="/css/06-members.css?v=20260915a">
   <link rel="stylesheet" href="/css/collections.css?v=20260906a">
   <link rel="stylesheet" href="/css/10-social.css?v=20260906a">
-  <link rel="stylesheet" href="/css/baidu-modern.css?v=20260906a">
+  <link rel="stylesheet" href="/css/baidu-modern.css?v=20260930a">
 </noscript>
   <meta name="description" content="境途同游是一个面向 VRChat 玩家的社群平台，提供群组相册、活动报名、动态分享、成员地图与实时聊天，记录你在虚拟世界里的每一次同游。">
   <meta property="og:type" content="website">
@@ -83,7 +83,7 @@
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
        必须在 i18n 之后（依赖 window.__）、在 loader.js / ui.js 之前（确保 og:url 尽早被爬虫读取）。 -->
-  <script src="/js/seo.js?v=20260906a"></script>
+  <script src="/js/seo.js?v=20260930a"></script>
   <!-- 首屏性能量化（P2-21）：?perf=1 时上报 LCP/FCP 到 console，便于回归比对；
        生产默认关闭，零副作用。仅观测，不改写任何渲染行为。 -->
   <script>
@@ -606,7 +606,7 @@
           <button type="button" id="chatVideoBtn" class="btn btn-xs btn-outline" onclick="pickChatVideo()" data-i18n-title="chat.upload_video" title="发送视频" aria-label="发送视频">🎬</button>
           <input type="file" id="chatVideoInput" accept="video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-matroska" class="d-none" data-i18n-aria="chat.upload_video" onchange="onChatVideoSelected(this)">
           <button type="button" id="chatAudioBtn" class="btn btn-xs btn-outline" onclick="pickChatAudio()" data-i18n-title="chat.upload_audio" title="发送语音" aria-label="发送语音">🎤</button>
-          <input type="file" id="chatAudioInput" accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4" class="d-none" data-i18n-aria="chat.upload_audio" onchange="onChatAudioSelected(this)">
+          <input type="file" id="chatAudioInput" accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/webm" class="d-none" data-i18n-aria="chat.upload_audio" onchange="onChatAudioSelected(this)">
           <button type="button" id="chatSendBtn" class="btn btn-sm" data-i18n="chat.send">发送</button>
         </div>
       </div>
@@ -1578,6 +1578,16 @@
             </div>
             <button id="saveSiteLinksBtn" class="btn btn-accent btn-sm mt-4">💾 保存链接</button>
           </div>
+          <div class="card p-16 mt-16">
+            <div class="admin-card-header"><span class="admin-section-icon">📞</span><h3>实时通话（WebRTC TURN）</h3></div>
+            <p class="text-13 text-muted2 mb-8">配置 TURN 中继服务器，帮助 NAT 后用户建立 P2P 连接。留空则仅使用 STUN 直连（通常够用）。保存后对所有用户立即生效。</p>
+            <div class="admin-form-col" style="max-width:520px"><label class="text-13 text-muted2 block mb-2" for="cfgTurnUrls">TURN 服务器地址（多个用英文逗号分隔）</label><input type="text" id="cfgTurnUrls" class="search-box admin-form-input" placeholder="turn:turn.example.com:3478?transport=udp"></div>
+            <div class="flex-row gap-8 mb-8 flex-wrap">
+              <div class="admin-form-col-md"><label class="text-13 text-muted2 block mb-2" for="cfgTurnUsername">TURN 用户名</label><input type="text" id="cfgTurnUsername" class="search-box admin-form-input-sm" placeholder="username" autocomplete="off"></div>
+              <div class="admin-form-col-md"><label class="text-13 text-muted2 block mb-2" for="cfgTurnCredential">TURN 密码</label><input type="password" id="cfgTurnCredential" class="search-box admin-form-input-sm" placeholder="password" autocomplete="new-password"></div>
+            </div>
+            <button id="saveRtcTurnBtn" class="btn btn-accent btn-sm mt-4">💾 保存 TURN 配置</button>
+          </div>
           </section>
 
           <!-- 数据统计 -->
@@ -2348,7 +2358,7 @@
 <script defer src="/js/core.js?v=20260924b"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
 <script defer src="/js/i18n.js?v=20260925-1006"></script>
-<script defer src="/js/ui.js?v=20260906a"></script>
+<script defer src="/js/ui.js?v=20260930a"></script>
 <script defer src="/vendor/gsap/gsap.min.js?v=20260906a"></script>
 <script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260906a"></script>
 <script defer src="/js/motion.js?v=20260906a"></script>

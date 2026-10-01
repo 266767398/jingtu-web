@@ -126,6 +126,9 @@ async function init() {
   // - 合帧：同一帧内的多次触发合并为一次（_refreshScheduled 防抖），并限制最小间隔避免抖动。
   // - 仅可见：只刷新当前 activeTab，后台 Tab 不再无意义轮询（切换 Tab 时 switchTab 会全量加载该 Tab）。
   let refreshTimer = null;
+  // P2-3: 启动时的首次延迟刷新 setTimeout 原本未纳入管理，hidden 时只 clearInterval(refreshTimer)
+  // 仍会被它触发一次 runRefresh，导致后台隐藏页发请求。单独跟踪并在 hidden 时一并清理。
+  let _initialRefreshTimer = null;
   let _refreshScheduled = false;
   let _lastRefreshAt = 0;
   const REFRESH_MIN_GAP = 3000; // 最小刷新间隔，避免频繁触发（如切前台 + 定时器叠加）
@@ -154,7 +157,7 @@ async function init() {
     else setTimeout(flush, 16);
   }
 
-  setTimeout(scheduleRefresh, 30000);
+  _initialRefreshTimer = setTimeout(scheduleRefresh, 30000);
   refreshTimer = setInterval(scheduleRefresh, 75000);
 
   // 后台标签页暂停定时刷新（节省性能）；回到前台合帧刷新一次
@@ -162,6 +165,7 @@ async function init() {
     if (document.hidden) {
       clearInterval(refreshTimer);
       refreshTimer = null;
+      if (_initialRefreshTimer) { clearTimeout(_initialRefreshTimer); _initialRefreshTimer = null; }
     } else {
       if (!refreshTimer) {
         scheduleRefresh(); // 回到前台立刻合帧刷新一次
@@ -276,6 +280,10 @@ function connectWebSocket() {
       if (msg.type === 'group:new' || msg.type === 'group:location:update' || msg.type === 'group:location:stop') {
         if (typeof handleChatMessage === 'function') handleChatMessage(msg);
       }
+      // V6.15: WebRTC 通话/语音房信令（私聊 rtc:* 与群语音房 rtc:group:* 全部转发给聊天模块）
+      if (msg.type && msg.type.indexOf('rtc:') === 0) {
+        if (typeof handleChatMessage === 'function') handleChatMessage(msg);
+      }
       // V6.14: 群组 VRChat 成员在线状态实时同步（加入/离开/上下线）
       if (msg.type === 'group:roster_update' && typeof applyRosterUpdate === 'function') {
         applyRosterUpdate(msg);
@@ -348,7 +356,10 @@ function showOnlineUsers() {
   const count = Array.isArray(onlineUsersList) ? onlineUsersList.length : 0;
   if (count === 0) { toast(__('group.no_online'), 'info'); return; }
   const html = onlineUsersList.map(u => {
-    const userId = typeof u.userId === 'number' ? u.userId : `'${esc(String(u.userId))}'`;
+    // P1-1: esc() 把 ' 转成 &#39;，浏览器在 HTML 属性中会先解码实体再执行 JS，
+    // userId 含 ' 即可逃逸字符串字面量注入任意代码 → XSS。改用 escJsStr 包裹单引号字符串，
+    // 转义后即使被 HTML 实体解码也仍是合法 JS 字符串字面量，无法逃逸。
+    const userId = `'${escJsStr(String(u.userId))}'`;
     const avatarSrc = u.avatarUrl ? escAttr(u.avatarUrl) : '/api/avatar/default';
     const displayName = esc(u.displayName || __('main.unknown_user'));
     const isMe = u.userId === currentUser?.id;
