@@ -80,7 +80,27 @@
       // data-external 按钮不切换面板，直接新窗口打开（用于运维面板等外部入口）
       var external = btn.getAttribute('data-external');
       if (external) {
-        window.open(external, '_blank', 'noopener');
+        // 运维面板：先请求启动（主站按需拉起 panel-server，空闲 20 分钟会自动关闭），
+        // 确认就绪后再新窗口打开，避免 502 白屏
+        if (external === '/ops/') {
+          btn.disabled = true;
+          var origText = btn.innerHTML;
+          btn.innerHTML = '<span>⏳</span>启动中…';
+          api('/api/ops/start', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (d) {
+            if (d && d.ok) {
+              window.open('/ops/', '_blank', 'noopener');
+            } else {
+              alert((d && d.message) || '运维面板启动失败，请查看服务日志');
+            }
+          }).catch(function () {
+            alert('运维面板启动请求失败，请确认服务运行正常');
+          }).finally(function () {
+            btn.disabled = false;
+            btn.innerHTML = origText;
+          });
+        } else {
+          window.open(external, '_blank', 'noopener');
+        }
         return;
       }
       showPanel(btn.getAttribute('data-target'));

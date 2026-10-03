@@ -818,6 +818,13 @@ api('/api/bootstrap').then(r=>{
 if(r.initialized){showAuth('login');}
 else{showAuth('init');wizGo(1);api('/api/setup-env').then(e=>renderWizEnv(e.env)).catch(()=>renderWizEnv(null));}
 }).catch(e=>{document.body.innerHTML='<div style="padding:40px;text-align:center;color:#f87171">面板服务不可用：'+esc(e.message)+'<br><br><span class="muted">请确认 panel-server.js 已启动（双击 start-panel.bat）</span></div>';});})();
+/* ===== 经主站 /ops 代理访问时的心跳保活 =====
+   主站会对运维面板做「空闲 20 分钟自动关闭」：只要面板页面开着就定期 ping
+   /ops/api/bootstrap（刷新主站的最后活动时间），避免面板被误关；
+   关闭页面/离开后心跳停止，主站 20 分钟后自动回收面板进程（下次点击再拉起）。 */
+if(PANEL_BASE==='/ops'||PANEL_BASE==='/ops/'){
+  setInterval(function(){try{fetch(PANEL_BASE+'/api/bootstrap',{method:'GET',cache:'no-store'}).catch(function(){});}catch(e){}},3*60*1000);
+}
 </script>
 </body>
 </html>

@@ -56,7 +56,7 @@ const securityAlert = require('./security_alert');
 const { apiVersionMiddleware } = require('./middleware/api_version');
 const { enableWaf } = require('./middleware/waf');
 const { metricsMiddleware } = require('./middleware/metrics');
-const { setupPanelProxy } = require('./panel_proxy');
+const { setupPanelProxy, setupPanelLifecycle } = require('./panel_proxy');
 const { setupUploadsAuth, setupAssetsAlbumAuth } = require('./middleware/uploads_auth');
 const { uploadsStaticLimiter } = require('./middleware/rate_limit');
 const { setupCsrf } = require('./middleware/csrf');
@@ -453,6 +453,14 @@ app.use('/api/search', searchLimiter);
 // CSRF token 签发/校验、/api/auth/check-init 与 /api/csrf-token 路由、过期清理定时器
 // 已抽至 middleware/csrf.js；中间件链位置必须保持在 auth/migration/database 等特权路由挂载之前。
 const { csrfCleanupInterval } = setupCsrf(app);
+
+// ==================== 运维面板生命周期 API ====================
+// /api/ops/start、/api/ops/status + 空闲自动关闭定时器：
+// 管理后台「运维面板」按钮先确保启动再打开；面板空闲超过 PANEL_IDLE_MINUTES（默认 20 分钟）
+// 自动关闭进程，下次点击再拉起（见 panel_proxy.js 顶部策略说明）。
+// 须挂载在 setupCsrf 之后：POST /api/ops/start 是状态变更端点，须与其余 /api POST 一样
+// 接受 CSRF 校验（前端 api() 会自动携带 X-CSRF-Token）；/ops/ 代理入口则不受影响（在其之前）。
+setupPanelLifecycle(app, { ROOT_DIR, requireSuperAdmin });
 
 // ==================== 系统 VRChat 登录状态 / Cookie 会话 / Pipeline ====================
 // 状态生命周期、session.json 加密读写、失效降级语义与 Pipeline 事件处理
