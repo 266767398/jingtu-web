@@ -1,7 +1,7 @@
 # 境途同游 Web — 部署指南（Docker / 宝塔 / 裸机）
 
 > 适用版本：server `1.3.0` / 启动日志 `V7.10`
-> 本文覆盖三种部署方式，并列出生产必检项。更底层的架构与运维细节见 `docs/06-部署与运维.md`。
+> 本文覆盖三种部署方式，并列出生产必检项。更底层的架构与运维细节见 `docs/03-部署与运维.md`（完整文档索引见 `docs/README.md`）。
 
 ---
 
@@ -50,7 +50,15 @@ FLUSH PRIVILEGES;
 
 ## 一、Docker（推荐，最快起站）
 
-### 1.1 准备环境变量
+### 1.0 面板一键安装（最快，无需 .env）
+
+Docker 面板（1Panel / 宝塔「Docker → Compose」/ Portainer）直接上传仓库根目录
+[`docker-compose.standalone.yml`](docker-compose.standalone.yml)，勾选「创建项目后立即启动」即可；
+内置体验默认密钥，正式使用前请在面板「环境变量」中设置同名变量覆盖
+（`MYSQL_ROOT_PASSWORD` / `MYSQL_PASSWORD` / `SESSION_SECRET` / `ENCRYPT_KEY`，设置即生效，无需改文件）。
+详见 `docs/01-快速开始.md`。
+
+### 1.1 准备环境变量（生产 / 命令行方式）
 
 ```bash
 cp docker.env.example .env.docker        # 或保持原名，用 --env-file 指定
@@ -74,7 +82,9 @@ curl -fsS http://127.0.0.1:3456/api/health/ready
 ### 1.3 镜像说明（`Dockerfile`）
 
 - 多阶段构建（`node:22-slim`，Node 20 已于 2026-04 EOL），仅运行阶段保留依赖，体积更小。
-- 应用以 **非 root**（node 用户）运行；`uploads/backups/logs` 为命名卷，可持久化与备份。
+- 应用以 **非 root**（node 用户）运行；`uploads/backups/logs/assets/server/data` 为命名卷
+  （`server/data` 存放激活码文件与 SQLite 模式库，容器重建/删除后数据不丢），可持久化与备份。
+  日志默认轮转（单文件 ≤50m，保留 5 份）避免无限增长。
 - 启动顺序由 `docker-entrypoint.sh` 保证：等待 MySQL 端口 → 执行 `db_init.js` → 启动 `node server.js`。
 - 生产环境 Swagger 不加载，镜像已用 `npm ci --omit=dev` 精简依赖（devDependencies 不进入运行镜像）。
 
@@ -220,4 +230,4 @@ curl -fsS http://127.0.0.1:3456/api/health/ready
 | `install.sh` | 宝塔 / 裸机一键部署 |
 | `ecosystem.config.js` | PM2 进程守护（单实例） |
 | `deploy/nginx/jingtu.conf` | Nginx 反代模板（宝塔可导入） |
-| `docs/06-部署与运维.md` | 更详细的运维说明 |
+| `docs/03-部署与运维.md` | 部署/运维/安全必检（更详细） |

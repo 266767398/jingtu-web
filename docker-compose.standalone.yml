@@ -1,0 +1,113 @@
+# ==================== 境途同游 Web — Docker Compose 一键版（面板直传） ====================
+# 面向 Docker 面板（1Panel / 宝塔「Docker → Compose」/ Portainer 等）的一键安装文件：
+#   创建项目（输入项目名称 jingtu-web）→ 将本文件内容粘贴到「docker-compose.yml」→
+#   勾选「创建项目后立即启动」→ 点击确认。等待 1~2 分钟（拉镜像 + 建库 + 启动）即可
+#   访问 http://服务器IP:3456。
+#
+# 特点：零前置操作——无需单独准备 .env 文件，MySQL 密码与会话密钥已内置一键可用值。
+# ⚠️ 安全提示：本文件内置的密码/密钥是「体验默认值」，会随仓库公开。
+#   ① 正式对外使用前，请在面板的「环境变量」中设置同名变量覆盖默认值
+#      （MYSQL_ROOT_PASSWORD / MYSQL_PASSWORD / SESSION_SECRET / ENCRYPT_KEY，
+#      Session 密钥生成：node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"），
+#      设置了即生效，无需修改本文件。
+#   ② 端口默认只绑定 127.0.0.1（APP_BIND），公网访问请用服务器 Nginx / 宝塔反代 80/443
+#      并设 TRUST_PROXY=1；确需直连暴露再改为 0.0.0.0（保持 TRUST_PROXY=0）。
+#   ③ 升级代码：面板中重新执行「构建镜像」或命令行 docker compose build && up -d。
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: jingtu-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-pWRdr3YpxcsNH9x!}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE:-jingtu_group}"
+      MYSQL_USER: "${MYSQL_USER:-jingtu_user}"
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD:-r0K48p6fByRo8WCx!}"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # MySQL 服务端时区对齐应用（server/db.js 连接时区 +08:00）与 Asia/Shanghai 定时任务
+      - --default-time-zone=+08:00
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      # 读取容器内 MYSQL_ROOT_PASSWORD（兼容面板覆盖默认值的情况）
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p\"$$MYSQL_ROOT_PASSWORD\" | grep 'is alive'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    logging:
+      options:
+        max-size: "50m"
+        max-file: "5"
+    networks:
+      - jingtu-net
+
+  app:
+    build: .
+    image: jingtu-web:latest
+    container_name: jingtu-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3456
+      # 0 = 不信任代理头（安全默认）；经面板/本机 Nginx 反代时改为 1
+      TRUST_PROXY: "${TRUST_PROXY:-0}"
+      # 容器内通过服务名 db 访问数据库
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: "${MYSQL_DATABASE:-jingtu_group}"
+      MYSQL_USER: "${MYSQL_USER:-jingtu_user}"
+      MYSQL_PASSWORD: "${MYSQL_PASSWORD:-r0K48p6fByRo8WCx!}"
+      # 【一键可用值，建议正式使用前在面板「环境变量」中设置同名变量覆盖】
+      SESSION_SECRET: "${SESSION_SECRET:-bedd03113628346e8d39e9de3c332f90c6b9914c575dccf2bcc89dff9e96c15029d3b167c90bc108391a30d87f93c198}"
+      ENCRYPT_KEY: "${ENCRYPT_KEY:-a6dca891ab8b32789fc3190a6d9eaf792bd2b515bd6f50ed3b8416ddfdab3a55}"
+      # 可选业务变量（留空 = 代码默认值）。正式部署建议填写：
+      # CORS_ORIGINS: https://你的域名
+      # APP_URL: https://你的域名          （邮件内链接 / sitemap 使用）
+      # SITEMAP_BASE_URL: https://你的域名
+      # VRC_API_KEY / VRC_GROUP_URL: VRChat 群组接入
+      # SMTP_HOST / SMTP_USER / SMTP_PASS: 邮件通知
+      # RECOVERY_TOKEN: /api/system/db-recover 恢复口令
+      # JINGTU_DB_ENGINE: sqlite          （可选单机版，见 01-快速开始.md §1.4）
+    ports:
+      # 默认只绑回环，经本机反代对外；确需直连暴露时改为 "3456:3456"
+      - "127.0.0.1:3456:3456"
+    volumes:
+      - uploads:/app/uploads
+      - backups:/app/backups
+      - logs:/app/logs
+      - assets:/app/assets
+      # server/data 持久化：激活码文件（activation-codes.json）与 SQLite 模式库文件
+      # 默认都在此目录，不挂载卷会在容器重建时丢失
+      - data:/app/server/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3456/api/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    logging:
+      options:
+        max-size: "50m"
+        max-file: "5"
+    networks:
+      - jingtu-net
+
+volumes:
+  db_data:
+  uploads:
+  backups:
+  logs:
+  assets:
+    name: jingtu-assets
+  data:
+
+networks:
+  jingtu-net:
+    driver: bridge

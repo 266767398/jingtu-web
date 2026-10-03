@@ -58,11 +58,13 @@ COPY assets/ ./assets/
 COPY .env.example /app/.env.example
 
 # 运行时需要可写的目录（同时声明为卷，便于持久化与备份）
-# P2-101/102：assets（相册落盘 + 头像代理缓存）与 server/data（激活码离线存储）
-# 一并 chown 给 node——否则 USER node 后 mkdirSync/写入必 EACCES（相册/头像缓存/激活码全挂）。
+# P2-101/102：assets（相册落盘 + 头像代理缓存）与 server/data（激活码离线存储 +
+# SQLite 模式库文件）一并 chown 给 node——否则 USER node 后 mkdirSync/写入必 EACCES。
+# server/data 必须随卷持久化：容器重建/删除后激活码与 SQLite 数据不丢
+# （docker-compose.yml / docker-compose.standalone.yml 已挂载 data:/app/server/data）。
 RUN mkdir -p uploads backups logs server/data \
  && chown -R node:node uploads backups logs assets server/data
-VOLUME ["/app/uploads", "/app/backups", "/app/logs"]
+VOLUME ["/app/uploads", "/app/backups", "/app/logs", "/app/server/data"]
 
 # 以非 root 用户运行
 USER node
