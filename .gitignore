@@ -78,6 +78,8 @@ uploads/profile/videos/*
 # 用户上传内容（头像/直播截图；已跟踪的样例文件不受影响）
 /uploads/avatars/*
 /uploads/live/*
+# 聊天语音消息等运行时媒体
+/uploads/chat/*
 # Jest 覆盖率本地产物（CI 上传 lcov 已足够）
 server/coverage/
 # 性能优化前的文件备份快照

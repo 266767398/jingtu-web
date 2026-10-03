@@ -233,8 +233,8 @@ router.get('/groups', requireChatAuth, async (req, res) => {
     const [rows] = await getPool().query(`
       SELECT g.id, g.name, g.creator_id AS creatorId, g.created_at AS createdAt,
              (SELECT COUNT(*) FROM chat_group_members WHERE group_id = g.id) AS memberCount,
-             (SELECT content FROM chat_group_messages WHERE group_id = g.id ORDER BY id DESC LIMIT 1) AS lastMessage,
-             (SELECT created_at FROM chat_group_messages WHERE group_id = g.id ORDER BY id DESC LIMIT 1) AS lastTime
+             (SELECT content FROM chat_group_messages WHERE group_id = g.id AND deleted_at IS NULL ORDER BY id DESC LIMIT 1) AS lastMessage,
+             (SELECT created_at FROM chat_group_messages WHERE group_id = g.id AND deleted_at IS NULL ORDER BY id DESC LIMIT 1) AS lastTime
       FROM chat_groups g
       JOIN chat_group_members gm ON gm.group_id = g.id
       WHERE gm.user_id = ?
@@ -505,6 +505,33 @@ router.post('/groups/:groupId/leave', requireChatAuth, async (req, res) => {
   } catch (e) { handleError(res, e, '[chat/groups-leave]'); }
 });
 
+// 解散群聊（仅群主）：物理删除群及全部关联数据，并向成员广播解散通知
+router.delete('/groups/:groupId', requireChatAuth, async (req, res) => {
+  try {
+    const gid = parseInt(req.params.groupId);
+    const uid = req.session.userId;
+    if (!Number.isInteger(gid) || gid <= 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的群组ID');
+    const [groupInfo] = await getPool().query(`SELECT id, name, creator_id FROM chat_groups WHERE id = ?`, [gid]);
+    if (groupInfo.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '群聊不存在');
+    if (groupInfo[0].creator_id !== uid) return sendError(res, 403, ErrorCodes.FORBIDDEN, '仅群主可以解散群聊');
+    // 先广播解散通知（依赖成员列表，必须在删除成员前发送），再物理清理数据
+    wsService.broadcastToGroup(gid, { type: 'group:dissolved', groupId: gid, name: groupInfo[0].name });
+    const conn = await getPool().getConnection();
+    try {
+      await conn.beginTransaction();
+      // 显式逐表清理，避免依赖延迟外键级联造成脏数据
+      await conn.query(`DELETE FROM chat_group_message_reads WHERE group_id = ?`, [gid]);
+      await conn.query(`DELETE FROM chat_group_messages WHERE group_id = ?`, [gid]);
+      await conn.query(`DELETE FROM chat_group_members WHERE group_id = ?`, [gid]);
+      await conn.query(`DELETE FROM chat_groups WHERE id = ?`, [gid]);
+      await conn.commit();
+    } catch (e2) { await conn.rollback(); throw e2; } finally { conn.release(); }
+    // §67: 群已删除，失效群成员缓存避免残留
+    wsService.invalidateGroupMemberCache(gid);
+    res.json({ ok: true, message: '群聊已解散' });
+  } catch (e) { handleError(res, e, '[chat/groups-dissolve]'); }
+});
+
 // 获取群管理员列表
 router.get('/groups/:groupId/admins', requireChatAuth, async (req, res) => {
   try {
@@ -758,11 +785,20 @@ router.delete('/messages/:id', requireChatAuth, async (req, res) => {
       const msgId = parseInt(req.params.id);
       const uid = req.session.userId;
       if (!msgId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
-      const [msgs] = await getPool().query('SELECT sender_id, receiver_id FROM messages WHERE id = ? AND deleted_at IS NULL', [msgId]);
+      const [msgs] = await getPool().query(
+        'SELECT sender_id, receiver_id, TIMESTAMPDIFF(SECOND, created_at, NOW()) AS ageSec FROM messages WHERE id = ? AND deleted_at IS NULL', [msgId]);
       if (msgs.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '消息不存在');
-      if (msgs[0].sender_id !== uid && msgs[0].receiver_id !== uid) return sendError(res, 403, ErrorCodes.FORBIDDEN, '只能删除自己或收到的消息');
+      const m = msgs[0];
+      const isSender = m.sender_id === uid;
+      const isReceiver = m.receiver_id === uid;
+      if (!isSender && !isReceiver) return sendError(res, 403, ErrorCodes.FORBIDDEN, '只能删除自己或收到的消息');
+      // 撤回语义：发送者仅可撤回10分钟内发送的消息；接收方删除仅清理消息（保留原行为）
+      if (isSender && Number(m.ageSec) > 600) return sendError(res, 403, ErrorCodes.FORBIDDEN, '仅可撤回10分钟内发送的消息');
       await getPool().query('UPDATE messages SET deleted_at = NOW() WHERE id = ?', [msgId]);
-      res.json({ ok: true, message: '消息已删除' });
+      // 实时通知对端该消息已撤回（发送者撤回时通知接收方；接收方删除时通知发送方）
+      const peerId = isSender ? m.receiver_id : m.sender_id;
+      wsService.broadcastToUser(peerId, { type: 'chat:recalled', messageId: msgId });
+      res.json({ ok: true, message: '消息已撤回' });
     } catch (e) { handleError(res, e, '[chat/delete-message]'); }
   });
 
@@ -774,17 +810,24 @@ router.delete('/groups/:groupId/messages/:msgId', requireChatAuth, async (req, r
       if (!msgId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
       const [memCheck] = await getPool().query('SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?', [gid, uid]);
       if (memCheck.length === 0) return sendError(res, 403, ErrorCodes.FORBIDDEN, '你不是该群成员');
-      const [msgs] = await getPool().query('SELECT sender_id FROM chat_group_messages WHERE id = ? AND group_id = ? AND deleted_at IS NULL', [msgId, gid]);
+      const [msgs] = await getPool().query(
+        'SELECT sender_id, TIMESTAMPDIFF(SECOND, created_at, NOW()) AS ageSec FROM chat_group_messages WHERE id = ? AND group_id = ? AND deleted_at IS NULL', [msgId, gid]);
       if (msgs.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '消息不存在');
       const msgSender = msgs[0].sender_id;
-      // 群主或管理员可撤回/删除群内任意成员的不当消息
+      // 群主或管理员可撤回/删除群内任意成员的不当消息（无时间限制）
       const [grp] = await getPool().query('SELECT creator_id FROM chat_groups WHERE id = ?', [gid]);
       const [memAdmin] = await getPool().query('SELECT is_admin FROM chat_group_members WHERE group_id = ? AND user_id = ?', [gid, uid]);
       const isCreator = grp.length > 0 && grp[0].creator_id === uid;
       const isGroupAdmin = memAdmin.length > 0 && memAdmin[0].is_admin === 1;
-      if (msgSender !== uid && !isCreator && !isGroupAdmin) return sendError(res, 403, ErrorCodes.FORBIDDEN, '只能删除自己或收到的消息');
+      if (msgSender !== uid && !isCreator && !isGroupAdmin) return sendError(res, 403, ErrorCodes.FORBIDDEN, '只能撤回自己或由群主/管理员撤回的消息');
+      // 普通成员撤回自己的消息须在10分钟内；群主/管理员不受时间限制
+      if (msgSender === uid && !isCreator && !isGroupAdmin && Number(msgs[0].ageSec) > 600) {
+        return sendError(res, 403, ErrorCodes.FORBIDDEN, '仅可撤回10分钟内发送的消息');
+      }
       await getPool().query('UPDATE chat_group_messages SET deleted_at = NOW() WHERE id = ?', [msgId]);
-      res.json({ ok: true, message: '消息已删除' });
+      // 实时通知全群成员撤回该消息（离线成员下次拉取消息列表时已排除 deleted_at，无需离线汇总）
+      wsService.broadcastToGroup(gid, { type: 'group:recalled', groupId: gid, messageId: msgId, recalledBy: uid });
+      res.json({ ok: true, message: '消息已撤回' });
     } catch (e) { handleError(res, e, '[chat/delete-group-message]'); }
   });
 

@@ -290,3 +290,24 @@
   background: #fff;
   transition: width .08s linear;
 }
+/* ===== V6.16: 消息撤回 + 群解散 ===== */
+.chat-msg-recall {
+  border: none;
+  background: transparent;
+  color: var(--text-muted2, #999);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 2px;
+  margin-left: 6px;
+  text-decoration: underline;
+  vertical-align: baseline;
+}
+.chat-msg-recall:hover { color: var(--accent, #7c5cfc); }
+.chat-msg-recalled .chat-msg-bubble {
+  background: transparent !important;
+  border: 1px dashed var(--border, #ddd);
+  color: var(--text-muted, #999);
+  font-size: 12px;
+  text-align: center;
+  padding: 4px 12px;
+}

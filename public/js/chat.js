@@ -5,6 +5,8 @@ let chatActiveGroupId = null;
 let chatUnreadData = null;
 let chatSearchTimeout = null;
 let chatCurrentView = 'conversations'; // conversations | chat | group | groupChat
+// 群角色缓存：gid → { isCreator, isAdmin }（打开群聊时拉取，用于撤回按钮可见性判断）
+let chatGroupRoles = {};
 // 群聊实时位置
 let groupLocationSharing = {}; // groupId → true/false（本端是否正在共享）
 let groupLocationMarkers = {}; // groupId → { userId → L.marker }（兼容保留）
@@ -317,9 +319,12 @@ function renderMessages(messages, otherId) {
   if (!messages || messages.length === 0) { renderEmpty(chatBox, { icon: '💬', text: __('chat.first_message_emoji'), cls: 'chat-empty-msg' }); return; }
   chatBox.innerHTML = messages.map(m => {
     const isMe = m.senderId === currentUser.id;
-    return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
+    const recallBtn = canRecallPrivateMsg(m)
+      ? `<button class="chat-msg-recall" data-mid="${m.id}" onclick="recallPrivateMessage(${m.id})">${__('chat.recall')}</button>`
+      : '';
+    return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}" data-mid="${m.id}">
       <div class="chat-msg-bubble">${chatMediaBlock(m)}${m.content ? esc(m.content) : ''}</div>
-      <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
+      <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })} ${recallBtn}</div>
     </div>`;
   }).join('');
   chatBox.scrollTop = chatBox.scrollHeight;
@@ -404,10 +409,20 @@ async function openGroupChat(groupId) {
       api(`/api/chat/groups/${groupId}`, { method: 'GET' }),
       api(`/api/chat/groups/${groupId}/messages?page=1&pageSize=${chatPageSize}`, { method: 'GET' })
     ]);
+    // 群角色（撤回按钮可见性）：admin 列表加载失败不阻塞主流程
+    const adminRes = await api(`/api/chat/groups/${groupId}/admins`, { method: 'GET' }).catch(() => null);
+    let grp = null;
+    if (grpRes.ok) grp = await grpRes.json().catch(() => null);
+    if (adminRes && adminRes.ok) {
+      const adminData = await adminRes.json().catch(() => ({ admins: [] }));
+      chatGroupRoles[gid] = {
+        isCreator: !!grp && grp.group && grp.group.creatorId === currentUser.id,
+        isAdmin: (adminData.admins || []).some(a => a.id === currentUser.id)
+      };
+    }
     // 快照校验：响应返回期间用户可能已切换到其他会话，避免旧群聊渲染串台
     if (chatActiveGroupId !== gid) return;
     if (grpRes.ok && msgRes.ok) {
-      const grp = await grpRes.json();
       const msgs = await msgRes.json();
       groupChatTotal = msgs.total || 0;
       const members = grp.members || [];
@@ -434,6 +449,76 @@ async function openGroupChat(groupId) {
   } catch (e) { if (isApiHandledError(e)) return; renderEmpty(document.getElementById('chatBox'), { icon: '⚠️', text: __('chat.load_failed') }); }
 }
 
+// ==================== 消息撤回 ====================
+// 群消息撤回权限：本人消息（10分钟内 或 群主/管理员）或他人消息（仅群主/管理员，无时间限制）
+function canRecallGroupMsg(m) {
+  if (!m || !m.id || !currentUser) return false;
+  const role = chatGroupRoles[m.groupId] || chatGroupRoles[chatActiveGroupId] || {};
+  const isMe = m.senderId === currentUser.id;
+  if (isMe) {
+    const within10 = m.createdAt && (Date.now() - new Date(m.createdAt).getTime()) <= 10 * 60 * 1000;
+    return within10 || role.isCreator || role.isAdmin;
+  }
+  return role.isCreator || role.isAdmin;
+}
+
+// 私聊撤回权限：仅发送者本人，且须在10分钟内
+function canRecallPrivateMsg(m) {
+  if (!m || !m.id || !currentUser) return false;
+  if (m.senderId !== currentUser.id) return false;
+  return !!(m.createdAt && (Date.now() - new Date(m.createdAt).getTime()) <= 10 * 60 * 1000);
+}
+
+// 在聊天消息区内按 data-mid 将消息标记为「已撤回」
+function markMessageRecalled(msgId) {
+  const chatBox = document.getElementById('chatBox');
+  if (!chatBox) return;
+  const el = chatBox.querySelector(`.chat-msg[data-mid="${msgId}"]`);
+  if (!el) return;
+  const bubble = el.querySelector('.chat-msg-bubble');
+  if (bubble) bubble.innerHTML = esc(__('chat.recalled_msg'));
+  const btn = el.querySelector('.chat-msg-recall');
+  if (btn) btn.remove();
+  el.classList.add('chat-msg-recalled');
+}
+
+async function recallGroupMessage(groupId, msgId) {
+  if (!msgId) return;
+  try {
+    const res = await api(`/api/chat/groups/${groupId}/messages/${msgId}`, { method: 'DELETE' });
+    if (res.ok) {
+      markMessageRecalled(msgId);
+      toast(__('chat.recalled'), 'success');
+      loadChatConversations();
+    }
+  } catch (e) { if (isApiHandledError(e)) return; toast(__('chat.op_failed'), 'error'); }
+}
+
+async function recallPrivateMessage(msgId) {
+  if (!msgId) return;
+  try {
+    const res = await api(`/api/chat/messages/${msgId}`, { method: 'DELETE' });
+    if (res.ok) {
+      markMessageRecalled(msgId);
+      toast(__('chat.recalled'), 'success');
+      loadChatConversations();
+    }
+  } catch (e) { if (isApiHandledError(e)) return; toast(__('chat.op_failed'), 'error'); }
+}
+
+// 群被解散：清理本端群状态并刷新会话列表
+function handleGroupDissolved(groupId) {
+  const gid = parseInt(groupId);
+  if (gid && chatActiveGroupId === gid) {
+    if (rtcGroupRoom && rtcGroupRoom.groupId === gid) leaveGroupVoiceRoom(gid);
+    if (groupLocationSharing[gid]) stopGroupLocation(gid);
+    closeChatDetail();
+  }
+  delete chatGroupRoles[gid];
+  toast(__('chat.dissolved_toast'), 'info');
+  loadChatConversations();
+}
+
 function renderGroupMessages(messages, members) {
   const chatBox = document.getElementById('chatBox');
   if (!chatBox) return;
@@ -445,26 +530,30 @@ function renderGroupMessages(messages, members) {
     const sender = memberMap[m.senderId] || {};
     const senderName = sender.displayName || m.senderName || '';
     const senderAvatar = sender.avatarUrl ? escAttr(sender.avatarUrl) : '/api/avatar/default';
+    const msgId = m.id;
 
     if (m.msgType === 'location') {
       // 位置消息（来自群聊实时位置共享保存的消息）
-      return `<div class="chat-msg chat-msg-other">
+      return `<div class="chat-msg chat-msg-other" data-mid="${msgId}">
         <div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(sender.avatarUrl || '/api/avatar/default')}')">` : ''} ${esc(senderName)}</div>
         <div class="chat-msg-bubble chat-msg-location" onclick="window.openMapLocation&&openMapLocation(${m.lat},${m.lng})">${__('chat.location_sharing')}</div>
         <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
       </div>`;
     }
+    const recallBtn = canRecallGroupMsg(m)
+      ? `<button class="chat-msg-recall" data-mid="${msgId}" onclick="recallGroupMessage(${chatActiveGroupId}, ${msgId})">${__('chat.recall')}</button>`
+      : '';
     if (m.mediaUrl && m.mediaType) {
-      return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
+      return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}" data-mid="${msgId}">
         ${!isMe ? `<div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(sender.avatarUrl || '/api/avatar/default')}')">` : ''} ${esc(senderName)}</div>` : ''}
         <div class="chat-msg-bubble">${chatMediaBlock(m)}${m.content ? esc(m.content) : ''}</div>
-        <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
+        <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })} ${recallBtn}</div>
       </div>`;
     }
-    return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
+    return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}" data-mid="${msgId}">
       ${!isMe ? `<div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(sender.avatarUrl || '/api/avatar/default')}')">` : ''} ${esc(senderName)}</div>` : ''}
       <div class="chat-msg-bubble">${esc(m.content)}</div>
-      <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
+      <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })} ${recallBtn}</div>
     </div>`;
   }).join('');
   chatBox.scrollTop = chatBox.scrollHeight;
@@ -733,6 +822,25 @@ function handleChatMessage(msg) {
       );
     }
   }
+  // 私聊消息撤回：对端实时将对应消息标记为「已撤回」
+  if (msg.type === 'chat:recalled') {
+    if (msg.messageId) markMessageRecalled(msg.messageId);
+    return;
+  }
+  // 群消息撤回：当前群内实时标记，否则重载列表刷新最后一条预览
+  if (msg.type === 'group:recalled') {
+    if (chatActiveGroupId === msg.groupId) {
+      markMessageRecalled(msg.messageId);
+    } else {
+      loadChatConversations();
+    }
+    return;
+  }
+  // 群被解散：清理本端群状态并刷新会话列表
+  if (msg.type === 'group:dissolved') {
+    handleGroupDissolved(msg.groupId);
+    return;
+  }
   // RTC 实时通话信令：全部以 'rtc:' 开头，统一分发到 RTC 模块（main.js 已转发至此）
   if (msg.type && msg.type.indexOf('rtc:') === 0) {
     handleRtcMessage(msg);
@@ -748,10 +856,13 @@ function appendReceivedMessage(msg, isSent = false) {
   const emptyMsg = chatBox.querySelector('.chat-empty-msg');
   if (emptyMsg) emptyMsg.remove();
   const isMe = msg.senderId === currentUser.id;
+  const recallBtn = canRecallPrivateMsg(msg)
+    ? `<button class="chat-msg-recall" data-mid="${msg.id}" onclick="recallPrivateMessage(${msg.id})">${__('chat.recall')}</button>`
+    : '';
   chatBox.insertAdjacentHTML('beforeend', `
-    <div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
+    <div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}" data-mid="${msg.id}">
       <div class="chat-msg-bubble">${chatMediaBlock(msg)}${msg.content ? esc(msg.content) : ''}</div>
-      <div class="chat-msg-time">${new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
+      <div class="chat-msg-time">${new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })} ${recallBtn}</div>
     </div>`);
   chatBox.scrollTop = chatBox.scrollHeight;
 }
@@ -762,11 +873,14 @@ function appendGroupMessage(msg) {
   const emptyMsg = chatBox.querySelector('.chat-empty-msg');
   if (emptyMsg) emptyMsg.remove();
   const isMe = msg.senderId === currentUser.id;
+  const recallBtn = canRecallGroupMsg(msg)
+    ? `<button class="chat-msg-recall" data-mid="${msg.id}" onclick="recallGroupMessage(${chatActiveGroupId}, ${msg.id})">${__('chat.recall')}</button>`
+    : '';
   chatBox.insertAdjacentHTML('beforeend', `
-    <div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
+    <div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}" data-mid="${msg.id}">
       ${!isMe ? `<div class="chat-msg-sender">${esc(msg.senderName || '')}</div>` : ''}
       <div class="chat-msg-bubble">${chatMediaBlock(msg)}${msg.content ? esc(msg.content) : ''}</div>
-      <div class="chat-msg-time">${msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' }) : ''}</div>
+      <div class="chat-msg-time">${msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' }) : ''} ${recallBtn}</div>
     </div>`);
   chatBox.scrollTop = chatBox.scrollHeight;
 }
@@ -999,6 +1113,8 @@ async function showGroupSettings(groupId) {
 
     if (!isCreator) {
       html += `<button class="btn btn-danger w-full mt-4" onclick="leaveGroup(${groupId})">${__('chat.leave_group')}</button>`;
+    } else {
+      html += `<button class="btn btn-danger w-full mt-4" onclick="dissolveGroup(${groupId})">${__('chat.dissolve_group')}</button>`;
     }
 
     html += `<button class="btn w-full mt-2" onclick="closeModal('groupSettingsModal')">${__('chat.close')}</button></div></div>`;
@@ -1044,6 +1160,22 @@ async function leaveGroup(groupId) {
         toast(__('chat.left_group'), 'success');
         closeModal('groupSettingsModal');
         closeChatDetail();
+        loadChatConversations();
+      }
+    } catch (e) { if (isApiHandledError(e)) return; toast(__('chat.op_failed'), 'error'); }
+  });
+}
+
+// 解散群组（仅群主）：二次确认后物理删除群及全部数据
+async function dissolveGroup(groupId) {
+  showConfirm(__('chat.dissolve_confirm'), async () => {
+    try {
+      const res = await api(`/api/chat/groups/${groupId}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast(__('chat.dissolved'), 'success');
+        closeModal('groupSettingsModal');
+        if (chatActiveGroupId === groupId) closeChatDetail();
+        delete chatGroupRoles[groupId];
         loadChatConversations();
       }
     } catch (e) { if (isApiHandledError(e)) return; toast(__('chat.op_failed'), 'error'); }
@@ -1435,7 +1567,7 @@ async function startPrivateCall(userId, callType) {
   await ensureRtcIce();
   rtcPrivate = {
     status: 'outgoing', peerId: userId, roomId: null, callType: callType === 'video' ? 'video' : 'voice',
-    localStream: stream, screenStream: null, pc: null, isCaller: true, timer: 0, screenSharing: false
+    localStream: stream, screenStream: null, pc: null, isCaller: true, timer: 0, screenSharing: false, screenAudioSender: null
   };
   if (!rtcSend({ type: 'rtc:invite', targetId: userId, callType: rtcPrivate.callType })) {
     rtcClearPrivate();
@@ -1636,16 +1768,19 @@ function hideRtcIncomingPopup() {
 }
 
 // ==================== 屏幕共享 ====================
+// 请求 video+audio：浏览器选择器勾选「分享音频」后回传系统/标签页音频轨（macOS 需 Chrome 141+，
+// Linux/Firefox/Safari 不支持系统音频时 aTrack 为 null，仅画面正常共享）
 async function rtcToggleScreenShare() {
   const inv = rtcPrivate;
   if (!inv || inv.status !== 'active' || !inv.pc) return;
   if (inv.screenSharing) { rtcStopScreenShare(); return; }
   let screenStream;
   try {
-    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
   } catch (e) { return; } // 用户取消共享
   const vTrack = screenStream.getVideoTracks()[0];
   if (!vTrack) { rtcStopStream(screenStream); return; }
+  const aTrack = screenStream.getAudioTracks()[0] || null;
   vTrack.addEventListener('ended', () => { rtcStopScreenShare(); });
   inv.screenStream = screenStream;
   inv.screenSharing = true;
@@ -1659,6 +1794,8 @@ async function rtcToggleScreenShare() {
     } else {
       pc.addTrack(vTrack, inv.localStream);
     }
+    // 屏幕音频轨（与麦克风并存），保存 sender 引用供停止共享时移除
+    if (aTrack) inv.screenAudioSender = pc.addTrack(aTrack, screenStream);
     await pc.createOffer();
     await pc.setLocalDescription();
     rtcSend({ type: 'rtc:offer', targetId: inv.peerId, sdp: pc.localDescription });
@@ -1669,7 +1806,7 @@ async function rtcStopScreenShare() {
   const inv = rtcPrivate;
   if (!inv) return;
   if (inv.screenStream) {
-    inv.screenStream.getVideoTracks().forEach(t => { try { t.stop(); } catch (e) {} });
+    inv.screenStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
     inv.screenStream = null;
   }
   inv.screenSharing = false;
@@ -1689,6 +1826,11 @@ async function rtcStopScreenShare() {
       // 语音通话时共享屏幕是后加的 track，停止后移除并重协商
       const vSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
       if (vSender) pc.removeTrack(vSender);
+    }
+    // 移除屏幕音频轨并重协商
+    if (inv.screenAudioSender) {
+      try { pc.removeTrack(inv.screenAudioSender); } catch (e) {}
+      inv.screenAudioSender = null;
     }
     await pc.createOffer();
     await pc.setLocalDescription();
@@ -1727,7 +1869,7 @@ async function joinGroupVoiceRoom(groupId) {
     return;
   }
   await ensureRtcIce();
-  rtcGroupRoom = { groupId: gid, roomKey: null, members: [], peerMap: {}, localStream: stream, screenStream: null, screenSharing: false, timer: 0, timerId: null };
+  rtcGroupRoom = { groupId: gid, roomKey: null, members: [], peerMap: {}, localStream: stream, screenStream: null, screenSharing: false, screenAudioSenders: {}, timer: 0, timerId: null };
   if (!rtcSend({ type: 'rtc:group:join', groupId: gid })) {
     leaveGroupVoiceRoom(gid);
     toast(__('rtc.ws_down'), 'error');
@@ -1902,13 +2044,15 @@ async function rtcToggleGroupScreenShare() {
   if (room.screenSharing) { rtcStopGroupScreenShare(); return; }
   let screenStream;
   try {
-    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
   } catch (e) { return; }
   const vTrack = screenStream.getVideoTracks()[0];
   if (!vTrack) { rtcStopStream(screenStream); return; }
+  const aTrack = screenStream.getAudioTracks()[0] || null;
   vTrack.addEventListener('ended', () => { rtcStopGroupScreenShare(); });
   room.screenStream = screenStream;
   room.screenSharing = true;
+  room.screenAudioSenders = room.screenAudioSenders || {}; // uid -> audio sender
   const ids = Object.keys(room.peerMap);
   for (const uid of ids) {
     const pc = room.peerMap[uid];
@@ -1919,10 +2063,15 @@ async function rtcToggleGroupScreenShare() {
         await vSender.replaceTrack(vTrack);
       } else {
         pc.addTrack(vTrack, room.localStream);
-        await pc.createOffer();
-        await pc.setLocalDescription();
-        rtcSend({ type: 'rtc:group:offer', groupId: room.groupId, targetId: uid, sdp: pc.localDescription });
       }
+      // 屏幕音频轨（与麦克风并存），保存 sender 引用供停止共享时移除
+      if (aTrack && !room.screenAudioSenders[uid]) {
+        room.screenAudioSenders[uid] = pc.addTrack(aTrack, screenStream);
+      }
+      // 每次都对每个对端重协商：新增音轨必须协商，replaceTrack 场景多发一次 offer 无副作用
+      await pc.createOffer();
+      await pc.setLocalDescription();
+      rtcSend({ type: 'rtc:group:offer', groupId: room.groupId, targetId: uid, sdp: pc.localDescription });
     } catch (e) {}
   }
 }
@@ -1931,7 +2080,7 @@ async function rtcStopGroupScreenShare() {
   const room = rtcGroupRoom;
   if (!room) return;
   if (room.screenStream) {
-    room.screenStream.getVideoTracks().forEach(t => { try { t.stop(); } catch (e) {} });
+    room.screenStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
     room.screenStream = null;
   }
   room.screenSharing = false;
@@ -1942,6 +2091,11 @@ async function rtcStopGroupScreenShare() {
     try {
       const vSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
       if (vSender) pc.removeTrack(vSender);
+      // 移除屏幕音频轨并重协商
+      if (room.screenAudioSenders && room.screenAudioSenders[uid]) {
+        try { pc.removeTrack(room.screenAudioSenders[uid]); } catch (e) {}
+        delete room.screenAudioSenders[uid];
+      }
       await pc.createOffer();
       await pc.setLocalDescription();
       rtcSend({ type: 'rtc:group:offer', groupId: room.groupId, targetId: uid, sdp: pc.localDescription });
@@ -2095,7 +2249,7 @@ function handleRtcMessage(msg) {
     rtcPrivate = {
       status: 'ringing', peerId: msg.senderId, roomId: msg.roomId || null,
       callType: msg.callType === 'video' ? 'video' : 'voice',
-      localStream: null, screenStream: null, pc: null, isCaller: false, timer: 0, screenSharing: false
+      localStream: null, screenStream: null, pc: null, isCaller: false, timer: 0, screenSharing: false, screenAudioSender: null
     };
     renderRtcIncomingPopup(msg);
     return;

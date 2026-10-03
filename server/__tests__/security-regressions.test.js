@@ -545,7 +545,7 @@ describe('security regressions', () => {
   test('P3-114~116 chat filters deleted DM + excludes own/pre-join unread + protects owner from kick', () => {
     expect(files.chatRoute).toMatch(/AND deleted_at IS NULL GROUP BY other_id/);
     expect(files.chatRoute).toMatch(/WHERE m\.deleted_at IS NULL/);
-    expect(files.chatRoute).toMatch(/m\.sender_id <> \? AND m\.created_at >= gm\.created_at/);
+    expect(files.chatRoute).toMatch(/m\.sender_id <> \? AND m\.created_at >= gm\.joined_at/);
     expect(files.chatRoute).toMatch(/不能踢出群主/);
   });
 
