@@ -69,21 +69,30 @@ async function installServerDeps() {
 /**
  * 排程自动重启（Windows）：独立 PowerShell 进程先杀旧进程，等端口释放后再拉起新服务。
  * 调用方必须在 HTTP 响应已发出后再执行；return 后立即 detach，主进程不受影响。
+ *
+ * 注意（2026-10-03 实测修复）：不得用裸命令名 'powershell.exe' / 'node'，服务进程的
+ * env PATH 与交互终端不同，detached 子进程会 spawn 失败或 Start-Process 解析不到可执行
+ * 文件而抛 statement-terminating error 把整段 -Command 中止，导致“已排程”日志正常但
+ * 服务不重启。改用绝对路径：PowerShell 用 SystemRoot 定位，node 用 process.execPath
+ * （重启后与当前运行的服务是同一份 node 二进制）。
  */
 function scheduleRestart() {
   try {
+    const psExe = (process.env.SystemRoot || 'C:\\Windows') + '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+    const nodeExe = process.execPath || 'node';
     const ps = [
       `$ErrorActionPreference='SilentlyContinue'`,
       `Start-Sleep -Milliseconds 1500`,
       `Stop-Process -Id ${process.pid} -Force`,
       `Start-Sleep -Seconds 2`,
-      `Start-Process -FilePath 'node' -ArgumentList 'server.js' -WorkingDirectory '${SERVER_DIR.replace(/\\/g, '/')}' -WindowStyle Hidden`
-    ].join("`n");
-    const child = execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], {
+      `Start-Process -FilePath '${nodeExe}' -ArgumentList 'server.js' -WorkingDirectory '${SERVER_DIR.replace(/\\/g, '/')}' -WindowStyle Hidden`
+    ].join('\n');
+    const child = execFile(psExe, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true
     });
+    child.on('error', (e) => logger.error('[git-update]', '重启排程子进程启动失败:', e.message));
     child.unref();
     logger.info('[git-update]', '已排程自动重启服务（进程 pid=' + process.pid + '）');
   } catch (e) {
