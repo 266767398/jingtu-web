@@ -629,8 +629,8 @@
 | `GET /api/health/ready` | 公开 | `{status:"ready"}`；数据库失败 503 |
 | `GET /sitemap.xml` | 公开 | XML |
 | `GET /robots.txt` | 公开 | 文本 |
-| `GET /api-docs` | 公开 | Swagger UI |
-| `GET /api-docs.json` | 公开 | OpenAPI JSON |
+| `GET /api-docs` | 仅 `ENABLE_SWAGGER=1` 且 super_admin 会话 | Swagger UI |
+| `GET /api-docs.json` | 仅 `ENABLE_SWAGGER=1` 且 super_admin 会话 | OpenAPI JSON |
 
 ### 9.11 分享（`share.js`）
 

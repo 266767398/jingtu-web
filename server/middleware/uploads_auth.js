@@ -42,18 +42,60 @@ async function getShareAuthPaths(pool, type, targetId, opts = {}) {
   return paths;
 }
 
+// P3-140：分享码校验结果短 TTL 内存缓存——同一 code+mount+path 的连续请求
+// （分享页批量加载媒体）不再重复串行查库，消除「有效码拼不同路径」的 DB 查询放大；
+// 15s 窗口在链接失效/资源删除后的陈旧期可控，Map 带上限防内存无界增长。
+const SHARE_VERIFY_TTL_MS = 15 * 1000;
+const SHARE_VERIFY_MAX = 2000;
+const shareVerifyCache = new Map();
+
+function shareVerifyKey(code, mount, reqPath) {
+  return `${mount}|${code}|${reqPath}`;
+}
+
+function getShareVerifyCached(key) {
+  const hit = shareVerifyCache.get(key);
+  if (!hit) return undefined;
+  if (Date.now() - hit.at > SHARE_VERIFY_TTL_MS) {
+    shareVerifyCache.delete(key);
+    return undefined;
+  }
+  return { ok: hit.ok, reason: hit.reason };
+}
+
+function setShareVerifyCached(key, value) {
+  if (shareVerifyCache.size >= SHARE_VERIFY_MAX) {
+    // 简单淘汰：先清已过期项，仍超限则整表清空（低概率兜底，宁可多查一次库）
+    for (const [k, v] of shareVerifyCache) {
+      if (Date.now() - v.at > SHARE_VERIFY_TTL_MS) shareVerifyCache.delete(k);
+    }
+    if (shareVerifyCache.size >= SHARE_VERIFY_MAX) shareVerifyCache.clear();
+  }
+  shareVerifyCache.set(key, { ...value, at: Date.now() });
+}
+
 // 校验分享令牌并做严格路径绑定（两个挂载点共用）
 async function verifyShareCode(pool, code, mount, reqPath) {
+  const cacheKey = shareVerifyKey(code, mount, reqPath);
+  const cached = getShareVerifyCached(cacheKey);
+  if (cached) return cached;
+
   const [links] = await pool.query(
     'SELECT type, target_id FROM share_links WHERE share_code = ? AND expires_at > NOW() LIMIT 1',
     [code]
   );
-  if (links.length === 0) return { ok: false, reason: 'invalid' };
-  const authPaths = await getShareAuthPaths(pool, links[0].type, links[0].target_id, { mount });
-  // 严格边界匹配：精确相等，或为其子路径（防 /uploads/x.jpg 越权匹配 /uploads/x1.jpg）
-  const allowed = sharePathAllowed(reqPath, authPaths);
-  if (!allowed) return { ok: false, reason: 'forbidden' };
-  return { ok: true };
+  let result;
+  if (links.length === 0) {
+    result = { ok: false, reason: 'invalid' };
+  } else {
+    const authPaths = await getShareAuthPaths(pool, links[0].type, links[0].target_id, { mount });
+    // 严格边界匹配：精确相等，或为其子路径（防 /uploads/x.jpg 越权匹配 /uploads/x1.jpg）
+    result = sharePathAllowed(reqPath, authPaths)
+      ? { ok: true }
+      : { ok: false, reason: 'forbidden' };
+  }
+  setShareVerifyCached(cacheKey, result);
+  return result;
 }
 
 /**

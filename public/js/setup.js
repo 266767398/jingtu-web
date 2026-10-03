@@ -698,7 +698,9 @@ async function resetWizard() {
       // 敏感字段留空（沿用现有值）
       config.adminPass = ''; config.dbPass = ''; config.smtpPass = ''; config.sessionSecret = ''; config.encryptKey = '';
       maxStepReached = 1;
-      applyDrafts(st.wizard.drafts);
+      // st.wizard 可能为 null（未走完引导），空值保护避免 TypeError 误报「请求失败」
+      const drafts = (st.wizard && st.wizard.drafts) || {};
+      applyDrafts(drafts);
       showStep(1); refillStep(1);
       showErrorSummary([__('setup.reset_done')]);
     } else {

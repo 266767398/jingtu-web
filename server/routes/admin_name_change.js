@@ -23,10 +23,28 @@ module.exports = function createAdminNameChangeRouter() {
       }
       const [existing] = await getPool().query(`SELECT id FROM users WHERE display_name=?`, [newNameTrim]);
       if (existing.length > 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '该显示名已被使用');
-      const [pendings] = await getPool().query(`SELECT id FROM name_change_requests WHERE user_id=? AND status='pending'`, [req.session.userId]);
-      if (pendings.length > 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '您已有待审核的改名申请');
-      await getPool().query(`INSERT INTO name_change_requests (user_id, old_name, new_name, reason) VALUES (?, ?, ?, ?)`,
-        [req.session.userId, req.session.displayName || '用户', newNameTrim, reason ? String(reason).slice(0, 500) : null]);
+      // P3-118：并发去重竞态——事务内对「该用户待审申请」行加锁后再判定/插入，
+      // 使同用户并发提交串行通过（MySQL FOR UPDATE；SQLite 下 transformSQL 剥离但靠 BEGIN 写锁双保险）
+      const conn = await getPool().getConnection();
+      try {
+        await conn.beginTransaction();
+        const [pendings] = await conn.query(
+          `SELECT id FROM name_change_requests WHERE user_id=? AND status='pending' FOR UPDATE`,
+          [req.session.userId]
+        );
+        if (pendings.length > 0) {
+          await conn.rollback();
+          return sendError(res, 400, ErrorCodes.BAD_REQUEST, '您已有待审核的改名申请');
+        }
+        await conn.query(`INSERT INTO name_change_requests (user_id, old_name, new_name, reason) VALUES (?, ?, ?, ?)`,
+          [req.session.userId, req.session.displayName || '用户', newNameTrim, reason ? String(reason).slice(0, 500) : null]);
+        await conn.commit();
+      } catch (e) {
+        await conn.rollback();
+        throw e;
+      } finally {
+        conn.release();
+      }
       await logOper(req.session.userId, '提交改名申请', `${req.session.displayName} → ${newNameTrim}`);
       ok(res, { message: '改名申请已提交，等待管理员审核' });
     } catch (e) { handleError(res, e, '[admin/name-change/request]'); }
@@ -68,13 +86,31 @@ module.exports = function createAdminNameChangeRouter() {
       if (reqs.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '申请不存在');
       if (reqs[0].status !== 'pending') return sendError(res, 400, ErrorCodes.BAD_REQUEST, '该申请已审核');
       const reviewerId = req.session.userId;
-      const reviewerName = req.session.displayName || '管理员';
       if (action === 'approve') {
-        await getPool().query(`UPDATE users SET display_name=? WHERE id=?`, [reqs[0].new_name, reqs[0].user_id]);
-        await getPool().query(`UPDATE name_change_requests SET status='approved', reviewed_by=?, review_comment=?, review_time=NOW() WHERE id=?`, [reviewerId, comment || null, id]);
-        await logOper(reviewerId, '通过改名', `${reqs[0].old_name} → ${reqs[0].new_name}`);
+        // P3-118：申请→审核之间该名字可能已被他人抢注/含非法字符，逐项复查后再落库，
+        // 失败则拒绝申请并留痕，避免覆盖他人显示名造成撞名
+        const nm = String(reqs[0].new_name || '').trim();
+        // eslint-disable-next-line no-control-regex
+        if (!nm || nm.length > 50 || /[<>\u0000-\u001f\u007f]/.test(nm)) {
+          await getPool().query(
+            `UPDATE name_change_requests SET status='rejected', reviewed_by=?, review_comment=?, review_time=NOW() WHERE id=? AND status='pending'`,
+            [reviewerId, '目标显示名不合法（超长或含非法字符），已拒绝', id]
+          );
+          return sendError(res, 400, ErrorCodes.BAD_REQUEST, '目标显示名不合法，已拒绝该申请');
+        }
+        const [occupied] = await getPool().query(`SELECT id FROM users WHERE display_name=? AND id<>?`, [nm, reqs[0].user_id]);
+        if (occupied.length > 0) {
+          await getPool().query(
+            `UPDATE name_change_requests SET status='rejected', reviewed_by=?, review_comment=?, review_time=NOW() WHERE id=? AND status='pending'`,
+            [reviewerId, '目标显示名已被他人占用，已拒绝', id]
+          );
+          return sendError(res, 409, ErrorCodes.CONFLICT, '目标显示名已被占用，已拒绝该申请');
+        }
+        await getPool().query(`UPDATE users SET display_name=? WHERE id=?`, [nm, reqs[0].user_id]);
+        await getPool().query(`UPDATE name_change_requests SET status='approved', reviewed_by=?, review_comment=?, review_time=NOW() WHERE id=? AND status='pending'`, [reviewerId, comment || null, id]);
+        await logOper(reviewerId, '通过改名', `${reqs[0].old_name} → ${nm}`);
       } else {
-        await getPool().query(`UPDATE name_change_requests SET status='rejected', reviewed_by=?, review_comment=?, review_time=NOW() WHERE id=?`, [reviewerId, comment || null, id]);
+        await getPool().query(`UPDATE name_change_requests SET status='rejected', reviewed_by=?, review_comment=?, review_time=NOW() WHERE id=? AND status='pending'`, [reviewerId, comment || null, id]);
         await logOper(reviewerId, '拒绝改名', `${reqs[0].old_name} → ${reqs[0].new_name}: ${comment || ''}`);
       }
       ok(res);

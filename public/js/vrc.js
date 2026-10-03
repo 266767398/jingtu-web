@@ -39,11 +39,14 @@ function renderWorldSearchResults(worlds) {
 }
 
 async function selectWorld(worldId, worldName, worldImageUrl, context) {
-  
   const prefix = context || 'evt';
-  document.getElementById(`${prefix}WorldId`).value = worldId;
-  document.getElementById(`${prefix}WorldName`).value = worldName;
-  document.getElementById(`${prefix}WorldImageUrl`).value = worldImageUrl;
+  const idEl = document.getElementById(`${prefix}WorldId`);
+  // P3-66: WorldId 输入框缺失说明表单不在当前页面，直接忽略，避免误报"已选择"
+  if (!idEl) return;
+  idEl.value = worldId;
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  setVal(`${prefix}WorldName`, worldName);
+  setVal(`${prefix}WorldImageUrl`, worldImageUrl);
   const preview = document.getElementById(`${prefix}WorldPreview`);
   if (preview) {
     showEl(preview);
@@ -68,9 +71,10 @@ function openWorldSearch(context) {
 }
 function clearWorld(prefix) {
   prefix = prefix || 'evt';
-  document.getElementById(`${prefix}WorldId`).value = '';
-  document.getElementById(`${prefix}WorldName`).value = '';
-  document.getElementById(`${prefix}WorldImageUrl`).value = '';
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  setVal(`${prefix}WorldId`, '');
+  setVal(`${prefix}WorldName`, '');
+  setVal(`${prefix}WorldImageUrl`, '');
   const preview = document.getElementById(`${prefix}WorldPreview`);
   if (preview) hideEl(preview);
 }

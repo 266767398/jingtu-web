@@ -78,7 +78,7 @@ async function loadAlbumCategories() {
       albumCateLoaded = true;
     }
   } catch (e) {
-    toast(__('auto_album_1'), 'error');
+    toast(__('album.cate_failed'), 'error');
   }
 }
 
@@ -298,9 +298,10 @@ function toggleAlbumSelect() {
   albumSelectMode = !albumSelectMode;
   const btn = document.getElementById('albumSelectBtn');
   const delBtn = document.getElementById('albumBatchDelBtn');
+  // P3-66: 元素缺失时不抛 TypeError（选择模式逻辑照常推进）
   if (albumSelectMode) {
-    btn.textContent = __('album.cancel_select');
-    delBtn.classList.remove('d-none');
+    if (btn) btn.textContent = __('album.cancel_select');
+    if (delBtn) delBtn.classList.remove('d-none');
     selectedPhotoIds.clear();
     // 重新渲染所有照片卡片加 checkbox
     document.querySelectorAll('.album-photo-card').forEach(el => {
@@ -315,8 +316,8 @@ function toggleAlbumSelect() {
       }
     });
   } else {
-    btn.textContent = __('album.select_btn');
-    delBtn.classList.add('d-none');
+    if (btn) btn.textContent = __('album.select_btn');
+    if (delBtn) delBtn.classList.add('d-none');
     selectedPhotoIds.clear();
     document.querySelectorAll('.album-photo-card').forEach(el => {
       el.classList.remove('selectable', 'selected');
@@ -355,8 +356,10 @@ async function batchDeletePhotos() {
         toast(__('album.deleted_n', {n: data.count || selectedPhotoIds.size}), 'success');
         albumSelectMode = false; // 退出选择模式
         selectedPhotoIds.clear();
-        document.getElementById('albumSelectBtn').textContent = __('album.select_btn');
-        document.getElementById('albumBatchDelBtn').classList.add('d-none');
+        const selBtn = document.getElementById('albumSelectBtn');
+        const delBtn = document.getElementById('albumBatchDelBtn');
+        if (selBtn) selBtn.textContent = __('album.select_btn'); // P3-66: 判空避免 TypeError
+        if (delBtn) delBtn.classList.add('d-none');
         document.querySelectorAll('.album-select-checkbox').forEach(el => el.closest('.album-photo-card')?.classList.remove('selectable', 'selected'));
         document.querySelectorAll('.album-select-checkbox').forEach(el => el.remove());
         loadAlbum();
@@ -378,7 +381,7 @@ async function showRecycle() {
       } else {
         container.innerHTML = data.map(p => `
           <div class="recycle-item">
-            <img src="${escAttr(p.thumbPath || p.path)}" class="recycle-thumb" alt="${__('album.alt_photo')}" loading="lazy">
+            <img src="${escAttr(p.thumbPath || p.path)}" class="recycle-thumb" alt="${__('album.alt_photo')}" loading="lazy" onerror="window.__imgFail(this)">
             <div class="recycle-info">
               <div class="recycle-desc">${esc(p.desc || __('album.no_desc'))}</div>
               <div class="recycle-meta">${__('album.uploader')}${esc(p.uploaderName || __('unknown'))} · ${__('album.deleted_at')}：${fmtDate(p.recycleTime)}</div>
@@ -454,6 +457,8 @@ async function postComment() {
 
 // ==================== 已点赞照片缓存 ====================
 let myLikedPhotoIds = new Set();
+// P3-65: 点赞请求在途锁（同一 photoId 忽略重复点击，避免双请求 + 计数错乱）
+const likePending = new Set();
 
 async function loadMyLikes() {
   if (!currentUser) return;
@@ -471,22 +476,29 @@ async function toggleLike() {
   const p = albumPhotoList[currentPhotoIdx];
   if (!p) return;
   const pid = Number(p.id);
-  if (myLikedPhotoIds.has(pid)) {
-    // 已点赞 → 取消点赞
-    try {
-      const res = await api(`/api/photos/${p.id}/like`, { method: 'DELETE' });
-      if (res.ok) {
-        myLikedPhotoIds.delete(pid);
-        if (p.likes !== undefined) p.likes = Math.max(0, p.likes - 1);
-        toast(__('album.unliked'), 'info');
-        updateLightbox();
-      }
-    } catch (err) { if (isApiHandledError(err)) return; toast(__('album.unlike_failed'), 'error'); }
-  } else {
-    // 未点赞 → 点赞
-    await likePhoto(p.id);
-    myLikedPhotoIds.add(pid);
-    updateLightbox();
+  // P3-65: 请求在途时忽略重复点击，防两个请求基于同一 wasLiked 同时 POST
+  if (likePending.has(pid)) return;
+  likePending.add(pid);
+  try {
+    if (myLikedPhotoIds.has(pid)) {
+      // 已点赞 → 取消点赞
+      try {
+        const res = await api(`/api/photos/${p.id}/like`, { method: 'DELETE' });
+        if (res.ok) {
+          myLikedPhotoIds.delete(pid);
+          if (p.likes !== undefined) p.likes = Math.max(0, p.likes - 1);
+          toast(__('album.unliked'), 'info');
+          updateLightbox();
+        }
+      } catch (err) { if (isApiHandledError(err)) return; toast(__('album.unlike_failed'), 'error'); }
+    } else {
+      // 未点赞 → 点赞
+      await likePhoto(p.id);
+      myLikedPhotoIds.add(pid);
+      updateLightbox();
+    }
+  } finally {
+    likePending.delete(pid);
   }
 }
 
@@ -504,7 +516,7 @@ async function loadPhotoComments(photoId) {
       }
       list.innerHTML = comments.map(c => `
         <div class="det-comment-item" data-comment-id="${c.id}">
-          <img src="${escAttr(c.avatarUrl || '/api/avatar/default')}" class="det-comment-avatar" alt="" loading="lazy">
+          <img src="${escAttr(c.avatarUrl || '/api/avatar/default')}" class="det-comment-avatar" alt="" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(c.avatarUrl || '/api/avatar/default')}')">
           <div class="det-comment-body">
             <div class="det-comment-header">
               <span class="det-comment-user">${esc(c.userName || __('unknown_user'))}</span>
@@ -542,15 +554,25 @@ async function editPhotoComment(photoId, commentId) {
   textEl.innerHTML = '';
   textEl.appendChild(input);
   input.focus();
+  // P3-65: Enter 提交 → loadPhotoComments 重载列表 → input 被移除触发 onblur → 再 finish(true)
+  // 会造成同一评论 PUT 两次；成功路径保持 saving=true，onblur 二次触发直接忽略
+  let saving = false;
   const finish = async (save) => {
+    if (saving) return;
+    saving = true;
     if (save) {
       const content = input.value.trim();
       if (!content) { loadPhotoComments(photoId); return; }
       try {
         const res = await api(`/api/photos/${photoId}/comments/${commentId}`, { method: 'PUT', body: { content } });
-        if (res.ok) { toast(__('operation_success'), 'success'); loadPhotoComments(photoId); }
-        else { loadPhotoComments(photoId); }
-      } catch (err) { if (isApiHandledError(err)) return; toast(__('album.delete_comment_failed'), 'error'); loadPhotoComments(photoId); }
+        if (res.ok) { toast(__('operation_success'), 'success'); }
+        loadPhotoComments(photoId);
+      } catch (err) {
+        saving = false; // 失败允许重试
+        if (isApiHandledError(err)) return;
+        toast(__('album.delete_comment_failed'), 'error');
+        loadPhotoComments(photoId);
+      }
     } else {
       loadPhotoComments(photoId);
     }
@@ -577,7 +599,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const dropzone = document.getElementById('albumDropzone');
   if (dropzone) {
     // 浏览器默认会在文件被拖放到页面任意位置时直接打开该文件，从而整页导航离开单页应用。
-    // 用户只要没有精确落在 dropzone 上就会__('auto_album_2')（其实是页面被替换了）。
+    // 用户只要没有精确落在 dropzone 上就看不到任何反应（其实是页面被替换了）。
     // 因此在 document 上兜底阻止默认行为，只有 dropzone 内的 drop 才真正处理。
     ['dragover', 'drop'].forEach(function (evt) {
       document.addEventListener(evt, function (e) {

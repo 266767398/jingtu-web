@@ -69,10 +69,21 @@ class CheckinModule {
     try {
       const res = await api('/api/checkin/me/status');
       // 必须检查 res.ok：api() 对 4xx 不抛异常，直接 json() 会把错误体当成状态数据渲染
-      if (!res.ok) return;
+      if (!res.ok) {
+        // 失败不能静默：按钮初始 disabled，不解除的话签到入口永远点不动
+        const btn = document.getElementById('checkin-btn');
+        if (btn) btn.disabled = false;
+        toast(__('ui.load_failed'), 'error');
+        return;
+      }
       const data = await res.json();
       this.renderStatus(data);
-    } catch {}
+    } catch {
+      // 网络/服务异常同样解除禁用并提示，避免签到按钮静默死锁
+      const btn = document.getElementById('checkin-btn');
+      if (btn) btn.disabled = false;
+      toast(__('ui.load_failed'), 'error');
+    }
   }
 
   renderStatus(data) {

@@ -470,7 +470,13 @@ router.put('/me/location', requireAuth, async (req, res) => {
       }
       updates.lng = v;
     }
-    if (location !== undefined) updates.location = location;
+    // P3-123：与 PUT /me/profile 口径一致——location 必须为 string 且 ≤200 字
+    if (location !== undefined) {
+      if (typeof location !== 'string') return sendError(res, 400, ErrorCodes.BAD_REQUEST, '位置格式不正确');
+      const loc = location.trim();
+      if (loc.length > 200) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '位置不能超过200字');
+      updates.location = loc;
+    }
     if (visible !== undefined) updates.location_visible = visible ? 1 : 0;
     // 记录位置时间戳，否则地图气泡的"更新时间"永远为空
     if (updates.lat !== undefined || updates.lng !== undefined) {

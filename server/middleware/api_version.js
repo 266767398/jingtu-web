@@ -11,6 +11,14 @@ function apiVersionMiddleware(req, res, next) {
     // 现改为重写 req.url：仅剥离版本段、保留 /api 前缀，使挂载于 /api/* 的限流器
     // （ddosLimiter、loginBruteForceLimiter 等）与路由对版本化请求同样生效。
     req.url = req.url.replace(/^\/api\/v[12](?=\/|$)/, '/api');
+  } else {
+    // P3-143：未知版本前缀（/api/v3、/api/v9、/api/vx 等）不得静默回退 v1——
+    // 客户端手误/未来弃用版本必须显式失败，保住版本契约与隔离；
+    // 仅裸 /api（无版本段）路径才回退默认 v1。
+    const unknown = req.path.match(/^\/api\/v(\d+)(?=\/|$)/);
+    if (unknown) {
+      return fail(res, 400, `不支持的 API 版本 /api/v${unknown[1]}，支持版本：v1、v2`);
+    }
   }
 
   req.version = version;

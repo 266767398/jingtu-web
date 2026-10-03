@@ -5,6 +5,7 @@
  */
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 let ffmpegPath = null;
 let ffprobePath = null;
@@ -44,6 +45,38 @@ function getFfmpegPaths() {
   return { ffmpegPath: null, ffprobePath: null };
 }
 
+// P3-142：JPEG 魔数校验（FF D8 FF）替代仅 >100B 的大小判断——ffmpeg 超时被 kill
+// 的半成品只要超过 100B 就足以骗过旧校验，永久复用损坏缩略图。
+function isValidJpeg(filePath) {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const head = Buffer.alloc(4);
+    let n = 0;
+    try { n = fs.readSync(fd, head, 0, 4, 0); } finally { fs.closeSync(fd); }
+    return n >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+  } catch (e) {
+    return false;
+  }
+}
+
+// P3-142：取视频前 64KB + 文件大小做内容指纹（固定成本，不整读大文件），
+// 两个不同视频即使基础名截断相同也不会互相覆盖复用缩略图。
+function videoContentDigest(videoInputPath) {
+  try {
+    const stat = fs.statSync(videoInputPath);
+    const fd = fs.openSync(videoInputPath, 'r');
+    const buf = Buffer.alloc(65536);
+    let n = 0;
+    try { n = fs.readSync(fd, buf, 0, buf.length, 0); } finally { fs.closeSync(fd); }
+    const h = crypto.createHash('sha1');
+    h.update(buf.subarray(0, n));
+    h.update(String(stat.size));
+    return h.digest('hex').slice(0, 8);
+  } catch (e) {
+    return Date.now().toString(36);
+  }
+}
+
 /**
  * 提取视频第一帧作为 JPEG 缩略图
  * @param {string} videoInputPath - 视频文件绝对路径
@@ -64,13 +97,15 @@ async function extractVideoThumbnail(videoInputPath, outputDir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
   const parsed = path.parse(videoInputPath);
-  // 限制文件名长度（含 _thumb）
+  // 限制文件名长度（含 _thumb）并追加内容指纹，杜绝超长名截断后复用旧缩略图
   const baseName = parsed.name.length > 80 ? parsed.name.substring(0, 80) : parsed.name;
-  const thumbName = `thumb_${baseName}.jpg`;
+  const thumbName = `thumb_${baseName}_${videoContentDigest(videoInputPath)}.jpg`;
   const thumbPath = path.join(dir, thumbName);
+  // 先写临时文件，校验通过后再改名落定——被 kill 的半成品永远不会成为正式缩略图
+  const tmpPath = `${thumbPath}.tmp`;
 
-  // 如果缩略图已存在，直接返回
-  if (fs.existsSync(thumbPath)) {
+  // 如果正式缩略图已存在且是完整 JPEG，直接返回
+  if (fs.existsSync(thumbPath) && isValidJpeg(thumbPath)) {
     return thumbName;
   }
 
@@ -84,33 +119,53 @@ async function extractVideoThumbnail(videoInputPath, outputDir) {
       '-f', 'image2',              // 输出格式
       '-q:v', '2',                 // 质量（2=高质量）
       '-s', '400x225',             // 16:9 缩放到 400px 宽
-      thumbPath
+      tmpPath
     ];
 
     const proc = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'], timeout: 15000 });
     let stderr = '';
     proc.stderr.on('data', (d) => { stderr += d.toString(); });
 
+    let timedOut = false;
     const timer = setTimeout(() => {
+      timedOut = true;
       proc.kill();
       console.warn('[video] ffmpeg 超时:', videoInputPath);
-      resolve('');
     }, 12000);
+
+    // P3-142：无论成功/失败/超时，统一在进程结束后处理临时文件——
+    // 校验通过才改名落定；其余情况删除半成品，避免残留损坏缩略图。
+    const cleanupTmp = () => {
+      try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (e) { /* 尽力清理 */ }
+    };
+    const settle = () => {
+      if (!timedOut) {
+        if (fs.existsSync(tmpPath) && isValidJpeg(tmpPath) && fs.statSync(tmpPath).size > 100) {
+          try {
+            fs.renameSync(tmpPath, thumbPath);
+            resolve(thumbName);
+            return;
+          } catch (e) {
+            console.warn('[video] 缩略图落定失败:', e.message);
+          }
+        }
+        cleanupTmp();
+      } else {
+        cleanupTmp();
+      }
+      resolve('');
+    };
 
     proc.on('close', (code) => {
       clearTimeout(timer);
-      if (code === 0 && fs.existsSync(thumbPath) && fs.statSync(thumbPath).size > 100) {
-        resolve(thumbName);
-      } else {
-        if (code !== 0) console.warn('[video] ffmpeg 退出码', code, stderr.slice(-200));
-        resolve('');
-      }
+      if (code !== 0) console.warn('[video] ffmpeg 退出码', code, stderr.slice(-200));
+      settle();
     });
 
     proc.on('error', (err) => {
       clearTimeout(timer);
       console.warn('[video] ffmpeg 执行错误:', err.message);
-      resolve('');
+      settle();
     });
   });
 }

@@ -43,7 +43,8 @@ async function runMigration() {
     migrations.push(`ALTER TABLE event_comment ADD INDEX idx_ecomment_user (user_id, event_id)`);
     
     // 活动报名表复合索引
-    migrations.push(`ALTER TABLE event_sign ADD INDEX idx_sign_event_user (event_id, user_vrcid)`);
+    // §P3-88: idx_sign_event_user(event_id, user_vrcid) 与建表唯一键
+    // uk_event_user(event_id, user_vrcid) 同列重复，写放大且无任何额外查询收益，已删除
     migrations.push(`ALTER TABLE event_sign ADD INDEX idx_sign_status (event_id, is_sign)`);
     
     // 相册照片表复合索引
@@ -80,9 +81,8 @@ async function runMigration() {
     // ==================== 外键约束 ====================
     console.log('\n📌 阶段2: 添加外键约束');
 
-    // users 表关联
+    // users 表关联（§P2-146: permissions 表已废弃，不再为其添加外键）
     migrations.push(`ALTER TABLE user_profile ADD CONSTRAINT fk_profile_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`);
-    migrations.push(`ALTER TABLE permissions ADD CONSTRAINT fk_perm_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`);
     migrations.push(`ALTER TABLE name_change_requests ADD CONSTRAINT fk_ncr_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`);
     migrations.push(`ALTER TABLE name_change_requests ADD CONSTRAINT fk_ncr_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL`);
 
@@ -113,8 +113,8 @@ async function runMigration() {
     migrations.push(`ALTER TABLE event_comment ADD CONSTRAINT fk_ecomment_event FOREIGN KEY (event_id) REFERENCES event(id) ON DELETE CASCADE`);
     migrations.push(`ALTER TABLE event_comment ADD CONSTRAINT fk_ecomment_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`);
 
-    // 相册相关外键
-    migrations.push(`ALTER TABLE album_photo ADD CONSTRAINT fk_photo_cate FOREIGN KEY (cate_id) REFERENCES album_cate(id) ON DELETE SET DEFAULT`);
+    // 相册相关外键（§P2-146: InnoDB 不支持 ON DELETE SET DEFAULT，改 RESTRICT）
+    migrations.push(`ALTER TABLE album_photo ADD CONSTRAINT fk_photo_cate FOREIGN KEY (cate_id) REFERENCES album_cate(id) ON DELETE RESTRICT`);
     migrations.push(`ALTER TABLE album_like ADD CONSTRAINT fk_alike_photo FOREIGN KEY (photo_id) REFERENCES album_photo(id) ON DELETE CASCADE`);
     migrations.push(`ALTER TABLE album_comment ADD CONSTRAINT fk_acomment_photo FOREIGN KEY (photo_id) REFERENCES album_photo(id) ON DELETE CASCADE`);
 

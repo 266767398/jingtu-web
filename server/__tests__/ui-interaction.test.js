@@ -87,7 +87,10 @@ function mobileMenuMarkup() {
 }
 
 function flushMutations() {
-  return new Promise(resolve => setTimeout(resolve, 0));
+  // 弹窗无障碍层用 requestAnimationFrame 合帧（P3-3）：rAF 由 jsdom 以 ~16ms
+  // 定时器驱动，setTimeout(0) 会先触发，断言时 syncModalA11y 尚未执行，
+  // 滚动锁/弹窗栈必然不满足。必须等足一帧再断言。
+  return new Promise(resolve => setTimeout(resolve, 30));
 }
 
 function getModalBlock() {

@@ -28,8 +28,20 @@ const files = {
   dbInit: read('server', 'db_init.js'),
   metrics: read('server', 'middleware', 'metrics.js'),
   analyticsRoute: read('server', 'routes', 'analytics.js'),
+  videoUtils: read('server', 'video_utils.js'),
+  apiVersion: read('server', 'middleware', 'api_version.js'),
   // P2-66 god-route 拆分：/me/profile、/me/avatar 等资料域路由已按域拆至 users_profile.js，守卫随实现迁移
   usersProfileRoute: read('server', 'routes', 'users_profile.js'),
+  // P3-110~124 第六批后端：系统配置脱敏 / .env 掩码 / 分析收敛 / 匿名校验 / 聊天三处 / 管理分页与改名 / 头像限速 / 点赞与审核/ 字段钳制 / setup 防护
+  adminRoute: read('server', 'routes', 'admin.js'),
+  envConfigRoute: read('server', 'routes', 'config.js'),
+  adminUsersRoute: read('server', 'routes', 'admin_users.js'),
+  adminNameChangeRoute: read('server', 'routes', 'admin_name_change.js'),
+  usersRoute: read('server', 'routes', 'users.js'),
+  moderationsRoute: read('server', 'routes', 'moderations.js'),
+  setupRoute: read('server', 'routes', 'setup.js'),
+  avatarRoute: read('server', 'routes', 'avatar.js'),
+  collectionsRoute: read('server', 'routes', 'collections.js'),
   profileRoute: read('server', 'routes', 'profile.js'),
   membersJs: read('public', 'js', 'members.js'),
   migrationPage: read('public', 'migration.html'),
@@ -75,8 +87,11 @@ describe('security regressions', () => {
     expect(files.server).toMatch(/express\.static\(path\.join\(ROOT_DIR,\s*'public'\),\s*\{\s*maxAge:\s*0,\s*etag:\s*true,/);
     expect(files.server).not.toMatch(/express\.static\([^)]*(?:backups|backupDir)[^)]*\)/i);
     // P1-12：备份目录定义已收口至 backup-core，路由改为委托导入，守卫随实现迁移
+    // P2-151：BACKUP_DIR 支持 env 注入（测试隔离），默认仍为项目根 backups/
     expect(files.backupsRoute).toMatch(/BACKUP_DIR:\s*backupDir,[\s\S]*?\}\s*=\s*require\('\.\.\/backup-core'\)/);
-    expect(read('server', 'backup-core.js')).toMatch(/const BACKUP_DIR = path\.join\(__dirname,\s*'\.\.',\s*'backups'\)/);
+    const backupCoreSrc = read('server', 'backup-core.js');
+    expect(backupCoreSrc).toMatch(/const BACKUP_DIR = process\.env\.BACKUP_DIR[\s\S]*?path\.join\(__dirname,\s*'\.\.',\s*'backups'\)/);
+    expect(backupCoreSrc).toMatch(/path\.resolve\(process\.env\.BACKUP_DIR\)/);
     expect(files.backupsRoute).toMatch(/router\.get\('\/admin\/backups\/:filename\/download',\s*requireAdminCompat/);
     expect(files.backupsRoute).toMatch(/const filename = path\.basename\(req\.params\.filename\)/);
   });
@@ -101,6 +116,46 @@ describe('security regressions', () => {
     const csrfBlock = sliceBetween(files.csrfMiddleware, 'const exemptPaths = [', 'const token = req.headers');
     expect(csrfBlock).not.toMatch(/admin|migration|database|backups|files|export|config/);
     expect(files.csrfMiddleware).toMatch(/record\.sid[\s\S]*!== req\.sessionID[\s\S]*CSRF token 与当前会话不匹配/);
+    // P2-167：移除 'anon' 兜底记录——会话未初始化时 fail-closed 拒绝签发，
+    // 校验分支不再豁免匿名记录（否则任意会话可复用同一 token 击穿整个 CSRF 防线）。
+    expect(files.csrfMiddleware).not.toMatch(/'anon'/);
+    expect(files.csrfMiddleware).toMatch(/!req\.sessionID[\s\S]*return fail\(res,\s*403,\s*'会话未初始化，无法获取 CSRF token'\)/);
+    expect(files.csrfMiddleware).toMatch(/(?:!record\.sid\s*\|\||record\.sid !== req\.sessionID)[\s\S]*CSRF token 与当前会话不匹配/);
+  });
+
+  // Swagger 曾仅靠 NODE_ENV!=='production' 决定是否挂载——生产漏配 NODE_ENV 时
+  // /api-docs 全量 API 文档（含管理端点与安全注解）无鉴权公开。现在必须显式 ENABLE_SWAGGER=1，
+  // 且文档访问自身叠加 requireSuperAdmin（双保险）。
+  test('swagger requires explicit enable + super-admin auth (P2-169)', () => {
+    expect(files.server).toMatch(/if \(process\.env\.ENABLE_SWAGGER === '1'\)/);
+    expect(files.server).not.toMatch(/NODE_ENV !== 'production'/);
+    const swaggerSrc = read('server', 'swagger.js');
+    expect(swaggerSrc).toMatch(/function setupSwagger\(app,\s*deps\s*=\s*\{\}\)/);
+    expect(swaggerSrc).toMatch(/const guard = requireSuperAdmin \|\|/);
+    expect(swaggerSrc).toMatch(/app\.use\('\/api-docs',\s*guard,/);
+    expect(swaggerSrc).toMatch(/app\.get\('\/api-docs\.json',\s*guard,/);
+  });
+
+  // 注册限流 key 曾直接使用请求方可控的 email 原文——攻击者靠大小写/空格变换分裂
+  // 无限 key 绕过 15 分钟 5 次注册上限。key 必须归一化（trim+lowercase+长度钳制），
+  // 无 email 时回退纯 IP 维度（对齐 security.js 登录限流口径）。
+  test('registerLimiter normalizes email key and falls back to IP (P2-168)', () => {
+    expect(files.rateLimitMiddleware).toMatch(/keyGenerator:\s*normalizeRegisterKey/);
+    expect(files.rateLimitMiddleware).toMatch(/String\(req\.body\?\.email \|\| ''\)\.trim\(\)\.toLowerCase\(\)\.slice\(0,\s*254\)/);
+    expect(files.rateLimitMiddleware).toMatch(/email \? `email:\$\{email\}` : ipKey\(req\)/);
+  });
+
+  // 运行时可变配置曾只钳下限不设上限：'1e999'→Infinity 写进缓存后 mbToBytes 返回 0，
+  // 全部上传/请求 413（功能瘫痪）；大有限值则令请求体安全闸恒假（被静默禁用）。
+  // 现在必须双向钳制 + 拒绝非有限数 + 字节阈值预计算。
+  test('settings clamps both directions and rejects non-finite values (P2-170)', () => {
+    const settingsSrc = read('server', 'settings.js');
+    expect(settingsSrc).toMatch(/const CEILINGS = \{/);
+    expect(settingsSrc).toMatch(/req_max_upload_mb:\s*1024/);
+    expect(settingsSrc).toMatch(/Math\.min\(Math\.max\(value,\s*floor\),\s*ceiling\)/);
+    expect(settingsSrc).toMatch(/Number\.isFinite\(raw\)\s*&&\s*raw\s*>\s*0/);
+    expect(settingsSrc).toMatch(/let limitsCache = computeLimits\(\)/);
+    expect(settingsSrc).toMatch(/function getLimits\(\) \{\s*return limitsCache;/);
   });
 
   // VRChat 两步登录曾可能在验证码错误时先创建本地会话；必须先 verifyVrc2fa 成功后才 regenerate/buildSession。
@@ -370,8 +425,8 @@ describe('security regressions', () => {
     expect(files.rateLimitStore).toMatch(/async decrement\(key\) \{[\s\S]*?await this\.local\.decrement\(key\)/);
     expect(files.rateLimitStore).toMatch(/async get\(key\) \{[\s\S]*?return this\.local\.get\(key\)/);
     expect(files.rateLimitStore).toMatch(/async resetKey\(key\) \{[\s\S]*?await this\.local\.resetKey\(key\)/);
-    // 可用性判定必须逐方法发生在请求时（共 4 处），否则启动后才连上的 Redis 永远不会被使用
-    expect((files.rateLimitStore.match(/if \(cache\.isEnabled\(\)\)/g) || []).length).toBe(4);
+    // 可用性判定必须逐方法发生在请求时（P3-137 后共 5 处），否则启动后才连上的 Redis 永远不会被使用
+    expect((files.rateLimitStore.match(/if \(cache\.isEnabled\(\)\)/g) || []).length).toBe(5);
     // v8 校验：同一 store 实例不得跨 limiter 复用，工厂必须每次新建实例
     expect(files.rateLimitStore).toMatch(/function hybridStore\(name\) \{[\s\S]*?return new HybridStore\(/);
     expect(files.rateLimitStore).not.toMatch(/registry\.get\(base\)\s*\?\?\s*new HybridStore/);
@@ -382,6 +437,66 @@ describe('security regressions', () => {
     expect(files.cacheLib).toMatch(/isEnabled = false/);
     expect(files.cacheLib).toMatch(/async function closeCache\(\)/);
     expect(files.cacheLib).toMatch(/exports = \{[\s\S]*incr,[\s\S]*closeCache,/);
+  });
+
+  // P3-137：resetAll 必须同时清理 Redis 分支计数（按 store 前缀批量删），
+  // 否则管理侧「一键重置限流」在 Redis 模式下永不生效。
+  test('P3-137 resetAll clears Redis-branch counters by prefix', () => {
+    expect(files.rateLimitStore).toMatch(/async resetAll\(\) \{[\s\S]*?if \(cache\.isEnabled\(\)\)[\s\S]*?const pattern = `\$\{this\.prefix\}\*`;[\s\S]*?cache\.keys\(pattern\)[\s\S]*?cache\.del\(k\)[\s\S]*?await this\.local\.resetAll\(\)/);
+  });
+
+  // P3-138：decrement 必须原子（单条 Lua decrBy），杜绝 get-then-set 竞态少减，
+  // 且 Redis 异常仍需回退本地（限流不因缓存故障失效）。
+  test('P3-138 decrement is atomic via cache.decrBy', () => {
+    expect(files.rateLimitStore).toMatch(/async decrement\(key\) \{[\s\S]*?cache\.decrBy\([\s\S]*?if \(total !== null\) return;[\s\S]*?await this\.local\.decrement\(key\)/);
+    expect(files.cacheLib).toMatch(/async function decrBy\(key, ttlSeconds\)/);
+    expect(files.cacheLib).toMatch(/redisClient\.eval\(DECRBY_SCRIPT, \{ keys: \[key\], arguments: \[String\(ttl\)\] \}\)/);
+    expect(files.cacheLib).toMatch(/exports = \{[\s\S]*\bdecrBy,/);
+  });
+
+  // P3-139：loginLimiter/bruteForceLimiter 死代码已删（bruteForce key 拼入用户可控
+  // req.path，一旦接上可拆分成独立桶绕过次数限制）；无调用方的 cache 引用同步清除。
+  test('P3-139 dead loginLimiter/bruteForceLimiter removed from rate_limit.js', () => {
+    expect(files.rateLimitMiddleware).not.toMatch(/const loginLimiter = rateLimit/);
+    expect(files.rateLimitMiddleware).not.toMatch(/const bruteForceLimiter = \{/);
+    expect(files.rateLimitMiddleware).not.toMatch(/bruteforce:\$\{ipKey/);
+    expect(files.rateLimitMiddleware).not.toMatch(/require\('\.\.\/cache'\)/);
+  });
+
+  // P3-140：uploads_auth 分享校验短 TTL 缓存（防有效码拼路径放大 DB 查询），
+  // /uploads 静态媒体按 IP 限流且挂在鉴权之前（未登录刷量同样受限）。
+  test('P3-140 uploads share verification cached and /uploads rate-limited', () => {
+    expect(files.uploadsAuth).toMatch(/SHARE_VERIFY_TTL_MS = 15 \* 1000/);
+    expect(files.uploadsAuth).toMatch(/const cached = getShareVerifyCached\(cacheKey\);/);
+    expect(files.uploadsAuth).toMatch(/setShareVerifyCached\(cacheKey, result\)/);
+    expect(files.uploadsAuth).toMatch(/shareVerifyCache\.set\(key, \{ \.\.\.value, at: Date\.now\(\) \}\)/);
+    expect(files.rateLimitMiddleware).toMatch(/uploadsStaticLimiter = rateLimit\(\{/);
+    expect(files.rateLimitMiddleware).toMatch(/store: hybridStore\('rate-uploads-static'\)/);
+    expectBefore(files.server, "app.use('/uploads', uploadsStaticLimiter);", 'setupUploadsAuth(app);');
+  });
+
+  // P3-141：image_compress 死代码模块已删除（全库无调用方，接入即覆盖 multer 原文件）
+  test('P3-141 image_compress dead module removed', () => {
+    expect(fs.existsSync(path.join(repoRoot, 'server', 'middleware', 'image_compress.js'))).toBe(false);
+  });
+
+  // P3-142：video_utils 缩略图改「临时文件 + JPEG 魔数校验 + 内容指纹命名」——
+  // 超时半成品不落定、损坏图不复用、长名截断不互相覆盖。
+  test('P3-142 video thumbnails validated and collision-safe', () => {
+    expect(files.videoUtils).toMatch(/function isValidJpeg\(filePath\)/);
+    expect(files.videoUtils).toMatch(/head\[0\] === 0xff && head\[1\] === 0xd8 && head\[2\] === 0xff/);
+    expect(files.videoUtils).toMatch(/tmpPath = `\$\{thumbPath\}\.tmp`/);
+    expect(files.videoUtils).toMatch(/fs\.renameSync\(tmpPath, thumbPath\)/);
+    expect(files.videoUtils).toMatch(/function videoContentDigest\(videoInputPath\)/);
+    expect(files.videoUtils).toMatch(/const thumbName = `thumb_\$\{baseName\}_\$\{videoContentDigest\(videoInputPath\)\}\.jpg`/);
+  });
+
+  // P3-143：未知版本前缀 /api/v\d+ 必须 400 显式失败，不得静默回退 v1；
+  // 仅裸 /api（无版本段）路径回退默认版本。
+  test('P3-143 unknown API version prefix rejected with 400', () => {
+    expect(files.apiVersion).toMatch(/} else \{[\s\S]*?const unknown = req\.path\.match/);
+    expect(files.apiVersion).toMatch(/不支持的 API 版本/);
+    expect(files.apiVersion).toMatch(/支持版本：v1、v2/);
   });
 
   // P1-1：CSRF token 必须本地 Map + Redis 双写，Redis 仅为跨实例共享副本，
@@ -407,5 +522,53 @@ describe('security regressions', () => {
     expect(files.postsRoute).toMatch(/await cacheService\.del\(/);
     expect(files.server).toMatch(/await cache\.closeCache\(\)/);
     expectBefore(files.server, 'startSchedule.gracefulShutdown()', 'await cache.closeCache()');
+  });
+
+  // ==================== P3-110~124 第六批后端 ====================
+  test('P3-110/111 masks system_config & .env URL-embedded credentials on read', () => {
+    expect(files.adminRoute).toMatch(/CONFIG_MASK = '__MASKED__'/);
+    expect(files.adminRoute).toMatch(/config\[row\.configKey\] = maskConfigValue\(row\.configKey, row\.configValue\)/);
+    expect(files.adminRoute).toMatch(/if \(val === CONFIG_MASK\) continue/);
+    expect(files.envConfigRoute).toMatch(/config\[envKey\] = maskEnvValue\(envKey, value\)/);
+    expect(files.envConfigRoute).toMatch(/userinfo/);
+  });
+
+  test('P3-112/113 clamps analytics days, hides internal network, drops e.message on anon search', () => {
+    expect(files.analyticsRoute).toMatch(/Math\.min\(365, Math\.max\(1, parseInt\(req\.query\.days, 10\) \|\| 7\)\)/);
+    expect(files.analyticsRoute).toMatch(/egress: egressAddresses\(os\.networkInterfaces\(\)\)/);
+    expect(files.collectionsRoute).toMatch(/模型搜索失败，请稍后重试/);
+    expect(files.collectionsRoute).toMatch(/世界搜索失败，请稍后重试/);
+    expect(files.collectionsRoute).toMatch(/世界排行失败，请稍后重试/);
+    expect(files.collectionsRoute).toMatch(/logger\.error\('\[collections\/search-models\]', e\)/);
+  });
+
+  test('P3-114~116 chat filters deleted DM + excludes own/pre-join unread + protects owner from kick', () => {
+    expect(files.chatRoute).toMatch(/AND deleted_at IS NULL GROUP BY other_id/);
+    expect(files.chatRoute).toMatch(/WHERE m\.deleted_at IS NULL/);
+    expect(files.chatRoute).toMatch(/m\.sender_id <> \? AND m\.created_at >= gm\.created_at/);
+    expect(files.chatRoute).toMatch(/不能踢出群主/);
+  });
+
+  test('P3-117~118 admin users pagination cap + name-change race hardening', () => {
+    expect(files.adminUsersRoute).toMatch(/defaultSize: 20, maxSize: 100/);
+    expect(files.adminUsersRoute).toMatch(/显示名不能超过50字/);
+    expect(files.adminUsersRoute).toMatch(/邮箱格式不正确/);
+    expect(files.adminNameChangeRoute).toMatch(/status='pending' FOR UPDATE/);
+    expect(files.adminNameChangeRoute).toMatch(/目标显示名已被他人占用，已拒绝/);
+    expect(files.adminNameChangeRoute).toMatch(/WHERE id=\? AND status='pending'/);
+  });
+
+  test('P3-119~124 avatar XFF trust, posts like txn, moderation atomic flip, field clamps, setup relay guard', () => {
+    expect(files.avatarRoute).toMatch(/isLoopbackPeer[\s\S]*?x-forwarded-for/);
+    expect(files.postsRoute).toMatch(/INSERT INTO post_like[\s\S]*ON DUPLICATE KEY UPDATE/);
+    expect(files.postsRoute).toMatch(/ins\.affectedRows === 1/);
+    expect(files.moderationsRoute).toMatch(/WHERE id = \? AND status = \?/);
+    expect(files.moderationsRoute).toMatch(/upd\.affectedRows === 0/);
+    expect(files.usersRoute).toMatch(/显示名不能超过50字/);
+    expect(files.usersProfileRoute).toMatch(/location\.length > 200/);
+    expect(files.setupRoute).toMatch(/testEmailLimited\(srcIp\)/);
+    expect(files.setupRoute).toMatch(/收发件邮箱格式不正确/);
+    expect(files.setupRoute).toMatch(/邮件发送失败，请检查 SMTP 配置后在日志定位问题/);
+    expect(files.setupRoute).not.toMatch(/邮件发送失败：' \+ \(result\.error/);
   });
 });

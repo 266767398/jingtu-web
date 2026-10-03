@@ -39,9 +39,14 @@ const options = {
 
 const swaggerSpec = swaggerJsdoc(options);
 
-function setupSwagger(app) {
-  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-  app.get('/api-docs.json', (req, res) => {
+function setupSwagger(app, deps = {}) {
+  const { requireSuperAdmin } = deps;
+  // P2-169：/api-docs 与 /api-docs.json 叠加超管鉴权——即使误开 ENABLE_SWAGGER=1，
+  // 未登录/非超管用户也无法读取全量 API 文档（含管理端点与安全注解），
+  // 防止 /ops 式的无鉴权公开信息收集面。未传入鉴权函数时退化为不设防中间件。
+  const guard = requireSuperAdmin || ((req, res, next) => next());
+  app.use('/api-docs', guard, swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  app.get('/api-docs.json', guard, (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.send(swaggerSpec);
   });

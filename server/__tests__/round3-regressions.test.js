@@ -124,8 +124,11 @@ describe('i18n 覆盖率（含 HTML 与无点号键）', () => {
       // 排除语言目录与未接线的死代码目录（_unwired/ 下的文件不被任何 HTML 引用）
       if (e.isDirectory()) { if (e.name !== 'languages' && e.name !== '_unwired') walk(full); continue; }
       if (!e.name.endsWith('.js')) continue;
-      // 注意不加点号限制，单词键同样要覆盖
-      for (const m of read(full).matchAll(/\b__\(\s*(['"`])([^'"`]+)\1/g)) {
+      // 注意不加点号限制，单词键同样要覆盖。
+      // 先剥注释：setup.js/core.js 的注释里有用 `__('setup.xxx')` 这类占位串
+      // 讲解回退契约，不剥会把注释当真实缺键误报。
+      const src = stripJsComments(read(full));
+      for (const m of src.matchAll(/\b__\(\s*(['"`])([^'"`]+)\1/g)) {
         const key = m[2];
         // 动态拼接前缀（如 __('error.' + code)、__('nav.' + tab)）不是完整键，
         // 以 . 或 _ 结尾视为前缀，跳过，避免误报为缺失键。

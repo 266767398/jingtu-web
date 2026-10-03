@@ -9,17 +9,19 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { requireAdminCompat } = require('../auth');
+const { requireAdminCompat, requireRole } = require('../auth');
 const { ok, handleError, sendError, ErrorCodes } = require('../utils');
 
 const router = express.Router();
 const envPath = path.join(__dirname, '..', '..', '.env');
 
-// §48：允许通过 PUT /admin/config/env 修改的环境变量白名单（非敏感配置）
+// §48：允许通过 PUT /admin/config/env 修改的环境变量白名单（非敏感配置）。
+// P2-158：写入/重载端点已提升为 super_admin；NODE_ENV/PORT/MYSQL_HOST/MYSQL_USER
+// 均为启动期生效项（运行时修改对连接池/监听端口无效果且易致困惑），一并移出白名单。
 const ENV_KEY_WHITELIST = new Set([
-  'MYSQL_HOST', 'MYSQL_PORT', 'MYSQL_DATABASE', 'MYSQL_USER',
+  'MYSQL_PORT', 'MYSQL_DATABASE',
   'SMTP_HOST', 'SMTP_PORT', 'SMTP_SECURE', 'SMTP_USER', 'SMTP_FROM',
-  'LOG_LEVEL', 'NODE_ENV', 'PORT',
+  'LOG_LEVEL',
   'WEBHOOK_URL', 'VRC_GROUP_URL', 'GROUP_ID'
 ]);
 
@@ -27,6 +29,21 @@ const ENV_KEY_WHITELIST = new Set([
 // CSRF_SECRET 之外的 *TOKEN* 键（如 WEBHOOK_TOKEN、API_TOKEN）会以明文返回给
 // 持有管理员会话的前端；现 GET 脱敏与 PUT 拒改共用同一正则（大小写不敏感）。
 const SENSITIVE_KEY_RE = /(PASSWORD|SECRET|KEY|TOKEN|CREDENTIAL)/i;
+
+// P3-111：除按键名掩码外，对值中内嵌的凭据形态（URL userinfo、内联 key=secret）
+// 一并脱敏——REDIS_URL=redis://:pass@host 等 URL 式凭据按键名不会命中正则而泄露。
+function maskEnvValue(envKey, value) {
+  if (SENSITIVE_KEY_RE.test(envKey)) return '******';
+  // URL userinfo 形如 scheme://user:pass@host
+  if (/^[a-zA-Z][\w+.-]*:\/\/[^/: ]*:[^@ ]*@/i.test(value)) {
+    return value.replace(/^(.*:\/\/[^:/\s]*:)[^@\s]*@/, '$1******@');
+  }
+  // 内联 "key=secret" / "key:secret" 片段（不区分大小写）
+  if (/(password|passwd|secret|token|api_?key|credential|client_secret)\s*[:=]\s*\S+/i.test(value)) {
+    return value.replace(/((?:password|passwd|secret|token|api_?key|credential|client_secret)\s*[:=]\s*)\S+/gi, '$1******');
+  }
+  return value;
+}
 
 // P2-73②：.env 原子写（tmp + rename），避免写一半崩溃导致配置文件截断
 function writeEnvAtomic(envPath, content) {
@@ -44,18 +61,16 @@ router.get('/admin/config/env', requireAdminCompat, (req, res) => {
         const [key, ...valueParts] = line.split('=');
         const value = valueParts.join('=').trim();
         const envKey = key.trim();
-        if (SENSITIVE_KEY_RE.test(envKey)) {
-          config[envKey] = '******';
-        } else {
-          config[envKey] = value;
-        }
+        config[envKey] = maskEnvValue(envKey, value);
       }
     }
     ok(res, {config});
   } catch (e) { handleError(res, e, '[config/env-get]'); }
 });
 
-router.put('/admin/config/env', requireAdminCompat, (req, res) => {
+// P2-158：.env 写入为基础设施级变更，与 /admin/config（system_config）一致，
+// 仅 super_admin 可执行；GET 只读且已对敏感键脱敏，保持 admin 可读。
+router.put('/admin/config/env', requireRole('super_admin'), (req, res) => {
   try {
     const updates = req.body;
     if (!updates || typeof updates !== 'object') {
@@ -103,7 +118,8 @@ router.put('/admin/config/env', requireAdminCompat, (req, res) => {
   } catch (e) { handleError(res, e, '[config/env-put]'); }
 });
 
-router.post('/admin/config/reload', requireAdminCompat, (req, res) => {
+// P2-158：重载会向 process.env 注入值（影响全局运行时行为），同样仅限 super_admin。
+router.post('/admin/config/reload', requireRole('super_admin'), (req, res) => {
   try {
     // P2-73③：旧实现把 .env 全量键值直接灌进 process.env，等于绕过 PUT 白名单的
     // 「后门写通道」（手工编辑 .env 塞入任意键即可生效，如 PATH/Node 运行时变量）。

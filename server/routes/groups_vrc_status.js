@@ -15,6 +15,10 @@ const { requireAdminCompat } = require('../auth');
 const { vrchatRequest, VRC_API_KEY } = require('../vrc');
 const { sleep } = require('./groups_helpers');
 
+// P3-56：与 vrc_invites.js 一致的 VRChat 用户 ID 白名单——校验通过才允许拼进
+// /users/{id} 上游 URL，防止含 ?/&/#/路径片段的恶意值改变请求参数或路径。
+const VRC_USER_ID_PATTERN = /^usr_[0-9a-fA-F-]{30,50}$/;
+
 module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   const router = express.Router();
 
@@ -23,6 +27,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     try {
       const { vrchatId } = req.body;
       if (!vrchatId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '缺少VRChat ID');
+      if (!VRC_USER_ID_PATTERN.test(String(vrchatId))) return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'VRChat ID格式不合法');
       
       const vrcCookie = getVRCCookieFn(req);
       if (!vrcCookie) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'VRChat系统账号未登录');
@@ -67,8 +72,14 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       if (!vrcCookie) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'VRChat系统账号未登录');
       
       const results = [];
-      for (const vrchatId of vrchatIds.slice(0, 50)) {
-          await sleep(200);
+      for (const rawVrchatId of vrchatIds.slice(0, 50)) {
+        // P3-56：白名单校验不通过的 ID 直接标记，不发起无意义的上游请求
+        if (!VRC_USER_ID_PATTERN.test(String(rawVrchatId))) {
+          results.push({ vrchatId: rawVrchatId, status: 'invalid', errorMsg: 'VRChat ID格式不合法' });
+          continue;
+        }
+        const vrchatId = String(rawVrchatId);
+        await sleep(200);
         try {
           const userRes = await vrchatRequest('GET', `/users/${vrchatId}?apiKey=${VRC_API_KEY}`, null, vrcCookie);
           let status = 'unknown';

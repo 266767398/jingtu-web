@@ -60,6 +60,7 @@ const hasSelector = sel => allSelectors().some(s => s.split(',').some(x => x.tri
 // 检测"某条声明是否真的存在"时必须先去掉注释，
 // 否则会匹配到解释这条声明为何被移除的注释本身
 const stripComments = css => css.replace(/\/\*[\s\S]*?\*\//g, '');
+const stripJsComments = js => js.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
 describe('button design system', () => {
   // jsdom 不解析 var()，因此断言的是"哪条声明在层叠中胜出"，
@@ -232,7 +233,8 @@ describe('regressions found by real-browser rendering', () => {
         const full = path.join(dir, e.name);
         if (e.isDirectory()) { if (e.name !== 'languages') collect(full); continue; }
         if (!e.name.endsWith('.js')) continue;
-        for (const m of fs.readFileSync(full, 'utf8').matchAll(/__\(\s*'([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+)'\s*\)/g)) {
+        // 剥注释：setup.js 注释里的 `__('setup.xxx')` 占位串不是真实调用
+        for (const m of stripJsComments(fs.readFileSync(full, 'utf8')).matchAll(/__\(\s*'([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+)'\s*\)/g)) {
           keys.add(m[1]);
         }
       }

@@ -70,6 +70,16 @@ const ErrorCodes = {
   // ==================== 境途联动：通用业务码（契约 04 §6.1） ====================
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   USER_UNAVAILABLE: 'USER_UNAVAILABLE',
+  // ==================== 在线更新（git_update.js） ====================
+  // 故意不在前端语言包中加这些 code 的翻译：errText 对无翻译的 code 会回落
+  // 显示后端动态 message（如“本地领先远端 N 个提交”），避免静态翻译吞掉有用细节。
+  GIT_NOT_ON_BRANCH: 'GIT_NOT_ON_BRANCH',
+  GIT_LOCAL_AHEAD: 'GIT_LOCAL_AHEAD',
+  GIT_LOCAL_CHANGES: 'GIT_LOCAL_CHANGES',
+  GIT_NEED_CREDENTIALS: 'GIT_NEED_CREDENTIALS',
+  GIT_NO_REPO: 'GIT_NO_REPO',
+  GIT_NOT_FOUND: 'GIT_NOT_FOUND',
+  GIT_UPDATE_FAILED: 'GIT_UPDATE_FAILED',
 };
 
 /**
@@ -419,4 +429,13 @@ function getAvatarUrl(user) {
   return null;
 }
 
-module.exports = { getPool, IS_DEV, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, validateFields, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };
+// §P3-168: LIKE 通配符转义——转义 %、_ 与转义符本身，防止用户输入改写 LIKE 匹配语义。
+// 使用 ! 作转义字符而非反斜杠：MySQL 字符串字面量把 \ 当转义符、SQLite 不转义，
+// 反斜杠在 `ESCAPE '\'` 子句中双引擎解析不一致；! 在两端均按字面字符解析。
+// 使用处须在每个 LIKE 表达式后显式加 `ESCAPE '!'`（SQLite 默认无转义字符）。
+function escapeLike(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[%_!]/g, (m) => '!' + m);
+}
+
+module.exports = { getPool, IS_DEV, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, escapeLike, validateFields, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };

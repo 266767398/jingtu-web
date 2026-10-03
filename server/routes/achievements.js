@@ -39,34 +39,75 @@ async function checkAndUnlock(userId, type, data) {
       }
       
       if (progress >= achievement.condition_value) {
-        if (userAchievement.length === 0) {
-          await pool.query(
-            'INSERT INTO user_achievements (user_id, achievement_id, progress, is_unlocked, unlocked_at) VALUES (?, ?, ?, 1, NOW())',
-            [userId, achievement.id, progress]
-          );
-          await pool.query(
-            'UPDATE users SET achievement_points = achievement_points + ? WHERE id = ?',
-            [achievement.points, userId]
-          );
-          unlockedCount++;
-          unlockedAchievements.push(achievement);
-        } else if (!userAchievement[0].is_unlocked) {
-          await pool.query(
-            'UPDATE user_achievements SET progress = ?, is_unlocked = 1, unlocked_at = NOW() WHERE user_id = ? AND achievement_id = ?',
-            [progress, userId, achievement.id]
-          );
+        // P2-161: 并发幂等——积分只在「本调用将 is_unlocked 0→1 翻转成功」时发放。
+        // 条件 UPDATE（AND is_unlocked=0）原子翻转：并发调用下仅一方 affectedRows=1，获得加分权。
+        const [flip] = await pool.query(
+          `UPDATE user_achievements SET progress = ?, is_unlocked = 1, unlocked_at = NOW()
+           WHERE user_id = ? AND achievement_id = ? AND is_unlocked = 0`,
+          [progress, userId, achievement.id]
+        );
+        if (flip.affectedRows > 0) {
           await pool.query(
             'UPDATE users SET achievement_points = achievement_points + ? WHERE id = ?',
             [achievement.points, userId]
           );
           unlockedCount++;
           unlockedAchievements.push(achievement);
-        } else if (progress > userAchievement[0].progress) {
-          await pool.query(
-            'UPDATE user_achievements SET progress = ? WHERE user_id = ? AND achievement_id = ?',
-            [progress, userId, achievement.id]
-          );
+          continue;
         }
+        // 0 行：行不存在，或已处于解锁态
+        const [existing] = await pool.query(
+          'SELECT id, is_unlocked, progress FROM user_achievements WHERE user_id = ? AND achievement_id = ?',
+          [userId, achievement.id]
+        );
+        if (existing.length === 0) {
+          try {
+            await pool.query(
+              'INSERT INTO user_achievements (user_id, achievement_id, progress, is_unlocked, unlocked_at) VALUES (?, ?, ?, 1, NOW())',
+              [userId, achievement.id, progress]
+            );
+            await pool.query(
+              'UPDATE users SET achievement_points = achievement_points + ? WHERE id = ?',
+              [achievement.points, userId]
+            );
+            unlockedCount++;
+            unlockedAchievements.push(achievement);
+          } catch (insErr) {
+            if (insErr && (insErr.errno === 1062 || insErr.code === 'ER_DUP_ENTRY')) {
+              // 并发已建行：重试条件翻转，由实际翻转成功者加分（幂等）
+              const [flip2] = await pool.query(
+                `UPDATE user_achievements SET progress = ?, is_unlocked = 1, unlocked_at = NOW()
+                 WHERE user_id = ? AND achievement_id = ? AND is_unlocked = 0`,
+                [progress, userId, achievement.id]
+              );
+              if (flip2.affectedRows > 0) {
+                await pool.query(
+                  'UPDATE users SET achievement_points = achievement_points + ? WHERE id = ?',
+                  [achievement.points, userId]
+                );
+                unlockedCount++;
+                unlockedAchievements.push(achievement);
+              } else {
+                // 对方已解锁并加分：仅推进度，不重复加分
+                await pool.query(
+                  'UPDATE user_achievements SET progress = ? WHERE user_id = ? AND achievement_id = ?',
+                  [progress, userId, achievement.id]
+                );
+              }
+            } else {
+              throw insErr;
+            }
+          }
+        } else if (existing[0].is_unlocked) {
+          // 已解锁且已加分：并发重复调用只推进度，绝不重复加分
+          if (progress > Number(existing[0].progress)) {
+            await pool.query(
+              'UPDATE user_achievements SET progress = ? WHERE user_id = ? AND achievement_id = ?',
+              [progress, userId, achievement.id]
+            );
+          }
+        }
+        // else：行存在且未解锁，但条件 UPDATE 返回 0 行 = 并发方正在翻转加分，本调用不再动作（避免双加）
       } else {
         if (userAchievement.length === 0) {
           await pool.query(

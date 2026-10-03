@@ -560,7 +560,10 @@ module.exports = function setupVrcAuth() {
     const sessionCookie = req?.session?.vrchatCookie || req?.session?.vrcCookie;
     const sessionSetAt = req?.session?.vrcCookieSetAt;
     if (sessionCookie && !isCookieExpired(sessionSetAt)) {
-      return decryptCookie(sessionCookie) || sessionCookie;
+      // P3-80: 解密失败（如 ENCRYPT_KEY 变更）时密文对 VRChat 无意义且必然 401，
+      // 绝不把 enc: 密文原文当 cookie 发给上游（会外泄密文）；视为无效候选降级到系统 cookie。
+      const plain = decryptCookie(sessionCookie);
+      if (plain) return plain;
     }
     // 系统 Cookie（内存中已是明文）+ 记录的设置时间
     if (authState?.cookie && !isCookieExpired(authState.cookieSetAt)) {
@@ -574,7 +577,8 @@ module.exports = function setupVrcAuth() {
   // 防止未绑定 VRChat 的会员拿到系统账号 cookie 去越权改写系统账号头像（系统 Cookie 降级风险）。
   function getVRCCookieUserOnly(req) {
     const sessionCookie = req?.session?.vrchatCookie || req?.session?.vrcCookie;
-    if (sessionCookie) return decryptCookie(sessionCookie) || sessionCookie;
+    // P3-80: 解密失败视为无效（不降级到系统账号，也不透传密文原文）
+    if (sessionCookie) return decryptCookie(sessionCookie) || null;
     return null;
   }
 
@@ -588,8 +592,9 @@ module.exports = function setupVrcAuth() {
       for (const key of ['vrchatCookie', 'vrcCookie']) {
         const raw = req.session[key];
         if (!raw) continue;
-        const plain = decryptCookie(raw) || raw;
-        if (!deadCookie || plain === deadCookie) {
+        const plain = decryptCookie(raw);
+        // P3-80: 解密失败（无法使用）或与目标死 cookie 匹配时一并清除，绝不保留无效密文
+        if (plain === null || !deadCookie || plain === deadCookie) {
           req.session[key] = null;
           cleared = true;
         }

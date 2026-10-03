@@ -16,10 +16,10 @@
 <link rel="dns-prefetch" href="https://assets.amlcdn.com">
 <link rel="dns-prefetch" href="https://assets.vrchat.com">
 <!-- 首屏关键 CSS：阻塞渲染（页面骨架 / 设计令牌 / 基础 UI / 导航 / 首页内容） -->
-<link rel="stylesheet" href="/css/style.css?v=20260930a">
-  <link rel="stylesheet" href="/css/99-design-system.css?v=20260906a">
+<link rel="stylesheet" href="/css/style.css?v=20261001a">
+  <link rel="stylesheet" href="/css/99-design-system.css?v=20261001a">
   <link rel="stylesheet" href="/css/ui-components.css?v=20260906a">
-  <link rel="stylesheet" href="/css/ui-enhance.css?v=20260930a">
+  <link rel="stylesheet" href="/css/ui-enhance.css?v=20261001a">
 <link rel="stylesheet" href="/css/nav-scroller.css?v=20260906a">
 <link rel="stylesheet" href="/css/home-featured.css?v=20260906a">
 <link rel="stylesheet" href="/css/home-enhance.css?v=20260906a">
@@ -33,20 +33,20 @@
      首屏默认落在 home Tab，members/collections/social/地图/“更多”菜单等样式多为
      第二屏或弹层，异步加载后由浏览器空闲补全，导航到对应 Tab 时已就绪（P2-21） -->
 <link rel="stylesheet" href="/css/06b-presence.css?v=20260906a" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/06-members.css?v=20260915a" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/06-members.css?v=20261001a" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="/css/collections.css?v=20260906a" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="/css/10-social.css?v=20260906a" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/baidu-modern.css?v=20260930a" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/baidu-modern.css?v=20261001a" media="print" onload="this.media='all'">
 <!-- V9.4 地图 VRChat 世界面板样式（异步加载） -->
 <link rel="stylesheet" href="/css/worlds-panel.css?v=20260906a" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20260906a"></noscript>
 <!-- 无 JS 兜底：保证禁用 JS 时样式仍加载 -->
 <noscript>
   <link rel="stylesheet" href="/css/06b-presence.css?v=20260906a">
-  <link rel="stylesheet" href="/css/06-members.css?v=20260915a">
+  <link rel="stylesheet" href="/css/06-members.css?v=20261001a">
   <link rel="stylesheet" href="/css/collections.css?v=20260906a">
   <link rel="stylesheet" href="/css/10-social.css?v=20260906a">
-  <link rel="stylesheet" href="/css/baidu-modern.css?v=20260930a">
+  <link rel="stylesheet" href="/css/baidu-modern.css?v=20261001a">
 </noscript>
   <meta name="description" content="境途同游是一个面向 VRChat 玩家的社群平台，提供群组相册、活动报名、动态分享、成员地图与实时聊天，记录你在虚拟世界里的每一次同游。">
   <meta property="og:type" content="website">
@@ -78,12 +78,12 @@
         return 'zh';
       }
       // 解析期 document.write 外部脚本为阻塞式，保证在 i18n.js 之前就绪
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20260925-1006"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261001a"><\/script>');
     })();
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
        必须在 i18n 之后（依赖 window.__）、在 loader.js / ui.js 之前（确保 og:url 尽早被爬虫读取）。 -->
-  <script src="/js/seo.js?v=20260930a"></script>
+  <script src="/js/seo.js?v=20261001a"></script>
   <!-- 首屏性能量化（P2-21）：?perf=1 时上报 LCP/FCP 到 console，便于回归比对；
        生产默认关闭，零副作用。仅观测，不改写任何渲染行为。 -->
   <script>
@@ -412,7 +412,7 @@
           <div class="theme-panel-footer"><button  id="themeResetBtn" class="btn btn-sm btn-outline">🔄 重置默认</button><button  id="themeCloseBtn" class="btn btn-sm btn-outline">✕ 关闭</button></div>
         </div>
       </div>
-      <button id="langSwitcherBtn" class="lang-switcher-btn" data-i18n="lang.switch_to">🇨🇳 简体中文</button>
+      <button id="langSwitcherBtn" class="lang-switcher-btn"><span class="lang-switcher-icon" aria-hidden="true">🇨🇳</span><span class="sr-only" data-i18n="lang.switch_to">简体中文</span></button>
       <span id="adminBadge" class="admin-badge d-none">管理员</span>
       <div id="userMenuContainer" class="user-menu">
         <div id="userMenuTrigger" class="user-info">
@@ -575,7 +575,7 @@
       <div class="map-legend-sub flex-row gap-8 flex-wrap items-center">
         <span><span class="legend-dot legend-dot-accent"></span> <span data-i18n="map.my_pos">我的位置</span></span>
         <span><span class="legend-dot legend-dot-blue"></span> <span data-i18n="map.other_pos">其他成员</span></span>
-        <span class="text-muted2 text-12 ml-auto"><span id="mapCount">0</span> <span data-i18n="members.visible_positions">个可见位置</span></span>
+        <span class="text-muted2 text-12 ml-auto"><span id="mapCount">0</span></span>
         <button id="locationToggleBtn" class="btn btn-sm" data-i18n="map.my_location">📍 共享我的位置</button>
         <span id="locationStatus" class="text-12 d-none"></span>
       </div>
@@ -1474,6 +1474,21 @@
           </div>
         </div>
         <button id="saveSystemConfigBtn" class="btn btn-accent btn-sm mt-4">💾 保存设置</button>
+        <!-- ⬆️ 在线更新（超管专属，GIT 拉取 + 自动重启；不触碰 .env/数据库/uploads 等用户数据） -->
+        <div class="admin-subsection" id="gitUpdateSection">
+          <h4>🔄 在线更新</h4>
+          <p class="admin-subsection-hint">从 GitHub 远程仓库拉取最新代码并自动更新（仅超级管理员）。更新只修改受版本控制的代码文件，不会改动 <code>.env</code>、数据库与 <code>uploads/</code> 等用户数据。</p>
+          <div id="gitUpdateStatus" class="text-13"></div>
+          <div class="flex-row gap-8 items-center flex-wrap mt-8">
+            <label class="me-toggle">
+              <span>更新后自动重启服务（约 3 秒中断）</span>
+              <input type="checkbox" id="cfgGitRestart" checked aria-label="更新后自动重启服务">
+            </label>
+            <button id="gitUpdateBtn" class="btn btn-accent btn-sm" onclick="runGitUpdate()">⬆️ 检查并更新</button>
+            <button id="gitRestartBtn" class="btn btn-ghost btn-sm" onclick="runGitRestart()">🔄 仅重启服务</button>
+          </div>
+          <div id="gitUpdateResult" class="text-13 mt-8"></div>
+        </div>
       </div>
     </div>
 
@@ -2357,7 +2372,7 @@
      移出解析阻塞路径，首屏可先完成首次绘制（P2-21） -->
 <script defer src="/js/core.js?v=20260924b"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
-<script defer src="/js/i18n.js?v=20260925-1006"></script>
+<script defer src="/js/i18n.js?v=20261001a"></script>
 <script defer src="/js/ui.js?v=20260930a"></script>
 <script defer src="/vendor/gsap/gsap.min.js?v=20260906a"></script>
 <script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260906a"></script>
@@ -2368,7 +2383,7 @@
 <script defer src="/js/auth.js?v=20260924b"></script>
 <!-- 路由模块懒加载器：包裹 switchTab，按需 / 空闲预载（见 loader.js）。
      当前语言包由 <head> 内联引导按偏好注入，其余语言包在切换时按需加载。 -->
-<script defer src="/js/loader.js?v=20260924b"></script>
+<script defer src="/js/loader.js?v=20261003a"></script>
 <!-- 全局命令面板（VN-9，VRCNext SmartSearch 借鉴）：依赖 core.js 的 api/esc 等 -->
 <script defer src="/js/smartsearch.js?v=20260906a"></script>
 <!-- 引导启动：调用 initI18n / switchTab，必须在 loader.js 之后 -->

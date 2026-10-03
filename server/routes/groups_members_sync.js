@@ -26,6 +26,12 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   // 全量同步的互斥标志：同一时刻只允许一次，避免并发同步互相看到对方的中间态
   // 而写出成片的假"已离开群组"变更记录。
   let syncInFlight = false;
+  // P3-55：进程内 syncInFlight 只挡单进程并发；MySQL 模式叠加 GET_LOCK 会话锁，
+  // 让 PM2 cluster / 多实例部署下同一时刻也只有一个 worker 执行全量同步
+  // （否则各自 UPDATE is_member=0 再补回，会互相看到中间态写出假"已离开"记录）。
+  // SQLite 单连接模型天然串行化（BEGIN IMMEDIATE），进程内标志即足够。
+  const SQLITE_MODE = process.env.JINGTU_DB_ENGINE === 'sqlite';
+  const SYNC_LOCK_NAME = 'group_members_sync:' + GROUP_ID;
   // 全量同步 / 在线状态刷新已对全体登录用户开放，用内存冷却（按用户隔离，重启即清零）
   // 防止频繁触发打爆 VRChat 限流（429）。
   const SYNC_COOLDOWN_MS = 5 * 60 * 1000;   // 全量同步：5 分钟一次
@@ -62,6 +68,23 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     // 互相看到对方的中间态，往 group_member_changes 里写出大量假的"已离开群组"记录。
     if (syncInFlight) {
       return fail(res, 409, '同步正在进行中', { detail: '上一次群组同步还没结束，请等它完成后再试', code: ErrorCodes.CONFLICT });
+    }
+    // P3-55：跨进程互斥——MySQL 模式用 GET_LOCK 会话锁（随连接持有、RELEASE_LOCK 释放），
+    // 锁未获取到（另一实例正在同步）直接 409，避免重复拉取 VRChat 成员浪费上游配额；
+    // GET_LOCK 查询本身失败（DB 抖动）时降级为进程内标志，不因锁服务故障阻断同步。
+    let lockConn = null;
+    if (!SQLITE_MODE) {
+      try {
+        lockConn = await pool.getConnection();
+        const [lockRows] = await lockConn.query('SELECT GET_LOCK(?, 0) AS got', [SYNC_LOCK_NAME]);
+        if (!(lockRows && lockRows[0] && Number(lockRows[0].got) === 1)) {
+          try { lockConn.release(); } catch (_) {}
+          return fail(res, 409, '同步正在进行中', { detail: '上一次群组同步还没结束，请等它完成后再试', code: ErrorCodes.CONFLICT });
+        }
+      } catch (le) {
+        if (lockConn) { try { lockConn.release(); } catch (_) {} lockConn = null; }
+        logger.warn('groups', 'sync GET_LOCK 查询失败，降级为进程内互斥', le.message);
+      }
     }
     syncInFlight = true;
     lastSyncByUser.set(syncUserKey, Date.now());
@@ -223,6 +246,11 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       handleError(res, e, 'groups/sync');
     } finally {
       syncInFlight = false;
+      // P3-55：释放跨进程锁（MySQL 会话锁；连接归还池前显式 RELEASE_LOCK 双保险）
+      if (lockConn) {
+        try { await lockConn.query('SELECT RELEASE_LOCK(?)', [SYNC_LOCK_NAME]); } catch (_) {}
+        try { lockConn.release(); } catch (_) {}
+      }
       if (conn) conn.release();
     }
   });
@@ -393,7 +421,8 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         if (!friendMap || friendMap.size === 0) return { shared: 0 };
         const [rows] = await pool.query(`SELECT vrchat_id FROM group_roster WHERE is_member=1`);
         const ids = rows.map(r => r.vrchat_id);
-        const [u] = await pool.query(`SELECT vrchat_id FROM users WHERE id=?`, [req.user.id]);
+        // P3-58：requireAuth 只保证 req.session.userId，不再依赖可能未填充的 req.user.id
+        const [u] = await pool.query(`SELECT vrchat_id FROM users WHERE id=?`, [req.session.userId]);
         const sourceVid = (u[0] && u[0].vrchat_id) ? u[0].vrchat_id : null;
         let shared = 0;
         for (const vid of ids) {
@@ -417,9 +446,17 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       const shared = result && result.shared !== undefined ? result.shared : 0;
       ok(res, { shared });
     } catch (e) {
-      // 贡献是增强特性，失败不应阻断主流程（如 VRChat 限流 / cookie 过期）
-      logger.warn('groups', 'presence/contribute 失败', e.message);
-      ok(res, { shared: 0, skipped: true });
+      // P3-58：不再统一吞成 {shared:0, skipped:true}——区分「上游限流」「登录过期」
+      // 「服务端异常」各报各的错误码，让前端能针对性提示；限流不等于服务器内部错误。
+      if (e && e.code === 'VRC_RATE_TIMEOUT') {
+        logger.warn('groups', 'presence/contribute 遭遇 VRChat 限流排队超时');
+        return fail(res, 503, 'VRChat接口当前繁忙（限流），贡献状态稍后自动重试', { code: 'VRC_RATE_LIMITED' });
+      }
+      if (e && (e.status === 401 || e.statusCode === 401)) {
+        return fail(res, 401, 'VRChat账号登录已过期，请重新绑定', { code: 'VRC_COOKIE_EXPIRED' });
+      }
+      logger.error('groups', 'presence/contribute 服务端异常', e.message);
+      return handleError(res, e, 'groups/presence-contribute');
     }
   });
 

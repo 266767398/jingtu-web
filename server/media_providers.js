@@ -17,6 +17,11 @@
  */
 const http = require('http');
 const https = require('https');
+const dns = require('dns');
+const net = require('net');
+const { promisify } = require('util');
+
+const dnsLookup = promisify(dns.lookup);
 
 const DEFAULTS = {
   media_provider_mirrors: '[]', // JSON: [{name, urlTemplate, referer?, origin?, enabled}]
@@ -154,6 +159,50 @@ function getChain() {
   return cache.media_provider_mirror_first === '1' ? [...mirrors, builtin] : [builtin, ...mirrors];
 }
 
+// ============ 重定向目标 SSRF 防护（P3-74）============
+// 上游一旦被劫持或镜像源被诱导返回恶意 302，可回源任意地址（含内网）。
+// 跟随重定向前校验：协议必须 https，且主机/解析地址非内网/环回/链路本地。
+function _isPrivateIPv4(ip) {
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4 || parts.some(n => !Number.isFinite(n))) return true;
+  if (parts[0] === 0 || parts[0] === 10) return true;
+  if (parts[0] === 127) return true;
+  if (parts[0] === 169 && parts[1] === 254) return true;
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // CGNAT
+  if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true;
+  if (parts[0] === 198 && parts[1] === 18) return true;
+  if (parts[0] === 198 && parts[1] === 51 && parts[2] === 100) return true;
+  if (parts[0] === 203 && parts[1] === 0 && parts[2] === 113) return true;
+  return false;
+}
+
+function _isPrivateIPv6(ip) {
+  const lower = String(ip).toLowerCase();
+  if (lower === '::1') return true;
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // ULA fc00::/7
+  if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true; // fe80::/10 链路本地
+  return false;
+}
+
+// 校验重定向目标：协议 https + 主机名/IP 非内网。非法时抛错由调用方拒绝跟随。
+async function _assertPublicRedirectTarget(targetUrl) {
+  if (targetUrl.protocol !== 'https:') throw new Error('redirect to non-https blocked');
+  // URL.hostname 对 IPv6 字面量保留方括号（如 [::1]），先剥除再判断
+  const host = String(targetUrl.hostname).replace(/^\[|\]$/g, '');
+  const asIp = net.isIP(host);
+  if (asIp === 4 && _isPrivateIPv4(host)) throw new Error('redirect to internal address blocked');
+  if (asIp === 6 && _isPrivateIPv6(host)) throw new Error('redirect to internal address blocked');
+  if (asIp === 0) {
+    if (host.toLowerCase() === 'localhost') throw new Error('redirect to localhost blocked');
+    const { address } = await dnsLookup(host);
+    const resolvedIp = net.isIP(address);
+    if (resolvedIp === 4 && _isPrivateIPv4(address)) throw new Error('redirect to internal address blocked');
+    if (resolvedIp === 6 && _isPrivateIPv6(address)) throw new Error('redirect to internal address blocked');
+  }
+}
+
 // 单次 HTTP(S) 拉取（由 avatar.js 迁入，零依赖，支持可配 headers/timeout）。
 // _retry 用于 429 / 网络抖动的指数退避重试。
 function fetchRemote(u, opts, redirects, _retry) {
@@ -174,8 +223,17 @@ function fetchRemote(u, opts, redirects, _retry) {
       const { statusCode, headers: h } = resp;
       if (statusCode >= 300 && statusCode < 400 && h.location) {
         resp.resume();
-        const next = new URL(h.location, u).toString();
-        return resolve(fetchRemote(next, opts, redirects + 1, _retry));
+        // P3-74: 跟随重定向前校验目标（协议 + 公网主机），拒绝回源内网
+        return (async () => {
+          let next;
+          try {
+            next = new URL(h.location, u);
+            await _assertPublicRedirectTarget(next);
+          } catch (e) {
+            return reject(e);
+          }
+          return resolve(fetchRemote(next.toString(), opts, redirects + 1, _retry));
+        })();
       }
       if (statusCode === 429) {
         resp.resume();
@@ -244,4 +302,5 @@ module.exports = {
   markSuccess,
   markFailure,
   isCoolingDown,
+  _assertPublicRedirectTarget, // P3-74 测试专用：重定向目标 SSRF 校验
 };

@@ -55,7 +55,7 @@
       if (!d.items || d.items.length === 0) { el.innerHTML = `<div class="text-muted2 text-13 p-16">${__('model_coll.no_invalid')}</div>`; return; }
       el.innerHTML = d.items.map(r => `
         <div class="mc-card" data-mc-invalid-id="${r.id}">
-          <img class="mc-thumb" src="${escAttr(r.thumbnailUrl || '/api/avatar/default')}" alt="${escAttr(r.modelName)}" onerror="this.src='/api/avatar/default'">
+          <img class="mc-thumb" src="${escAttr(r.thumbnailUrl || '/api/avatar/default')}" alt="${escAttr(r.modelName)}" onerror="window.__imgFail(this)">
           <div class="mc-info">
             <div class="mc-name">${esc(r.modelName || r.modelId)}</div>
             <div class="mc-meta">${esc(r.modelId)}</div>
@@ -134,7 +134,7 @@
         if (!d.collections || d.collections.length === 0) listEl.innerHTML = `<div class="text-muted2 text-13 p-16">${__('model_coll.empty')}</div>`;
         else listEl.innerHTML = d.collections.map(r => `
           <div class="mc-card">
-            <img class="mc-thumb" src="${escAttr(r.thumbnailUrl || '/api/avatar/default')}" alt="${escAttr(r.modelName)}" onerror="this.src='/api/avatar/default'">
+            <img class="mc-thumb" src="${escAttr(r.thumbnailUrl || '/api/avatar/default')}" alt="${escAttr(r.modelName)}" onerror="window.__imgFail(this)">
             <div class="mc-info">
               <div class="mc-name">${esc(r.modelName || r.modelId)} ${r.isRecommended ? '⭐' : ''}</div>
               <div class="mc-meta">${esc(r.modelId)}</div>

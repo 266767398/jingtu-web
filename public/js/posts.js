@@ -26,6 +26,7 @@ let postsPageSize = (function() {
 let postsLoading = false;
 let postsKeepScroll = false; // VN-8 滚动位置保持开关（VRCNext lvKeepScroll 借鉴）
 let postsSavedScrollTop = 0;
+let loadPostsSeq = 0; // P2-166: 请求序号——旧响应落地时若已被新请求取代则丢弃，防跨筛选覆盖
 
 function getPostsScrollEl() {
   // 优先找时间线列表的滚动容器，退化为 window
@@ -62,9 +63,12 @@ function loadPosts(page) {
   if (postsFilterUserId) params.set('userId', postsFilterUserId);
   if (postsFilterDate) params.set('date', postsFilterDate);
 
+  // P2-166: 捕获本次请求序号；期间若筛选/翻页发起新请求，序号递增，迟到旧响应直接丢弃
+  const seq = ++loadPostsSeq;
   api('/api/posts?' + params.toString())
     .then(r => r.json())
     .then(data => {
+      if (seq !== loadPostsSeq) return;
       postsCurrentPage = data.page || 1;
       postsTotalPages = data.totalPages || 1;
       postsHasMore = data.hasMore === true;
@@ -72,10 +76,11 @@ function loadPosts(page) {
       updatePostsLoadMoreBtn();
     })
     .catch(err => {
+      if (seq !== loadPostsSeq) return;
       if (isApiHandledError(err)) return;
       renderEmpty(container, { icon: '📝', text: __('posts.load_failed') });
     })
-    .finally(() => { postsLoading = false; });
+    .finally(() => { if (seq === loadPostsSeq) postsLoading = false; });
 }
 
 // ==================== __('auto_posts_1')按钮控制 ====================
@@ -99,9 +104,12 @@ function loadMorePosts() {
   if (postsFilterUserId) params.set('userId', postsFilterUserId);
   if (postsFilterDate) params.set('date', postsFilterDate);
 
+  // P2-166: 加载更多同样纳入序号管理——筛选切换发起的 loadPosts(1) 会使旧 page 响应失效
+  const seq = ++loadPostsSeq;
   api('/api/posts?' + params.toString())
     .then(r => r.json())
     .then(data => {
+      if (seq !== loadPostsSeq) return;
       postsCurrentPage = data.page || 1;
       postsTotalPages = data.totalPages || 1;
       postsHasMore = data.hasMore === true;
@@ -111,12 +119,13 @@ function loadMorePosts() {
       updatePostsLoadMoreBtn();
     })
     .catch(err => {
+      if (seq !== loadPostsSeq) return;
       if (isApiHandledError(err)) return;
       const loadingEl = container.querySelector('.posts-loading-more');
       if (loadingEl) loadingEl.remove();
       toast(__('posts.load_more_failed'), 'error');
     })
-    .finally(() => { postsLoading = false; });
+    .finally(() => { if (seq === loadPostsSeq) postsLoading = false; });
 }
 
 // ==================== 渲染动态卡片 ====================
@@ -168,14 +177,14 @@ function buildPostCard(post) {
       for (let i = 0; i < images.length; i++) {
         const m = images[i];
         const src = m.thumbUrl || m.mediaUrl;
-        mediaHtml += '<div class="post-media-item"><img class="post-media-img" data-post-id="' + post.id + '" data-idx="' + i + '" src="' + escAttr(src) + '" alt="' + __('posts.alt_image') + '" loading="lazy" onerror="this.parentElement.innerHTML=\'<div class=media-error>' + __('posts.load_failed') + '</div>\'"></div>';
+        mediaHtml += '<div class="post-media-item"><img class="post-media-img" data-post-id="' + post.id + '" data-idx="' + i + '" src="' + escAttr(src) + '" alt="' + __('posts.alt_image') + '" loading="lazy" onerror="this.parentElement.innerHTML=\'<div class=media-error>' + escJsStr(__('posts.load_failed')) + '</div>\'"></div>';
       }
       mediaHtml += '</div>';
     }
 
     for (let v = 0; v < videos.length; v++) {
       const vm = videos[v];
-      mediaHtml += '<div class="post-video-item"><video class="post-video-player" src="' + escAttr(vm.mediaUrl) + '" controls preload="metadata" onerror="this.parentElement.innerHTML=\'<div class=media-error>' + __('posts.video_load_failed') + '</div>\'"></video></div>';
+      mediaHtml += '<div class="post-video-item"><video class="post-video-player" src="' + escAttr(vm.mediaUrl) + '" controls preload="metadata" onerror="this.parentElement.innerHTML=\'<div class=media-error>' + escJsStr(__('posts.video_load_failed')) + '</div>\'"></video></div>';
     }
   }
 
@@ -184,7 +193,7 @@ function buildPostCard(post) {
 
   let cardHtml = '<div class="post-card" data-post-id="' + post.id + '">';
   cardHtml += '<div class="post-header">';
-  cardHtml += '<img class="post-avatar" src="' + escAttr(avatarUrl) + '" alt="" onerror="this.src=\'/api/avatar/default\'">';
+  cardHtml += '<img class="post-avatar" src="' + escAttr(avatarUrl) + '" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,\'' + escJsStr(avatarUrl) + '\')">';
   cardHtml += '<div class="post-user-info"><span class="post-username">' + esc(post.user ? post.user.name : __('posts.user')) + '</span><span class="post-time">' + esc(time) + '</span></div>';
   cardHtml += '<div class="post-actions-top">';
   if (post.isPinned) cardHtml += '<span class="post-pin-badge">' + __('posts.pin') + '</span>';
@@ -208,7 +217,7 @@ function buildPostCard(post) {
     for (let ci = 0; ci < maxPreview; ci++) {
       const c = post.comments[ci];
       const cAvatar = c.user && c.user.avatarUrl ? c.user.avatarUrl : '/api/avatar/default';
-      cardHtml += '<div class="post-comment-item"><img class="post-comment-avatar" src="' + escAttr(cAvatar) + '" alt="" onerror="this.src=\'/api/avatar/default\'"><div class="post-comment-body"><span class="post-comment-name">' + esc(c.user ? c.user.name : __('posts.user')) + '</span><span class="post-comment-text">' + esc(c.content) + '</span></div></div>';
+      cardHtml += '<div class="post-comment-item"><img class="post-comment-avatar" src="' + escAttr(cAvatar) + '" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,\'' + escJsStr(cAvatar) + '\')"><div class="post-comment-body"><span class="post-comment-name">' + esc(c.user ? c.user.name : __('posts.user')) + '</span><span class="post-comment-text">' + esc(c.content) + '</span></div></div>';
     }
     if (post.commentCount > 3) cardHtml += '<div class="post-comments-more" onclick="showPostDetail(' + post.id + ')">' + __('posts.view_all_comments', {n: post.commentCount}) + '</div>';
     cardHtml += '</div>';
@@ -327,7 +336,7 @@ function submitPostComment(postId) {
     const avatarUrl = currentUser.avatarUrl || '/api/avatar/default';
     newComment = document.createElement('div');
     newComment.className = 'post-comment-item';
-    newComment.innerHTML = '<img class="post-comment-avatar" src="' + escAttr(avatarUrl) + '" alt="" onerror="this.src=\'/api/avatar/default\'"><div class="post-comment-body"><span class="post-comment-name">' + esc(currentUser.displayName || currentUser.loginId) + '</span><span class="post-comment-text">' + esc(content) + '</span></div>';
+    newComment.innerHTML = '<img class="post-comment-avatar" src="' + escAttr(avatarUrl) + '" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,\'' + escJsStr(avatarUrl) + '\')"><div class="post-comment-body"><span class="post-comment-name">' + esc(currentUser.displayName || currentUser.loginId) + '</span><span class="post-comment-text">' + esc(content) + '</span></div>';
     previewArea.appendChild(newComment);
     const moreLink = previewArea.querySelector('.post-comments-more');
     if (moreLink) moreLink.remove();
@@ -719,7 +728,7 @@ function paintPostDetail(post) {
           var actions = canEdit
             ? '<span class="post-comment-actions"><button class="btn-text" onclick="editPostComment(' + post.id + ',' + c.id + ')">' + __('edit') + '</button><button class="btn-text" onclick="deletePostComment(' + post.id + ',' + c.id + ')">' + __('delete') + '</button></span>'
             : '';
-          cc.innerHTML += '<div class="post-comment-item" data-comment-id="' + c.id + '"><img class="post-comment-avatar" src="' + escAttr(ca) + '" alt="" onerror="this.src=\'/api/avatar/default\'"><div class="post-comment-body"><span class="post-comment-name">' + esc(c.user ? c.user.name : __('posts.user')) + '</span><span class="post-comment-text" id="postCommentText-' + c.id + '">' + esc(c.content) + '</span><span class="post-comment-time">' + fmtTime(c.createdAt) + '</span>' + actions + '</div></div>';
+          cc.innerHTML += '<div class="post-comment-item" data-comment-id="' + c.id + '"><img class="post-comment-avatar" src="' + escAttr(ca) + '" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,\'' + escJsStr(ca) + '\')"><div class="post-comment-body"><span class="post-comment-name">' + esc(c.user ? c.user.name : __('posts.user')) + '</span><span class="post-comment-text" id="postCommentText-' + c.id + '">' + esc(c.content) + '</span><span class="post-comment-time">' + fmtTime(c.createdAt) + '</span>' + actions + '</div></div>';
         }
         if (cmts.length === 0) cc.innerHTML += (function(){ var w=document.createElement('div'); renderEmpty(w, { icon: '💬', text: __('posts.no_comments') }); return w.innerHTML; })();
         body.appendChild(cc);

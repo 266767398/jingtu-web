@@ -51,8 +51,9 @@ jobs:
           retention-days: 7
 
   # P2-68：ESLint 平铺配置（server/eslint.config.js）门禁。
-  # 服务端/面板目录 error 级为 0 容忍；前端 public/js 存量整体降为 warn（棘轮）。
-  # no-unused-vars 存量 86 处亦为 warn 记账，清偿后升级回 error。
+  # 服务端/面板目录 error 级为 0 容忍；no-unused-vars 存量 86 处为 warn 记账，清偿后升级回 error。
+  # P3-146：删除前端 public/js 死配置块（CI 在 server/ 下 `eslint .` 永不带入 ../public/js），
+  # 排除口径（test/__tests__/scripts 整段不设 lint 门禁）见 eslint.config.js 顶部注释登记。
   lint:
     name: 代码静态检查（ESLint 0 error 门禁）
     runs-on: ubuntu-latest
@@ -76,7 +77,8 @@ jobs:
         run: npm run lint
 
   # P2-68：server/test/ 下的 node:test 套件（security.test.js 等）此前从未进 CI，
-  # 通过 npm run test:node（node --test test/*.test.js，通配符兼容目录参数失效的环境）补上执行通道。
+  # 通过 npm run test:node（node --test --test-force-exit test/*.test.js）补上执行通道。
+  # P3-145：--test-force-exit（Node ≥20.14）取代进程内强退定时器，保证进程退出性且不掩盖失败。
   node-test:
     name: 服务端测试（node:test 原生套件）
     runs-on: ubuntu-latest

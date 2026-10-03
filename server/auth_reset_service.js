@@ -48,7 +48,8 @@ function registerResetRoutes(router) {
       [email]
     );
     if (users.length === 0) {
-      return ok(res, { message: '如果该邮箱已注册，验证码已发送到您的邮箱' });
+      // P2-125: 响应结构与存在路径完全对称（token: null / message 恒定文案），避免按是否含 token 字段枚举邮箱
+      return ok(res, { message: '如果该邮箱已注册，验证码已发送到您的邮箱', token: null });
     }
 
     const user = users[0];

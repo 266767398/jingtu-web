@@ -171,7 +171,7 @@ function renderUsersAdmin(users) {
     const pwdBtn = `<button class="btn btn-sm" data-user-action="reset-pwd" data-user-id="${id_esc}">🔑 ${__('admin.reset_pwd')}</button>`;
     const delBtn = `<button class="btn btn-sm btn-danger" data-user-action="delete" data-user-id="${id_esc}">${__('delete')}</button>`;
     return `<div class="admin-user-card">
-      <img src="${avatarSrc}" class="admin-user-avatar" alt="${name}" loading="lazy">
+      <img src="${avatarSrc}" class="admin-user-avatar" alt="${name}" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(u.avatarUrl || '/api/avatar/default')}')">
       <div class="admin-user-info">
         <div class="admin-user-name">${name}</div>
         <div class="admin-user-loginId">${__('admin_users.login_id')}: ${loginId}</div>
@@ -317,7 +317,7 @@ async function generateCodes() {
       if (listEl) {
         listEl.innerHTML = _generatedCodes.map(code =>
           '<div class="gen-code-row"><code class="gen-code-text">' + code + '</code>' +
-          '<button type="button" class="btn btn-sm btn-outline gen-code-copy" data-code="' + code + '">' + __('admin.copy') + '</button></div>'
+          '<button type="button" class="btn btn-sm btn-outline gen-code-copy" data-code="' + escAttr(code) + '">' + __('admin.copy') + '</button></div>'
         ).join('');
         listEl.querySelectorAll('.gen-code-copy').forEach(function(b) {
           b.addEventListener('click', function() {
@@ -501,11 +501,13 @@ function renderBackups(backups) {
         ${backups.map(b => {
           const filename = b.name || b.filename;
           const encodedFilename = encodeURIComponent(filename);
+          const createdDate = b.createdAt ? new Date(b.createdAt) : null;
+          const createdText = createdDate && !isNaN(createdDate.getTime()) ? createdDate.toLocaleString() : __('unknown');
           return `
           <tr style="border-bottom:1px solid var(--border);transition:background 0.2s" onmouseenter="this.style.background='var(--hover)'" onmouseleave="this.style.background='transparent'">
             <td style="padding:8px;font-size:12px">${esc(filename)}</td>
             <td style="padding:8px;font-size:12px">${b.sizeFormatted}</td>
-            <td style="padding:8px;font-size:12px">${new Date(b.createdAt).toLocaleString()}</td>
+            <td style="padding:8px;font-size:12px">${createdText}</td>
             <td style="padding:8px;font-size:12px">
               <button onclick="downloadBackup('${escJsStr(encodedFilename)}')" class="btn btn-sm btn-outline" style="padding:2px 8px" data-i18n="admin.download">下载</button>
               <button onclick="deleteBackup('${escJsStr(encodedFilename)}')" class="btn btn-sm btn-red" style="padding:2px 8px" data-i18n="admin.delete">删除</button>
@@ -623,7 +625,7 @@ function renderAdminMgrList(users, totalPages) {
     const editBtn = !isSelf ? `<button class="btn btn-sm" data-user-action="edit-admin" data-user-id="${id_esc}" data-user-name="${name_attr}" data-user-role="${role_attr}" data-user-email="${escAttr(u.email || '')}">✏️ ${__('edit')}</button>` : '';
     const delBtn = !isSelf ? `<button class="btn btn-sm btn-danger" data-user-action="delete-admin" data-user-id="${id_esc}">${__('delete')}</button>` : '';
     return `<div class="admin-user-card">
-      <img src="${avatarSrc}" class="admin-user-avatar" alt="${name}" loading="lazy">
+      <img src="${avatarSrc}" class="admin-user-avatar" alt="${name}" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(u.avatarUrl || '/api/avatar/default')}')">
       <div class="admin-user-info">
         <div class="admin-user-name">${name}${isSelf ? ' <span style="color:var(--accent)">(' + __('admin.self') + ')</span>' : ''}</div>
         <div class="admin-user-loginId">${__('admin_users.login_id')}: ${loginId}</div>
@@ -753,8 +755,10 @@ async function loadMePage() {
   
   // 加载个人信息
   const el = (id) => document.getElementById(id);
-  const d = el('meDisplayName'); if (d) d.textContent = currentUser.displayName || currentUser.loginId || '-';
-  const l = el('meLoginId'); if (l) l.textContent = currentUser.loginId || '-';
+  // 表单类元素（input）用 .value 填充，textContent 对 input 不生效
+  const dn = el('meDisplayName'); if (dn) dn.value = currentUser.displayName || currentUser.loginId || '-';
+  const li = el('meLoginId'); if (li) li.value = currentUser.loginId || '-';
+  // 展示类元素（div/span）用 textContent 填充
   const e = el('meEmail'); if (e) e.textContent = currentUser.email || '-';
   
   let roleLabel = __('members.role_member');

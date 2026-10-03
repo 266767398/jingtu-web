@@ -59,6 +59,7 @@ async function logout(redirect = true, silent = false) {
   if (typeof stopGroupPolling === 'function') stopGroupPolling();
   currentUser = null; csrfToken = null; membersCache = []; albumPhotoList = [];
   signedEvents.clear(); albumScrollLock.clear();
+  clearLoginFlag();
   localStorage.removeItem('jingtu_remember');
   sessionStorage.removeItem('manual_logout');
   resetVrcLoginState();
@@ -76,7 +77,10 @@ async function logout(redirect = true, silent = false) {
 async function checkAutoLogin() {
   try {
     if (sessionStorage.getItem('manual_logout') === 'true') { sessionStorage.removeItem('manual_logout'); return false; }
-    const user = await loadMe();
+    // 登录标记 Cookie 不存在 → 本浏览器从未登录过。connect.sid 是 HttpOnly 前端读不到，
+    // 探测会话是唯一手段，但冷启动无会话时 /me/profile 必 401（控制台红字噪音），
+    // 用标记跳过这次必失败的探测；有标记的浏览器仍会真实探测以区分会话有效/过期。
+    const user = hasLoginFlag() ? await loadMe() : null;
     if (user) { showApp(); return true; }
     const saved = localStorage.getItem('jingtu_remember');
     if (saved) {
@@ -90,6 +94,29 @@ async function checkAutoLogin() {
     }
   } catch {}
   return false;
+}
+
+// ==================== 登录标记 Cookie ====================
+// connect.sid 是 HttpOnly，前端无法用 document.cookie 判断会话是否存在，
+// 导致 checkAutoLogin 每次冷启动都白打一次必 401 的 /me/profile 探测请求。
+// 这里用普通 Cookie 记录"本浏览器登录过"，随登录 showApp() 写入、logout() 清除，
+// 与 connect.sid 生命周期天然同步（用户清 Cookie 时一起消失）。
+// 会话有效性永远由 loadMe() 的响应决定；跳过探测只会让冷启动直达登录页，
+// 不会误伤合法会话（有标记才探测）。过期会话仍会探测到 401 并走登录页兜底。
+function setLoginFlag() {
+  try {
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `jingtu_login=1; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax${secure}`;
+  } catch {}
+}
+function clearLoginFlag() {
+  try {
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `jingtu_login=; path=/; max-age=0; SameSite=Lax${secure}`;
+  } catch {}
+}
+function hasLoginFlag() {
+  return document.cookie.split('; ').some(part => part.startsWith('jingtu_login='));
 }
 
 function showLogin() { 
@@ -147,6 +174,7 @@ function showApp() {
   if (bar) { bar.style.opacity = '0'; bar.style.width = '0'; }
 
   try {
+    setLoginFlag();
     document.getElementById('appHeader')?.classList.remove('d-none');
     document.getElementById('heroSection')?.classList.remove('d-none');
     document.getElementById('mainContainer')?.classList.remove('d-none');

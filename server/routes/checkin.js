@@ -96,17 +96,18 @@ router.post('/me/checkin', requireAuth, async (req, res) => {
       throw e;
     }
 
-    // 原子自增，避免 read-then-write 竞态
+    // §P3-170: 原子自增 + 行锁，避免 read-then-write 竞态（FOR UPDATE 在 SQLite 模式由 transformSQL 剥离并告警，已依赖 BEGIN IMMEDIATE）
     const [userRes] = await conn.query(
-      'SELECT total_checkins, current_streak, max_streak, checkin_points FROM users WHERE id = ?',
+      'SELECT total_checkins, current_streak, max_streak, checkin_points FROM users WHERE id = ? FOR UPDATE',
       [userId]
     );
 
     const currentUser = userRes[0] || { total_checkins: 0, current_streak: 0, max_streak: 0, checkin_points: 0 };
     const newMaxStreak = Math.max(currentUser.max_streak, streak);
 
+    // current_streak 用 GREATEST 幂等兜底：并发下即使读快照略旧，也不回退已提交的更高连续天数
     await conn.query(
-      'UPDATE users SET total_checkins = total_checkins + 1, current_streak = ?, max_streak = GREATEST(max_streak, ?), checkin_points = checkin_points + ?, last_checkin_date = ? WHERE id = ?',
+      'UPDATE users SET total_checkins = total_checkins + 1, current_streak = GREATEST(current_streak, ?), max_streak = GREATEST(max_streak, ?), checkin_points = checkin_points + ?, last_checkin_date = ? WHERE id = ?',
       [streak, streak, points, today, userId]
     );
 

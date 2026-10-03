@@ -143,16 +143,16 @@ table.admin-table tbody tr:hover td {
   white-space: nowrap;
 }
 .evt-status.ongoing {
-  background: var(--accent-light, rgba(76, 175, 80, 0.14));
-  color: var(--accent, #2e9e5b);
+  background: var(--accent-light, rgba(124, 92, 252, 0.14));
+  color: var(--accent, #7c5cfc);
 }
 .evt-status.ended {
-  background: rgba(130, 130, 130, 0.16);
-  color: #8a8a8a;
+  background: var(--text2, rgba(130, 130, 130, 0.16));
+  color: var(--text2);
 }
 .evt-status.archived {
-  background: rgba(180, 140, 60, 0.16);
-  color: #b08c3c;
+  background: var(--amber, rgba(180, 140, 60, 0.16));
+  color: var(--amber);
 }
 .evt-actions {
   white-space: nowrap;

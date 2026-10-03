@@ -66,10 +66,14 @@ function worldToRow(world, worldId) {
 // P1-34: single-flight 防惊群——同一世界并发 miss 时共享一次回源，
 // 否则热门世界（如收藏列表批量渲染）会瞬间对 VRChat 打出 N 倍重复请求。
 const _worldInflight = new Map();
+// P3-48: single-flight 容量上限，防批量不同 world_id 在回源窗口内短期膨胀内存
+const _WORLD_INFLIGHT_MAX = 200;
 async function getCachedWorld(worldId, cookie = null) {
   const key = String(worldId);
   const existing = _worldInflight.get(key);
   if (existing) return existing;
+  // 超限不再合并 single-flight，直接回源（资源纪律兜底）
+  if (_worldInflight.size >= _WORLD_INFLIGHT_MAX) return _loadWorld(worldId, cookie);
   const p = _loadWorld(worldId, cookie).finally(() => _worldInflight.delete(key));
   _worldInflight.set(key, p);
   return p;

@@ -249,7 +249,29 @@ function loadBlock(name, loader, ms) {
   return Promise.race([
     loader(),
     new Promise((_resolve, reject) => setTimeout(() => reject(new Error(name + ' timeout')), ms))
-  ]).catch(e => { console.warn('[home load]', name, e.message || e); });
+  ]).catch(e => {
+    console.warn('[home load]', name, e.message || e);
+    // 失败不能静默：清掉骨架占位并提示，避免区块永久处于加载态
+    const containerMap = { events: 'homeUpcomingEvents', posts: 'homeLatestPosts', photos: 'homeFeaturedPhotos' };
+    const cid = containerMap[name];
+    if (cid) {
+      const c = document.getElementById(cid);
+      if (c) renderEmpty(c, { icon: '⚠️', text: __('load_failed') });
+    }
+    if (name === 'stats') resetDashboardSkeletons();
+    toast(__('load_failed'), 'error');
+  });
+}
+
+// 统计位失败兜底：移除 skeleton-stat 骨架类并落占位值，防止数字区域永久处于骨架态
+function resetDashboardSkeletons() {
+  ['dashMembers', 'dashOnline', 'dashEvents', 'dashPhotos', 'dashPosts'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = '-';
+      el.classList.remove('skeleton-stat');
+    }
+  });
 }
 
 async function loadHome() {
@@ -297,14 +319,20 @@ async function loadDashboardStats() {
 async function loadPublicDashboardStats() {
   try {
     const res = await api('/api/public/stats', { method: 'GET' });
-    if (!res.ok) return;
+    if (!res.ok) {
+      // 匿名兜底也失败：清除骨架并落占位值，避免统计位永久处于 loading 态
+      resetDashboardSkeletons();
+      return;
+    }
     const data = await res.json();
     updateDashboardValue('dashMembers', data.totalUsers || 0);
     updateDashboardValue('dashOnline', data.onlineCount || 0);
     updateDashboardValue('dashEvents', data.totalEvents || 0);
     updateDashboardValue('dashPhotos', data.totalPhotos || 0);
     updateDashboardValue('dashPosts', data.totalPosts || 0);
-  } catch {}
+  } catch {
+    resetDashboardSkeletons();
+  }
 }
 
 function updateDashboardValue(id, value) {
@@ -352,7 +380,7 @@ function updateGreeting() {
   const av = document.getElementById('homeWelcomeAvatar');
   if (av) {
     if (currentUser && currentUser.avatarUrl) {
-      av.innerHTML = '<img src="' + escAttr(currentUser.avatarUrl) + '" alt="" onerror="this.style.display=\'none\'">';
+      av.innerHTML = '<img src="' + escAttr(currentUser.avatarUrl) + '" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,\'' + escJsStr(currentUser.avatarUrl) + '\')">';
     } else {
       av.textContent = '👤';
     }
@@ -444,7 +472,7 @@ async function loadHomeLatestPosts() {
       const name = esc((p.user && p.user.name) || p.authorName || p.author_name || __('unknown_user'));
       const content = esc((p.content || '').substring(0, 100));
       return `<div class="post-mini-item" onclick="switchTab('posts')">
-        <img class="post-mini-avatar" src="${avatar || '/api/avatar/default'}" alt="" onerror="this.src='/api/avatar/default'" loading="lazy">
+        <img class="post-mini-avatar" src="${escAttr(avatar || '/api/avatar/default')}" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(avatar || '/api/avatar/default')}')" loading="lazy">
         <div class="post-mini-body">
           <div class="post-mini-author">${name}</div>
           <div class="post-mini-content">${content}${(p.content || '').length > 100 ? '...' : ''}</div>

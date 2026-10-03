@@ -11,6 +11,14 @@ const { requireAuth } = require('../auth');
 module.exports = function (notificationService) {
   const router = express.Router();
 
+  // P3-52: 与 tasks.js 按北京时间判定「今天」保持一致，修复 UTC 日期在东八区的半天偏差
+  function todayBeijing() {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  }
+
+  // P3-52: 每日赞人上限（默认 20 人/天），防脚本批量刷赞 + 通知扇出轰炸
+  const DAILY_LIKE_CAP = parseInt(process.env.USER_LIKE_DAILY_CAP) || 20;
+
 router.post('/:userId/like', requireAuth, async (req, res) => {
   try {
     const targetUserId = parseInt(req.params.userId);
@@ -29,7 +37,7 @@ router.post('/:userId/like', requireAuth, async (req, res) => {
       return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayBeijing();
 
     const [existing] = await getPool().query(
       `SELECT 1 FROM user_like WHERE from_user_id = ? AND to_user_id = ? AND like_date = ?`,
@@ -38,6 +46,15 @@ router.post('/:userId/like', requireAuth, async (req, res) => {
 
     if (existing.length > 0) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '今天已经给该用户点过赞了，明天再来吧！');
+    }
+
+    // P3-52: 每日赞人上限校验（同一用户每日最多赞 N 个不同目标）
+    const [givenToday] = await getPool().query(
+      `SELECT COUNT(*) as cnt FROM user_like WHERE from_user_id = ? AND like_date = ?`,
+      [currentUserId, today]
+    );
+    if (givenToday[0].cnt >= DAILY_LIKE_CAP) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, `今天点赞的人数已达上限（${DAILY_LIKE_CAP} 人），明天再来吧！`);
     }
 
     await getPool().query(
@@ -91,7 +108,7 @@ router.get('/:userId/stats', requireAuth, async (req, res) => {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayBeijing();
 
     const [likeCountResult] = await getPool().query(
       `SELECT COUNT(*) as totalLikes FROM user_like WHERE to_user_id = ?`,
@@ -215,7 +232,7 @@ router.get('/me/given', requireAuth, async (req, res) => {
 router.get('/me/today-stats', requireAuth, async (req, res) => {
   try {
     const userId = req.session.userId;
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayBeijing();
 
     const [givenTodayResult] = await getPool().query(
       `SELECT COUNT(*) as givenToday FROM user_like WHERE from_user_id = ? AND like_date = ?`,
@@ -265,7 +282,7 @@ router.get('/leaderboard', requireAuth, async (req, res) => {
     const now = new Date();
     
     if (period === 'today') {
-      dateCondition = `AND l.like_date = '${now.toISOString().split('T')[0]}'`;
+      dateCondition = `AND l.like_date = '${todayBeijing()}'`;
     } else if (period === 'week') {
       const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       dateCondition = `AND l.created_at >= '${oneWeekAgo.toISOString()}'`;

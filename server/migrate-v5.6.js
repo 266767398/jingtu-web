@@ -10,11 +10,13 @@ const { DB_NAME, DB_CONFIG, recreatePool, holder } = require('./db');
 async function migrate() {
   console.log('🔄 [V5.6] 开始数据库迁移...');
 
-  // 创建连接池
-  recreatePool();
-  const pool = holder.pool;
-
+  let pool = null;
   try {
+    // §P3-87: recreatePool 移入 try——原实现在 try 外执行，库不可达抛错时 pool 未赋值，
+    // finally 里的 `await pool.end()` 会抛 ReferenceError 掩盖原始错误；且 holder 中池已半初始化。
+    recreatePool();
+    pool = holder.pool;
+
     // 1. event 表添加 world 相关字段
     const eventColumns = [
       { name: 'world_id', def: `VARCHAR(100) NULL COMMENT 'VRChat World ID'` },
@@ -63,7 +65,7 @@ async function migrate() {
     console.error('❌ [V5.6] 迁移失败:', e.message);
     throw e;
   } finally {
-    await pool.end();
+    if (pool) { try { await pool.end(); } catch (_) {} }
   }
 }
 

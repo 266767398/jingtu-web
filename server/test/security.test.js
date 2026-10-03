@@ -1,6 +1,7 @@
 /**
  * 安全函数单元测试（纯函数，无需数据库）
- * 运行：npm run test:node（node --test test/*.test.js；P2-68 起挂入 CI node-test job）
+ * 运行：npm run test:node（node --test --test-force-exit test/*.test.js；P2-68 起挂入 CI node-test job，
+ *        P3-145 起以 --test-force-exit 取代进程内强退定时器——定时器会把挂起失败伪装成通过）
  */
 const test = require('node:test');
 const assert = require('node:assert');
@@ -165,7 +166,3 @@ test('secureUpload: 伪装文件 → 返回 400、next 不被调用、临时文�
   assert.strictEqual(fs.existsSync(p), false, '伪装文件应被删除');
   fs.rmSync(dir, { recursive: true, force: true });
 });
-
-// 保险：node --test 在本环境下因残留 IPC 句柄不会自动退出，用 unref 定时器在测试结束后强制干净退出
-const _exitTimer = setTimeout(() => process.exit(0), 5000);
-if (typeof _exitTimer.unref === 'function') _exitTimer.unref();

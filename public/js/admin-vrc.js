@@ -227,7 +227,8 @@ async function loadOperLog(page) {
       const logs = data.logs || [];
       if (!logs || logs.length === 0) {
         container.innerHTML = '<div class="text-muted text-13 p-8">' + __('admin_vrc.no_oper_log') + '</div>';
-        document.getElementById('operLogPagination').innerHTML = '';
+        const paginationEl = document.getElementById('operLogPagination');
+        if (paginationEl) paginationEl.innerHTML = '';
         return;
       }
       container.innerHTML = logs.map(l =>
@@ -384,6 +385,105 @@ async function saveSystemVrcCredentials() {
       toast(errText(err) || __('admin_vrc.save_failed'), 'error');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.save_failed') + ': ' + err.message, 'error'); }
+}
+
+// ==================== 在线更新（超管专属，GIT 拉取 + 自动重启） ====================
+// 前端仅渲染状态与发起请求；git fetch/merge、依赖安装检测、Windows 重启排程均在
+// server/routes/git_update.js 完成。更新只改受版本控制的文件，不触碰 .env/数据库/uploads。
+function gitEsc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function loadGitUpdateStatus() {
+  const el = document.getElementById('gitUpdateStatus');
+  if (!el) return;
+  el.innerHTML = '<span class="text-muted2">正在检测 Git 状态…</span>';
+  try {
+    const res = await api('/api/admin/git-status', { method: 'GET', timeout: 30000 });
+    if (!res.ok) return;
+    const d = await res.json();
+    if (!d.isGitRepo) {
+      el.innerHTML = '<span class="text-warn">' + gitEsc(d.message || '未检测到 Git 仓库，在线更新不可用') + '</span>';
+      return;
+    }
+    const fetchState = d.fetchOk
+      ? (d.behind > 0
+          ? '<span class="text-success">🔽 远端有 <b>' + (d.behind || 0) + '</b> 个新提交可更新</span>'
+          : (d.ahead > 0
+              ? '<span class="text-warn">⚠ 本地领先远端，在线更新暂不可用</span>'
+              : '<span class="text-success">✅ 已是最新版本</span>'))
+      : '<span class="text-warn">⚠ 无法连接远端（离线或凭据问题），仅显示本地状态</span>';
+    const aheadWarn = d.ahead > 0 ? ' · 本地领先远端 <b>' + d.ahead + '</b> 个提交' : '';
+    const dirtyWarn = d.localChanges > 0 ? ' · 本地有 <b>' + d.localChanges + '</b> 处未提交改动' : '';
+    el.innerHTML = [
+      '<div class="git-update-line">分支：<b>' + gitEsc(d.branch) + '</b>',
+      d.remote ? ' · 远端：<code>' + gitEsc(d.remote) + '</code>' : '',
+      '</div>',
+      '<div class="git-update-line">当前提交：<code>' + gitEsc(d.commit || '') + '</code>',
+      d.subject ? ' · ' + gitEsc(d.subject) : '',
+      '</div>',
+      '<div class="git-update-line">' + fetchState + aheadWarn + dirtyWarn + '</div>'
+    ].join('');
+  } catch (err) {
+    if (isApiHandledError(err)) { el.innerHTML = '<span class="text-warn">Git 状态查询失败</span>'; return; }
+    el.innerHTML = '<span class="text-warn">查询失败：' + gitEsc(err.message || err) + '</span>';
+  }
+}
+
+async function runGitUpdate() {
+  if (!currentUser || currentUser.role !== 'super_admin') { toast(__('admin_vrc.super_admin_setting'), 'error'); return; }
+  const btn = document.getElementById('gitUpdateBtn');
+  const resultEl = document.getElementById('gitUpdateResult');
+  const restartBox = document.getElementById('cfgGitRestart');
+  const restart = !!(restartBox && restartBox.checked);
+  const confirmMsg = '确定从 GitHub 拉取并应用最新代码？'
+    + (restart ? '\n更新成功后服务将自动重启（约 3 秒中断），页面会暂时无法访问。' : '\n更新成功后需手动点击「仅重启服务」使代码生效。')
+    + '\n\n更新不会改动 .env、数据库与 uploads/ 等用户数据。';
+  if (!confirm(confirmMsg)) return;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 正在更新…'; }
+  if (resultEl) resultEl.innerHTML = '<span class="text-muted2">正在拉取远端代码（fetch → 快进合并 → 依赖检测），请稍候…</span>';
+  try {
+    const res = await api('/api/admin/git-update', { method: 'POST', body: { restart }, timeout: 180000 });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(errText(d) || '更新失败') + '</span>';
+      return;
+    }
+    const d = await res.json();
+    if (resultEl) {
+      if (d.updated) {
+        resultEl.innerHTML = '<span class="text-success">✅ ' + gitEsc(d.message || '更新成功') + '</span>'
+          + (d.filesChangedCount ? '<div class="text-12 text-muted2 mt-4">变更文件 ' + d.filesChangedCount + ' 个' + (d.depsInstalled ? '，已自动安装依赖' : '') + '</div>' : '');
+      } else {
+        resultEl.innerHTML = '<span class="text-success">✅ ' + gitEsc(d.message || '已是最新版本') + '</span>';
+      }
+      if (d.restarting) {
+        setTimeout(function () { window.location.reload(); }, 6000);
+      }
+    }
+    loadGitUpdateStatus();
+  } catch (err) {
+    if (isApiHandledError(err)) { if (resultEl) resultEl.innerHTML = '<span class="text-warn">更新失败（详见页面提示）</span>'; return; }
+    if (resultEl) resultEl.innerHTML = '<span class="text-warn">更新失败：' + gitEsc(err.message || err) + '</span>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⬆️ 检查并更新'; }
+  }
+}
+
+async function runGitRestart() {
+  if (!currentUser || currentUser.role !== 'super_admin') { toast(__('admin_vrc.super_admin_setting'), 'error'); return; }
+  const resultEl = document.getElementById('gitUpdateResult');
+  if (!confirm('确定重启服务？重启约需 3 秒，期间网站暂时无法访问。\n\n适用于：已手动拉取代码或修改服务端配置后需要重载。')) return;
+  try {
+    const res = await api('/api/admin/git-restart', { method: 'POST', timeout: 15000 });
+    if (!res.ok) { const d = await res.json().catch(() => ({})); if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(errText(d) || '重启失败') + '</span>'; return; }
+    const d = await res.json();
+    if (resultEl) resultEl.innerHTML = '<span class="text-success">✅ ' + gitEsc(d.message || '服务正在重启') + '</span>';
+    setTimeout(function () { window.location.reload(); }, 6000);
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    if (resultEl) resultEl.innerHTML = '<span class="text-warn">重启失败：' + gitEsc(err.message || err) + '</span>';
+  }
 }
 
 function clearSystemVrcCredentials() {

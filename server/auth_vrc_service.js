@@ -16,7 +16,11 @@ const { fail, ok, getPool, encryptCookie, handleError, sendError, ErrorCodes } =
 const { passwordResetLimiter } = require('./middleware/rate_limit');
 const { requireAuth } = require('./auth');
 const logger = require('./logger');
+const securityAlert = require('./security_alert');
 const { buildSession, sessionUser } = require('./auth_session');
+
+// P3-70: 2FA 验证码每 token 失败次数上限——≥MAX 即删除登录会话并触发安全告警
+const MAX_2FA_ATTEMPTS = 5;
 
 // ==================== VRChat 临时状态存储（绑定 + 登录）====================
 // bindTokens: token →{ cookie, vrcUser, userId, expireAt }
@@ -67,6 +71,23 @@ async function verifyVrc2fa(code, method, cookie, opts = {}) {
   return { success: true, cookie: finalCookie, user, userError };
 }
 
+// P3-70: 2FA 验证失败计数——每 token 累计，≥MAX_2FA_ATTEMPTS 删除会话并触发安全告警。
+// 返回 true 表示本次失败后会话已被锁定删除，调用方应返回锁定错误。
+function _register2faFailure(loginToken, state) {
+  state.failCount = (state.failCount || 0) + 1;
+  if (state.failCount >= MAX_2FA_ATTEMPTS) {
+    loginTokens.delete(loginToken);
+    logger.warn('auth', `[2FA] 登录会话 ${String(loginToken).slice(-8)} 验证码失败 ${state.failCount} 次，会话已失效`);
+    securityAlert.onSecurityBreach('VRChat2FA验证码爆破', {
+      tokenTail: String(loginToken).slice(-8),
+      attempts: state.failCount,
+      methods: Array.isArray(state.methods) ? state.methods.join(',') : ''
+    });
+    return true;
+  }
+  return false;
+}
+
 // 路由注册委托：routes/auth.js 原位调用，四个端点连中间件一并注册
 function registerVrcRoutes(router) {
 // ==================== VRChat 登录（两步内联流程） ====================
@@ -89,8 +110,12 @@ router.post('/vrchat-login', async (req, res) => {
       // 验证 2FA
       const vResult = await verifyVrc2fa(code, method, cookie);
       if (!vResult.success) {
-        // 验证码错误不删除 token，允许重试
-        return fail(res, 401, vResult.error);
+        // P3-70: 每 token 累计失败次数，≥MAX_2FA_ATTEMPTS 删除会话并告警，防验证码爆破
+        const locked = _register2faFailure(loginToken, state);
+        if (locked) {
+          return fail(res, 429, '验证码错误次数过多，登录会话已失效，请重新登录', { code: '2FA_LOCKED', locked: true });
+        }
+        return fail(res, 401, vResult.error, { remaining: MAX_2FA_ATTEMPTS - state.failCount });
       }
       loginTokens.delete(loginToken);
 
@@ -185,7 +210,8 @@ router.post('/vrchat-login', async (req, res) => {
       vrcUser,
       boundUser,
       methods: vrcUser.requiresTwoFactorAuth,
-      expireAt: Date.now() + 5 * 60 * 1000 // 5 分钟有效
+      expireAt: Date.now() + 5 * 60 * 1000, // 5 分钟有效
+      failCount: 0 // P3-70: 2FA 验证码失败计数（≥MAX_2FA_ATTEMPTS 删除会话）
     });
 
     // 触发发送邮件验证码
@@ -223,7 +249,12 @@ router.post('/vrchat-2fa', async (req, res) => {
 
     const vResult = await verifyVrc2fa(code, method, cookie);
     if (!vResult.success) {
-      return fail(res, 401, vResult.error);
+      // P3-70: 与 /vrchat-login 第二步同口径——每 token 累计失败，≥MAX 删除会话并告警
+      const locked = _register2faFailure(loginToken, state);
+      if (locked) {
+        return fail(res, 429, '验证码错误次数过多，登录会话已失效，请重新登录', { code: '2FA_LOCKED', locked: true });
+      }
+      return fail(res, 401, vResult.error, { remaining: MAX_2FA_ATTEMPTS - state.failCount });
     }
     loginTokens.delete(loginToken);
 
@@ -356,12 +387,18 @@ router.post('/vrchat-bind-verify', passwordResetLimiter, requireAuth, async (req
     const avatarUrl = vrcUser.currentAvatarThumbnailImageUrl || vrcUser.userIcon || '';
 
     // 检查该 VRChat ID 是否已被其他人绑定
-    const [existing] = await getPool().query(`SELECT id, login_id FROM users WHERE vrchat_id = ? AND id != ? AND deleted_at IS NULL`, [vrchatId, req.session.userId]);
-    if (existing.length > 0) return fail(res, 400, `该VRChat账号已被用户 ${existing[0].login_id} 绑定`);
+    const [existing] = await getPool().query(`SELECT id FROM users WHERE vrchat_id = ? AND id != ? AND deleted_at IS NULL`, [vrchatId, req.session.userId]);
+    if (existing.length > 0) return fail(res, 400, '该 VRChat 账号已被其他用户绑定');
 
     // 检查当前用户是否已绑定其他 VRChat
     const [self] = await getPool().query(`SELECT vrchat_id FROM users WHERE id = ? AND deleted_at IS NULL`, [req.session.userId]);
     if (self.length > 0 && self[0].vrchat_id && self[0].vrchat_id !== vrchatId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '您已绑定其他VRChat账号，请先解绑');
+
+    // 加密 VRChat cookie → session（加密存储）；加密失败先于落库中止，绝不回退明文（与 auth_session buildSession 一致）
+    const encryptedCookie = encryptCookie(cookie);
+    if (!encryptedCookie) {
+      return sendError(res, 500, ErrorCodes.INTERNAL_ERROR, 'VRChat Cookie 加密失败，请管理员检查 ENCRYPT_KEY 配置后重试');
+    }
 
     // 更新绑定信息
     await getPool().query(
@@ -369,8 +406,7 @@ router.post('/vrchat-bind-verify', passwordResetLimiter, requireAuth, async (req
       [vrchatId, vrchatName, avatarUrl, avatarUrl ? 'vrchat' : 'none', req.session.userId]
     );
 
-    // 存储 VRChat cookie →session（加密存储）
-    req.session.vrcCookie = encryptCookie(cookie) || cookie;
+    req.session.vrcCookie = encryptedCookie;
     req.session.vrcCookieSetAt = Date.now(); // V8.2: 记录 cookie 设置时间（用于软性过期判断）
     req.session.vrcId = vrchatId;
     req.session.vrcName = vrchatName;
@@ -430,4 +466,5 @@ router.post('/vrchat-unbind', requireAuth, async (req, res) => {
 });
 }
 
-module.exports = { registerVrcRoutes };
+// §P2-148: verifyVrc2fa 导出（测试专用）——2FA 规范化/刷新分支此前零测试
+module.exports = { registerVrcRoutes, verifyVrc2fa };

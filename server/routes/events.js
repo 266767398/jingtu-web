@@ -21,7 +21,7 @@
  *   description: 活动管理相关接口
  */
 const express = require('express');
-const { fail, ok,  getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes, paginate  } = require('../utils');;
+const { fail, ok,  getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes, paginate, escapeLike  } = require('../utils');;
 const { requireAuth, requireAdminCompat, getAvatarUrl, ROLE_LEVEL } = require('../auth');
 const { vrchatGetGroupEvents } = require('../vrc');
 const cacheService = require('../cache_service');
@@ -189,7 +189,7 @@ router.get('/', async (req, res) => {
         whereClauses.push(`((ends_at IS NOT NULL AND ends_at < NOW()) OR (ends_at IS NULL AND event_time < NOW()))`);
       }
       // VN-9 命令面板：按标题模糊搜索（无表别名，COUNT 与主查询共用 whereStr）
-      if (q) { whereClauses.push('title LIKE ?'); params.push('%' + q + '%'); }
+      if (q) { whereClauses.push('title LIKE ? ESCAPE \'!\''); params.push('%' + escapeLike(q) + '%'); }
       // P0-3：按身份过滤可见性（COUNT 与主查询共用 whereStr，列名无歧义）
       const vis = visibilityFilter(req);
       whereClauses.push(vis.clause);
@@ -310,13 +310,11 @@ router.get('/', async (req, res) => {
       let signList = null;
       let checkinList = null;
       if (canSeeRoster) {
-        const [signs] = await getPool().query(`SELECT id, user_vrcid, user_name, sign_time FROM event_sign WHERE event_id=? AND is_sign=1 ORDER BY sign_time`, [id]);
-        signList = await Promise.all(signs.map(async s => {
-          const [u] = await getPool().query(
-            `SELECT display_name, avatar_type, custom_avatar_path, vrchat_avatar_url FROM users WHERE id = ? OR login_id = ?`,
-            [s.user_vrcid, s.user_vrcid]);
-          return { id: s.id, user_name: s.user_name, avatarUrl: u.length > 0 ? getAvatarUrl(u[0]) : null };
-        }));
+        const [signs] = await getPool().query(
+          `SELECT s.id, s.user_vrcid, s.user_name, s.sign_time, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url, u.avatar_visible
+           FROM event_sign s LEFT JOIN users u ON u.id = s.user_vrcid
+           WHERE s.event_id=? AND s.is_sign=1 ORDER BY s.sign_time`, [id]);
+        signList = signs.map(s => ({ id: s.id, user_name: s.user_name, avatarUrl: getAvatarUrl(s) }));
         const [checkins] = await getPool().query(`SELECT id, user_id, user_name, checkin_time AS checkinTime FROM event_checkin WHERE event_id=? ORDER BY checkin_time`, [id]);
         checkinList = checkins;
       }

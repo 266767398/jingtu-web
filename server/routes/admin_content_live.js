@@ -3,7 +3,7 @@
  * 行为逐字保留：直播监管（强制结束/删除）+ 动态/公告/活动/相册后台管理（含级联清理）。
  */
 const express = require('express');
-const { fail, ok, getPool, handleError, logOper, paginate } = require('../utils');
+const { fail, ok, getPool, handleError, logOper, paginate, escapeLike } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 
 module.exports = function createAdminContentLiveRouter() {
@@ -18,7 +18,7 @@ module.exports = function createAdminContentLiveRouter() {
       const where = [];
       const params = [];
       if (status) { where.push('l.status = ?'); params.push(status); }
-      if (kw) { where.push('(l.title LIKE ? OR u.display_name LIKE ? OR u.login_id LIKE ?)'); params.push('%' + kw + '%', '%' + kw + '%', '%' + kw + '%'); }
+      if (kw) { where.push('(l.title LIKE ? ESCAPE \'!\' OR u.display_name LIKE ? ESCAPE \'!\' OR u.login_id LIKE ? ESCAPE \'!\')'); params.push('%' + escapeLike(kw) + '%', '%' + escapeLike(kw) + '%', '%' + escapeLike(kw) + '%'); }
       const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
       const [{ 0: count }] = await getPool().query(`SELECT COUNT(*) AS c FROM live_streams l LEFT JOIN users u ON u.id = l.user_id ${whereSql}`, params);
       const [list] = await getPool().query(
@@ -82,8 +82,8 @@ module.exports = function createAdminContentLiveRouter() {
       const where = [];
       const params = [];
       if (kw && cfg.q.length) {
-        where.push('(' + cfg.q.map(function (c) { return c + ' LIKE ?'; }).join(' OR ') + ')');
-        cfg.q.forEach(function () { params.push('%' + kw + '%'); });
+        where.push('(' + cfg.q.map(function (c) { return c + ' LIKE ? ESCAPE \'!\''; }).join(' OR ') + ')');
+        cfg.q.forEach(function () { params.push('%' + escapeLike(kw) + '%'); });
       }
       // 活动列表支持按类型 / 归档状态筛选
       if (type === 'events') {
@@ -128,23 +128,33 @@ module.exports = function createAdminContentLiveRouter() {
   });
 
   router.delete('/admin/content/:type/:id', requireAdminCompat, async (req, res) => {
+    const cfg = CONTENT_TYPES[req.params.type];
+    if (!cfg) return fail(res, 400, 'invalid type');
+    const id = parseInt(req.params.id);
+    if (!id) return fail(res, 400, 'invalid id');
+    let conn;
     try {
-      const cfg = CONTENT_TYPES[req.params.type];
-      if (!cfg) return fail(res, 400, 'invalid type');
-      const id = parseInt(req.params.id);
-      if (!id) return fail(res, 400, 'invalid id');
+      // P2-124: events 类型 5 条级联 DELETE/UPDATE 包进事务，中途失败整体回滚，杜绝孤儿记录
+      conn = await getPool().getConnection();
+      await conn.beginTransaction();
       if (req.params.type === 'events') {
         // 级联清理活动关联数据，避免孤儿记录（与 /api/events/:id 删除逻辑一致）
-        await getPool().query(`UPDATE album_photo SET is_recycle=1, recycle_time=NOW() WHERE event_id=?`, [id]);
-        await getPool().query(`DELETE FROM event_checkin WHERE event_id=?`, [id]);
-        await getPool().query(`DELETE FROM event_sign WHERE event_id=?`, [id]);
-        await getPool().query(`DELETE FROM event_comment WHERE event_id=?`, [id]);
-        await getPool().query(`DELETE FROM notifications WHERE target_type='event' AND target_id=?`, [id]);
+        await conn.query(`UPDATE album_photo SET is_recycle=1, recycle_time=NOW() WHERE event_id=?`, [id]);
+        await conn.query(`DELETE FROM event_checkin WHERE event_id=?`, [id]);
+        await conn.query(`DELETE FROM event_sign WHERE event_id=?`, [id]);
+        await conn.query(`DELETE FROM event_comment WHERE event_id=?`, [id]);
+        await conn.query(`DELETE FROM notifications WHERE target_type='event' AND target_id=?`, [id]);
       }
-      await getPool().query(`DELETE FROM ${cfg.table} WHERE ${cfg.id} = ?`, [id]);
+      await conn.query(`DELETE FROM ${cfg.table} WHERE ${cfg.id} = ?`, [id]);
+      await conn.commit();
       await logOper(req.session.userId, '删除内容(' + req.params.type + ')', 'ID: ' + id);
       ok(res);
-    } catch (e) { handleError(res, e, '[admin/content:delete]'); }
+    } catch (e) {
+      if (conn) { try { await conn.rollback(); } catch (_e) {} }
+      handleError(res, e, '[admin/content:delete]');
+    } finally {
+      if (conn) { try { conn.release(); } catch (_e) {} }
+    }
   });
 
   router.post('/admin/content/batch', requireAdminCompat, async (req, res) => {

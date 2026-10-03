@@ -7,8 +7,10 @@
  *   读侧普通群内容（公告/相册/角色）加 requireAuth；
  *   管理员专属数据（审计日志/金流/黑名单）加 requireAdminCompat（vrcWithFallback
  *   可静默降级系统 cookie，若不升级门禁将向任意匿名访客暴露管理员数据）；
- *   写侧全部 13 个端点加 adminLimiter + requireAdminCompat，成功后 logOper 留痕。
- *   路由路径与数量不变，仅插入中间件。
+ *   写侧全部 13 个端点加 adminLimiter + requireAuth（P3-54：权限交 VRChat 侧校验，
+ *   对齐 /vrc/avatar/set，避免真正持有群管理权限的普通绑定用户被站点管理员门禁误拦），
+ *   成功后 logOper 留痕；管理员专属读侧（审计日志/金流/黑名单）保持 requireAdminCompat。
+ *   路由路径与数量不变，仅调整中间件。
  *
  * @swagger
  * tags:
@@ -52,7 +54,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/announcements-list'); }
   });
 
-  router.post('/group/announcements', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.post('/group/announcements', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
@@ -70,7 +72,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/announcements-create'); }
   });
 
-  router.delete('/group/announcements/:announcementId', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.delete('/group/announcements/:announcementId', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
@@ -101,7 +103,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/galleries-detail'); }
   });
 
-  router.post('/group/galleries', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.post('/group/galleries', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
@@ -117,7 +119,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/galleries-create'); }
   });
 
-  router.put('/group/galleries/:galleryId', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.put('/group/galleries/:galleryId', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
@@ -133,7 +135,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/galleries-update'); }
   });
 
-  router.delete('/group/galleries/:galleryId', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.delete('/group/galleries/:galleryId', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
@@ -155,7 +157,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/roles-list'); }
   });
 
-  router.post('/group/roles', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.post('/group/roles', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
@@ -171,7 +173,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/roles-create'); }
   });
 
-  router.put('/group/roles/:roleId', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.put('/group/roles/:roleId', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
@@ -188,7 +190,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/roles-update'); }
   });
 
-  router.delete('/group/roles/:roleId', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.delete('/group/roles/:roleId', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
@@ -199,7 +201,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/roles-delete'); }
   });
 
-  router.put('/group/members/:vrchatId/roles/:roleId', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.put('/group/members/:vrchatId/roles/:roleId', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
@@ -246,7 +248,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/bans-list'); }
   });
 
-  router.post('/group/bans', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.post('/group/bans', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
@@ -259,7 +261,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/bans-create'); }
   });
 
-  router.delete('/group/bans/:vrchatId', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.delete('/group/bans/:vrchatId', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
@@ -270,7 +272,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/bans-delete'); }
   });
 
-  router.post('/group/calendar/follow', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.post('/group/calendar/follow', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
@@ -281,7 +283,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/calendar-follow'); }
   });
 
-  router.delete('/group/calendar/follow', adminLimiter, requireAdminCompat, async (req, res) => {
+  router.delete('/group/calendar/follow', adminLimiter, requireAuth, async (req, res) => {
     try {
       const vrcCookie = groupContentCookie(req);
       if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });

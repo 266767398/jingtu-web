@@ -3,7 +3,8 @@
 // 提供统一的收藏 CRUD、分组(folders)、多维筛选、搜索、公开发现(discover)、评分与失效检测。
 const express = require('express');
 const router = express.Router();
-const { ok,  getPool, handleError, createErr, proxyVrcAvatar, ErrorCodes, paginate  } = require('../utils');;
+const logger = require('../logger');
+const { ok,  getPool, handleError, createErr, proxyVrcAvatar, ErrorCodes, paginate, escapeLike  } = require('../utils');;
 const { requireAuth, requireAdminCompat } = require('../auth');
 const {
   vrchatGetAvatar, vrchatGetUser, vrchatSetAvatar, vrchatCloneAvatar,
@@ -216,8 +217,8 @@ function buildListWhere(q, uid) {
     params.push(JSON.stringify(q.tag));
   }
   if (q.search) {
-    conds.push('(c.name LIKE ? OR c.target_id LIKE ? OR c.author LIKE ? OR c.description LIKE ?)');
-    const s = `%${q.search}%`;
+    conds.push('(c.name LIKE ? ESCAPE \'!\' OR c.target_id LIKE ? ESCAPE \'!\' OR c.author LIKE ? ESCAPE \'!\' OR c.description LIKE ? ESCAPE \'!\')');
+    const s = `%${escapeLike(q.search)}%`;
     params.push(s, s, s, s);
   }
   return { conds, params };
@@ -277,8 +278,8 @@ router.get('/discover', requireAuth, async (req, res) => {
     if (q.category) { conds.push('c.category = ?'); params.push(q.category); }
     if (q.status) { conds.push('c.status = ?'); params.push(q.status); }
     if (q.search) {
-      conds.push('(c.name LIKE ? OR c.target_id LIKE ? OR c.author LIKE ?)');
-      const s = `%${q.search}%`;
+      conds.push('(c.name LIKE ? ESCAPE \'!\' OR c.target_id LIKE ? ESCAPE \'!\' OR c.author LIKE ? ESCAPE \'!\')');
+      const s = `%${escapeLike(q.search)}%`;
       params.push(s, s, s);
     }
     const sort = q.sort === 'new' ? 'c.created_at DESC' : 'c.heat DESC, c.updated_at DESC';
@@ -377,8 +378,10 @@ router.get('/search-models', async (req, res) => {
     vrcxSearchCache.set(cacheKey, { ts: Date.now(), data: results });
     ok(res, { results });
   } catch (e) {
-    // 兜底：任何未预期错误都返回空结果，不抛 500（搜索非核心功能）
-    ok(res, { results: [], error: '搜索失败：' + (e.message || '未知错误') });
+    // 兜底：任何未预期错误都返回空结果，不抛 500（搜索非核心功能）。
+    // P3-113：不回显 e.message（可能含上游 URL/模块细节），固定文案 + 服务端日志。
+    logger.error('[collections/search-models]', e);
+    ok(res, { results: [], error: '模型搜索失败，请稍后重试' });
   }
 });
 
@@ -448,7 +451,9 @@ router.get('/search-worlds', async (req, res) => {
     vrcWorldSearchCache.set(cacheKey, { ts: Date.now(), data: results });
     ok(res, { results });
   } catch (e) {
-    ok(res, { results: [], error: '世界搜索失败：' + (e.message || '未知错误') });
+    // P3-113：不回显 e.message，固定文案 + 服务端日志
+    logger.error('[collections/search-worlds]', e);
+    ok(res, { results: [], error: '世界搜索失败，请稍后重试' });
   }
 });
 
@@ -478,7 +483,9 @@ router.get('/popular-worlds', async (req, res) => {
     vrcWorldSearchCache.set(cacheKey, { ts: Date.now(), data: results });
     ok(res, { results, sort: key });
   } catch (e) {
-    ok(res, { results: [], error: '世界排行失败：' + (e.message || '未知错误') });
+    // P3-113：不回显 e.message，固定文案 + 服务端日志
+    logger.error('[collections/popular-worlds]', e);
+    ok(res, { results: [], error: '世界排行失败，请稍后重试' });
   }
 });
 
@@ -603,14 +610,32 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     rec.thumbnail = rec.thumbnail || '';
-    const [r] = await pool.query(
-      `INSERT INTO collections
-        (user_id, kind, target_id, name, author, author_id, thumbnail, description, world_type, platform, load_type, size_bytes, size_category, category, content_rating, tags, status, unity_version, asset_url, unity_package_url, booth_url, favorite_count, rating_avg, rating_count, heat, visibility, show_author, folder_id, notes, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())`,
-      [uid, kind, targetId, rec.name, rec.author, rec.author_id, rec.thumbnail, rec.description, rec.world_type, rec.platform, rec.load_type, rec.size_bytes, rec.size_category, rec.category, rec.content_rating, rec.tags, rec.status, rec.unity_version, rec.asset_url, rec.unity_package_url, boothUrl, rec.favorite_count, rec.rating_avg, rec.rating_count, rec.heat, visibility, showAuthor, folderId, notes]
-    );
+    // P2-159: 公开收藏唯一性改由 DB 约束兜底（生成列 public_key + uk_public_key）。
+    // 前置于 L536-540 的 SELECT 预检仅为快速失败；并发窗口下的重复插入由唯一键
+    // 拦截为 ER_DUP_ENTRY（SQLite 模式由 mapSQLError 映射 errno=1062），此处转 409。
+    let insertId;
+    try {
+      const [r] = await pool.query(
+        `INSERT INTO collections
+          (user_id, kind, target_id, name, author, author_id, thumbnail, description, world_type, platform, load_type, size_bytes, size_category, category, content_rating, tags, status, unity_version, asset_url, unity_package_url, booth_url, favorite_count, rating_avg, rating_count, heat, visibility, show_author, folder_id, notes, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())`,
+        [uid, kind, targetId, rec.name, rec.author, rec.author_id, rec.thumbnail, rec.description, rec.world_type, rec.platform, rec.load_type, rec.size_bytes, rec.size_category, rec.category, rec.content_rating, rec.tags, rec.status, rec.unity_version, rec.asset_url, rec.unity_package_url, boothUrl, rec.favorite_count, rec.rating_avg, rec.rating_count, rec.heat, visibility, showAuthor, folderId, notes]
+      );
+      insertId = r.insertId;
+    } catch (dupErr) {
+      if (dupErr && (dupErr.errno === 1062 || dupErr.code === 'ER_DUP_ENTRY')) {
+        return res.status(409).json({
+          success: false,
+          error: {
+            code: visibility === 'public' ? 'DUPLICATE_PUBLIC' : ErrorCodes.BAD_REQUEST,
+            message: visibility === 'public' ? '该模型已被他人公开，无法重复公开' : '已在收藏中'
+          }
+        });
+      }
+      throw dupErr;
+    }
     await refreshAggregates(pool, targetId, kind);
-    const [item] = await pool.query(`SELECT * FROM collections WHERE id=?`, [r.insertId]);
+    const [item] = await pool.query(`SELECT * FROM collections WHERE id=?`, [insertId]);
     if (item[0] && item[0].thumbnail) item[0].thumbnail = proxyThumb(item[0].thumbnail);
     ok(res, { item: item[0] });
   } catch (e) { handleError(res, e, 'collections.add'); }
@@ -652,7 +677,15 @@ router.put('/:id', requireAuth, async (req, res) => {
     if (typeof req.body.name === 'string' && req.body.name.trim()) { sets.push('name=?'); params.push(req.body.name.trim()); }
     if (sets.length) {
       sets.push('updated_at=NOW()');
-      await pool.query(`UPDATE collections SET ${sets.join(',')} WHERE id=?`, [...params, id]);
+      try {
+        await pool.query(`UPDATE collections SET ${sets.join(',')} WHERE id=?`, [...params, id]);
+      } catch (dupErr) {
+        // P2-159: 并发「设为公开」同样可能撞唯一键，转为既有 409 语义
+        if (dupErr && (dupErr.errno === 1062 || dupErr.code === 'ER_DUP_ENTRY')) {
+          return res.status(409).json({ success: false, error: { code: 'DUPLICATE_PUBLIC', message: '该模型已被他人公开，为避免重复展示无法重复公开' } });
+        }
+        throw dupErr;
+      }
     }
     const [item] = await pool.query(`SELECT * FROM collections WHERE id=?`, [id]);
     if (item[0] && item[0].thumbnail) item[0].thumbnail = proxyThumb(item[0].thumbnail);
@@ -723,15 +756,23 @@ router.post('/:id/rate', requireAuth, async (req, res) => {
     const pool = getPool();
     const uid = req.session.userId;
     const id = Number(req.params.id);
-    const rating = Math.min(5, Math.max(1, parseInt(req.body.rating) || 0));
-    if (!rating) return res.status(400).json({ success: false, error: { code: ErrorCodes.BAD_REQUEST, message: '评分 1-5' } });
+    // P2-160: 严格整数评分（拒绝 5.5 / "abc" / 越界），不再静默 clamp
+    const ratingNum = Number(req.body.rating);
+    if (!Number.isInteger(ratingNum) || ratingNum < 1 || ratingNum > 5)
+      return res.status(400).json({ success: false, error: { code: ErrorCodes.BAD_REQUEST, message: '评分需为 1-5 的整数' } });
     const [cur] = await pool.query(`SELECT * FROM collections WHERE id=?`, [id]);
     if (!cur.length) return res.status(404).json({ success: false, error: { code: ErrorCodes.NOT_FOUND, message: '收藏不存在' } });
+    // P2-160: 仅公开收藏可被社区评分——私密收藏直接拒绝（防自刷热度，也避免借评分接口枚举他人私密收藏）
+    if (cur[0].visibility !== 'public')
+      return res.status(403).json({ success: false, error: { code: ErrorCodes.FORBIDDEN, message: '仅公开收藏可参与评分' } });
+    // P2-160: 本人排除——收藏者不能给自己的收藏评分（自刷热度）
+    if (cur[0].user_id === uid)
+      return res.status(400).json({ success: false, error: { code: ErrorCodes.BAD_REQUEST, message: '不能给自己的收藏评分' } });
 
     // 评分存到收藏者本人记录（轻量：更新 rating_avg/count 基于所有评分者）
     const [myRate] = await pool.query(`SELECT id FROM collection_ratings WHERE collection_id=? AND user_id=?`, [id, uid]);
-    if (myRate.length) await pool.query(`UPDATE collection_ratings SET rating=?, updated_at=NOW() WHERE id=?`, [rating, myRate[0].id]);
-    else await pool.query(`INSERT INTO collection_ratings (collection_id, user_id, rating) VALUES (?,?,?)`, [id, uid, rating]);
+    if (myRate.length) await pool.query(`UPDATE collection_ratings SET rating=?, updated_at=NOW() WHERE id=?`, [ratingNum, myRate[0].id]);
+    else await pool.query(`INSERT INTO collection_ratings (collection_id, user_id, rating) VALUES (?,?,?)`, [id, uid, ratingNum]);
     const [agg] = await pool.query(`SELECT AVG(rating) AS avg, COUNT(*) AS cnt FROM collection_ratings WHERE collection_id=?`, [id]);
     await pool.query(`UPDATE collections SET rating_avg=?, rating_count=? WHERE id=?`, [(agg[0].avg || 0).toFixed(2), agg[0].cnt || 0, id]);
     await refreshAggregates(pool, cur[0].target_id, cur[0].kind);

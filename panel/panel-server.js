@@ -71,9 +71,19 @@ const sessions = new Map(); // token -> expireAt(ms)
 // 现改为 ip -> {count, lockUntil}，仅惩罚来源 IP；无界增长由 pruneLoginFails 惰性清理兜底。
 const loginFails = new Map();
 function clientIp(req) {
-  // 与 isLoopback 同口径：面板直连（本机/局域网），不信任 X-Forwarded-For（面板无反代部署场景）
+  // P3-97:经主站 /ops 代理访问时 remoteAddress 恒为 127.0.0.1，登录失败锁定会退化为
+  // 全局共享桶（任一管理员 5 次失败即锁所有管理员）。仅当直连来源为回环（本机可信入口，
+  // 面板本身无反代部署场景）时信任代理注入的 X-Real-IP——非回环直连一律忽略该头。
   let addr = String((req.socket && req.socket.remoteAddress) || 'unknown');
   if (addr.startsWith('::ffff:')) addr = addr.slice(7);
+  if (addr === '::1' || addr === '127.0.0.1' || addr.startsWith('127.')) {
+    const fwd = String(req.headers['x-real-ip'] || '').trim();
+    if (fwd) {
+      let f = fwd;
+      if (f.startsWith('::ffff:')) f = f.slice(7);
+      return f || addr;
+    }
+  }
   return addr || 'unknown';
 }
 function pruneLoginFails() {
@@ -181,7 +191,30 @@ function runPs(action, arg, onChunk) {
 }
 
 /* ---------- 小工具 ---------- */
+// P2-156：面板所有响应统一携带安全头——此前任何响应均无 X-Frame-Options/CSP，
+// LAN 模式下直接以 HTTP 暴露，任意局域网页面均可 iframe 面板登录框/确认弹窗做
+// 点击劫持与密码钓鱼。/ops 代理仅透传上游头，面板自身补头后经代理亦生效。
+// 面板 index.html 为单文件内联脚本/内联样式，故 script-src/style-src 保留 'unsafe-inline'
+//（与主站 CSP 同策略，frame 层仍由 frame-ancestors 'none' + X-Frame-Options 双层兜底）。
+function applySecurityHeaders(res) {
+  const h = {
+    'X-Frame-Options': 'DENY',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Content-Security-Policy':
+      "default-src 'self'; " +
+      "script-src 'self' 'unsafe-inline'; " +
+      "style-src 'self' 'unsafe-inline'; " +
+      "img-src 'self' data: blob:; " +
+      "font-src 'self'; " +
+      "connect-src 'self' ws: wss:; " +
+      "frame-ancestors 'none'; " +
+      "base-uri 'self'"
+  };
+  for (const k of Object.keys(h)) res.setHeader(k, h[k]);
+}
 function sendJson(res, code, obj) {
+  applySecurityHeaders(res);
   const body = JSON.stringify(obj);
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(body);
@@ -215,7 +248,27 @@ function getQuery(req) {
 function isLoopback(req) {
   let addr = String((req.socket && req.socket.remoteAddress) || '');
   if (addr.startsWith('::ffff:')) addr = addr.slice(7);
+  // P3-97：经 /ops 代理直连恒为回环；初始化向导（setup-env/init）的「仅本机」语义
+  // 需按代理注入的真实来源判断，避免远程超管经公网入口代为初始化面板。
+  if (addr === '::1' || addr === '127.0.0.1' || addr.startsWith('127.')) {
+    const fwd = String(req.headers['x-real-ip'] || '').trim();
+    if (fwd) {
+      if (fwd.startsWith('::ffff:')) return fwd.slice(7) === '::1' || fwd.slice(7) === '127.0.0.1' || fwd.slice(7).startsWith('127.');
+      return fwd === '::1' || fwd === '127.0.0.1' || fwd.startsWith('127.');
+    }
+  }
   return addr === '::1' || addr === '127.0.0.1' || addr.startsWith('127.');
+}
+// P3-108：POST 源校验。浏览器同源请求 Origin/Referer 与 Host 一致；经主站 /ops 代理
+// （本机可信入口，已过主站 CSRF + 超管鉴权）转发时带 x-ops-proxy + 回环直连放行；
+// 无 Origin/Referer 的非浏览器客户端保持放行（LAN 面本身仍以 Bearer Token 鉴权）。
+function originOk(req) {
+  const origin = String(req.headers.origin || req.headers.referer || '');
+  if (!origin) return true;
+  let originHost = '';
+  try { originHost = new URL(origin).host; } catch (e) { return false; }
+  if (String(req.headers.host || '') === originHost) return true;
+  return req.headers['x-ops-proxy'] === '1' && isLoopback(req);
 }
 
 /* ---------- 桌面打开操作 ---------- */
@@ -232,6 +285,27 @@ function openDesktop(target, onDone) {
 }
 function openInBrowser(url) {
   openDesktop(url, () => {});
+}
+
+// P2-155：目录型降级备份下载前实时 zip 化。用 powershell Compress-Archive 生成临时 zip；
+// 参数走 spawn 数组直传（不过 shell），路径单引号转义由 PS 语法处理。
+function packDirToZip(dirPath, zipPath) {
+  return new Promise((resolve, reject) => {
+    const cmd = "Compress-Archive -Path '" + String(dirPath).replace(/'/g, "''") +
+      "' -DestinationPath '" + String(zipPath).replace(/'/g, "''") + "' -Force -ErrorAction Stop";
+    let child;
+    try {
+      child = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', cmd], { windowsHide: true });
+    } catch (e) { return reject(new Error('无法启动 powershell：' + e.message)); }
+    let stderr = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', d => { stderr += d; });
+    child.on('error', err => reject(new Error('powershell 启动失败：' + err.message)));
+    child.on('close', code => {
+      if (code === 0) return resolve();
+      reject(new Error('打包失败（退出码 ' + code + '）：' + (stderr.trim() || '未知错误').slice(0, 200)));
+    });
+  });
 }
 
 /* ---------- 权限管理：权限键与中文标签（与主站 permission_groups.js 保持一致） ---------- */
@@ -498,6 +572,8 @@ async function importUserDataPanel(userId, body) {
 
 /* ---------- 路由 ---------- */
 async function handleApi(req, res, token) {
+  // P3-108：跨站 POST 防御——非同一来源（同源 Origin/Referer 或经本机 /ops 代理）直接 403
+  if (req.method === 'POST' && !originOk(req)) return sendErr(res, 403, '请求来源校验失败');
   const pathName = getPathBase(req);
   const body = (req.method === 'POST') ? await readBody(req) : {};
 
@@ -605,14 +681,35 @@ async function handleApi(req, res, token) {
     const name = String(getQuery(req).get('name') || '');
     if (!/^[^\\/]+$/.test(name)) return sendErr(res, 400, '非法文件名');
     const file = path.join(BACKUP_DIR, name);
-    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return sendErr(res, 404, '备份不存在');
+    if (!fs.existsSync(file)) return sendErr(res, 404, '备份不存在');
     const stat = fs.statSync(file);
+    let outFile = file;
+    let tmpZip = null;
+    if (stat.isDirectory()) {
+      // P2-155：目录型降级备份（Compress-Archive 因文件占用失败时的 userdata-$stamp/ 拷贝）
+      // 同样可下载——先经 powershell 实时 zip 化到临时文件再下发，发送完成后删除临时 zip。
+      tmpZip = path.join(BACKUP_DIR, '.tmp-dl-' + crypto.randomBytes(6).toString('hex') + '.zip');
+      try {
+        await packDirToZip(file, tmpZip);
+        outFile = tmpZip;
+      } catch (e) {
+        try { fs.unlinkSync(tmpZip); } catch (_) {}
+        return sendErr(res, 500, '目录型备份打包失败：' + e.message);
+      }
+    } else if (!stat.isFile()) {
+      return sendErr(res, 404, '备份不存在');
+    }
+    const fstat = fs.statSync(outFile);
+    const dlName = tmpZip ? (name.replace(/\.zip$/, '') + '.zip') : name;
     res.writeHead(200, {
       'Content-Type': 'application/zip',
-      'Content-Disposition': 'attachment; filename="' + encodeURIComponent(name) + '"',
-      'Content-Length': stat.size
+      'Content-Disposition': 'attachment; filename="' + encodeURIComponent(dlName) + '"',
+      'Content-Length': fstat.size
     });
-    fs.createReadStream(file).pipe(res);
+    fs.createReadStream(outFile).pipe(res);
+    if (tmpZip) {
+      res.on('finish', () => { try { fs.unlinkSync(tmpZip); } catch (_) {} });
+    }
     return null;
   }
 
@@ -627,6 +724,9 @@ async function handleApi(req, res, token) {
     return sendJson(res, 200, Object.assign({ ok: true }, r.data));
   }
   if (pathName === '/api/logs/clear') {
+    // P3-103:清理日志同样属于不可逆操作，与 kill-port/clear-data/reset 等保持
+    // 确认短语口径一致（此前直接执行，主站操作日志可被整目录清除且无审计一致性）
+    if (String(body.confirm || '') !== 'CONFIRM-CLEAR-LOGS') return sendErr(res, 400, '确认短语不正确');
     const r = await runPs('clear-logs');
     return sendJson(res, 200, { ok: true, message: r.message });
   }
@@ -742,7 +842,7 @@ async function handleApi(req, res, token) {
     try {
       const list = await _actCodes.listCodes();
       return sendJson(res, 200, { ok: true, data: { total: list.total, used: list.used, unused: list.unused, revoked: list.revoked, expired: list.expired || 0, codes: list.codes } });
-    } catch (e) { return sendErr(res, 500, '读取激活码失败：' + e.message); }
+    } catch (e) { auditPanel('读取激活码失败：' + e.message); return sendErr(res, 500, '读取激活码失败，详情见面板审计日志'); }
   }
   if (pathName === '/api/activation-codes/generate' && req.method === 'POST') {
     if (!_actCodes) return sendErr(res, 500, '激活码服务不可用');
@@ -753,7 +853,7 @@ async function handleApi(req, res, token) {
       const created = await _actCodes.generateCodes(count, 'panel-admin', note, expiresDays);
       auditPanel('生成激活码 ' + created.length + ' 枚' + (expiresDays ? '（有效期 ' + expiresDays + ' 天）' : '') + (note ? '（备注：' + note + '）' : ''));
       return sendJson(res, 200, { ok: true, data: { count: created.length, codes: created.map(function (c) { return c.code; }), expiresAt: (created[0] && created[0].expires_at) || null } });
-    } catch (e) { return sendErr(res, 500, '生成失败：' + e.message); }
+    } catch (e) { auditPanel('生成激活码失败：' + e.message); return sendErr(res, 500, '生成失败，详情见面板审计日志'); }
   }
   if (pathName === '/api/activation-codes/revoke' && req.method === 'POST') {
     if (!_actCodes) return sendErr(res, 500, '激活码服务不可用');
@@ -773,7 +873,7 @@ async function handleApi(req, res, token) {
       }
       auditPanel('作废激活码 ' + result.entry.code + (reason ? '（原因：' + reason + '）' : ''));
       return sendJson(res, 200, { ok: true, message: '已作废 ' + result.entry.code, data: { code: result.entry.code } });
-    } catch (e) { return sendErr(res, 500, '作废失败：' + e.message); }
+    } catch (e) { auditPanel('作废激活码失败：' + e.message); return sendErr(res, 500, '作废失败，详情见面板审计日志'); }
   }
 
   /* ---- 网站管理 ---- */
@@ -791,7 +891,9 @@ async function handleApi(req, res, token) {
       const row = (stats && stats[0]) || {};
       return sendJson(res, 200, { ok: true, data: { version, users: row.users || 0, activeUsers: row.activeUsers || 0, events: row.events || 0, posts: row.posts || 0, members: row.members || 0 } });
     } catch (e) {
-      return sendJson(res, 200, { ok: true, data: { version: '-', users: 0, activeUsers: 0, events: 0, posts: 0, members: 0, dbError: e.message } });
+      // P3-105：错误详情（SQL/表名/主机信息）只写面板审计日志，不随业务体回传前端
+      auditPanel('读取站点概览失败：' + e.message);
+      return sendJson(res, 200, { ok: true, data: { version: '-', users: 0, activeUsers: 0, events: 0, posts: 0, members: 0 } });
     }
   }
   if (pathName === '/api/site/users') {
@@ -814,7 +916,8 @@ async function handleApi(req, res, token) {
         : await dbQuery(`SELECT COUNT(*) AS c FROM users WHERE deleted_at IS NULL`);
       return sendJson(res, 200, { ok: true, data: { rows, total: (t[0] && t[0].c) || 0, page, size } });
     } catch (e) {
-      return sendErr(res, 500, '查询用户失败：' + e.message);
+      auditPanel('查询用户失败（/api/site/users）：' + e.message);
+      return sendErr(res, 500, '查询用户失败，详情见面板审计日志');
     }
   }
   if (pathName === '/api/site/user/toggle') {
@@ -826,7 +929,8 @@ async function handleApi(req, res, token) {
       auditPanel((banned ? '禁用用户 #' : '启用用户 #') + id);
       return sendJson(res, 200, { ok: true, message: banned ? '用户已禁用' : '用户已启用' });
     } catch (e) {
-      return sendErr(res, 500, '操作失败：' + e.message);
+      auditPanel('切换用户状态失败 #' + id + '：' + e.message);
+      return sendErr(res, 500, '操作失败，详情见面板审计日志');
     }
   }
   if (pathName === '/api/site/user/reset-password') {
@@ -841,7 +945,8 @@ async function handleApi(req, res, token) {
       auditPanel('重置站内用户密码 #' + id);
       return sendJson(res, 200, { ok: true, message: '密码已重置' });
     } catch (e) {
-      return sendErr(res, 500, '重置失败：' + e.message);
+      auditPanel('重置站内用户密码失败 #' + id + '：' + e.message);
+      return sendErr(res, 500, '重置失败，详情见面板审计日志');
     }
   }
   /* ---- 用户：修改角色（身份）/ 删除 ---- */
@@ -864,7 +969,7 @@ async function handleApi(req, res, token) {
       await dbQuery(`DELETE FROM user_group_membership WHERE user_id=? AND group_id IN (1,2,3) AND group_id<>?`, [id, baseGroupId]);
       auditPanel('变更站内用户角色 #' + id + ' → ' + role);
       return sendJson(res, 200, { ok: true, message: '已更新为：' + ({ super_admin: '超级管理员', admin: '管理员', member: '成员' }[role] || role) });
-    } catch (e) { return sendErr(res, 500, '更新失败：' + e.message); }
+    } catch (e) { auditPanel('更新用户角色失败 #' + id + '：' + e.message); return sendErr(res, 500, '更新失败，详情见面板审计日志'); }
   }
   if (pathName === '/api/site/user/delete') {
     const id = parseInt(body.id, 10);
@@ -877,7 +982,7 @@ async function handleApi(req, res, token) {
       await dbQuery(`DELETE FROM notifications WHERE user_id=?`, [id]);
       auditPanel('删除站内用户 #' + id + '（软删除）');
       return sendJson(res, 200, { ok: true, message: '用户已删除（软删除）' });
-    } catch (e) { return sendErr(res, 500, '删除失败：' + e.message); }
+    } catch (e) { auditPanel('删除站内用户失败 #' + id + '：' + e.message); return sendErr(res, 500, '删除失败，详情见面板审计日志'); }
   }
 
   /* ---- 权限管理：权限组 / 权限项 / 用户入组 ---- */
@@ -891,7 +996,7 @@ async function handleApi(req, res, token) {
         map[e.group_id][e.permission_key] = !!e.permission_value;
       }
       return sendJson(res, 200, { ok: true, data: { groups, entries: map, labels: PERMISSION_LABELS, keys: ALL_PERMISSIONS } });
-    } catch (e) { return sendErr(res, 500, '读取权限失败：' + e.message); }
+    } catch (e) { auditPanel('读取权限组失败：' + e.message); return sendErr(res, 500, '读取权限失败，详情见面板审计日志'); }
   }
   if (pathName === '/api/site/perm-group/create') {
     const name = String(body.name || '').trim();
@@ -903,7 +1008,7 @@ async function handleApi(req, res, token) {
       await dbQuery(`INSERT INTO permission_groups (name, description) VALUES (?, ?)`, [name, description || null]);
       auditPanel('创建权限组：' + name);
       return sendJson(res, 200, { ok: true, message: '权限组已创建' });
-    } catch (e) { return sendErr(res, 500, '创建失败：' + e.message); }
+    } catch (e) { auditPanel('创建权限组失败：' + e.message); return sendErr(res, 500, '创建失败，详情见面板审计日志'); }
   }
   if (pathName === '/api/site/perm-group/save') {
     const groupId = parseInt(body.groupId, 10);
@@ -919,7 +1024,7 @@ async function handleApi(req, res, token) {
       }
       auditPanel('保存权限组 #' + groupId + ' 权限（' + on.length + ' 项开启）');
       return sendJson(res, 200, { ok: true, message: '权限已保存（' + on.length + ' 项开启）' });
-    } catch (e) { return sendErr(res, 500, '保存失败：' + e.message); }
+    } catch (e) { auditPanel('保存权限组失败 #' + groupId + '：' + e.message); return sendErr(res, 500, '保存失败，详情见面板审计日志'); }
   }
   if (pathName === '/api/site/user/permgroups') {
     const id = parseInt(req.method === 'GET' ? (getQuery(req).get('id') || '') : body.id, 10);
@@ -944,7 +1049,7 @@ async function handleApi(req, res, token) {
       }
       auditPanel('更新用户 #' + id + ' 权限组（自定义组 ' + custom.join(',') + '）');
       return sendJson(res, 200, { ok: true, message: '用户权限组已更新' });
-    } catch (e) { return sendErr(res, 500, '操作失败：' + e.message); }
+    } catch (e) { auditPanel('更新用户权限组失败 #' + id + '：' + e.message); return sendErr(res, 500, '操作失败，详情见面板审计日志'); }
   }
   /* ---- 用户数据备份 / 还原 ---- */
   if (pathName === '/api/site/user/data/export' && req.method === 'GET') {
@@ -962,7 +1067,7 @@ async function handleApi(req, res, token) {
       });
       res.end(json);
       return null;
-    } catch (e) { return sendErr(res, e.statusCode || 500, '导出失败：' + e.message); }
+    } catch (e) { auditPanel('导出站内用户数据失败 #' + id + '：' + e.message); return sendErr(res, e.statusCode || 500, '导出失败，详情见面板审计日志'); }
   }
   if (pathName === '/api/site/user/data/import' && req.method === 'POST') {
     try {
@@ -973,7 +1078,7 @@ async function handleApi(req, res, token) {
       const imported = await importUserDataPanel(id, data);
       auditPanel('导入站内用户数据 #' + id);
       return sendJson(res, 200, { ok: true, success: true, imported });
-    } catch (e) { return sendErr(res, e.statusCode || 500, '导入失败：' + e.message); }
+    } catch (e) { auditPanel('导入站内用户数据失败 #' + id + '：' + e.message); return sendErr(res, e.statusCode || 500, '导入失败，详情见面板审计日志'); }
   }
   if (pathName === '/api/site/user/data/batch-export' && req.method === 'POST') {
     try {
@@ -995,7 +1100,7 @@ async function handleApi(req, res, token) {
       });
       res.end(json);
       return null;
-    } catch (e) { return sendErr(res, e.statusCode || 500, '批量导出失败：' + e.message); }
+    } catch (e) { auditPanel('批量导出站内用户数据失败：' + e.message); return sendErr(res, e.statusCode || 500, '批量导出失败，详情见面板审计日志'); }
   }
   if (pathName === '/api/site/user/data/batch-import' && req.method === 'POST') {
     try {
@@ -1013,7 +1118,7 @@ async function handleApi(req, res, token) {
       }
       auditPanel('批量导入站内用户数据：成功 ' + imported.length + ' 人' + (Object.keys(failed).length ? '，失败 ' + Object.keys(failed).join(',') : ''));
       return sendJson(res, 200, { ok: true, success: true, imported, failed });
-    } catch (e) { return sendErr(res, e.statusCode || 500, '批量导入失败：' + e.message); }
+    } catch (e) { auditPanel('批量导入站内用户数据失败：' + e.message); return sendErr(res, e.statusCode || 500, '批量导入失败，详情见面板审计日志'); }
   }
   if (pathName === '/api/site/config') {
     let panelCfg = null;
@@ -1054,6 +1159,9 @@ async function handleApi(req, res, token) {
 /* ---------- HTTP 服务 ---------- */
 const server = http.createServer(async (req, res) => {
   try {
+    // P2-156：入口统一携带安全头——静态页面/备份下载等直写 writeHead 的出口
+    // 与 sendJson 共用同一份安全头，避免遗漏。
+    applySecurityHeaders(res);
     const pathName = getPathBase(req);
     if (pathName.startsWith('/api/')) {
       let token = null;

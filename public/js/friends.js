@@ -25,7 +25,7 @@
   function userRowHtml(u, actionsHtml) {
     return `
       <div class="social-row">
-        <img class="social-avatar" src="${escAttr(avatar(u))}" alt="${escAttr(name(u))}" onerror="this.src='/api/avatar/default'">
+        <img class="social-avatar" src="${escAttr(avatar(u))}" alt="${escAttr(name(u))}" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(avatar(u))}')">
         <div class="social-meta">
           <div class="social-name">${esc(name(u))}</div>
           ${u && u.vrchatName ? `<div class="social-sub text-13 text-muted2">${esc(u.vrchatName)}</div>` : ''}
@@ -59,7 +59,7 @@
             const u = byId[e.id];
             const nm = name(u);
             return `<button class="mutual-top-item" data-action="mutual" data-id="${e.id}" title="${esc(nm + ' · ' + e.count)}" style="display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border,#e5e7eb);border-radius:999px;background:transparent;cursor:pointer;">
-              <img src="${escAttr(avatar(u))}" alt="${escAttr(nm)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;" onerror="this.src='/api/avatar/default'">
+              <img src="${escAttr(avatar(u))}" alt="${escAttr(nm)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(avatar(u))}')">
               <span style="font-size:12px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(nm)}</span>
               <span style="font-size:11px;color:var(--muted,#888);">${e.count}</span>
             </button>`;
@@ -158,6 +158,7 @@
         mutualBadge(r.id, counts[r.id] || 0) +
         btn('history', r.id, __('friends.history'), 'btn-ghost') +
         btn('worldhist', r.id, __('friends.world_history'), 'btn-ghost') +
+        btn('timeline', r.id, __('friends.activity_timeline'), 'btn-ghost') +
         btn('message', r.id, __('chat.dm'), 'btn-outline') +
         btn('block', r.id, __('friends.block'), 'btn-outline') +
         btn('remove', r.id, __('friends.remove'), 'btn-danger')
@@ -217,6 +218,14 @@
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
+  function fmtDate(t) {
+    if (!t) return '';
+    const d = new Date(t);
+    if (isNaN(d.getTime())) return '';
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
   function feedItemHtml(it) {
     const nm = esc(it.userName || '');
     const time = esc(fmtTime(it.time));
@@ -231,14 +240,14 @@
       body = `<div class="text-13" style="margin:4px 0 0;color:var(--text,#333);">${esc(it.eventTitle || '')}</div>`;
     } else if (it.kind === 'photo') {
       const verb = __('friends.feed_photo');
-      body = `<img src="${escAttr(it.thumbPath || it.photoPath)}" alt="" loading="lazy" onerror="this.style.display='none'" style="margin-top:6px;max-width:100%;border-radius:8px;max-height:220px;object-fit:cover;">`;
+      body = `<img src="${escAttr(it.thumbPath || it.photoPath)}" alt="" loading="lazy" onerror="window.__imgFail(this)" style="margin-top:6px;max-width:100%;border-radius:8px;max-height:220px;object-fit:cover;">`;
       if (it.desc) body += `<div class="text-13" style="margin:4px 0 0;color:var(--text,#333);">${esc(it.desc)}</div>`;
     } else {
       return '';
     }
     return `
       <div class="social-row feed-item" style="align-items:flex-start;">
-        <img class="social-avatar" src="${av}" alt="${nm}" onerror="this.src='/api/avatar/default'">
+        <img class="social-avatar" src="${av}" alt="${nm}" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(it.avatarUrl || '/api/avatar/default')}')">
         <div class="social-meta" style="flex:1;">
           <div class="social-name">${nm} <span class="text-12 text-muted2">${esc(__('friends.feed_' + (it.kind === 'post' ? 'post' : it.kind === 'event_sign' ? 'sign' : 'photo')))}</span></div>
           <div class="text-12 text-muted2">${time}</div>
@@ -451,6 +460,83 @@
     }
   }
 
+  // ==================== F-21 在线活动时间轴 ====================
+  let _actTimelineModalReady = false;
+  function ensureActTimelineModal() {
+    if (_actTimelineModalReady && document.getElementById('friendActTimelineModal')) return;
+    const el = document.createElement('div');
+    el.className = 'modal';
+    el.id = 'friendActTimelineModal';
+    el.style.display = 'none';
+    el.innerHTML = `
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="friendActTimelineTitle" class="modal-title"></h3>
+          <button class="modal-close" data-modal-close="friendActTimelineModal" aria-label="close">&times;</button>
+        </div>
+        <div class="modal-body" id="friendActTimelineBody"></div>
+      </div>`;
+    document.body.appendChild(el);
+    _actTimelineModalReady = true;
+  }
+
+  async function showFriendActivityTimeline(id) {
+    ensureActTimelineModal();
+    const title = document.getElementById('friendActTimelineTitle');
+    const body = document.getElementById('friendActTimelineBody');
+    if (title) title.textContent = __('friends.activity_timeline_title');
+    if (body) body.innerHTML = `<div class="text-muted2 p-16">${esc(__('common.loading') || '加载中...')}</div>`;
+    showModal('friendActTimelineModal');
+    try {
+      const res = await api('/api/friends/activity-sessions/' + id, { method: 'GET' });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { if (body) body.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
+      const items = (d.items || []);
+      if (!items.length) {
+        if (body) body.innerHTML = `<div class="text-muted2 p-16">${esc(__('friends.activity_timeline_empty'))}</div>`;
+        return;
+      }
+      // 汇总行：当前在线徽章 + 总在线时长（近 30 天）
+      const summary = (__('friends.activity_timeline_total') || '近 30 天在线 {minutes} 分钟')
+        .replace('{minutes}', d.totalMinutes || 0);
+      const onlineBadge = d.onlineNow
+        ? `<span class="badge badge-success">${esc(__('friends.activity_timeline_online_now'))}</span>`
+        : '';
+      if (body) body.innerHTML = `
+        <div class="text-13 text-muted2" style="margin-bottom:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <span>${esc(summary)}</span>${onlineBadge}
+        </div>
+        ${items.map(r => {
+          const day = fmtDate(r.startedAt);
+          const start = fmtTime(r.startedAt);
+          const end = r.ongoing
+            ? esc(__('friends.activity_timeline_ongoing'))
+            : fmtTime(r.endedAt);
+          const mins = r.ongoing
+            ? Math.max(1, Math.round((Date.now() - new Date(r.startedAt).getTime()) / 60000))
+            : (r.durationMinutes || 0);
+          const world = r.worldName || r.worldId || '—';
+          return `
+            <div class="hist-item" style="display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border,#e5e7eb);">
+              <div style="flex-shrink:0;width:auto;min-width:96px;font-size:12px;color:var(--muted,#888);padding-top:2px;">${esc(day)}</div>
+              <div style="flex:1;min-width:0;">
+                <div class="text-13" style="font-weight:600;">
+                  ${esc(start)} — ${end}
+                  ${r.ongoing ? '' : ''}
+                  <span class="text-muted2 text-12" style="font-weight:400;"> · ${mins}${esc(__('friends.activity_timeline_minutes'))}</span>
+                </div>
+                <div class="text-12 text-muted2" style="word-break:break-all;margin-top:2px;">
+                  ${esc(__('friends.activity_timeline_world'))}: ${esc(world)}
+                </div>
+              </div>
+            </div>`;
+        }).join('')}`;
+    } catch (e) {
+      if (isApiHandledError(e)) return;
+      if (body) body.innerHTML = `<div class="text-muted2 p-16">${esc(e.message)}</div>`;
+    }
+  }
+
   // ==================== 操作 ====================
   async function doAction(action, id) {
     // 破坏性操作（移除好友 / 拉黑）需二次确认，避免误触且移除不可逆
@@ -508,6 +594,7 @@
         if (action === 'mutual') { showMutualFriends(id); return; }
         if (action === 'history') { showFriendHistory(id); return; }
         if (action === 'worldhist') { showFriendWorldHistory(id); return; }
+        if (action === 'timeline') { showFriendActivityTimeline(id); return; }
         doAction(action, id);
       });
     }

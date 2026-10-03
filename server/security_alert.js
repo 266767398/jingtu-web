@@ -14,6 +14,18 @@ const alertStats = {
   csrfFailures: new Map()
 };
 
+// P3-75: 告警统计 Map 条数上限——NAT/多 IP 攻击流量下，单小时窗口内键数也不再无限膨胀
+const MAX_ALERT_KEYS_PER_TYPE = 10000;
+
+function _trimStatsMap(map) {
+  if (map.size <= MAX_ALERT_KEYS_PER_TYPE) return;
+  const drop = map.size - MAX_ALERT_KEYS_PER_TYPE;
+  const iter = map.keys();
+  for (let i = 0; i < drop; i++) {
+    map.delete(iter.next().value);
+  }
+}
+
 let notificationService = null;
 
 function setNotificationService(ns) {
@@ -27,6 +39,7 @@ function checkThreshold(type, key, count) {
   const current = alertStats[type].get(key) || 0;
   const newCount = current + count;
   alertStats[type].set(key, newCount);
+  _trimStatsMap(alertStats[type]);
   
   if (newCount >= threshold && newCount - count < threshold) {
     return true;

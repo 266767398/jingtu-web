@@ -7,9 +7,9 @@ let selectedEventIds = new Set();
 
 async function loadEvents(status = 'ongoing') {
   const container = document.getElementById('eventsList');
-  if (container) showSkeleton(container, 'grid', 6);
   if (eventsLoading) return;
   eventsLoading = true;
+  if (container) showSkeleton(container, 'grid', 6);
   try {
     let url = '/api/events?type=activity';
     if (status && status !== 'all') url += '&status=' + status;
@@ -303,7 +303,7 @@ async function showEventDetail(id) {
       document.getElementById('evtDetMeta').innerHTML = `
         <span>📅 ${fmtTime(e.time)}${e.endsAt ? ' — ' + fmtTime(e.endsAt) : ''}</span>
         ${e.place ? `<span>📍 ${esc(e.place)}</span>` : ''}
-        ${e.worldName ? `<span class="d-flex gap-4 items-center">${e.worldImageUrl ? `<img src="${escAttr(e.worldImageUrl)}" style="width:18px;height:18px;border-radius:4px;object-fit:cover" loading="lazy">` : '🌐'} ${esc(e.worldName)}</span>` : ''}
+        ${e.worldName ? `<span class="d-flex gap-4 items-center">${e.worldImageUrl ? `<img src="${escAttr(e.worldImageUrl)}" style="width:18px;height:18px;border-radius:4px;object-fit:cover" loading="lazy" onerror="window.__imgFail(this)">` : '🌐'} ${esc(e.worldName)}</span>` : ''}
         <span>👤 ${__('events.sign_count', {n: e.signCount || 0})}</span>
         ${e.updatedAt ? `<span class="text-muted2 text-11">${__('announcements.edit_at')} ${fmtDate(e.updatedAt)}</span>` : ''}`;
       document.getElementById('evtDetVisBadge').innerHTML = e.visibility === 'public'
@@ -349,7 +349,8 @@ async function showEventDetail(id) {
            <button class="btn btn-sm btn-white-glass ml-6" onclick="sharePublicLink('event', ${id})">🔗 ${__('share.btn')}</button>`;
       }
       if (isAdmin) showEl('evtDetCheckinBar'); else hideEl('evtDetCheckinBar');
-      document.getElementById('evtDetUploadBtn').className = isAdmin ? '' : 'd-none';
+      const uploadBtnEl = document.getElementById('evtDetUploadBtn');
+      if (uploadBtnEl) uploadBtnEl.classList.toggle('d-none', !isAdmin);
       // 已结束活动：禁用签到入口（编辑入口保留供管理员使用）
       const evtCheckinBtn = document.getElementById('evtDetCheckinBtn');
       if (evtCheckinBtn) {
@@ -752,7 +753,7 @@ async function loadEventComments(eventId) {
         if (!Number.isInteger(cid) || !Number.isInteger(eid)) return '';
         return `
         <div class="det-comment-item" data-comment-id="${cid}">
-          <img src="${escAttr(c.avatarUrl || '/api/avatar/default')}" class="det-comment-avatar" alt="" loading="lazy">
+          <img src="${escAttr(c.avatarUrl || '/api/avatar/default')}" class="det-comment-avatar" alt="" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(c.avatarUrl || '/api/avatar/default')}')">
           <div class="det-comment-body">
             <div class="det-comment-header">
               <span class="det-comment-user">${esc(c.userName || __('unknown_user'))}</span>
@@ -1160,11 +1161,11 @@ async function loadEventPhotos(eventId) {
       var hasThumb = isV && p.thumbnail && p.thumbnail.indexOf('placeholder') === -1;
       var mediaHtml;
       if (isV && hasThumb) {
-        mediaHtml = '<img src="' + escAttr(p.thumbnail) + '" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover">';
+        mediaHtml = '<img src="' + escAttr(p.thumbnail) + '" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover" onerror="window.__imgFail(this)">';
       } else if (isV) {
         mediaHtml = '<div class="photo-item-video-thumb" style="width:100%;height:100%;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;border-radius:6px"><span style="font-size:28px">🎬</span></div>';
       } else {
-        mediaHtml = '<img src="' + escAttr(p.thumbnail || p.url) + '" alt="" loading="lazy">';
+        mediaHtml = '<img src="' + escAttr(p.thumbnail || p.url) + '" alt="" loading="lazy" onerror="window.__imgFail(this)">';
       }
       return '<div class="photo-item" onclick="showEventPhoto(\'' + escJsStr(String(p.id)) + '\')">'
         + mediaHtml
@@ -1241,7 +1242,7 @@ function renderEventTeams(eventId) {
         <div class="event-team-members">
           ${members.map(m => `
             <div class="event-team-member">
-              <img src="${esc(m.avatarUrl || '/api/avatar/default')}" class="event-team-avatar" alt=""/>
+              <img src="${esc(m.avatarUrl || '/api/avatar/default')}" class="event-team-avatar" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(m.avatarUrl || '/api/avatar/default')}')"/>
               <span>${esc(m.display_name)}</span>
               ${m.id === t.leader_id ? '<span class="event-team-leader-badge">' + __('teams.leader') + '</span>' : ''}
             </div>

@@ -14,7 +14,7 @@ const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { ok, getPool, logOper, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, paginate } = require('../utils');
+const { ok, getPool, logOper, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, paginate, escapeLike } = require('../utils');
 const { extractVideoThumbnail, getVideoDuration } = require('../video_utils');
 const { requireAdminCompat, ROLE_LEVEL, getAvatarUrl } = require('../auth');
 const logger = require('../logger');
@@ -41,6 +41,19 @@ module.exports = function (authStateRef, notificationService) {
     // 不再兜底到系统账号身份：匿名请求一律视为未登录，由各 handler 的 `if (!uid) return 401` 拦截。
     // 旧实现会用系统账号执行写/读，存在越权 footgun（虽被 CSRF 的 session 绑定挡住远程利用，但仍不安全）。
     return req.session?.userId || null;
+  }
+
+  // P3-38: 照片挂活动相册前校验 eventId 存在性 + 归属（与 events.js 编辑权限同一口径：管理员 roleLevel>=3 或创建者本人）。
+  // 无 eventId 视为普通相册照片，跳过校验（保持向后兼容）。返回校验后的整数 eventId（非法时返回 null 由调用方按 400 处理）。
+  async function resolveEventId(req, eventId, uid) {
+    if (eventId === undefined || eventId === null || eventId === '') return null;
+    const id = parseInt(eventId, 10);
+    if (!Number.isFinite(id) || id <= 0) return null;
+    const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+    const [[evt]] = await getPool().query(`SELECT id, create_user_id AS createUserId FROM event WHERE id=?`, [id]);
+    if (!evt) return null;
+    if (roleLevel < 3 && evt.createUserId !== uid) return 'forbidden';
+    return id;
   }
 
   /**
@@ -225,9 +238,13 @@ module.exports = function (authStateRef, notificationService) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '路径不合法');
     }
     try {
+      // P3-38: 挂活动相册前校验 eventId 存在性 + 归属（仅存在性由 form 直传；归属同 events 编辑口径）
+      const resolvedEventId = await resolveEventId(req, eventId, uid);
+      if (resolvedEventId === 'forbidden') return sendError(res, 403, ErrorCodes.FORBIDDEN, '只有管理员或活动创建者可以为该活动上传照片');
+      if ((eventId !== undefined && eventId !== null && eventId !== '') && resolvedEventId === null) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '活动不存在');
       const [result] = await getPool().query(
         `INSERT INTO album_photo (photo_path, thumb_path, photo_desc, upload_vrcid, upload_name, event_id) VALUES (?, ?, ?, ?, ?, ?)`,
-        [photoPath, thumbPath, caption || '', uid, req.session.displayName || '', eventId || null]
+        [photoPath, thumbPath, caption || '', uid, req.session.displayName || '', resolvedEventId]
       );
       ok(res, {id: result.insertId});
     } catch (e) { handleError(res, e, '[album/photos/create]'); }
@@ -530,10 +547,14 @@ module.exports = function (authStateRef, notificationService) {
           try { fs.unlinkSync(req.file.path); } catch {}
         }
         const cateId = parseInt(req.body.cateId) || 1;
+        // P3-38: 挂活动相册前校验 eventId 存在性 + 归属（不一致 → 400/403，不再写任意/虚构 event_id）
         const eventId = req.body.eventId ? parseInt(req.body.eventId) : null;
+        const resolvedEventId = await resolveEventId(req, eventId, uid);
+        if (resolvedEventId === 'forbidden') { try { if (req.file && req.file.path) fs.unlinkSync(req.file.path); } catch {} return sendError(res, 403, ErrorCodes.FORBIDDEN, '只有管理员或活动创建者可以为该活动上传照片'); }
+        if (eventId !== null && resolvedEventId === null) { try { if (req.file && req.file.path) fs.unlinkSync(req.file.path); } catch {} return sendError(res, 400, ErrorCodes.BAD_REQUEST, '活动不存在'); }
         const [result] = await getPool().query(
           `INSERT INTO album_photo (photo_path, thumb_path, photo_desc, upload_vrcid, upload_name, media_type, file_size, cate_id, event_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [photoPath, thumbPath, req.body.caption || '', uid, req.session.displayName || '', isVideo ? 'video' : 'image', fileSize, cateId, eventId]
+          [photoPath, thumbPath, req.body.caption || '', uid, req.session.displayName || '', isVideo ? 'video' : 'image', fileSize, cateId, resolvedEventId]
         );
         ok(res, {id: result.insertId, url: '/' + photoPath, thumbnail: '/' + thumbPath, mediaType: isVideo ? 'video' : 'image'});
       } catch (e) {
@@ -564,13 +585,15 @@ router.get('/album/search', async (req, res) => {
   try {
     const q = req.query.q ? req.query.q.trim() : '';
     if (!q || q.length < 2) return res.json({ photos: [], total: 0 });
-    const like = '%' + q + '%';
+    const like = '%' + escapeLike(q) + '%';
     const [rows] = await getPool().query(
-      'SELECT id, photo_path, thumb_path, photo_desc, media_type, file_size, cate_id, event_id, upload_name, upload_time FROM album_photo WHERE photo_desc LIKE ? AND recycle_time IS NULL ORDER BY upload_time DESC LIMIT 20',
+      `SELECT id, photo_path, thumb_path, photo_desc, media_type, file_size, cate_id, event_id, upload_name, upload_time, is_recycle, recycle_time
+       FROM album_photo WHERE photo_desc LIKE ? ESCAPE '!' AND is_recycle = 0 ORDER BY upload_time DESC LIMIT 20`,
       [like]
     );
     const photos = rows.map(p => ({
       ...p,
+      isRecycle: p.is_recycle,
       url: '/' + p.photo_path,
       thumbnail: '/' + p.thumb_path,
       description: p.photo_desc.length > 50 ? p.photo_desc.substring(0, 50) + '…' : p.photo_desc

@@ -584,12 +584,16 @@ describe('i18n：新增的界面文案要覆盖全部语言', () => {
   test('错误码翻译缺失时必须回退后端原文，而不是把 error.XXX 键名渲染给用户', () => {
     // error.<code> 的后缀来自服务端运行时（含上游 VRChat 透传码），无法穷举，
     // 所以这条链路的正确性靠"未命中就回退 message"的契约兜底，这里守住契约本身。
+    // 契约已集中到 core.js errText()（翻译失败回退 d.error/detail/message），
+    // 各业务页统一委托 errText，不再允许内联 `t !== 'error.' + code` 各写一份。
     const core = js('core.js');
     expect(core).toMatch(/__\(\s*['"]error\.['"]\s*\+\s*code\s*\)/);
     expect(core).toMatch(/translated\s*!==\s*['"]error\.['"]\s*\+\s*code/);
+    expect(core).toMatch(/function\s+errText\s*\(/);
     for (const f of ['friends.js', 'follows.js']) {
       const src = js(f);
-      expect(src).toMatch(/t\s*!==\s*['"]error\.['"]\s*\+\s*code/);
+      expect(src).toMatch(/\berrText\s*\(/);
+      expect(src).not.toMatch(/['"]error\.['"]\s*\+\s*code/);
     }
   });
 

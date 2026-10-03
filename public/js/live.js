@@ -5,9 +5,9 @@ let liveCommentTimer = null;
 async function loadLiveStreams() {
   const container = document.getElementById('liveList');
   if (!container) return;
-  showSkeleton(container, 'grid', 4);
   if (liveLoading) return;
   liveLoading = true;
+  showSkeleton(container, 'grid', 4);
   try {
     const [liveRes, endedRes] = await Promise.all([
       api('/api/live?status=live&pageSize=12'),
@@ -75,14 +75,14 @@ function renderLiveCard(s, isLive) {
   return `
     <div class="live-card" onclick="openLivePlayer(${s.id})">
       <div class="live-thumb">
-        ${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy"/>` : '<div class="live-thumb-placeholder">📺</div>'}
+        ${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy" onerror="window.__imgFail(this)"/>` : '<div class="live-thumb-placeholder">📺</div>'}
         ${statusBadge}
         <span class="live-viewers">👁 ${s.viewerCount || 0}</span>
       </div>
       <div class="live-info">
         <div class="live-title">${esc(s.title)}</div>
         <div class="live-meta">
-          <img src="${esc(avatar)}" class="live-avatar" alt=""/>
+          <img src="${esc(avatar)}" class="live-avatar" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(avatar)}')"/>
           <span>${esc(s.userName)}</span>
           <span class="live-created">${fmtDate(s.createdAt)}</span>
         </div>
@@ -99,6 +99,8 @@ async function openLivePlayer(streamId) {
     liveCache.currentStream = s;
 
     const modal = ensureModal('livePlayerModal', __('live.watching'));
+    // P2-165: ensureModal 返回 modal-body；关闭清理绑定基于整窗 class 观测，此处确保绑定时机随开随绑
+    bindLivePlayerCloseCleanup();
     modal.innerHTML = `
       <div class="live-player-container">
         <div class="live-player-video">
@@ -117,7 +119,7 @@ async function openLivePlayer(streamId) {
         <div class="live-player-info">
           <div class="live-player-title">${esc(s.title)}</div>
           <div class="live-player-meta">
-            <img src="${esc(s.userAvatar)}" class="live-avatar" alt=""/>
+            <img src="${esc(s.userAvatar)}" class="live-avatar" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(s.userAvatar)}')"/>
             <span class="live-player-host">${esc(s.userName)}</span>
           </div>
           ${s.description ? `<div class="live-player-desc">${esc(s.description)}</div>` : ''}
@@ -181,7 +183,7 @@ async function loadLiveComments(streamId) {
     const prevHeight = list.scrollHeight;
     list.innerHTML = comments.map(c => `
       <div class="live-comment-item">
-        <img src="${esc(c.userAvatar || '/api/avatar/default')}" class="live-comment-avatar" alt=""/>
+        <img src="${esc(c.userAvatar || '/api/avatar/default')}" class="live-comment-avatar" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(c.userAvatar || '/api/avatar/default')}')"/>
         <div class="live-comment-body">
           <span class="live-comment-user">${esc(c.userName)}</span>
           <span class="live-comment-time">${fmtTime(c.createdAt)}</span>
@@ -409,7 +411,17 @@ function cleanupLiveOnModalClose() {
   stopLiveCommentPolling();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  const closeBtn = document.querySelector('[data-modal-close="livePlayerModal"]');
-  if (closeBtn) closeBtn.addEventListener('click', cleanupLiveOnModalClose);
-});
+// P2-165: livePlayerModal 由 ensureModal 动态创建，其关闭按钮是 onclick="closeModal(...)"
+// 而非 [data-modal-close]，遮罩点击与 closeAllModals 也都通过移除 .show 关闭弹窗。
+// 旧实现依赖 DOMContentLoaded 一次性 querySelector（恒为 null），cleanup 永不绑定，
+// 导致 5 秒轮询定时器泄漏、leaveLiveRoom 不调用（服务端观众计数失真）。
+// 改为对弹窗 class 变更做观测：.show 被移除即执行幂等清理，覆盖按钮/遮罩/ESC 等全部入口。
+function bindLivePlayerCloseCleanup() {
+  const modal = document.getElementById('livePlayerModal');
+  if (!modal || modal.__liveCleanupBound) return;
+  modal.__liveCleanupBound = true;
+  const observer = new MutationObserver(() => {
+    if (!modal.classList.contains('show')) cleanupLiveOnModalClose();
+  });
+  observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+}

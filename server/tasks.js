@@ -27,6 +27,13 @@ function todayBeijing() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
 }
 
+// P3-47: 计算北京时间「次日」日期字符串，用于范围查询上界
+function nextDayBeijing(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().split('T')[0];
+}
+
 async function cleanupExpiredSessions() {
   try {
     const pool = getPool();
@@ -49,41 +56,61 @@ async function cleanupExpiredSessions() {
 // P1-11：只清扫临时目录（uploads/tmp、uploads/temp）。
 // 旧实现对整个 uploads/ 递归按 mtime 盲删，会误删聊天图片、头像、动态配图、
 // 直播封面等「DB 仍引用但长期未被访问」的永久文件（mtime 早于阈值 ≠ 可删除）。
+// §P3-91: 递归深度/扫描文件数上限（防深层目录栈风险与耗时不可控）；
+// unlink 失败不再静默吞——计数并节流告警。
+const MAX_CLEAN_DEPTH = 8;
+const MAX_CLEAN_FILES = 50000;
 async function cleanupExpiredFiles() {
   try {
     const uploadsDir = path.join(__dirname, '..', 'uploads');
     const tmpDirs = ['tmp', 'temp'].map((d) => path.join(uploadsDir, d));
     let deleted = 0;
+    let failed = 0;
+    let scanned = 0;
 
     const daysToKeep = parseInt(process.env.FILE_RETENTION_DAYS) || 90;
     const threshold = Date.now() - daysToKeep * 24 * 60 * 60 * 1000;
 
-    const cleanupDir = (dir) => {
+    const cleanupDir = (dir, depth) => {
+      if (depth > MAX_CLEAN_DEPTH) {
+        console.warn(`[task] 临时目录递归深度超限（>${MAX_CLEAN_DEPTH}），跳过 ${dir}`);
+        return;
+      }
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
+        if (scanned >= MAX_CLEAN_FILES) {
+          console.warn(`[task] 临时文件扫描数达上限（${MAX_CLEAN_FILES}），中止剩余清理`);
+          return;
+        }
         const fullPath = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-          cleanupDir(fullPath);
+          cleanupDir(fullPath, depth + 1);
         } else {
+          scanned++;
           try {
             const stat = fs.statSync(fullPath);
             if (stat.mtime.getTime() < threshold) {
               fs.unlinkSync(fullPath);
               deleted++;
             }
-          } catch (_) {}
+          } catch (_) {
+            failed++;
+          }
         }
       }
     };
 
     for (const dir of tmpDirs) {
       if (fs.existsSync(dir)) {
-        cleanupDir(dir);
+        cleanupDir(dir, 0);
       }
     }
 
-    if (deleted > 0) {
-      console.log(`[task] 清理过期临时文件: ${deleted} 个`);
+    if (deleted > 0 || failed > 0) {
+      console.log(`[task] 清理过期临时文件: 删除 ${deleted} 个` + (failed ? `，失败 ${failed} 个` : ''));
+    }
+    if (failed > 0) {
+      await alertThrottled('cleanupExpiredFilesPartial', '临时文件清理部分失败', `临时文件删除失败 ${failed} 个，请检查文件权限/占用`);
     }
   } catch (e) {
     console.error('[task] 清理过期文件失败:', e);
@@ -95,25 +122,27 @@ async function generateDailyStats() {
   try {
     const pool = getPool();
     const today = todayBeijing();
+    const nextDay = nextDayBeijing(today);
 
+    // P3-47: DATE() 包裹列会使索引失效（users/posts/event 全表扫），改为范围查询（含下界、开上界）
     const [newUsers] = await pool.query(
-      "SELECT COUNT(*) as count FROM users WHERE DATE(created_at) = ?",
-      [today]
+      "SELECT COUNT(*) as count FROM users WHERE created_at >= ? AND created_at < ?",
+      [today, nextDay]
     );
 
     const [newPosts] = await pool.query(
-      "SELECT COUNT(*) as count FROM posts WHERE DATE(created_at) = ?",
-      [today]
+      "SELECT COUNT(*) as count FROM posts WHERE created_at >= ? AND created_at < ?",
+      [today, nextDay]
     );
 
     const [newEvents] = await pool.query(
-      "SELECT COUNT(*) as count FROM event WHERE DATE(create_time) = ?",
-      [today]
+      "SELECT COUNT(*) as count FROM event WHERE create_time >= ? AND create_time < ?",
+      [today, nextDay]
     );
 
     const [activeUsers] = await pool.query(
-      "SELECT COUNT(DISTINCT user_id) as count FROM posts WHERE DATE(created_at) = ?",
-      [today]
+      "SELECT COUNT(DISTINCT user_id) as count FROM posts WHERE created_at >= ? AND created_at < ?",
+      [today, nextDay]
     );
 
     const stats = {
@@ -180,14 +209,47 @@ async function cleanupExpiredBackups() {
   }
 }
 
+// P3-51：清理过期分享链接（share_links 7 天过期，此前仅有 INSERT/SELECT 无 DELETE 路径，过期行无限累积）
+// NOW()/expires_at 比较双引擎通用（db.js SQLite 层将 NOW() 翻译为 datetime('now','localtime')）
+async function cleanupExpiredShareLinks() {
+  try {
+    const pool = getPool();
+    const [result] = await pool.query('DELETE FROM share_links WHERE expires_at < NOW()');
+    if (result.affectedRows > 0) {
+      console.log(`[task] 清理过期分享链接: ${result.affectedRows} 条`);
+    }
+  } catch (e) {
+    console.error('[task] 清理过期分享链接失败:', e);
+    await alertThrottled('cleanupExpiredShareLinks', '任务执行失败', `清理过期分享链接失败: ${e.message}`);
+  }
+}
+
 function startTasks() {
+  // §P3-90: 幂等——二次调用先停止并清空已注册任务，避免全部 CronJob 重复注册任务翻倍
+  stopTasks();
+  // §P3-90: 防重入——任务执行超过调度间隔时跳过下一次重叠触发（避免重复备份/重复删除）
+  const running = new Set();
+  const guard = (key, fn) => async () => {
+    if (running.has(key)) {
+      console.warn(`[task] ${key} 上一次执行尚未结束，跳过本轮重叠触发`);
+      return;
+    }
+    running.add(key);
+    try {
+      await fn();
+    } finally {
+      running.delete(key);
+    }
+  };
+
   // P2-71：显式指定 Asia/Shanghai 时区，避免服务器时区不同导致「每天 0 点」漂移
-  jobs.push(new CronJob('0 * * * *', cleanupExpiredSessions, null, true, 'Asia/Shanghai'));
-  jobs.push(new CronJob('0 2 * * *', cleanupExpiredFiles, null, true, 'Asia/Shanghai'));
-  jobs.push(new CronJob('0 2 * * *', cleanupExpiredNotifications, null, true, 'Asia/Shanghai'));
-  jobs.push(new CronJob('30 2 * * *', runAutoBackup, null, true, 'Asia/Shanghai'));
-  jobs.push(new CronJob('0 3 * * *', cleanupExpiredBackups, null, true, 'Asia/Shanghai'));
-  jobs.push(new CronJob('0 0 * * *', generateDailyStats, null, true, 'Asia/Shanghai'));
+  jobs.push(new CronJob('0 * * * *', guard('cleanupExpiredSessions', cleanupExpiredSessions), null, true, 'Asia/Shanghai'));
+  jobs.push(new CronJob('0 2 * * *', guard('cleanupExpiredFiles', cleanupExpiredFiles), null, true, 'Asia/Shanghai'));
+  jobs.push(new CronJob('0 2 * * *', guard('cleanupExpiredNotifications', cleanupExpiredNotifications), null, true, 'Asia/Shanghai'));
+  jobs.push(new CronJob('30 2 * * *', guard('runAutoBackup', runAutoBackup), null, true, 'Asia/Shanghai'));
+  jobs.push(new CronJob('0 3 * * *', guard('cleanupExpiredBackups', cleanupExpiredBackups), null, true, 'Asia/Shanghai'));
+  jobs.push(new CronJob('0 3 * * *', guard('cleanupExpiredShareLinks', cleanupExpiredShareLinks), null, true, 'Asia/Shanghai'));
+  jobs.push(new CronJob('0 0 * * *', guard('generateDailyStats', generateDailyStats), null, true, 'Asia/Shanghai'));
 
   for (const job of jobs) {
     job.start();
@@ -198,8 +260,9 @@ function startTasks() {
 
 function stopTasks() {
   for (const job of jobs) {
-    job.stop();
+    try { job.stop(); } catch (_) {}
   }
+  jobs.length = 0; // §P3-90: 清空已注册任务，保证 startTasks 幂等
   console.log('[task] 定时任务系统已停止');
 }
 
@@ -220,5 +283,6 @@ module.exports = {
   generateDailyStats,
   cleanupExpiredNotifications,
   cleanupExpiredBackups,
+  cleanupExpiredShareLinks,
   runAutoBackup
 };

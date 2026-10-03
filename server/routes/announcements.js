@@ -7,8 +7,12 @@
  *   description: 公告管理相关接口
  */
 const express = require('express');
-const { ok,  getPool, logOper, validateFields, handleError , sendError, ErrorCodes  } = require('../utils');;
+const logger = require('../logger');
+const { ok,  getPool, logOper, validateFields, handleError , sendError, ErrorCodes, escapeLike  } = require('../utils');;
 const { requireAdminCompat } = require('../auth');
+
+// P3-44: visibility 白名单（双引擎一致；SQLite 模式无 ENUM 约束，非法值会污染可见性语义）
+const VISIBILITY_ALLOWED = ['public', 'members_only'];
 
 
 
@@ -150,11 +154,11 @@ router.get('/search', async (req, res) => {
   try {
     const q = req.query.q ? req.query.q.trim() : '';
     if (!q || q.length < 2) return res.json({ announcements: [], total: 0 });
-    const like = '%' + q + '%';
+    const like = '%' + escapeLike(q) + '%';
     // 仅登录用户可见 members_only 公告，匿名仅可见 public
     const userId = req.session?.userId || null;
     const [rows] = await getPool().query(
-      "SELECT id, title, content, create_time, is_pinned, visibility FROM announcement WHERE (title LIKE ? OR content LIKE ?) AND (visibility='public' OR (? IS NOT NULL AND visibility IN ('members_only','public'))) ORDER BY is_pinned DESC, create_time DESC LIMIT 20",
+      "SELECT id, title, content, create_time, is_pinned, visibility FROM announcement WHERE (title LIKE ? ESCAPE '!' OR content LIKE ? ESCAPE '!') AND (visibility='public' OR (? IS NOT NULL AND visibility IN ('members_only','public'))) ORDER BY is_pinned DESC, create_time DESC LIMIT 20",
       [like, like, userId]
     );
     const announcements = rows.map(a => ({
@@ -192,6 +196,8 @@ router.post('/', requireAdminCompat, async (req, res) => {
   if (typeof title !== 'string' || title.length > 200) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '标题不能超过200字');
   if (typeof content !== 'string' || content.length > 50000) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '内容不能超过50000字');
   const vis = visibility || 'members_only';
+  // P3-44: visibility 白名单校验
+  if (!VISIBILITY_ALLOWED.includes(vis)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的可见性设置');
   try {
     let result;
     try {
@@ -228,13 +234,17 @@ router.put('/:id', requireAdminCompat, async (req, res) => {
       await getPool().query(
         'INSERT INTO announcement_history (announcement_id, version, title, content, create_admin) VALUES (?, ?, ?, ?, ?)',
         [id, nextVer, current[0].title, current[0].content, current[0].create_admin]
-      ).catch(() => {});
+      ).catch(e => logger.warn('[announcements/history]版本历史写入失败', { announcementId: id, error: e.message }));
     }
     const updates = {};
     if (title !== undefined) updates.title = title;
     if (content !== undefined) updates.content = content;
     if (pinned !== undefined) updates.is_pinned = pinned ? 1 : 0;
-    if (visibility !== undefined) updates.visibility = visibility;
+    if (visibility !== undefined) {
+      // P3-44: visibility 白名单校验
+      if (!VISIBILITY_ALLOWED.includes(visibility)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的可见性设置');
+      updates.visibility = visibility;
+    }
     const ALLOWED_FIELDS = ['title', 'content', 'is_pinned', 'visibility'];
     validateFields(updates, ALLOWED_FIELDS);
     if (Object.keys(updates).length === 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无更新字段');
@@ -265,11 +275,21 @@ router.delete('/:id', requireAdminCompat, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (!id) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
-    // 级联清理：通知、附件、历史版本、公告本身，避免孤儿数据
-    await getPool().query(`DELETE FROM notifications WHERE target_type='announcement' AND target_id=?`, [id]);
-    await getPool().query(`DELETE FROM announcement_attachments WHERE announcement_id=?`, [id]);
-    await getPool().query(`DELETE FROM announcement_history WHERE announcement_id=?`, [id]);
-    await getPool().query(`DELETE FROM announcement WHERE id = ?`, [id]);
+    // §P3-167: 级联清理（通知、附件、历史版本、公告本身）包事务，任一步失败整体回滚，避免孤儿数据
+    const conn = await getPool().getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query(`DELETE FROM notifications WHERE target_type='announcement' AND target_id=?`, [id]);
+      await conn.query(`DELETE FROM announcement_attachments WHERE announcement_id=?`, [id]);
+      await conn.query(`DELETE FROM announcement_history WHERE announcement_id=?`, [id]);
+      await conn.query(`DELETE FROM announcement WHERE id = ?`, [id]);
+      await conn.commit();
+    } catch (e2) {
+      await conn.rollback();
+      throw e2;
+    } finally {
+      conn.release();
+    }
     await logOper(req.session.userId, '删除公告', `ID: ${id}`);
     ok(res);
   } catch (e) { handleError(res, e, '[announcements/delete]'); }

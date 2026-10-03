@@ -489,7 +489,8 @@ function escAttr(str) {
  */
 function escJsStr(str) {
   if (!str) return '';
-  return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+  // P3-61: & 先转 &amp;——原始串含字面量 &apos;/&quot; 时 HTML 属性解码会折叠成真实引号突破 JS 字符串边界
+  return String(str).replace(/&/g, '&amp;').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
 }
 
 /** 转义 CSS url() 中的值 */
@@ -523,12 +524,14 @@ window.imgWithFallback = imgWithFallback;
 function fmtDate(iso) {
   if (!iso) return __('unknown');
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return __('unknown');
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 function fmtTime(iso) {
   if (!iso) return __('unknown');
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return __('unknown');
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 

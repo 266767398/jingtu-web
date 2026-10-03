@@ -387,7 +387,8 @@ describe('P2-71/72/73/76 config & deploy hygiene guard', () => {
     const tasks = extractFunction(readServer('tasks.js'), 'startTasks');
     const cronJobs = (tasks.match(/new CronJob\(/g) || []).length;
     const tzPinned = (tasks.match(/null, true, 'Asia\/Shanghai'\)/g) || []).length;
-    expect(cronJobs).toBe(6);
+    // P3-51：新增 cleanupExpiredShareLinks 定时任务（0 3 * * *）后，任务数 6→7
+    expect(cronJobs).toBe(7);
     expect(tzPinned).toBe(cronJobs);
   });
 });
@@ -511,14 +512,19 @@ describe('P2-68 eslint gate and lint-discovered fixes', () => {
 
   // P2-68 复活 node:test 套件时发现：`node --test test/`（目录参数）在部分
   // Node/Windows 组合下不做目录发现，会把目录当模块加载并报 MODULE_NOT_FOUND；
-  // 脚本改用通配符形态（CI bash 可展开，Node ≥23 亦支持原生 glob 双保险）。
+  // 脚本改用通配符形态（CI bash 可展开，Node ≥20.10 亦支持原生 glob 双保险）。
   // 同批修复：security.test.js 的 express-rate-limit stub 必须带 MemoryStore
   // 命名导出，否则 rate_limit_store.js 模块加载期 `new MemoryStore()` 直接崩溃。
+  // P3-145：移除 security.test.js 进程内强退定时器（setTimeout(process.exit) 会把
+  // 挂起失败伪装成通过），改用 --test-force-exit（Node ≥20.14）保证进程退出性。
   test('node:test suite is discoverable and stub matches module shape', () => {
     const pkg = JSON.parse(readServer('package.json'));
     expect(pkg.scripts['test:node']).toContain('test/*.test.js');
+    expect(pkg.scripts['test:node']).toContain('--test-force-exit');
     const sec = readServer('test', 'security.test.js');
     expect(sec).toContain('rateLimitStub.MemoryStore');
+    expect(sec).not.toContain('_exitTimer');
+    expect(sec).not.toContain('process.exit(0)');
   });
 });
 

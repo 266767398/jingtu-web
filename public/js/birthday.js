@@ -45,7 +45,7 @@ function renderBirthdays(birthdays) {
   });
   container.innerHTML = sorted.map(b => `
     <div class="birthday-card">
-      <img src="${escAttr(b.avatarUrl || '/api/avatar/default')}" class="birthday-avatar" alt="${esc(b.displayName || b.loginId)}" loading="lazy">
+      <img src="${escAttr(b.avatarUrl || '/api/avatar/default')}" class="birthday-avatar" alt="${esc(b.displayName || b.loginId)}" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(b.avatarUrl || '/api/avatar/default')}')">
       <div class="birthday-info">
         <div class="birthday-name">${esc(b.displayName || b.loginId)}</div>
         <div class="birthday-date">🎂 ${b.birthday || __('unknown')}</div>
@@ -251,14 +251,16 @@ async function deleteBirthdayParty(id) {
 
 // 重置新建模式
 function showBirthdayEventModalNew() {
-  document.getElementById('bdayEditId').value = '';
-  document.getElementById('bdayTitle').value = '';
-  document.getElementById('bdayTime').value = '';
-  document.getElementById('bdayEndsAt').value = '';
-  document.getElementById('bdayDesc').value = '';
-  document.getElementById('bdayMax').value = '0';
-  document.getElementById('bdayModalTitle').textContent = __('birthday.create_party');
-  document.getElementById('bdaySaveBtn').textContent = __('create');
-  document.getElementById('bdaySaveBtn').onclick = saveBirthdayEvent;
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  setVal('bdayEditId', '');
+  setVal('bdayTitle', '');
+  setVal('bdayTime', '');
+  setVal('bdayEndsAt', '');
+  setVal('bdayDesc', '');
+  setVal('bdayMax', '0');
+  const titleEl = document.getElementById('bdayModalTitle');
+  if (titleEl) titleEl.textContent = __('birthday.create_party');
+  const saveBtn = document.getElementById('bdaySaveBtn');
+  if (saveBtn) { saveBtn.textContent = __('create'); saveBtn.onclick = saveBirthdayEvent; }
   showBirthdayEventModal();
 }

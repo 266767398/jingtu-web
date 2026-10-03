@@ -666,6 +666,61 @@ function startSchedule() {
     }
   }));
 
+  // 每分钟 — F-21 在线活动会话：对 group_roster 好友（is_friend=1）Diff is_online，
+  // 离线→在线开新会话（ended_at NULL 表示进行中），在线→离线封口回填时长与所在世界。
+  // 超长会话（>30 小时未封口，进程重启/漏检兜底）按 24 小时分段并视为已封口，下一轮按在线重开。
+  jobs.push(schedule.scheduleJob('* * * * *', async () => {
+    try {
+      const pool = getPool();
+      const [rows] = await pool.query(
+        `SELECT vrchat_id, is_online, world_name FROM group_roster
+         WHERE is_friend = 1 AND vrchat_id IS NOT NULL AND vrchat_id != ''`
+      );
+      if (!rows.length) return;
+
+      // 超长分段（SQL 侧判定，无 JS/MySQL 时区差异）：进行中会话超过 30 小时 → 封口到 24 小时处，
+      // 视为已封口；该成员若仍在线，下方按在线重开新会话（避免时间轴单条跨度过大）。
+      await pool.query(
+        `UPDATE activity_sessions SET ended_at = DATE_ADD(started_at, INTERVAL 24 HOUR),
+           duration_minutes = 1440
+         WHERE ended_at IS NULL AND started_at < NOW() - INTERVAL 30 HOUR`
+      );
+
+      // 进行中会话（ended_at IS NULL）
+      const [openRows] = await pool.query(
+        `SELECT id, vrchat_id, started_at FROM activity_sessions WHERE ended_at IS NULL`
+      );
+      const openMap = new Map(openRows.map(o => [o.vrchat_id, o]));
+
+      for (const r of rows) {
+        const online = r.is_online === 1;
+        const open = openMap.get(r.vrchat_id);
+        const world = (r.world_name || '').trim();
+
+        if (!online) {
+          // 离线且存在进行中会话 → 封口回填时长与所在世界
+          if (open) {
+            await pool.query(
+              `UPDATE activity_sessions SET ended_at = NOW(),
+                 duration_minutes = GREATEST(1, TIMESTAMPDIFF(MINUTE, started_at, NOW())),
+                 world_id = ?, world_name = ? WHERE id = ?`,
+              [world, world, open.id]
+            );
+            openMap.delete(r.vrchat_id);
+          }
+        } else if (!open) {
+          // 在线且无进行中会话 → 开新会话
+          await pool.query(
+            `INSERT INTO activity_sessions (vrchat_id, started_at) VALUES (?, NOW())`,
+            [r.vrchat_id]
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ [定时任务] 在线活动会话采样失败:', e.message);
+    }
+  }));
+
   // 每分钟 — F-16 头像使用历史：对 group_roster 好友（is_friend=1）Diff avatar_id，
   // 检测到头像变化且新头像非空时 UPSERT 使用次数（avatar_history_log），并刷新当前态快照（avatar_history_current）。
   // avatar_id 由主采样（vrc.js 的 currentAvatar 字段）写回 group_roster；avatar_url 冗余存最近观测的缩略图便于展示。

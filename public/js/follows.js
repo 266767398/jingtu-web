@@ -25,7 +25,7 @@
   function userRowHtml(u, actionsHtml) {
     return `
       <div class="social-row">
-        <img class="social-avatar" src="${escAttr(avatar(u))}" alt="${escAttr(name(u))}" onerror="this.src='/api/avatar/default'">
+        <img class="social-avatar" src="${escAttr(avatar(u))}" alt="${escAttr(name(u))}" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(avatar(u))}')">
         <div class="social-meta">
           <div class="social-name">${esc(name(u))}</div>
           ${u && u.vrchatName ? `<div class="social-sub text-13 text-muted2">${esc(u.vrchatName)}</div>` : ''}

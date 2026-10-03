@@ -76,70 +76,105 @@ module.exports = function (notificationService) {
 
       const pool = getPool();
 
-      // 对方已拉黑我 → 禁止互动（BLOCKED 403）
-      const [blockedByThem] = await pool.query(
-        `SELECT 1 FROM user_friends WHERE user_id = ? AND friend_id = ? AND status = 'blocked'`,
-        [targetUserId, me]
-      );
-      if (blockedByThem.length) {
-        return sendError(res, 403, ErrorCodes.BLOCKED, '已被对方拉黑，无法互动');
-      }
+      let conn;
+      try {
+        conn = await pool.getConnection();
+        await conn.beginTransaction();
 
-      // 我 → 对方 现有关系
-      const [mine] = await pool.query(
-        `SELECT status FROM user_friends WHERE user_id = ? AND friend_id = ?`,
-        [me, targetUserId]
-      );
-      if (mine.length) {
-        const st = mine[0].status;
-        if (st === 'accepted') {
-          return sendError(res, 409, ErrorCodes.ALREADY_FRIENDS, '你们已经是好友了');
+        // 对方已拉黑我 → 禁止互动（BLOCKED 403）
+        const [blockedByThem] = await conn.query(
+          `SELECT 1 FROM user_friends WHERE user_id = ? AND friend_id = ? AND status = 'blocked' FOR UPDATE`,
+          [targetUserId, me]
+        );
+        if (blockedByThem.length) {
+          await conn.rollback();
+          return sendError(res, 403, ErrorCodes.BLOCKED, '已被对方拉黑，无法互动');
         }
-        if (st === 'pending') {
-          return sendError(res, 409, ErrorCodes.FRIEND_REQUEST_EXISTS, '好友申请已发送，等待对方确认');
-        }
-        if (st === 'blocked') {
-          return sendError(res, 409, ErrorCodes.ALREADY_BLOCKED, '你已拉黑该用户，请先解除拉黑');
-        }
-      }
 
-      // 对方 → 我 已有 pending（对方先申请了我）：我的申请即视为接受
-      const [incoming] = await pool.query(
-        `SELECT id, user_id AS requester FROM user_friends
-         WHERE user_id = ? AND friend_id = ? AND status = 'pending'`,
-        [targetUserId, me]
-      );
-      if (incoming.length) {
-        await acceptFriendship(pool, incoming[0].id, incoming[0].requester, me);
+        // 我 → 对方 现有关系（锁行，避免并发 check-then-insert 竞态）
+        const [mine] = await conn.query(
+          `SELECT status FROM user_friends WHERE user_id = ? AND friend_id = ? FOR UPDATE`,
+          [me, targetUserId]
+        );
+        if (mine.length) {
+          const st = mine[0].status;
+          if (st === 'accepted') {
+            await conn.rollback();
+            return sendError(res, 409, ErrorCodes.ALREADY_FRIENDS, '你们已经是好友了');
+          }
+          if (st === 'pending') {
+            await conn.rollback();
+            return sendError(res, 409, ErrorCodes.FRIEND_REQUEST_EXISTS, '好友申请已发送，等待对方确认');
+          }
+          if (st === 'blocked') {
+            await conn.rollback();
+            return sendError(res, 409, ErrorCodes.ALREADY_BLOCKED, '你已拉黑该用户，请先解除拉黑');
+          }
+        }
+
+        // 对方 → 我 已有 pending（对方先申请了我）：我的申请即视为接受（同一事务内原子完成）
+        const [incoming] = await conn.query(
+          `SELECT id, user_id AS requester FROM user_friends
+           WHERE user_id = ? AND friend_id = ? AND status = 'pending' FOR UPDATE`,
+          [targetUserId, me]
+        );
+        if (incoming.length) {
+          await conn.query(
+            `UPDATE user_friends SET status='accepted' WHERE id = ? AND friend_id = ? AND status='pending'`,
+            [incoming[0].id, me]
+          );
+          await conn.query(
+            `INSERT IGNORE INTO user_friends (user_id, friend_id, status, requested_by)
+             VALUES (?, ?, 'accepted', ?)`,
+            [me, incoming[0].requester, incoming[0].requester]
+          );
+          await conn.commit();
+          if (notificationService) {
+            const [meU] = await pool.query(`SELECT display_name FROM users WHERE id = ?`, [me]);
+            const myName = meU[0]?.display_name || '用户';
+            await notificationService.notifyUser(
+              targetUserId, 'friend_accepted', '好友请求已通过',
+              `${myName} 接受了你的好友请求`, { targetType: 'user', targetId: me }
+            );
+          }
+          return ok(res, { status: 'accepted', friendship: { status: 'accepted' } });
+        }
+
+        // 新建 pending 申请（同向并发重复 → 唯一键冲突 → 409，避免 500）
+        let insertId;
+        try {
+          const [r] = await conn.query(
+            `INSERT INTO user_friends (user_id, friend_id, status, requested_by)
+             VALUES (?, ?, 'pending', ?)`,
+            [me, targetUserId, me]
+          );
+          insertId = r.insertId;
+        } catch (e) {
+          await conn.rollback();
+          if (e && e.code === 'ER_DUP_ENTRY') {
+            return sendError(res, 409, ErrorCodes.FRIEND_REQUEST_EXISTS, '好友申请已发送，等待对方确认');
+          }
+          throw e;
+        }
+        await conn.commit();
         if (notificationService) {
           const [meU] = await pool.query(`SELECT display_name FROM users WHERE id = ?`, [me]);
           const myName = meU[0]?.display_name || '用户';
           await notificationService.notifyUser(
-            targetUserId, 'friend_accepted', '好友请求已通过',
-            `${myName} 接受了你的好友请求`, { targetType: 'user', targetId: me }
+            targetUserId, 'friend_request', '新的好友请求',
+            `${myName} 想加你为好友`, { targetType: 'user', targetId: me }
           );
         }
-        return ok(res, { status: 'accepted', friendship: { status: 'accepted' } });
+        return ok(res, {
+          status: 'pending',
+          friendship: { id: insertId, status: 'pending', targetUserId }
+        });
+      } catch (e) {
+        if (conn) await conn.rollback().catch(() => {});
+        handleError(res, e, '[friends/request]');
+      } finally {
+        if (conn) conn.release();
       }
-
-      // 新建 pending 申请
-      const [r] = await pool.query(
-        `INSERT INTO user_friends (user_id, friend_id, status, requested_by)
-         VALUES (?, ?, 'pending', ?)`,
-        [me, targetUserId, me]
-      );
-      if (notificationService) {
-        const [meU] = await pool.query(`SELECT display_name FROM users WHERE id = ?`, [me]);
-        const myName = meU[0]?.display_name || '用户';
-        await notificationService.notifyUser(
-          targetUserId, 'friend_request', '新的好友请求',
-          `${myName} 想加你为好友`, { targetType: 'user', targetId: me }
-        );
-      }
-      return ok(res, {
-        status: 'pending',
-        friendship: { id: r.insertId, status: 'pending', targetUserId }
-      });
     } catch (e) {
       handleError(res, e, '[friends/request]');
     }
@@ -159,6 +194,7 @@ module.exports = function (notificationService) {
       }
 
       const pool = getPool();
+
       const [rows] = await pool.query(
         `SELECT * FROM user_friends WHERE id = ? AND status = 'pending'`,
         [requestId]
@@ -173,7 +209,15 @@ module.exports = function (notificationService) {
       }
 
       if (action === 'reject') {
-        await pool.query(`DELETE FROM user_friends WHERE id = ?`, [requestId]);
+        // P3-53: 仅删除仍处于 pending 的关系——并发 accept 已改 accepted 并写对称行时，
+        // 无条件 DELETE 会把主行删掉留下单向悬挂关系；受影响行数为 0 说明状态已变化，返回 409
+        const [delResult] = await pool.query(
+          `DELETE FROM user_friends WHERE id = ? AND status = 'pending'`,
+          [requestId]
+        );
+        if (delResult.affectedRows === 0) {
+          return sendError(res, 409, ErrorCodes.CONFLICT, '该好友申请状态已变化，请刷新后重试');
+        }
         return ok(res, { status: 'rejected' });
       }
 
@@ -303,6 +347,7 @@ module.exports = function (notificationService) {
       const status = ['pending', 'accepted', 'blocked'].includes(req.query.status)
         ? req.query.status : 'accepted';
       const pool = getPool();
+
       const [rows] = await pool.query(
         `SELECT u.id, u.display_name, u.vrchat_name, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url,
                 f.status, f.created_at AS since, f.requested_by AS requestedBy
@@ -716,6 +761,88 @@ module.exports = function (notificationService) {
     }
   });
 
+  // ==================== F-21 GET /api/friends/activity-sessions/:userId ====================
+  // 在线活动时间轴：会话明细（开始/结束/时长/所在世界）+ 按天在线分钟聚合，
+  // 由定时任务（schedule.js F-21 在线会话采样）写入 activity_sessions 表。
+  // days 参数（默认 30，上限 90）限定时间范围；进行中会话始终返回（便于「当前在线」展示）。
+  router.get('/activity-sessions/:userId', requireAuth, async (req, res) => {
+    try {
+      const me = req.session.userId;
+      const target = parseInt(req.params.userId);
+      if (!target || isNaN(target)) {
+        return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
+      }
+      const days = Math.min(parseInt(req.query.days) || 30, 90);
+      const pool = getPool();
+
+      // 校验 target 是本人或已接受好友（与 F-13/F-14/F-16 历史接口一致，防社交图枚举）
+      if (target !== me) {
+        const [rel] = await pool.query(
+          `SELECT id FROM user_friends WHERE user_id = ? AND friend_id = ? AND status = 'accepted'`,
+          [me, target]
+        );
+        if (!rel.length) {
+          return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权查看该用户的在线活动');
+        }
+      }
+
+      // 取目标用户 vrchat_id（会话以 vrchat_id 为键）
+      const [urows] = await pool.query(
+        `SELECT vrchat_name FROM users WHERE id = ? AND deleted_at IS NULL`, [target]
+      );
+      if (!urows.length || !urows[0].vrchat_name) {
+        return res.json({ items: [], daily: [], totalMinutes: 0, onlineNow: false });
+      }
+      const vrcid = urows[0].vrchat_name;
+
+      // 会话明细：时间范围内已封口会话 + 全部进行中会话（进行中即使 started_at 在范围外也返回）
+      const [items] = await pool.query(
+        `SELECT id, vrchat_id, started_at, ended_at, duration_minutes, world_id, world_name
+         FROM activity_sessions WHERE vrchat_id = ?
+         AND (started_at >= NOW() - INTERVAL ? DAY OR ended_at IS NULL)
+         ORDER BY started_at DESC
+         LIMIT 500`,
+        [vrcid, days]
+      );
+
+      // 按天聚合在线分钟数（进行中会话按已持续分钟计入当天）
+      const [dailyRows] = await pool.query(
+        `SELECT DATE(started_at) AS day,
+           SUM(CASE WHEN ended_at IS NOT NULL THEN duration_minutes
+                    ELSE TIMESTAMPDIFF(MINUTE, started_at, NOW()) END) AS minutes
+         FROM activity_sessions WHERE vrchat_id = ? AND started_at >= NOW() - INTERVAL ? DAY
+         GROUP BY DATE(started_at) ORDER BY day DESC`,
+        [vrcid, days]
+      );
+
+      // 当前是否在线（存在进行中会话）
+      const [nowRows] = await pool.query(
+        `SELECT id FROM activity_sessions WHERE vrchat_id = ? AND ended_at IS NULL LIMIT 1`,
+        [vrcid]
+      );
+
+      res.json({
+        items: items.map(r => ({
+          id: r.id,
+          startedAt: r.started_at,
+          endedAt: r.ended_at,
+          durationMinutes: r.duration_minutes,
+          worldId: r.world_id,
+          worldName: r.world_name,
+          ongoing: !r.ended_at
+        })),
+        daily: dailyRows.map(r => ({
+          day: r.day,
+          minutes: Math.max(0, Math.round(r.minutes || 0))
+        })),
+        totalMinutes: Math.max(0, Math.round(dailyRows.reduce((s, r) => s + (r.minutes || 0), 0))),
+        onlineNow: nowRows.length > 0
+      });
+    } catch (e) {
+      handleError(res, e, '[friends/activity-sessions]');
+    }
+  });
+
   // 指定好友的共同好友列表（点开详情）
   router.get('/mutuals/:targetUserId', requireAuth, async (req, res) => {
     try {
@@ -725,6 +852,18 @@ module.exports = function (notificationService) {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
       }
       const pool = getPool();
+
+      // 校验 target 必须是本人或已接受好友，否则拒绝（与 F-13 history 一致，防社交图枚举）
+      if (target !== me) {
+        const [rel] = await pool.query(
+          `SELECT id FROM user_friends WHERE user_id = ? AND friend_id = ? AND status = 'accepted'`,
+          [me, target]
+        );
+        if (!rel.length) {
+          return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权查看该用户的共同好友');
+        }
+      }
+
       const [rows] = await pool.query(
         `SELECT u.id, u.display_name, u.vrchat_name, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url
          FROM user_friends f1

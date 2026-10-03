@@ -321,7 +321,7 @@ router.post('/login', async (req, res) => {
       }
     }
 
-    if (users.length === 0) return fail(res, 401, '登录失败，请检查账号或昵称和密码', { code: 'LOGIN_FAILED' });
+    if (users.length === 0) return fail(res, 401, '登录失败，请检查账号和密码', { code: 'LOGIN_FAILED' });
 
     // 支持用「本地账户名字(display_name)」登录：大小写不敏感匹配。
     // 若存在同名账户，优先匹配 login_id 精确相等的记录；否则逐个校验密码以确定唯一账户。
@@ -361,7 +361,7 @@ router.post('/login', async (req, res) => {
       try {
         await getPool().query(`UPDATE users SET failed_login_attempts = ? WHERE id = ?`, [newAttempts, user.id]);
       } catch {}
-      return fail(res, 401, '登录失败，请检查登录ID和密码', { code: 'LOGIN_FAILED' });
+      return fail(res, 401, '登录失败，请检查账号和密码', { code: 'LOGIN_FAILED' });
     }
 
     try {

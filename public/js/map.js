@@ -11,6 +11,7 @@ let staleSweepTimer = null;
 // 实时位置追踪
 let locationWatchId = null;
 let locationTrackingActive = false;
+let _trackStarting = false; // P3-62: /me/location 请求在途标记，防双击双份注册
 let locationUpdateInterval = null;
 const LOCATION_UPDATE_INTERVAL = 5000; // 5秒
 const LOCATION_STALE_TIMEOUT = 120000;
@@ -30,7 +31,7 @@ const LOCATION_STALE_TIMEOUT = 120000;
     link.rel = 'stylesheet';
     link.href = cdnUrls[idx];
     link.onload = () => { /* 成功，不做特殊处理 */ };
-    link.onerror = () => { console.warn(__('auto_map_1'), cdnUrls[idx]); link.remove(); tryLoadCSS(idx + 1); };
+    link.onerror = () => { console.warn('[map] Leaflet CSS CDN 加载失败，尝试下一个:', cdnUrls[idx]); link.remove(); tryLoadCSS(idx + 1); };
     document.head.appendChild(link);
   }
   tryLoadCSS(0);
@@ -100,7 +101,7 @@ async function initMap() {
           leafletLoaded = true;
           break;
         } catch (e) {
-          console.warn(__('auto_map_2'), cdnUrl);
+          console.warn('[map] Leaflet CDN 加载失败，尝试下一个:', cdnUrl);
         }
       }
       if (!leafletLoaded) {
@@ -125,23 +126,23 @@ async function initMap() {
     const TILE_PROVIDERS = [
       // 本地离线瓦片（最高优先级）：文件位于 public/map-tiles/{z}/{x}/{y}.png，
       // 可手动导入/更新；未下载对应瓦片时 tileerror 会快速降级到在线源。
-      { key: 'local', name: __('auto_map_3'), sub: ['1'],
+      { key: 'local', name: __('map.provider_local'), sub: ['1'],
         vector: '/map-tiles/{z}/{x}/{y}.png',
-        attr: __('auto_map_4'), isLocal: true },
-      { key: 'amap', name: __('auto_map_5'), sub: ['1','2','3','4'],
+        attr: __('map.provider_local_attr'), isLocal: true },
+      { key: 'amap', name: __('map.provider_amap'), sub: ['1','2','3','4'],
         vector: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}',
         sat: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=6&x={x}&y={y}&z={z}',
         label: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
-        attr: __('auto_map_6'), hasSat: true, hasLabel: true },
-      { key: 'amap2', name: __('auto_map_7'), sub: ['1','2','3','4'],
+        attr: __('map.provider_amap_attr'), hasSat: true, hasLabel: true },
+      { key: 'amap2', name: __('map.provider_amap2'), sub: ['1','2','3','4'],
         vector: 'https://wprd{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}',
         sat: 'https://wprd{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=6&x={x}&y={y}&z={z}',
         label: 'https://wprd{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
-        attr: __('auto_map_8'), hasSat: true, hasLabel: true },
-      { key: 'tencent', name: __('auto_map_9'), sub: ['0','1','2','3'],
+        attr: __('map.provider_amap2_attr'), hasSat: true, hasLabel: true },
+      { key: 'tencent', name: __('map.provider_tencent'), sub: ['0','1','2','3'],
         vector: 'https://rt{s}.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=1&scene=0&version=330',
         sat: 'https://rt{s}.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=2&scene=0&version=330',
-        attr: __('auto_map_10'), hasSat: true },
+        attr: __('map.provider_tencent_attr'), hasSat: true },
       { key: 'carto', name: 'CartoDB', sub: ['a','b','c','d'],
         vector: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
         attr: '&copy; <a href="https://carto.com" target="_blank" rel="noopener">CartoDB</a>' },
@@ -206,7 +207,7 @@ async function initMap() {
 
     const probeResults = await Promise.all(orderedProviders.map(async p => {
       const ok = await probeTile(probeUrl(p));
-      console.log(__('auto_map_11'), p.name, ok ? '✓ 可达' : __('auto_map_12'));
+      console.log('[map] 瓦片源预检:', p.name, ok ? '✓ 可达' : '✗ 不可达');
       return { p, ok };
     }));
     const usableProviders = probeResults.filter(r => r.ok).map(r => r.p);
@@ -233,11 +234,15 @@ async function initMap() {
       currentBaseLayer.addTo(mapInstance);
     }
 
-    // 同一图层连续 THRESHOLD 块瓦片失败才切换下一档（避免个别瓦片 404/超时误触发整图切换）
+    // 同一图层连续 THRESHOLD 块瓦片失败才切换下一档（避免个别瓦片 404/超时误触发整图切换）。
+    // 守卫从 `currentBaseLayer !== layer` 改为 `!mapInstance.hasLayer(layer)`：
+    // 卫星图层（satLayer）由图层控件切换为当前底图时，其 tileerror 也应触发降级，
+    // 而原守卫在 `currentBaseLayer`（恒为矢量层对象）不等于 satLayer 时直接 return，
+    // 卫星瓦片全挂时兜底永不触发（⑪ 卫星图层无兜底）。
     function bindTileFallback(layer, threshold) {
       let failCount = 0;
       layer.on('tileerror', () => {
-        if (++failCount < threshold || !mapInstance || currentBaseLayer !== layer) return;
+        if (++failCount < threshold || !mapInstance || !mapInstance.hasLayer(layer)) return;
         failCount = 0;
         const idx = usableProviders.findIndex(p => p.key === currentProviderKey);
         let nextLayer;
@@ -249,7 +254,7 @@ async function initMap() {
           nextLayer = localCanvasLayer;
           currentProviderKey = null;
         }
-        console.warn(__('auto_map_13'), nextLayer === localCanvasLayer ? '本地极简底图' : ((TILE_PROVIDERS.find(p => p.key === currentProviderKey) || {}).name));
+        console.warn('[map] 底图瓦片加载失败，降级切换 →', nextLayer === localCanvasLayer ? '本地极简底图' : ((TILE_PROVIDERS.find(p => p.key === currentProviderKey) || {}).name));
         mapInstance.removeLayer(layer);
         nextLayer.addTo(mapInstance);
         currentBaseLayer = nextLayer;
@@ -266,7 +271,7 @@ async function initMap() {
     if (activeProvider) {
       if (activeProvider.isLocal) {
         // 本地离线地图：直接显示中文名称便于识别（不走 i18n）
-        baseLayers[__('auto_map_14')] = currentBaseLayer;
+        baseLayers['🗺️ ' + __('map.provider_local')] = currentBaseLayer;
       } else {
         baseLayers['🗺️ ' + __('map.layer_vector')] = currentBaseLayer;
         if (activeProvider.hasSat) {
@@ -284,7 +289,7 @@ async function initMap() {
       baseLayers['🧭 ' + __('map.layer_local')] = localCanvasLayer;
     } else {
       baseLayers['🗺️ ' + __('map.layer_vector')] = localCanvasLayer;
-      console.warn(__('auto_map_15'));
+      console.warn('[map] 所有在线瓦片源均不可达，已使用本地极简底图');
     }
     L.control.layers(baseLayers, overlays, { position: 'topright', collapsed: true }).addTo(mapInstance);
     if (activeProvider) bindTileFallback(currentBaseLayer, 3);
@@ -303,12 +308,14 @@ async function initMap() {
     ensureStaleSweep();
 
   } catch (e) {
-    console.error(__('auto_map_16'), e);
+    console.error('[map] Leaflet 初始化失败:', e);
     renderEmpty(mapContainer, { icon: '⚠️', text: __('map.load_failed_retry') });
   }
 }
 
 // ==================== 获取实时位置数据 ====================
+
+let _locationFetchToastShown = false; // P3-69: 拉取失败只提示一次，避免持续轮询时刷屏
 
 async function fetchRealtimeLocations() {
   if (!currentUser) return;
@@ -317,8 +324,16 @@ async function fetchRealtimeLocations() {
     if (res.ok) {
       const data = await res.json();
       (data.markers || []).forEach(u => upsertLocationMarker(u));
+    } else if (!_locationFetchToastShown) {
+      _locationFetchToastShown = true;
+      toast(__('map.load_failed'), 'error');
     }
-  } catch (e) { /* 静默 */ }
+  } catch (e) {
+    if (!_locationFetchToastShown) {
+      _locationFetchToastShown = true;
+      toast(__('map.load_failed'), 'error');
+    }
+  }
 }
 
 // ==================== 标记管理 ====================
@@ -343,6 +358,11 @@ function upsertLocationMarker(userData) {
   const glng = disp[0], glat = disp[1];
 
   const isMe = currentUser && (String(uid) === String(currentUser.id));
+
+  // 本人位置已由「正在共享」的脉冲标记（myLocationMarker）表示，
+  // 再建头像标记会在同一坐标叠加两个 marker（⑪ WS/HTTP 双通道重复「我」标记）。
+  // 仅当未开启共享（离线视角/他人共享给自己看）时允许创建自己的头像标记。
+  if (isMe && myLocationMarker) return;
 
   // 记录最后活跃时间，供 sweepStaleMarkers 清理离线用户的残留标记
   markerLastSeen[uid] = Date.now();
@@ -486,7 +506,7 @@ function toggleLocationTracking() {
   else startLocationTracking();
 }
 
-// 是否已经拿到第一个有效坐标（用于把__('auto_map_17')提示推迟到真正定位成功之后）
+// 是否已经拿到第一个有效坐标（用于把"共享成功"提示推迟到真正定位成功之后）
 let _locationFirstFixDone = false;
 
 async function startLocationTracking() {
@@ -494,7 +514,12 @@ async function startLocationTracking() {
   // 注意：不能只判 navigator.geolocation 存在 —— 非安全上下文（http + 局域网 IP）下
   // 该对象照样存在，但调用会以 code 1 直接失败且不弹权限框。详见 core.js:geoAvailability。
   if (!ensureGeolocation()) return;
+  // P3-62: in-flight 锁 —— await 完成前按钮仍处"共享"态，双击会注册两份 watchPosition
+  // + 两份 interval，第二个调用覆盖 locationWatchId 导致第一份 watcher 泄漏且双份上报
+  if (locationTrackingActive || _trackStarting) return;
+  _trackStarting = true;
   _locationFirstFixDone = false;
+  updateLocationUI(true);
 
   // 确保位置可见：必须调用 /me/location，/me/profile 不接受 locationVisible 字段
   // （会静默返回成功但不生效，导致他人始终看不到本人位置）
@@ -505,6 +530,9 @@ async function startLocationTracking() {
     if (typeof isApiHandledError === 'function' && isApiHandledError(e)) return;
     toast(__('map.load_failed'), 'error');
     return;
+  } finally {
+    _trackStarting = false;
+    updateLocationUI();
   }
 
   locationWatchId = navigator.geolocation.watchPosition(
@@ -518,15 +546,15 @@ async function startLocationTracking() {
         toast(__('map.tracking_on'), 'success');
         // 原先调的是 loadMemberLocations()，全站根本没有这个函数 ——
         // ReferenceError 直接中断回调，其他成员的位置永远拉不下来，
-        // 表现为__('auto_map_18')。正确的函数名是 fetchRealtimeLocations。
+        // 表现为"共享成功了但地图上什么都没有"。正确的函数名是 fetchRealtimeLocations。
         fetchRealtimeLocations();
       }
     },
     (err) => {
-      console.warn(__('auto_map_19'), err.message);
+      console.warn('[map] 定位失败:', err.message);
       // 以前只在 err.code === 1（拒绝授权）时提示，超时和定位不可用两种失败
-      // 完全静默，用户只会看到按钮变成__('auto_map_20')却永远没有标记出现。
-      // 现在统一走 toastGeoError：它会先排除__('auto_map_21')这种同样是 code 1
+      // 完全静默，用户只会看到按钮变成"停止共享"却永远没有标记出现。
+      // 现在统一走 toastGeoError：它会先排除"非安全上下文"这种同样是 code 1
       // 却根本没弹过窗的情况，避免提示用户去授权一个从没出现过的弹窗。
       toastGeoError(err);
       stopLocationTracking();
@@ -546,8 +574,8 @@ async function startLocationTracking() {
 
   locationTrackingActive = true;
   updateLocationUI();
-  // 立刻给出__('auto_map_22')的反馈，成功提示留到真正拿到坐标时再弹，
-  // 否则用户会先看到__('auto_map_23')、随后定位却失败。
+  // 立刻给出"正在定位"的反馈，成功提示留到真正拿到坐标时再弹，
+  // 否则用户会先看到"共享成功"、随后定位却失败。
   toast(__('map.locating'), 'info');
 }
 
@@ -598,7 +626,7 @@ function updateMyLocationMarker(lat, lng) {
 // 位置上报：WebSocket 走实时广播，HTTP 负责持久化兜底。
 // 以前只走 WebSocket，一旦 WS 没连上（断线重连中、被代理拦截、后端未启用 ws）
 // 就直接 return，坐标永远写不进数据库 —— 结果是 /api/users/all/locations
-// 恒返回空数组，地图上一个标记都不会出现，而用户界面还显示__('auto_map_24')。
+// 恒返回空数组，地图上一个标记都不会出现，而用户界面还显示"正在共享位置"。
 let _lastLocationHttpSync = 0;
 const LOCATION_HTTP_MIN_INTERVAL = 20000;
 
@@ -633,10 +661,12 @@ function sendLocationStopViaWS() {
   wsClient.send(JSON.stringify({ type: 'location:stop', userId: currentUser.id }));
 }
 
-function updateLocationUI() {
+function updateLocationUI(pending) {
   const btn = document.getElementById('locationToggleBtn');
   const status = document.getElementById('locationStatus');
   if (btn) {
+    // P3-62: 请求在途时禁用按钮，防重复触发
+    btn.disabled = !!pending;
     btn.textContent = locationTrackingActive ? __('map.stop_sharing') : __('map.share_my_location');
     btn.className = locationTrackingActive ? 'btn btn-sm btn-danger' : 'btn btn-sm';
   }
@@ -678,6 +708,11 @@ function mapRegionCn(code) {
   if (!code) return __('map.region_unknown') || '未分类';
   const c = String(code).toUpperCase();
   return MAP_REGION_KEYS[c] ? __(MAP_REGION_KEYS[c]) : c;
+}
+// P3-61: region class 走白名单映射（CSS/class 上下文不用 escAttr——HTML 实体在属性解析后仍是 class 字面量，未知 region 回退 unknown，杜绝任意字符串入 class 注入面）
+function mapRegionClass(code) {
+  const c = String(code || '').toUpperCase();
+  return MAP_REGION_KEYS[c] ? c.toLowerCase() : 'unknown';
 }
 
 // 解析 "wrld_xxx:84292~group(g)~accessType(public)~region(jp)" → {instanceId, region, isPrivate}
@@ -809,7 +844,7 @@ function _renderMapTop(top) {
       <div class="worlds-top-rank">${idx + 1}</div>
       <div class="worlds-top-main">
         <div class="worlds-top-line1">
-          <span class="worlds-region-badge region-${(it.region || 'unknown').toLowerCase()}">${esc(mapRegionCn(it.region))}</span>
+          <span class="worlds-region-badge region-${mapRegionClass(it.region)}">${esc(mapRegionCn(it.region))}</span>
           ${it.isPrivate ? '<span class="worlds-private-badge" title="' + esc(__('map.private_instance')) + '">🔒</span>' : ''}
           <span class="worlds-top-name">${esc(it.worldName || it.instanceId)}</span>
         </div>
@@ -852,7 +887,7 @@ function _renderMapGrid(worlds) {
         </div>
         ${instArr.length > 1 ? `<div class="world-instances-list">${instArr.map(it => `
           <div class="world-instance-row" title="${esc(it.instanceId)}">
-            <span class="worlds-region-badge region-${(it.region || 'unknown').toLowerCase()}">${esc(mapRegionCn(it.region))}</span>
+            <span class="worlds-region-badge region-${mapRegionClass(it.region)}">${esc(mapRegionCn(it.region))}</span>
             ${it.isPrivate ? '<span class="worlds-private-badge" title="' + esc(__('map.private_instance')) + '">🔒</span>' : ''}
             <span class="world-instance-id" onclick="copyToClipboard && copyToClipboard('${escJsStr(it.instanceId)}')" title="${__('map.copy_instance')}">${esc(it.instanceId.length > 30 ? it.instanceId.slice(0, 28) + '…' : it.instanceId)}</span>
             <span class="world-instance-count">${it.members.length}</span>

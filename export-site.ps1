@@ -78,7 +78,7 @@ try {
 
     # ---- 白名单目录 ----
     $treeJobs = @()
-    $treeJobs += @{ Dir = 'server'; Dirs = @('node_modules', 'coverage', '__tests__', 'tests', 'logs', '_jt_trash', 'ai-scratch', 'data'); Files = { param($n) $n -like '_*.js' } }
+    $treeJobs += @{ Dir = 'server'; Dirs = @('node_modules', 'coverage', '__tests__', 'tests', 'logs', '_jt_trash', 'ai-scratch', 'data'); Files = { param($n) $n -like '_*.js' -or $n -eq 'session.json' } }
     $treeJobs += @{ Dir = 'public'; Dirs = @('ai-scratch', '_jt_trash'); Files = $null }
     $treeJobs += @{ Dir = 'docs'; Dirs = @('_jt_trash'); Files = $null }
     $treeJobs += @{ Dir = 'deploy'; Dirs = @('_jt_trash'); Files = { param($n) $n -like '*.generated' } }
@@ -126,9 +126,10 @@ try {
         }
     }
 
-    # ---- 秘密红线终检：staging 内绝不允许出现 .env / panel-auth.json / 激活码文件 ----
+    # ---- 秘密红线终检：staging 内绝不允许出现 .env / panel-auth.json / 激活码文件 / session.json ----
+    # session.json（连接会话数据）虽非密钥文件，但含登录态；与 jingtu.ps1/jingtu.sh 排除面一致纳入红线。
     $leaks = @(Get-ChildItem -LiteralPath $staging -Recurse -File -Force |
-        Where-Object { $_.Name -eq '.env' -or $_.Name -eq 'panel-auth.json' -or $_.Name -eq 'activation-codes.json' })
+        Where-Object { $_.Name -eq '.env' -or $_.Name -eq 'panel-auth.json' -or $_.Name -eq 'activation-codes.json' -or $_.Name -eq 'session.json' })
     if ($leaks.Count -gt 0) {
         foreach ($l in $leaks) { Write-Host ("[export] 红线拦截：{0}" -f $l.FullName) }
         throw '压缩包内检测到密钥文件，导出中止'

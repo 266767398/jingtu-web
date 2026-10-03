@@ -77,11 +77,12 @@ describe('好友申请 POST /api/friends/request', () => {
   test('正常申请 → pending 并通知', async () => {
     mockPool.query
       .mockResolvedValueOnce([[{ id: 2 }]])          // userExists
+      .mockResolvedValueOnce([[{ display_name: 'Me' }]]);        // notify name
+    mockConn.query
       .mockResolvedValueOnce([[]])                    // blockedByThem
       .mockResolvedValueOnce([[]])                    // mine
       .mockResolvedValueOnce([[]])                    // incoming
-      .mockResolvedValueOnce([{ insertId: 7, affectedRows: 1 }]) // insert pending
-      .mockResolvedValueOnce([[{ display_name: 'Me' }]]);        // notify name
+      .mockResolvedValueOnce([{ insertId: 7, affectedRows: 1 }]); // insert pending
     const res = await request(buildApp()).post('/api/friends/request').send({ targetUserId: 2 });
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('pending');
@@ -93,17 +94,17 @@ describe('好友申请 POST /api/friends/request', () => {
   test('对方已申请我 → 我的申请即接受（auto-accept）', async () => {
     mockPool.query
       .mockResolvedValueOnce([[{ id: 2 }]])          // userExists
+      .mockResolvedValueOnce([[{ display_name: 'Me' }]]);   // notify name
+    mockConn.query
       .mockResolvedValueOnce([[]])                    // blockedByThem
       .mockResolvedValueOnce([[]])                    // mine
       .mockResolvedValueOnce([[{ id: 10, requester: 2 }]]) // incoming pending
-      .mockResolvedValueOnce([[{ display_name: 'Me' }]]);   // notify name
-    mockConn.query
       .mockResolvedValueOnce([{ affectedRows: 1 }])   // UPDATE → accepted
       .mockResolvedValueOnce([{ insertId: 11, affectedRows: 1 }]); // INSERT IGNORE 对称行
     const res = await request(buildApp()).post('/api/friends/request').send({ targetUserId: 2 });
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('accepted');
-    expect(mockConn.query).toHaveBeenCalledTimes(2);
+    expect(mockConn.query).toHaveBeenCalledTimes(5);
     expect(notificationService.notifyUser).toHaveBeenCalledWith(
       2, 'friend_accepted', '好友请求已通过', expect.any(String), { targetType: 'user', targetId: ME }
     );
@@ -111,8 +112,9 @@ describe('好友申请 POST /api/friends/request', () => {
 
   test('已是好友 → ALREADY_FRIENDS(409)', async () => {
     mockPool.query
-      .mockResolvedValueOnce([[{ id: 2 }]])                  // userExists
-      .mockResolvedValueOnce([[]])                            // blockedByThem
+      .mockResolvedValueOnce([[{ id: 2 }]]);          // userExists
+    mockConn.query
+      .mockResolvedValueOnce([[]])                    // blockedByThem
       .mockResolvedValueOnce([[{ status: 'accepted' }]]);     // mine
     const res = await request(buildApp()).post('/api/friends/request').send({ targetUserId: 2 });
     expect(res.status).toBe(409);
@@ -121,7 +123,8 @@ describe('好友申请 POST /api/friends/request', () => {
 
   test('已被对方拉黑 → BLOCKED(403)', async () => {
     mockPool.query
-      .mockResolvedValueOnce([[{ id: 2 }]])   // userExists
+      .mockResolvedValueOnce([[{ id: 2 }]]);   // userExists
+    mockConn.query
       .mockResolvedValueOnce([[{ 1: 1 }]]);    // blockedByThem -> 命中
     const res = await request(buildApp()).post('/api/friends/request').send({ targetUserId: 2 });
     expect(res.status).toBe(403);

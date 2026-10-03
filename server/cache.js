@@ -126,6 +126,42 @@ async function incr(key, ttlSeconds) {
 }
 
 /**
+ * 原子减计数（P3-138）：单条 Lua 内完成读取/减一/保留 TTL，消除 get-then-set
+ * 竞态（并发成功登录互相覆盖丢更新）。键不存在返回 -1（调用方视为无需减），
+ * 计数值降到 0 时保留键位并续 TTL，与 MemoryStore 的 decrement 语义一致；
+ * Redis 不可用或异常返回 null，调用方需回退本地实现。
+ */
+const DECRBY_SCRIPT = `
+local v = redis.call('GET', KEYS[1])
+if v == false then return -1 end
+local n = tonumber(v)
+local ttl = redis.call('TTL', KEYS[1])
+if ttl < 0 then ttl = tonumber(ARGV[1]) end
+if n <= 1 then
+  if ttl > 0 then redis.call('SET', KEYS[1], 0, 'EX', ttl) end
+  return 0
+end
+if ttl > 0 then
+  redis.call('SET', KEYS[1], n - 1, 'EX', ttl)
+else
+  redis.call('SET', KEYS[1], n - 1)
+end
+return n - 1`;
+
+async function decrBy(key, ttlSeconds) {
+  if (!isEnabled || !redisClient) return null;
+  try {
+    const ttl = Number.isFinite(ttlSeconds) && ttlSeconds > 0 ? Math.ceil(ttlSeconds) : 3600;
+    const result = await redisClient.eval(DECRBY_SCRIPT, { keys: [key], arguments: [String(ttl)] });
+    return typeof result === 'number' ? result : Number.parseInt(result, 10);
+  } catch (e) {
+    console.error('[cache] decrBy error:', e);
+    isEnabled = false;
+    return null;
+  }
+}
+
+/**
  * 剩余存活秒数：键不存在/已过期返回 -2，未设置过期返回 -1，Redis 不可用返回 -2。
  */
 async function ttl(key) {
@@ -212,7 +248,10 @@ function cacheMiddleware(duration = 3600) {
   return async function(req, res, next) {
     if (!isEnabled) return next();
     
-    const cacheKey = `cache:${req.method}:${req.path}:${JSON.stringify(req.query)}`;
+    // P3-76: 缓存键并入用户身份维度——即使未来挂到含私有数据的只读 GET，
+    // 也绝不会把首个请求者的响应缓存共享给其他用户（当前未挂载任何路由，属纵深防御）。
+    const uid = (req.session && (req.session.userId || req.session.id)) || 'anon';
+    const cacheKey = `cache:${req.method}:${req.path}:${uid}:${JSON.stringify(req.query)}`;
     const cached = await get(cacheKey);
     
     if (cached) {
@@ -239,6 +278,7 @@ module.exports = {
   del,
   exists,
   incr,
+  decrBy,
   ttl,
   expire,
   closeCache,

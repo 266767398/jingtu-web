@@ -28,6 +28,22 @@ const mailer = require('../mailer');
 
 const router = express.Router();
 
+// P3-124：站点未安装窗口期 /setup/test-email 匿名可达，易被滥用为邮件代发/钓鱼。
+// 除收发件邮箱与 SMTP 参数校验外，再加「每来源 IP 每小时 ≤5 次」的软熔断并留审计日志。
+const TEST_EMAIL_WINDOW_MS = 60 * 60 * 1000;
+const TEST_EMAIL_MAX = 5;
+const testEmailHits = new Map(); // ip -> { count, resetAt }
+function testEmailLimited(ip) {
+  const now = Date.now();
+  const rec = testEmailHits.get(ip);
+  if (!rec || now > rec.resetAt) {
+    testEmailHits.set(ip, { count: 1, resetAt: now + TEST_EMAIL_WINDOW_MS });
+    return false;
+  }
+  rec.count += 1;
+  return rec.count > TEST_EMAIL_MAX;
+}
+
 function getEnvPath() {
   return path.join(__dirname, '..', '..', '.env');
 }
@@ -282,6 +298,26 @@ router.post('/setup/test-email', requireNotInstalled, requireSuperAdminForReconf
     if (!host || !user) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'SMTP配置不完整');
     }
+    // P3-124：安装窗口期匿名可达，先做输入卫生 + 每来源限流 + 审计，缩小滥用面
+    if (typeof host !== 'string' || host.length > 255) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'SMTP主机名格式不正确');
+    }
+    if (port !== undefined && port !== null && port !== ''
+        && (!Number.isFinite(Number(port)) || Number(port) < 1 || Number(port) > 65535)) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'SMTP端口无效');
+    }
+    const toAddr = (to !== undefined && to !== null && String(to).trim() !== '') ? String(to).trim() : String(user).trim();
+    const fromAddr = (from !== undefined && from !== null && String(from).trim() !== '') ? String(from).trim() : toAddr;
+    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!EMAIL_RE.test(toAddr) || !EMAIL_RE.test(fromAddr)) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '收发件邮箱格式不正确');
+    }
+    const srcIp = (req.socket && req.socket.remoteAddress) || '';
+    if (testEmailLimited(srcIp)) {
+      return sendError(res, 429, ErrorCodes.RATE_LIMITED, '尝试过于频繁，请稍后再试');
+    }
+    logger.warn(`[setup/test-email] 来源 ${srcIp} 尝试发送测试邮件 to=${toAddr} from=${fromAddr}`);
+
     const reconfigure = allowReconfigure(req) && fs.existsSync(getEnvPath());
     if (!pass && reconfigure) {
       pass = readEnv(getEnvPath()).SMTP_PASS || '';
@@ -292,9 +328,11 @@ router.post('/setup/test-email', requireNotInstalled, requireSuperAdminForReconf
 
     // 使用表单提交的 SMTP 配置直发测试邮件：首次安装时 .env 尚无 SMTP 配置，
     // 共享 transporter 不可用；重走模式下密码留空则沿用 .env 现有值
-    const result = await mailer.sendTestEmail({ host, port, secure, user, pass, from }, to || user);
+    const result = await mailer.sendTestEmail({ host, port, secure, user, pass, from: fromAddr }, toAddr);
     if (!result.success) {
-      return sendError(res, 500, ErrorCodes.INTERNAL, '邮件发送失败：' + (result.error || '未知错误'));
+      // P3-124：不回显上游 SMTP 错误细节给匿名调用方，统一通用文案 + 服务端日志
+      logger.warn(`[setup/test-email] 发送失败 from=${fromAddr}`, { err: String((result && result.error) || 'unknown') });
+      return sendError(res, 500, ErrorCodes.INTERNAL, '邮件发送失败，请检查 SMTP 配置后在日志定位问题');
     }
 
     ok(res);

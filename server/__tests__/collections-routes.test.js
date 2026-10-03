@@ -59,6 +59,7 @@ jest.mock('../utils', () => ({
       : Math.min(maxSize, Math.max(minSize, parseInt(req.query[sizeParam], 10) || defaultSize));
     return { page, pageSize, offset: (page - 1) * pageSize };
   },
+  escapeLike: (s) => String(s || '').replace(/[%_!]/g, (m) => '!' + m),
   handleError(res, error) {
     const status = error.statusCode || error.status || 500;
     return res.status(status).json({ success: false, error: { code: error.code, message: error.message } });

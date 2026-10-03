@@ -78,7 +78,7 @@ async function loadChatConversations(resetView = false) {
       renderChatMain(convData.conversations || [], groupData.groups || []);
       updateChatBadge();
     }
-  } catch (e) { toast(__('chat.load_failed') || __('auto_chat_1'), 'error'); }
+  } catch (e) { toast(__('chat.load_failed'), 'error'); }
   finally { chatLoading = false; }
 }
 
@@ -89,11 +89,11 @@ function renderChatMain(convs, groups) {
   const groupHtml = groups.length > 0 ? `<div class="chat-section-title">${__('chat.group_chat')}</div>
     ${groups.map(g => {
       const activeClass = chatActiveGroupId === g.id ? 'chat-conv-active' : '';
-      return `<div class="chat-conv-item ${activeClass}" onclick="openGroupChat(${g.id})">
+      return `<div class="chat-conv-item ${activeClass}" tabindex="0" role="button" aria-label="${escAttr(g.name || '')}" onclick="openGroupChat(${g.id})" onkeydown="if(event.key==='Enter')openGroupChat(${g.id})">
         <div class="chat-group-avatar">#</div>
         <div class="chat-conv-info">
           <div class="chat-conv-name">${esc(g.name)}</div>
-          <div class="chat-conv-msg">${g.memberCount} ${__('chat.n_members_label')} · ${g.lastMessage ? esc(g.lastMessage.slice(0, 30)) : __('chat.no_messages')}</div>
+          <div class="chat-conv-msg">${__('chat.n_members_label', {n: g.memberCount})} · ${g.lastMessage ? esc(g.lastMessage.slice(0, 30)) : __('chat.no_messages')}</div>
         </div>
         <div class="chat-conv-time">${formatChatTime(g.lastTime)}</div>
       </div>`;
@@ -105,8 +105,8 @@ function renderChatMain(convs, groups) {
       const avatarSrc = c.avatarUrl ? escAttr(c.avatarUrl) : '/api/avatar/default';
       const activeClass = chatActiveUserId === c.userId ? 'chat-conv-active' : '';
       const ub = c.unreadCount > 0 ? `<span class="chat-unread-badge">${c.unreadCount > 99 ? '99+' : c.unreadCount}</span>` : '';
-      return `<div class="chat-conv-item ${activeClass}" onclick="openChat(${c.userId})">
-        <img src="${avatarSrc}" class="chat-conv-avatar" loading="lazy" onerror="this.src='/api/avatar/default'" />
+      return `<div class="chat-conv-item ${activeClass}" tabindex="0" role="button" aria-label="${escAttr(c.displayName || '')}" onclick="openChat(${c.userId})" onkeydown="if(event.key==='Enter')openChat(${c.userId})">
+        <img src="${avatarSrc}" class="chat-conv-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(c.avatarUrl || '/api/avatar/default')}')" />
         <div class="chat-conv-info">
           <div class="chat-conv-name">${esc(c.displayName)}${ub}</div>
           <div class="chat-conv-msg">${esc(c.lastMessage ? (c.lastMessage.length > 40 ? c.lastMessage.slice(0,40)+'…' : c.lastMessage) : '')}</div>
@@ -158,6 +158,8 @@ async function openChat(userId) {
       api(`/api/chat/history/${userId}?page=1&pageSize=${chatPageSize}`, { method: 'GET' }),
       api(`/api/users/${userId}/card`, { method: 'GET' })
     ]);
+    // 快照校验：响应返回期间用户可能已切换到其他会话，避免把旧会话渲染到当前视图（串台）
+    if (chatActiveUserId !== userId) return;
     if (histRes.ok && userRes.ok) {
       const hist = await histRes.json();
       const user = await userRes.json();
@@ -166,7 +168,7 @@ async function openChat(userId) {
       chatTotal = hist.total || 0;
       document.getElementById('chatDetailHeader').innerHTML = `
         <button class="btn btn-xs" onclick="closeChatDetail()">${__('chat.back')}</button>
-        <img src="${avatarSrc}" class="chat-conv-avatar mx-4" loading="lazy" onerror="this.src='/api/avatar/default'" />
+        <img src="${avatarSrc}" class="chat-conv-avatar mx-4" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(user.avatarUrl || '/api/avatar/default')}')" />
         <strong>${esc(displayName)}</strong>
         <span class="ml-auto">
           <button class="btn btn-xs btn-outline" onclick="startPrivateCall(${userId},'voice')" title="${esc(__('rtc.voice_call'))}">📞</button>
@@ -176,6 +178,7 @@ async function openChat(userId) {
       const unreadMsgIds = (hist.messages || []).filter(m => !m.isRead && m.receiverId === currentUser.id).map(m => m.id);
       if (unreadMsgIds.length > 0) {
         await api('/api/chat/messages/read-batch', { method: 'PATCH', body: JSON.stringify({ messageIds: unreadMsgIds }) }).catch(() => {});
+        if (chatActiveUserId !== userId) return;
       }
       if (chatConversations[userId]) { chatConversations[userId].unreadCount = 0; loadChatConversations(); }
       renderMessages(hist.messages || [], userId);
@@ -204,7 +207,16 @@ async function sendChatMessage() {
   try {
     const res = await api('/api/chat/send', { method: 'POST', body: JSON.stringify({ receiverId: chatActiveUserId, content }) });
     if (res.ok) { const d = await res.json(); appendReceivedMessage(d.message, true); }
-  } catch (e) { if (isApiHandledError(e)) return; toast(__('chat.send_failed'), 'error'); }
+    else {
+      // 发送失败：回填正文，避免用户内容丢失
+      input.value = content; input.focus();
+      toast(__('chat.send_failed'), 'error');
+    }
+  } catch (e) {
+    if (isApiHandledError(e)) { input.value = content; input.focus(); return; }
+    input.value = content; input.focus();
+    toast(__('chat.send_failed'), 'error');
+  }
 }
 
 // 媒体上传入口（图片/视频/语音）：WS 不承载二进制，媒体只能走 HTTP multipart；
@@ -288,7 +300,7 @@ function chatMediaBlock(m) {
   if (!m || !m.mediaUrl || !m.mediaType) return '';
   const url = escAttr(m.mediaUrl);
   if (m.mediaType === 'image') {
-    return `<img class="chat-media chat-media-img" src="${url}" alt="" loading="lazy" style="max-width:100%;border-radius:8px;display:block">`;
+    return `<img class="chat-media chat-media-img" src="${url}" alt="" loading="lazy" style="max-width:100%;border-radius:8px;display:block" onerror="window.__imgFail(this)">`;
   }
   if (m.mediaType === 'video') {
     return `<video class="chat-media chat-media-video" src="${url}" controls preload="metadata" style="max-width:100%;border-radius:8px;display:block;background:#000"></video>`;
@@ -331,7 +343,7 @@ async function showCreateGroupModal() {
             <div style="max-height:200px;overflow-y:auto">${users.filter(u => u.id !== currentUser.id).map(u => `
               <label class="flex-row gap-4 items-center p-4" style="cursor:pointer">
                 <input type="checkbox" class="group-member-checkbox" value="${u.id}">
-                <span>${esc(u.displayName || u.loginId)}</span>
+                <span>${esc(u.displayName || __('chat.someone'))}</span>
               </label>`).join('')}
             </div>
           </div>
@@ -374,8 +386,8 @@ async function openGroupChat(groupId) {
   // 防御：群组 ID 必须有效，避免请求 /api/chat/groups/undefined/messages 触发 500
   const gid = parseInt(groupId);
   if (!Number.isInteger(gid) || gid <= 0) {
-    console.warn(__('auto_chat_2'), groupId);
-    toast(__('auto_chat_3'), 'error');
+    console.warn('[chat] openGroupChat: invalid groupId', groupId);
+    toast(__('chat.invalid_group'), 'error');
     return;
   }
   chatActiveGroupId = gid;
@@ -392,6 +404,8 @@ async function openGroupChat(groupId) {
       api(`/api/chat/groups/${groupId}`, { method: 'GET' }),
       api(`/api/chat/groups/${groupId}/messages?page=1&pageSize=${chatPageSize}`, { method: 'GET' })
     ]);
+    // 快照校验：响应返回期间用户可能已切换到其他会话，避免旧群聊渲染串台
+    if (chatActiveGroupId !== gid) return;
     if (grpRes.ok && msgRes.ok) {
       const grp = await grpRes.json();
       const msgs = await msgRes.json();
@@ -412,6 +426,7 @@ async function openGroupChat(groupId) {
       const unreadMsgIds = (msgs.messages || []).filter(m => !m.isRead).map(m => m.id);
       if (unreadMsgIds.length > 0) {
         await api(`/api/chat/groups/${groupId}/messages/read-batch`, { method: 'PATCH', body: JSON.stringify({ messageIds: unreadMsgIds }) }).catch(() => {});
+        if (chatActiveGroupId !== gid) return;
       }
       loadChatConversations();
       renderGroupMessages(msgs.messages || [], members);
@@ -434,20 +449,20 @@ function renderGroupMessages(messages, members) {
     if (m.msgType === 'location') {
       // 位置消息（来自群聊实时位置共享保存的消息）
       return `<div class="chat-msg chat-msg-other">
-        <div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy">` : ''} ${esc(senderName)}</div>
+        <div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(sender.avatarUrl || '/api/avatar/default')}')">` : ''} ${esc(senderName)}</div>
         <div class="chat-msg-bubble chat-msg-location" onclick="window.openMapLocation&&openMapLocation(${m.lat},${m.lng})">${__('chat.location_sharing')}</div>
         <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
       </div>`;
     }
     if (m.mediaUrl && m.mediaType) {
       return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
-        ${!isMe ? `<div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy">` : ''} ${esc(senderName)}</div>` : ''}
+        ${!isMe ? `<div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(sender.avatarUrl || '/api/avatar/default')}')">` : ''} ${esc(senderName)}</div>` : ''}
         <div class="chat-msg-bubble">${chatMediaBlock(m)}${m.content ? esc(m.content) : ''}</div>
         <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
       </div>`;
     }
     return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
-      ${!isMe ? `<div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy">` : ''} ${esc(senderName)}</div>` : ''}
+      ${!isMe ? `<div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(sender.avatarUrl || '/api/avatar/default')}')">` : ''} ${esc(senderName)}</div>` : ''}
       <div class="chat-msg-bubble">${esc(m.content)}</div>
       <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
     </div>`;
@@ -457,6 +472,10 @@ function renderGroupMessages(messages, members) {
 
 // 发送群消息（HTTP + WS fallback）
 async function sendGroupMessage(groupId, content) {
+  const scheduler = () => {
+    const input = document.getElementById('chatInput');
+    if (input) { input.value = content; input.focus(); }
+  };
   // 优先 WS
   if (wsClient && wsClient.readyState === WebSocket.OPEN) {
     wsClient.send(JSON.stringify({
@@ -474,9 +493,15 @@ async function sendGroupMessage(groupId, content) {
       const d = await res.json().catch(() => null);
       if (d && d.message) appendGroupMessage(d.message);
     } else {
+      // 发送失败：回填正文（发送前已清空输入框），避免用户内容丢失
+      scheduler();
       toast(__('chat.send_failed'), 'error');
     }
-  } catch (e) { if (isApiHandledError(e)) return; toast(__('chat.send_failed'), 'error'); }
+  } catch (e) {
+    if (isApiHandledError(e)) { scheduler(); return; }
+    scheduler();
+    toast(__('chat.send_failed'), 'error');
+  }
 }
 
 // ==================== 群聊实时位置共享 V6.13 ====================
@@ -572,7 +597,7 @@ function ensureGlobalWatch() {
     },
     (err) => {
       toastGeoError(err);
-      // 定位失败：停止全部群的共享，避免按钮卡在__('auto_chat_4')却不再发坐标
+      // 定位失败：停止全部群的共享，避免按钮卡在共享状态却不再发坐标
       Array.from(glGroups).forEach((gid) => stopGroupLocation(gid));
     },
     { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 }
@@ -779,6 +804,8 @@ function debouncedChatSearch(keyword) {
   }, 300);
 }
 
+// P3-64: 搜索竞态防护——每次发起递增 seq，旧请求返回时不覆盖新结果
+let chatSearchSeq = 0;
 async function chatSearch(keyword) {
   keyword = (keyword || '').trim();
   const searchResultsEl = document.getElementById('chatSearchResults');
@@ -790,19 +817,25 @@ async function chatSearch(keyword) {
     return;
   }
   if (keyword.length < 2) return;
+  const mySeq = ++chatSearchSeq;
   try {
     const res = await api(`/api/chat/search?keyword=${encodeURIComponent(keyword)}&scope=all`, { method: 'GET' });
-    if (res.ok) {
-      const data = await res.json();
+    if (!res || !res.ok) {
+      if (mySeq !== chatSearchSeq) return;
+      toast(__('chat.search_failed') || '搜索失败，请稍后重试', 'error');
+      return;
+    }
+    const data = await res.json();
+    if (mySeq !== chatSearchSeq) return;
       const pmHtml = data.privateMessages.length > 0 ? `<div class="chat-section-title">${__('chat.search_pm')}</div>
         ${data.privateMessages.map(m => {
           const otherId = m.senderId === currentUser.id ? m.receiverId : m.senderId;
           const avatarSrc = m.senderAvatar ? escAttr(m.senderAvatar) : '/api/avatar/default';
           return `<div class="chat-conv-item" onclick="openChat(${otherId})">
-            <img src="${avatarSrc}" class="chat-conv-avatar" onerror="this.src='/api/avatar/default'">
+            <img src="${avatarSrc}" class="chat-conv-avatar" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(m.senderAvatar || '/api/avatar/default')}')">
             <div class="chat-conv-info">
               <div class="chat-conv-name">${esc(m.senderName || __('unknown_user'))}</div>
-              <div class="chat-conv-msg">${esc(m.content.slice(0, 30))}</div>
+              <div class="chat-conv-msg">${esc((m.content || '').slice(0, 30))}</div>
             </div>
             <div class="chat-conv-time">${formatChatTime(m.createdAt)}</div>
           </div>`;
@@ -814,7 +847,7 @@ async function chatSearch(keyword) {
             <div class="chat-group-avatar">#</div>
             <div class="chat-conv-info">
               <div class="chat-conv-name">${esc(m.groupName || __('chat.group'))}</div>
-              <div class="chat-conv-msg">${esc(m.senderName)}: ${esc(m.content.slice(0, 30))}</div>
+              <div class="chat-conv-msg">${esc(m.senderName || '')}: ${esc((m.content || '').slice(0, 30))}</div>
             </div>
             <div class="chat-conv-time">${formatChatTime(m.createdAt)}</div>
           </div>`;
@@ -825,8 +858,11 @@ async function chatSearch(keyword) {
       } else {
         renderEmpty(searchResultsEl, { icon: '🔍', text: __('chat.no_search_results') });
       }
-    }
-  } catch (e) { }
+  } catch (e) {
+    // P3-69: 搜索异常给出反馈（原静默吞掉）
+    if (mySeq !== chatSearchSeq) return;
+    toast(__('chat.search_failed') || '搜索失败，请稍后重试', 'error');
+  }
 }
 
 function clearChatSearch() {
@@ -842,8 +878,11 @@ function clearChatSearch() {
 // 从私聊切到地图并定位到该用户
 function viewUserOnMap(userId) {
   if (typeof switchTab === 'function') switchTab('map');
+  let retries = 0;
+  const MAX_RETRIES = 10; // P3-69: 地图初始化失败时停止轮询，避免每 500ms 无限自调
   const tryLocate = async () => {
     if (typeof mapInstance === 'undefined' || !mapInstance) {
+      if (++retries > MAX_RETRIES) { toast(__('map.load_failed'), 'error'); return; }
       setTimeout(tryLocate, 500);
       return;
     }
@@ -887,7 +926,7 @@ function showGroupLocationOnChat(msg) {
     userLoc = el;
   }
   const avatarSrc = msg.avatarUrl ? escAttr(msg.avatarUrl) : '/api/avatar/default';
-  userLoc.innerHTML = `<img src="${avatarSrc}" class="chat-mini-avatar" loading="lazy"> ${esc(msg.displayName || '')} 🟢`;
+  userLoc.innerHTML = `<img src="${avatarSrc}" class="chat-mini-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(msg.avatarUrl || '/api/avatar/default')}')"> ${esc(msg.displayName || '')} 🟢`;
 }
 
 function hideGroupLocationOnChat(userId) {
@@ -933,7 +972,7 @@ async function showGroupSettings(groupId) {
               actions += `<button class="btn btn-xs btn-danger ml-2" onclick="kickGroupMember(${groupId}, ${m.id})">${__('chat.kick')}</button>`;
             }
             return `<div class="flex-row items-center p-3 border-b border-border">
-              <img src="${m.avatarUrl ? escAttr(m.avatarUrl) : '/api/avatar/default'}" class="chat-mini-avatar">
+              <img src="${m.avatarUrl ? escAttr(m.avatarUrl) : '/api/avatar/default'}" class="chat-mini-avatar" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(m.avatarUrl || '/api/avatar/default')}')">
               <span>${esc(m.displayName)}</span>
               ${isMemberAdmin ? '<span class="badge badge-accent ml-auto">' + __('chat.admin_badge') + '</span>' : ''}
               ${isMe ? '<span class="badge badge-success ml-auto">' + __('chat.me_badge') + '</span>' : ''}
@@ -950,7 +989,7 @@ async function showGroupSettings(groupId) {
       } else {
         html += `<div class="flex-row items-center flex-wrap gap-4">
           <code style="font-family:monospace;font-size:1.1rem;letter-spacing:1px;background:var(--bg);padding:4px 8px;border-radius:6px" id="grpInviteCode">${escAttr(group.inviteCode || '')}</code>
-          <button class="btn btn-xs" onclick="copyGroupInvite('${escAttr(group.inviteCode || '')}')">${__('chat.copy_code')}</button>
+          <button class="btn btn-xs" onclick="copyGroupInvite('${escJsStr(group.inviteCode || '')}')">${__('chat.copy_code')}</button>
           <button class="btn btn-xs" onclick="regenerateInvite(${groupId})">${__('chat.regen_code')}</button>
           <button class="btn btn-xs btn-outline" onclick="setGroupPrivacy(${groupId}, true)">${__('chat.make_public')}</button>
         </div>`;
@@ -1110,7 +1149,7 @@ function showInviteCodeModal(code, name) {
       <p class="text-sm text-muted">${__('chat.invite_code_hint')}</p>
       <div class="flex-row items-center gap-4 p-4">
         <code style="font-family:monospace;font-size:1.2rem;letter-spacing:1px;background:var(--bg);padding:6px 10px;border-radius:6px" id="inviteCodeText">${esc(code)}</code>
-        <button class="btn btn-accent" onclick="copyGroupInvite('${escAttr(code)}')">${__('chat.copy_code')}</button>
+        <button class="btn btn-accent" onclick="copyGroupInvite('${escJsStr(code)}')">${__('chat.copy_code')}</button>
       </div>
       <button class="btn w-full mt-2" onclick="closeModal('inviteCodeModal')">${__('chat.close')}</button>
     </div>
@@ -1577,7 +1616,7 @@ function renderRtcIncomingPopup(msg) {
   div.id = 'rtcIncomingPopup';
   div.className = 'rtc-incoming-popup';
   div.innerHTML = `
-    <img src="${avatar}" class="chat-conv-avatar" onerror="this.src='/api/avatar/default'" />
+    <img src="${avatar}" class="chat-conv-avatar" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr((msg.caller && msg.caller.avatarUrl) || '/api/avatar/default')}')" />
     <div class="rtc-incoming-info">
       <strong>${esc(name)}</strong>
       <span class="text-muted2 text-13">${isVideo ? '📹 ' : '📞 '}${esc(__('rtc.incoming'))}</span>
@@ -1733,7 +1772,7 @@ function rtcGroupCreatePeer(remoteUserId) {
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         rtcClosePeer(pc);
         if (room.peerMap[uid] === pc) delete room.peerMap[uid];
-        updateGroupVoiceBar();
+        renderGroupMemberList();
       }
     },
     onDisconnected: () => rtcWarnBrokenCall()
@@ -1838,7 +1877,7 @@ function renderGroupMemberList() {
     const nm = m.displayName || getChatUserName(uid);
     const av = m.avatarUrl ? escAttr(m.avatarUrl) : '/api/avatar/default';
     return `<span id="rtcGroupBarTile_${uid}" class="rtc-group-tile" title="${esc(nm)}">
-      <img src="${av}" class="rtc-group-avatar" onerror="this.src='/api/avatar/default'" />
+      <img src="${av}" class="rtc-group-avatar" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(m.avatarUrl || '/api/avatar/default')}')" />
       <video class="rtc-hidden" autoplay playsinline></video>
       <span class="rtc-tile-level"><span id="rtcTileLevel_${uid}" class="rtc-tile-level-fill"></span></span>
       <em>${esc(nm)}</em>
@@ -2013,10 +2052,28 @@ function initRtcPttButton() {
   btn.type = 'button';
   btn.className = 'btn btn-sm rtc-ptt-btn';
   btn.textContent = '🎙 ' + __('rtc.ptt_hold');
-  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); startPttRecording(); });
-  btn.addEventListener('pointerup', () => stopPttRecording());
-  btn.addEventListener('pointercancel', () => stopPttRecording());
-  btn.addEventListener('pointerleave', () => stopPttRecording());
+  btn.setAttribute('aria-pressed', 'false');
+  const setPressed = (on) => btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.addEventListener('pointerdown', (e) => { e.preventDefault(); setPressed(true); startPttRecording(); });
+  btn.addEventListener('pointerup', () => { setPressed(false); stopPttRecording(); });
+  btn.addEventListener('pointercancel', () => { setPressed(false); stopPttRecording(); });
+  btn.addEventListener('pointerleave', () => { setPressed(false); stopPttRecording(); });
+  btn.addEventListener('keydown', (e) => {
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      if (e.repeat) return;
+      setPressed(true);
+      startPttRecording();
+    }
+  });
+  btn.addEventListener('keyup', (e) => {
+    if (e.key === ' ' || e.key === 'Enter') {
+      e.preventDefault();
+      setPressed(false);
+      stopPttRecording();
+    }
+  });
+  btn.addEventListener('blur', () => { setPressed(false); stopPttRecording(); });
   btn.addEventListener('contextmenu', (e) => e.preventDefault());
   const sendBtn = document.getElementById('chatSendBtn');
   if (sendBtn && sendBtn.parentNode) sendBtn.parentNode.insertBefore(btn, sendBtn);

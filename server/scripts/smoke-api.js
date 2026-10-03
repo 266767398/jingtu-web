@@ -1,11 +1,12 @@
 // 全模块 API 冒烟：用 Node 内置 fetch 遍历所有 GET 端点，找出 5xx；404 视为清单腐化同样失败。
 // 端点路径均已对照 server.js 挂载表与 routes/*.js 路由定义核实。
 // 可选：设置 SMOKE_LOGIN_ID / SMOKE_PASSWORD 环境变量走真实登录；未设置时测未登录面（401/403 属预期 WARN）。
+// P3-148：移除 PII 重聚合端点（/api/users/all/locations、/api/users/birthdays）——
+// 冒烟不拉取真实用户位置/生日数据；4xx/5xx 不再打印响应体（可能含内部错误上下文），只报状态码。
 const BASE = process.env.SMOKE_BASE || 'http://127.0.0.1:3456';
 
 const ENDPOINTS = [
   '/api/auth/session',
-  '/api/users/all/locations',
   '/api/users?page=1&pageSize=10',
   '/api/users/me/events',
   '/api/admin/stats',
@@ -24,7 +25,6 @@ const ENDPOINTS = [
   '/api/social-links',
   '/api/permission-groups/groups',
   '/api/vrc/status/list',
-  '/api/users/birthdays',
   '/api/group/stats',
   '/api/notifications?page=1&pageSize=10'
 ];
@@ -49,10 +49,8 @@ async function loginAndGetCookie() {
   for (const url of ENDPOINTS) {
     try {
       const r = await fetch(BASE + url, { headers: cookie ? { cookie } : {}, redirect: 'manual' });
-      let body = '';
-      if (r.status >= 400) { try { body = (await r.text()).slice(0, 220); } catch { } }
-      results.push({ url, status: r.status, body });
-    } catch (e) { results.push({ url, status: 'THROW', body: e.message }); }
+      results.push({ url, status: r.status });
+    } catch (e) { results.push({ url, status: 'THROW' }); }
   }
 
   let bad = 0, missing = 0;
@@ -64,7 +62,6 @@ async function loginAndGetCookie() {
     else if (s >= '500' || s === 'THROW') { tag = 'FAIL'; bad++; }
     else if (s >= '400') tag = 'WARN';
     console.log(`  ${tag} ${s.padEnd(6)} ${r.url}`);
-    if (r.body && tag !== 'OK  ') console.log(`        ${r.body}`);
   }
   console.log(`\n5xx: ${bad}   404: ${missing}   共 ${results.length} 个端点`);
   process.exit(bad > 0 || missing > 0 ? 1 : 0);

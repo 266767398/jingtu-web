@@ -366,7 +366,7 @@ function showOnlineUsers() {
     const clickHandler = !isMe ? `goToProfile(${userId})` : '';
     return `
     <div class="online-user-popup-item" style="${!isMe ? 'cursor:pointer' : ''}" onclick="${clickHandler ? `goToProfile(${userId})` : ''}">
-      <img src="${avatarSrc}" class="online-user-popup-avatar" loading="lazy">
+      <img src="${avatarSrc}" class="online-user-popup-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(u.avatarUrl || '/api/avatar/default')}')">
       <span class="online-user-popup-name">${displayName}</span>
       ${isMe ? '<span class="text-muted2 text-11">' + __('main.me') + '</span>' : ''}
       <span class="online-user-popup-dot" title="${__('main.online')}" aria-label="${__('main.online')}"></span>

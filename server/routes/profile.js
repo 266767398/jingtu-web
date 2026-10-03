@@ -22,6 +22,12 @@ const ROOT_DIR = path.join(__dirname, '..', '..');
 const PROFILE_PHOTOS_DIR = path.join(ROOT_DIR, 'uploads', 'profile', 'photos');
 const PROFILE_VIDEOS_DIR = path.join(ROOT_DIR, 'uploads', 'profile', 'videos');
 
+// P2-131: privacy 写入白名单（user_albums/user_videos）
+const PRIVACY_WHITELIST = ['public', 'members_only', 'private'];
+function isPrivilegeValid(p) {
+  return p === undefined || p === null || PRIVACY_WHITELIST.includes(p);
+}
+
 // ==================== Multer 配置 ====================
 
 const photoStorage = multer.diskStorage({
@@ -495,6 +501,10 @@ router.post('/albums', requireAuth, async (req, res) => {
     if (!name || !name.trim()) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '相册名称不能为空');
     }
+    // P2-131: 写入端白名单校验，非法值 400 拒绝（防非白名单值绕过读取端黑名单致隐私意外公开/自伤 XSS）
+    if (!isPrivilegeValid(privacy)) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的隐私设置');
+    }
 
     const [result] = await getPool().query(
       `INSERT INTO user_albums (user_id, name, description, privacy)
@@ -527,6 +537,10 @@ router.put('/albums/:id', requireAuth, async (req, res) => {
 
     const updates = [];
     const values = [];
+    if (privacy !== undefined && !PRIVACY_WHITELIST.includes(privacy)) {
+      // P2-131: 编辑接口同样白名单校验，防绕过
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的隐私设置');
+    }
     if (name !== undefined) { updates.push('name = ?'); values.push(name.trim()); }
     if (description !== undefined) { updates.push('description = ?'); values.push(description); }
     if (privacy !== undefined) { updates.push('privacy = ?'); values.push(privacy); }
@@ -707,12 +721,13 @@ router.get('/albums/:id/photos', async (req, res) => {
 
     const album = albums[0];
 
-    // 隐私检查
+    // 隐私检查（P2-131: 改为白名单判空——未知/非法 privacy 一律按 private 从严处理，杜绝意外公开）
     if (album.userId !== currentUserId) {
-      if (album.privacy === 'private') {
+      const priv = PRIVACY_WHITELIST.includes(album.privacy) ? album.privacy : 'private';
+      if (priv === 'private') {
         return sendError(res, 403, ErrorCodes.FORBIDDEN, '该相册为私密相册');
       }
-      if (album.privacy === 'members_only') {
+      if (priv === 'members_only') {
         if (!currentUserId) {
           return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
         }
@@ -813,6 +828,11 @@ router.post('/videos', requireAuth, secureUpload(uploadVideo.single('video')), a
       // 删除已上传文件
       try { fs.unlinkSync(req.file.path); } catch (err) { logger.warn('profile', '[profile] 清理上传文件失败:', req.file.path, err.message); }
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '视频标题不能为空');
+    }
+    // P2-131: 写入端白名单校验
+    if (!isPrivilegeValid(privacy)) {
+      try { fs.unlinkSync(req.file.path); } catch (err) { logger.warn('profile', '[profile] 清理上传文件失败:', req.file.path, err.message); }
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的隐私设置');
     }
 
     const relativePath = path.relative(ROOT_DIR, req.file.path).replace(/\\/g, '/');

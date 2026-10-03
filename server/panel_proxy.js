@@ -41,14 +41,22 @@ function doSpawnPanel(rootDir) {
 
 function proxyToPanel(req, res, isRetry) {
   const parsed = new URL(req.url, 'http://' + (req.headers.host || '127.0.0.1'));
-  const upstreamPath = parsed.pathname.replace(/^\/ops/, '') || '/';
+  const upstreamPath = parsed.pathname.replace(/^\/ops(?=\/|$)/, '') || '/';
   const q = parsed.search || '';
+  // P3-97/P3-108：代理链路注入可信标记——面板端仅当直连来源为回环（本机可信入口）时
+  // 才信任 x-real-ip（登录失败锁定按真实来源 IP 分桶，不再退化为全局共享桶）；
+  // x-ops-proxy 供面板做 POST 源校验放行（主站侧已先行 CSRF + 超管鉴权）。
+  const forwardHeaders = Object.assign({}, req.headers, {
+    host: '127.0.0.1:' + PANEL_UPSTREAM.port,
+    'x-real-ip': String(req.ip || (req.socket && req.socket.remoteAddress) || ''),
+    'x-ops-proxy': '1'
+  });
   const proxyReq = http.request({
     host: PANEL_UPSTREAM.host,
     port: PANEL_UPSTREAM.port,
     path: upstreamPath + q,
     method: req.method,
-    headers: Object.assign({}, req.headers, { host: '127.0.0.1:' + PANEL_UPSTREAM.port }),
+    headers: forwardHeaders,
     timeout: 8000
   }, (proxyRes) => {
     res.writeHead(proxyRes.statusCode, proxyRes.headers);
@@ -70,13 +78,19 @@ function proxyToPanel(req, res, isRetry) {
 }
 
 /**
- * 挂载 /ops 反向代理入口（须在安全响应头中间件之前调用）
+ * 挂载 /ops/ 反向代理入口（须在安全响应头中间件之前调用）
  * @param {import('express').Express} app
- * @param {{ ROOT_DIR: string, requireAdminCompat: Function }} deps
+ * @param {{ ROOT_DIR: string, requireSuperAdmin: Function }} deps
+ *
+ * P2-154：入口鉴权从 requireAdminCompat 提升为 requireSuperAdmin——面板可执行
+ * 重置超管密码/清空用户数据/停杀服务/导出含全部 PII 站点包等机器级操作，
+ * 仅凭一枚共享面板密码即可完成，因此普通管理员（admin）不得经公网入口触及。
  */
 function setupPanelProxy(app, deps) {
-  // 运维面板反向代理：先过管理员鉴权，避免把仅监听 localhost 的管理面板经公网入口暴露给匿名用户
-  app.use('/ops', deps.requireAdminCompat, (req, res) => {
+  // 运维面板反向代理：先过主站超管鉴权，避免把仅监听 localhost 的管理面板
+  // 经公网入口暴露给匿名用户或数据面管理员
+  // P3-42: 挂载边界 `/ops/`——Express 只把 `/ops` 或 `/ops/*` 路由进代理，`/opsfoo` 这类畸形前缀不再进入
+  app.use('/ops/', deps.requireSuperAdmin, (req, res) => {
     trySpawnPanelServer(deps.ROOT_DIR);
     proxyToPanel(req, res, false);
   });

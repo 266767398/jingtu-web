@@ -38,7 +38,8 @@ const ENV_PATH = path.join(__dirname, '..', '..', '.env');
 //
 // - 生产环境 MUST 在 .env 配置一个高强度 RECOVERY_TOKEN（建议 ≥32 字节随机串）。
 // - 若未配置：写接口一律返回 503，明确提示「恢复令牌未启用」，绝不在无令牌时放行。
-// - 令牌传递：Authorization: Bearer <token>，或查询参数 ?token=<token>，或头 X-Recovery-Token。
+// - 令牌传递：仅接受 Authorization: Bearer <token> 与头 X-Recovery-Token（P3-57：
+//   查询参数方式已移除——令牌进 URL 会落入访问日志 / 反向代理日志 / Referer，扩大泄露面）。
 // - 校验失败计入安全告警 + 限流，避免被暴力枚举。
 // P1-16：令牌必须每次请求实时读取 process.env——模块加载期的常量快照会过期：
 // 本路由的核心场景就是「运维改了 .env 里的凭证后自救」，快照导致新令牌不生效、
@@ -61,9 +62,10 @@ function requireRecoveryToken(req, res, next) {
   }
   const auth = req.headers['authorization'] || '';
   const fromBearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-  const fromQuery = req.query && req.query.token ? String(req.query.token) : '';
   const fromHeader = req.headers['x-recovery-token'] || '';
-  const provided = fromBearer || fromQuery || fromHeader;
+  // P3-57：不再接受 ?token=<token> 查询参数——令牌进 URL 会进入访问日志、反向代理
+  // 日志与外部 Referer，扩大泄露面；该令牌是脱离登录的数据库接管凭据。
+  const provided = fromBearer || fromHeader;
 
   // 恒定时间比较，避免时序侧信道泄露令牌长度/前缀
   const a = Buffer.from(provided || '');

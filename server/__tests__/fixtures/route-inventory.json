@@ -142,6 +142,7 @@
  "PUT /api/chat/groups/:groupId/messages/:msgId",
  "DELETE /api/chat/messages/:id",
  "DELETE /api/chat/groups/:groupId/messages/:msgId",
+ "GET /api/chat/rtc/config",
  "POST /api/friends/request",
  "POST /api/friends/respond",
  "DELETE /api/friends/block/:targetUserId",
@@ -155,6 +156,7 @@
  "GET /api/friends/history/:userId",
  "GET /api/friends/world-history/:userId",
  "GET /api/friends/avatar-history/:userId",
+ "GET /api/friends/activity-sessions/:userId",
  "GET /api/friends/mutuals/:targetUserId",
  "POST /api/follows/",
  "DELETE /api/follows/:targetUserId",
@@ -438,6 +440,8 @@
  "DELETE /api/vrc-favorites/items/:id",
  "POST /api/vrc-invites/world",
  "POST /api/vrc-invites/friend-request",
+ "POST /api/vrc-invites/note",
+ "POST /api/vrc-invites/boop",
  "GET /api/avatar-tags/:avatarId",
  "POST /api/avatar-tags/:avatarId",
  "DELETE /api/avatar-tags/:avatarId",
@@ -463,6 +467,5 @@
  "GET /api/jtt/states/:userId",
  "POST /api/jtt/deeplink/generate",
  "POST /api/jtt/bind-codes",
- "POST /api/jtt/accounts/register",
- "GET /api-docs.json"
+ "POST /api/jtt/accounts/register"
 ]

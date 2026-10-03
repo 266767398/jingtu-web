@@ -238,11 +238,11 @@ textarea {
     background-color var(--ds-dur) var(--ds-ease);
 }
 
-.form-input:focus,
-.search-box:focus,
-input:focus,
-select:focus,
-textarea:focus {
+.form-input:focus-visible,
+.search-box:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-light);
@@ -316,18 +316,6 @@ summary:focus-visible {
     min-height: 34px;
   }
 
-  .btn-icon {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-  }
-
-  .btn-icon.btn-sm {
-    width: 40px;
-    min-width: 40px;
-    height: 40px;
-  }
-
   /* 移动端表单字号不得小于 16px，否则 iOS Safari 会自动放大页面 */
   .form-input,
   .search-box,
@@ -341,6 +329,21 @@ summary:focus-visible {
   select,
   textarea {
     font-size: 16px;
+  }
+}
+
+/* 触摸目标 ≥44px（WCAG 2.5.5 / Apple HIG）：含平板 769–1024px 段，按指针类型而非窗口宽度判定 */
+@media (pointer: coarse) and (max-width: 1024px) {
+  .btn-icon {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .btn-icon.btn-sm {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
   }
 }
 
@@ -371,12 +374,13 @@ summary:focus-visible {
    特异性相同(0,1,0)，本文件后加载所以 .btn 胜出，
    结果桌面端也冒出了「☰ 全部功能」按钮，还压住了最后一个「聊天」标签。
    这类"默认隐藏"的按钮必须在此显式重申。 */
-.mobile-tab-menu-btn {
+button.mobile-tab-menu-btn {
+  /* 特异性 (0,1,1) 覆盖 .btn{display:inline-flex} 的 (0,1,0)，不再依赖加载顺序 */
   display: none;
 }
 
 @media (max-width: 768px) {
-  .mobile-tab-menu-btn {
+  button.mobile-tab-menu-btn {
     display: inline-flex;
     /* 移动端 .tabs 隐藏后这一行只剩这一个按钮，满宽才不至于留下大片空白 */
     width: 100%;
@@ -1027,4 +1031,28 @@ input[type="file"]::file-selector-button:hover {
 @media (max-width: 768px) {
   .smartsearch-panel { padding-top: 8vh; }
   .smartsearch-hint { display: none; }
+}
+
+/* ====================================================
+   §P1-39 全站动效减弱（WCAG 2.3.3 前庭障碍兼容）
+
+   此前仅 baidu-modern.css 与本研究件的 .btn 覆盖了
+   prefers-reduced-motion，其余 pulse-glow/shimmer/floatBg/
+   statusPulse/emptyIconFloat/imgPlaceholderShimmer/ringPulse/
+   logoFloat/loginEntry 等动画在用户开启「减弱动态效果」后
+   仍持续运行。此处对站点全部动画/过渡一次性收敛：
+   - 动画立即结束且不再循环，过渡瞬间完成；
+   - 遵循全站 .force-anim 约定：显式开启动效的用户不受影响；
+   - 保留 scroll-behavior 平滑滚动也会被禁用。
+   ==================================================== */
+@media (prefers-reduced-motion: reduce) {
+  :root:not(.force-anim),
+  :root:not(.force-anim) *,
+  :root:not(.force-anim) *::before,
+  :root:not(.force-anim) *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

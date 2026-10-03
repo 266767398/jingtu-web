@@ -70,44 +70,55 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 router.post('/:teamId/join', requireAuth, async (req, res) => {
+  let conn;
   try {
+    const teamId = parseInt(req.params.teamId);
+    if (!teamId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
     const pool = getPool();
-    const [team] = await pool.query(
-      `SELECT et.*, COUNT(etm.id) as currentCount 
-       FROM event_teams et
-       LEFT JOIN event_team_members etm ON et.id = etm.team_id
-       WHERE et.id = ?
-       GROUP BY et.id`,
-      [req.params.teamId]
-    );
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
 
+    // P2-130: check-then-insert 竞态修复——在事务内先 FOR UPDATE 锁定队伍行，
+    // 使并发 join 串行通过该行锁（SQLite 下 transformSQL 丢弃 FOR UPDATE，但 SQLite 写事务
+    // 天然互斥，同样不会超员）；随后计数校验 + INSERT IGNORE（唯一键 uk_team_user 兜底重复）。
+    const [team] = await conn.query(
+      `SELECT id, leader_id, max_members FROM event_teams WHERE id = ? FOR UPDATE`,
+      [teamId]
+    );
     if (team.length === 0) {
+      await conn.rollback();
       return sendError(res, 404, ErrorCodes.NOT_FOUND, '队伍不存在');
     }
 
-    if (team[0].currentCount >= team[0].max_members) {
+    const [countRows] = await conn.query(
+      `SELECT COUNT(*) AS c FROM event_team_members WHERE team_id = ?`,
+      [teamId]
+    );
+    if ((countRows[0] && countRows[0].c) >= team[0].max_members) {
+      await conn.rollback();
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '队伍已满');
     }
 
-    const [existing] = await pool.query(
-      `SELECT id FROM event_team_members WHERE team_id = ? AND user_id = ?`,
-      [req.params.teamId, req.session.userId]
+    const [result] = await conn.query(
+      `INSERT IGNORE INTO event_team_members (team_id, user_id) VALUES (?, ?)`,
+      [teamId, req.session.userId]
     );
 
-    if (existing.length > 0) {
+    if (result.affectedRows === 0) {
+      // 已加入：幂等成功，不重复通知
+      await conn.commit();
       return res.json({ ok: true, alreadyJoined: true });
     }
 
-    await pool.query(
-      `INSERT INTO event_team_members (team_id, user_id) VALUES (?, ?)`,
-      [req.params.teamId, req.session.userId]
-    );
-
     notificationService.notifyUser(team[0].leader_id, 'team_join', '新成员加入', `${req.session.userId} 加入了您的队伍`);
 
+    await conn.commit();
     res.json({ ok: true });
   } catch (e) {
+    if (conn) { try { await conn.rollback(); } catch (_e) {} }
     handleError(res, e, '[event-teams]');
+  } finally {
+    if (conn) { try { conn.release(); } catch (_e) {} }
   }
 });
 

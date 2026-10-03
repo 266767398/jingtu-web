@@ -41,7 +41,6 @@ async function showProfile() {
       document.getElementById('meLocationVisible').checked = !!currentUser.locationVisible;
       document.getElementById('meBio').value = currentUser.bio || '';
       document.getElementById('meMotto').value = currentUser.motto || '';
-      if (currentUser.motto) document.getElementById('meMotto').textContent = currentUser.motto;
       // 渲染 VRChat 绑定状态
       renderVRChatBindStatus();
       // 渲染头像显示设置（§11.8.8）

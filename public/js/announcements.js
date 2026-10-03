@@ -5,9 +5,9 @@ let announcementSaving = false;
 
 async function loadAnnouncements() {
   const container = document.getElementById('announcementsList');
-  if (container) container.innerHTML = Array(4).fill('<div class="skeleton-card-list"></div>').join('');
   if (announcementsLoading) return;
   announcementsLoading = true;
+  if (container) container.innerHTML = Array(4).fill('<div class="skeleton-card-list"></div>').join('');
   try {
     const res = await api('/api/announcements', { method: 'GET' });
     if (res.ok) {
@@ -75,6 +75,14 @@ async function showAnnouncementDetail(id) {
       hideEl('evtDetPhotos');
       hideEl('evtDetComments');
       hideEl('evtDetTeamsSection');
+      // 公告复用活动弹窗：重置活动专属节点，避免上一个活动（尤其是已结束活动）的
+      // 「活动已结束」横幅、报名人数等残留进公告视图
+      const endedBannerEl = document.getElementById('evtDetEndedBanner');
+      if (endedBannerEl) endedBannerEl.style.display = 'none';
+      const signCountEl = document.getElementById('evtDetSignCount');
+      if (signCountEl) signCountEl.textContent = '';
+      const maxSignEl = document.getElementById('evtDetMaxSign');
+      if (maxSignEl) maxSignEl.textContent = '';
       showModal('eventDetailModal');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('announcements.load_detail_failed'), 'error'); }
@@ -123,13 +131,17 @@ async function deleteAnnouncement(id) {
 }
 
 function showAnnounceModal() { 
-  document.getElementById('annEditId').value = '';
-  document.getElementById('annTitle').value = '';
-  document.getElementById('annContent').value = '';
-  document.getElementById('annPinned').checked = false;
-  document.getElementById('annVisibility').value = 'members_only';
-  document.getElementById('annModalTitle').textContent = __('announcements.publish_title_suffix');
-  document.getElementById('annSaveBtn').textContent = __('announcements.publish_btn');
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  setVal('annEditId', '');
+  setVal('annTitle', '');
+  setVal('annContent', '');
+  const pinnedEl = document.getElementById('annPinned');
+  if (pinnedEl) pinnedEl.checked = false;
+  setVal('annVisibility', 'members_only');
+  const titleEl = document.getElementById('annModalTitle');
+  if (titleEl) titleEl.textContent = __('announcements.publish_title_suffix');
+  const saveBtn = document.getElementById('annSaveBtn');
+  if (saveBtn) saveBtn.textContent = __('announcements.publish_btn');
   showModal('announceModal'); 
 }
 

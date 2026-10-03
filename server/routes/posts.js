@@ -12,7 +12,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { requireAuth } = require('../auth');
-const { fail, ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, logOper, paginate  } = require('../utils');;
+const { fail, ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, logOper, paginate, escapeLike  } = require('../utils');;
 const cacheService = require('../cache_service');
 const webhook = require('../webhook');
 const logger = require('../logger');
@@ -43,6 +43,21 @@ const postUpload = multer({
 
 // ==================== 辅助函数 ====================
 
+/**
+ * P2-162: 动态可见性判定（与 GET /:id 详情口径一致）。
+ * public → 所有人；members_only → 登录用户；private → 仅作者本人。
+ * post 可为详情映射（userId）或原始行（user_id）。
+ */
+function canViewPost(post, currentUserId) {
+  const isLoggedIn = !!currentUserId;
+  const ownerId = post.user_id !== undefined ? post.user_id : post.userId;
+  const isOwner = isLoggedIn && ownerId === currentUserId;
+  const vis = post.visibility;
+  if (vis === 'public') return true;
+  if (vis === 'members_only') return isLoggedIn;
+  if (vis === 'private') return isOwner;
+  return false;
+}
 
 /**
  * 获取动态详情（含用户信息和媒体）
@@ -281,7 +296,7 @@ router.get('/search', async (req, res) => {
   try {
     const q = req.query.q ? req.query.q.trim() : '';
     if (!q || q.length < 2) return res.json({ posts: [], total: 0 });
-    const like = '%' + q + '%';
+    const like = '%' + escapeLike(q) + '%';
     // 权限：参考列表接口，未登录只看 public，已登录看 public + members_only + 自己的 private
     const currentUserId = req.session?.userId;
     const isLoggedIn = !!currentUserId;
@@ -296,7 +311,7 @@ router.get('/search', async (req, res) => {
     const [rows] = await getPool().query(
       `SELECT p.id, p.content, p.type, p.visibility, p.created_at AS createdAt, p.like_count AS likeCount, p.comment_count AS commentCount, u.display_name AS userName, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url
        FROM posts p LEFT JOIN users u ON p.user_id = u.id
-       WHERE p.content LIKE ? AND u.deleted_at IS NULL AND ${visCond}
+       WHERE p.content LIKE ? ESCAPE '!' AND u.deleted_at IS NULL AND ${visCond}
        ORDER BY p.created_at DESC LIMIT 20`,
       [like, ...visParams]
     );
@@ -640,35 +655,56 @@ router.post('/:id/like', requireAuth, async (req, res) => {
     const [posts] = await getPool().query(`SELECT id, user_id, like_count FROM posts WHERE id = ?`, [postId]);
     if (!posts.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '动态不存在');
 
-    const [existing] = await getPool().query(`SELECT 1 FROM post_like WHERE post_id = ? AND user_id = ?`, [postId, userId]);
-
-    if (existing.length > 0) {
-      // 取消点赞
-      await getPool().query(`DELETE FROM post_like WHERE post_id = ? AND user_id = ?`, [postId, userId]);
-      await getPool().query(`UPDATE posts SET like_count = GREATEST(0, like_count - 1) WHERE id = ?`, [postId]);
-      const [[{ like_count }]] = await getPool().query(`SELECT like_count FROM posts WHERE id = ?`, [postId]);
-      return res.json({ liked: false, likeCount: like_count });
-    } else {
-      // 点赞
-      await getPool().query(`INSERT INTO post_like (post_id, user_id) VALUES (?, ?)`, [postId, userId]);
-      await getPool().query(`UPDATE posts SET like_count = like_count + 1 WHERE id = ?`, [postId]);
-      const [[{ like_count }]] = await getPool().query(`SELECT like_count FROM posts WHERE id = ?`, [postId]);
-
-      // 通知被点赞用户
-      if (posts[0].user_id && posts[0].user_id !== userId) {
-        if (notificationService) {
-          notificationService.notifyUser(
-            posts[0].user_id,
-            'like',
-            `${req.session.displayName} 赞了你的动态`,
-            `「${req.body.content?.slice(0, 50) || ''}」`,
-            { targetType: 'post', targetId: postId, postId }
-          );
+    // P3-120：原 check-then-act（先 SELECT 判已有再 INSERT/DELETE）在并发下会
+    //   - 并发双击同赞 → 双 INSERT 触发唯一键 ER_DUP_ENTRY 转 500；
+    //   - 并发「赞+取消」→ like_count 与真实点赞数漂移。
+    // 改为：INSERT ... ON DUPLICATE KEY 的 affectedRows 作幂等依据（==1 为新增），
+    // DELETE 的 affectedRows 作取幂等依据，且 post_like 变更与 like_count 更新放同一事务。
+    let liked = false;
+    let likeCount = 0;
+    const conn = await getPool().getConnection();
+    try {
+      await conn.beginTransaction();
+      const [ins] = await conn.query(
+        `INSERT INTO post_like (post_id, user_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id = user_id`,
+        [postId, userId]
+      );
+      if (ins.affectedRows === 1) {
+        // 新增点赞
+        await conn.query(`UPDATE posts SET like_count = like_count + 1 WHERE id = ?`, [postId]);
+        liked = true;
+      } else {
+        // 已点过 → 取消点赞（DELETE 命中才减一，天然幂等）
+        const [del] = await conn.query(`DELETE FROM post_like WHERE post_id = ? AND user_id = ?`, [postId, userId]);
+        if (del.affectedRows === 1) {
+          await conn.query(`UPDATE posts SET like_count = GREATEST(0, like_count - 1) WHERE id = ?`, [postId]);
         }
+        liked = false;
       }
-
-      return res.json({ liked: true, likeCount: like_count });
+      const [[row]] = await conn.query(`SELECT like_count FROM posts WHERE id = ?`, [postId]);
+      likeCount = row ? row.like_count : 0;
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback();
+      throw e;
+    } finally {
+      conn.release();
     }
+
+    // 新增点赞时通知被点赞用户
+    if (liked && posts[0].user_id && posts[0].user_id !== userId) {
+      if (notificationService) {
+        notificationService.notifyUser(
+          posts[0].user_id,
+          'like',
+          `${req.session.displayName} 赞了你的动态`,
+          `「${req.body.content?.slice(0, 50) || ''}」`,
+          { targetType: 'post', targetId: postId, postId }
+        );
+      }
+    }
+
+    return res.json({ liked, likeCount });
   } catch (e) {
     handleError(res, e, '[posts/like]');
   }
@@ -680,6 +716,11 @@ router.post('/:id/like', requireAuth, async (req, res) => {
 router.get('/:id/comments', async (req, res) => {
   try {
     const postId = parseInt(req.params.id);
+    if (!postId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
+    // P2-162: 读评论前复用详情可见性判定——private 动态的评论仅作者本人可读
+    const [posts] = await getPool().query(`SELECT id, user_id, visibility FROM posts WHERE id = ?`, [postId]);
+    if (!posts.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '动态不存在');
+    if (!canViewPost(posts[0], req.session?.userId)) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权查看此动态');
     const [rows] = await getPool().query(
       `SELECT pc.id, pc.content, pc.parent_id AS parentId, pc.created_at AS createdAt,
               u.id AS userId, u.display_name AS userName, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url, u.vrchat_name
@@ -715,8 +756,17 @@ router.post('/:id/comments', requireAuth, async (req, res) => {
     if (!content || !content.trim()) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入评论内容');
     if (content.length > 2000) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '评论内容不能超过2000字');
 
-    const [posts] = await getPool().query(`SELECT id, user_id FROM posts WHERE id = ?`, [postId]);
+    const [posts] = await getPool().query(`SELECT id, user_id, visibility FROM posts WHERE id = ?`, [postId]);
     if (!posts.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '动态不存在');
+
+    // P2-162: 写评论前同样校验动态可见性——无权查看的 private 动态不可评论（防越权写入与触发通知）
+    if (!canViewPost(posts[0], userId)) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权评论此动态');
+
+    // P2-162: parentId 归属校验——父评论必须属于当前动态，防跨帖串线
+    if (parentId) {
+      const [parentOwn] = await getPool().query(`SELECT id FROM post_comment WHERE id = ? AND post_id = ?`, [parentId, postId]);
+      if (!parentOwn.length) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '父评论不存在');
+    }
 
     const [result] = await getPool().query(
       `INSERT INTO post_comment (post_id, user_id, parent_id, content) VALUES (?, ?, ?, ?)`,

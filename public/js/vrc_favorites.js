@@ -27,6 +27,7 @@
     groups: [],           // 全部分组（后端混合返回）
     items: [],
     loading: false,
+    loadSeq: 0,           // P3-63: 最新请求优先标记，旧请求返回后不覆盖新结果
     staticBound: false
   };
 
@@ -84,7 +85,9 @@
 
   // ============ 条目 ============
   async function loadItems(reset) {
-    if (state.loading) return;
+    // P3-63: 「最新请求优先」——快速切换 kind/分组时不再直接丢弃二次加载，
+    // 而是用请求序号确保只有最新请求的结果能渲染/落库
+    const my = ++state.loadSeq;
     state.loading = true;
     const list = $('vrcfavList');
     if (reset && list) list.innerHTML = '<div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>';
@@ -95,12 +98,14 @@
       if (state.group) params.set('tag', state.group);
       // 后端对收藏条目做名字/缩略图回源富化，冷启动耗时更高，放宽超时
       const d = await api('/api/vrc-favorites/items?' + params.toString(), { timeout: 20000 });
+      if (my !== state.loadSeq) return; // 已有更新的请求发出，丢弃本次陈旧结果
       state.items = d.items || [];
       renderItems();
     } catch (e) {
+      if (my !== state.loadSeq) return;
       if (list) list.innerHTML = `<div class="text-muted2">${esc(e.message)}</div>`;
     } finally {
-      state.loading = false;
+      if (my === state.loadSeq) state.loading = false;
     }
   }
 
@@ -124,7 +129,7 @@
         : '';
       return `
         <div class="coll-card" data-fvrt="${escAttr(it.id || '')}">
-          <div class="coll-card-thumb" style="background-image:url('${escAttr(thumb)}')"></div>
+          <div class="coll-card-thumb" style="background-image:url(${escCssUrl(thumb)})"></div>
           <div class="coll-card-body">
             <div class="coll-card-title">${esc(it.name || target || it.id || '')}</div>
             <div class="coll-card-author">${it.authorName ? esc(it.authorName) + ' · ' : ''}${esc(kind)}${tag ? ' · ' + esc(tag) : ''}</div>

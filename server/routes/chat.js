@@ -12,7 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
-const { getPool, getAvatarUrl, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, paginate } = require('../utils');
+const { getPool, getAvatarUrl, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, paginate, escapeLike } = require('../utils');
 const { requireAuth } = require('../auth');
 const { hybridStore } = require('../middleware/rate_limit_store');
 // §67: 引入 ws_service 以在成员变更后失效群成员缓存
@@ -58,6 +58,7 @@ function getAvatar(u) {
 router.get('/conversations', requireChatAuth, async (req, res) => {
   try {
     const uid = req.session.userId;
+    // P3-114：内层与最终展示一致过滤已删除私信（与 /history 口径统一）
     const [rows] = await getPool().query(`
       SELECT
         m.id, m.sender_id AS senderId, m.receiver_id AS receiverId,
@@ -67,13 +68,14 @@ router.get('/conversations', requireChatAuth, async (req, res) => {
       FROM messages m
       INNER JOIN (
         SELECT CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END AS other_id, MAX(id) AS max_id
-        FROM messages WHERE sender_id = ? OR receiver_id = ? GROUP BY other_id
+        FROM messages WHERE (sender_id = ? OR receiver_id = ?) AND deleted_at IS NULL GROUP BY other_id
       ) latest ON m.id = latest.max_id
       LEFT JOIN users u ON u.id = latest.other_id
+      WHERE m.deleted_at IS NULL
       ORDER BY m.created_at DESC
     `, [uid, uid, uid]);
     const [unreads] = await getPool().query(
-      `SELECT sender_id, COUNT(*) AS cnt FROM messages WHERE receiver_id = ? AND is_read = 0 GROUP BY sender_id`, [uid]
+      `SELECT sender_id, COUNT(*) AS cnt FROM messages WHERE receiver_id = ? AND is_read = 0 AND deleted_at IS NULL GROUP BY sender_id`, [uid]
     );
     const unreadMap = {};
     unreads.forEach(r => { unreadMap[r.sender_id] = r.cnt; });
@@ -571,6 +573,9 @@ router.post('/groups/:groupId/kick', requireChatAuth, async (req, res) => {
     const isAdmin = myRole.length > 0 && myRole[0].is_admin === 1;
     if (group[0].creator_id !== uid && !isAdmin) return sendError(res, 403, ErrorCodes.FORBIDDEN, '仅群主和管理员可以踢人');
     if (targetId === uid) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '不能踢出自己');
+    // P3-116：群主通常 is_admin=0，原守卫只拦「目标为管理员」导致可被普通管理员踢出；
+    // 明确禁止踢群主本人（群主必须先转让才能被移除），与 leave 接口禁止群主退群的语义一致
+    if (targetId === group[0].creator_id) return sendError(res, 403, ErrorCodes.FORBIDDEN, '不能踢出群主');
     const [targetRole] = await getPool().query(`SELECT is_admin FROM chat_group_members WHERE group_id = ? AND user_id = ?`, [gid, targetId]);
     const isTargetAdmin = targetRole.length > 0 && targetRole[0].is_admin === 1;
     if (isTargetAdmin && group[0].creator_id !== uid) return sendError(res, 403, ErrorCodes.FORBIDDEN, '仅群主可以踢出管理员');
@@ -595,8 +600,9 @@ router.get('/unread-count', requireChatAuth, async (req, res) => {
         FROM chat_group_messages m
         LEFT JOIN chat_group_message_reads r ON r.group_id = m.group_id AND r.message_id = m.id AND r.user_id = ?
         LEFT JOIN chat_group_members gm ON gm.group_id = m.group_id AND gm.user_id = ?
-        WHERE gm.id IS NOT NULL AND r.read_at IS NULL
-        GROUP BY m.group_id`, [uid, uid]);
+        WHERE gm.id IS NOT NULL AND r.read_at IS NULL AND m.sender_id <> ? AND m.created_at >= gm.joined_at
+        GROUP BY m.group_id`, [uid, uid, uid]);
+      // P3-115：排除本人发送的消息 + 入群前历史消息（m.sender_id<>? / m.created_at>=gm.joined_at），避免未读红点虚高
       const totalUnread = pmCount[0].count + groupCounts.reduce((sum, g) => sum + g.count, 0);
       res.json({
         total: totalUnread,
@@ -619,19 +625,19 @@ router.get('/search', requireChatAuth, async (req, res) => {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '搜索关键词不能超过100个字符');
       }
       const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
-      const likeKeyword = `%${keyword}%`;
+      const likeKeyword = `%${escapeLike(keyword)}%`;
       const results = { privateMessages: [], groupMessages: [], privateMessagesTotal: 0, groupMessagesTotal: 0 };
       if (scope === 'all' || scope === 'private') {
         const [pmCount] = await getPool().query(`
           SELECT COUNT(*) AS total FROM messages m
-          WHERE (m.sender_id = ? OR m.receiver_id = ?) AND m.content LIKE ? AND m.deleted_at IS NULL`, [uid, uid, likeKeyword]);
+          WHERE (m.sender_id = ? OR m.receiver_id = ?) AND m.content LIKE ? ESCAPE '!' AND m.deleted_at IS NULL`, [uid, uid, likeKeyword]);
         results.privateMessagesTotal = pmCount[0].total;
         const [pmRows] = await getPool().query(`
           SELECT m.id, m.sender_id AS senderId, m.receiver_id AS receiverId, m.content, m.is_read AS isRead, m.created_at AS createdAt,
                  u.display_name AS senderName, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url
           FROM messages m
           LEFT JOIN users u ON u.id = m.sender_id
-          WHERE (m.sender_id = ? OR m.receiver_id = ?) AND m.content LIKE ? AND m.deleted_at IS NULL
+          WHERE (m.sender_id = ? OR m.receiver_id = ?) AND m.content LIKE ? ESCAPE '!' AND m.deleted_at IS NULL
           ORDER BY m.created_at DESC LIMIT ? OFFSET ?`, [uid, uid, likeKeyword, pageSize, offset]);
         results.privateMessages = pmRows.map(r => ({ ...r, senderAvatar: getAvatar(r) }));
       }
@@ -639,7 +645,7 @@ router.get('/search', requireChatAuth, async (req, res) => {
         const [gmCount] = await getPool().query(`
           SELECT COUNT(*) AS total FROM chat_group_messages m
           LEFT JOIN chat_group_members gm ON gm.group_id = m.group_id AND gm.user_id = ?
-          WHERE gm.id IS NOT NULL AND m.content LIKE ? AND m.deleted_at IS NULL`, [uid, likeKeyword]);
+          WHERE gm.id IS NOT NULL AND m.content LIKE ? ESCAPE '!' AND m.deleted_at IS NULL`, [uid, likeKeyword]);
         results.groupMessagesTotal = gmCount[0].total;
         const [gmRows] = await getPool().query(`
           SELECT m.id, m.group_id AS groupId, m.sender_id AS senderId, m.content, m.created_at AS createdAt,
@@ -649,7 +655,7 @@ router.get('/search', requireChatAuth, async (req, res) => {
           LEFT JOIN users u ON u.id = m.sender_id
           LEFT JOIN chat_groups g ON g.id = m.group_id
           LEFT JOIN chat_group_members gm ON gm.group_id = m.group_id AND gm.user_id = ?
-          WHERE gm.id IS NOT NULL AND m.content LIKE ? AND m.deleted_at IS NULL
+          WHERE gm.id IS NOT NULL AND m.content LIKE ? ESCAPE '!' AND m.deleted_at IS NULL
           ORDER BY m.created_at DESC LIMIT ? OFFSET ?`, [uid, likeKeyword, pageSize, offset]);
         results.groupMessages = gmRows.map(r => ({ ...r, senderAvatar: getAvatar(r) }));
       }

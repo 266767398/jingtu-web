@@ -6,7 +6,7 @@
 <title>境途同游 · 运维控制台</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%237c5cfc'/%3E%3Ctext x='16' y='22' font-size='15' fill='white' text-anchor='middle' font-family='sans-serif'%3E境%3C/text%3E%3C/svg%3E">
 <style>
-:root{--bg:#0f1117;--bg2:#14161f;--card:#171a23;--card2:#1c2030;--line:rgba(255,255,255,.07);--line2:rgba(255,255,255,.12);--txt:#e8eaf2;--muted:#8b90a3;--dim:#5c6173;--brand:#7c5cfc;--brand2:#9d7bff;--brand-grad:linear-gradient(135deg,#6a5cff,#8b5cf6);--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--mono:'Cascadia Mono','Consolas',monospace}
+:root{--bg:#0f1117;--bg2:#14161f;--card:#171a23;--card2:#1c2030;--line:rgba(255,255,255,.07);--line2:rgba(255,255,255,.12);--txt:#e8eaf2;--muted:#9aa0b8;--dim:#8289a0;--brand:#7c5cfc;--brand2:#9d7bff;--brand-grad:linear-gradient(135deg,#6a5cff,#8b5cf6);--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--mono:'Cascadia Mono','Consolas',monospace}
 *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%}
 body{font-family:'Segoe UI',system-ui,'PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--txt);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
 ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:#2a2f40;border-radius:6px}
@@ -73,6 +73,9 @@ table{width:100%;border-collapse:collapse}
 th{font-size:11.5px;color:var(--dim);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-weight:600}
 td{padding:9px 10px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
 tr:hover td{background:rgba(255,255,255,.02)}
+/* P3-104：宽表格包横向滚动容器，避免窄屏/鼠标缩放时内容溢出不可达 */
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:10px}
+.table-wrap table{min-width:720px}
 .mono{font-family:var(--mono);font-size:12px}
 .logbox{background:#0b0d12;border:1px solid var(--line);border-radius:10px;padding:12px;font-family:var(--mono);font-size:12px;color:#9fb3c8;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;line-height:1.65}
 .logbox .err{color:#f87171}.logbox .ok{color:#4ade80}.logbox .warn{color:#fbbf24}
@@ -196,13 +199,21 @@ tr:hover td{background:rgba(255,255,255,.02)}
   <div class="op-body" id="opBody"></div>
 </div>
 
-<div id="modalMask"><div class="modal" id="modalBox"></div></div>
-<div id="toastBox"></div>
+<div id="modalMask"><div class="modal" id="modalBox" role="dialog" aria-modal="true" aria-label="操作确认"></div></div>
+<div id="toastBox" aria-live="polite" role="status"></div>
 
 <script>
 /* ===== 全局状态 ===== */
-const S={token:null,initialized:false,status:null,page:'dashboard',openTasks:{},statTimer:null};
-const CONFIRMS={high:'CONFIRM-DELETE-ALL-DATA',restore:'CONFIRM-RESTORE-FROM-BACKUP',kill:'CONFIRM-KILL-PORT',reset:'CONFIRM-RESET-SUPERADMIN',resetInit:'CONFIRM-RESET-INIT'};
+const S={token:null,status:null,page:'dashboard',statTimer:null,perf:[]};
+// P3-103：清理日志同样要求确认短语（与恢复/清数据/kill 端口口径一致）
+const CONFIRMS={high:'CONFIRM-DELETE-ALL-DATA',restore:'CONFIRM-RESTORE-FROM-BACKUP',kill:'CONFIRM-KILL-PORT',reset:'CONFIRM-RESET-SUPERADMIN',resetInit:'CONFIRM-RESET-INIT',clearLogs:'CONFIRM-CLEAR-LOGS'};
+// P3-109：界面文案层——高频界面文案集中定义，t() 取词（当前为中文单语，后续多语言/术语统一在此扩展）
+const I18N={
+nav_dashboard:'仪表盘',nav_services:'服务管理',nav_site:'网站管理',nav_activation:'激活码',nav_backup:'数据备份',nav_logs:'日志中心',nav_tools:'系统工具',nav_security:'安全配置',nav_audit:'审计日志',
+grp_monitor:'监控',grp_data:'数据',grp_system:'系统',
+title_dashboard:'仪表盘',title_services:'服务管理',title_site:'网站管理',title_activation:'激活码管理',title_backup:'数据备份',title_logs:'日志中心',title_tools:'系统工具',title_security:'安全配置',title_audit:'审计日志',
+login:'登录',logout:'退出登录',refresh:'刷新',search:'搜索',cancel:'取消',save:'保存',close:'关闭',start:'启动',stop:'停止',restart:'重启'};
+function t(k){return I18N[k]||k;}
 const IC={dash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
 svc:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><circle cx="6" cy="7" r="1"/><circle cx="6" cy="17" r="1"/></svg>',
 backup:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 8v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"/><path d="M3 8l3.5-5H13l4 5"/><path d="M8 13h8M12 9v8"/></svg>',
@@ -211,8 +222,8 @@ tools:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="
 sec:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15" r="1.5"/></svg>',
 audit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
 site:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></svg>',ac:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M15 6v12" stroke-dasharray="2.5 2.5"/></svg>'};
-const NAV=[{id:'dashboard',t:'仪表盘',i:'dash'},{id:'services',t:'服务管理',i:'svc'},{id:'site',t:'网站管理',i:'site'},{id:'activation',t:'激活码',i:'ac'},{id:'backup',t:'数据备份',i:'backup'},{id:'logs',t:'日志中心',i:'log'},{id:'tools',t:'系统工具',i:'tools'},{id:'security',t:'安全配置',i:'sec'},{id:'audit',t:'审计日志',i:'audit'}];
-const NAV_GROUPS=[{label:'监控',items:['dashboard','services','site']},{label:'数据',items:['backup','activation','logs']},{label:'系统',items:['tools','security','audit']}];
+const NAV=[{id:'dashboard',t:t('nav_dashboard'),i:'dash'},{id:'services',t:t('nav_services'),i:'svc'},{id:'site',t:t('nav_site'),i:'site'},{id:'activation',t:t('nav_activation'),i:'ac'},{id:'backup',t:t('nav_backup'),i:'backup'},{id:'logs',t:t('nav_logs'),i:'log'},{id:'tools',t:t('nav_tools'),i:'tools'},{id:'security',t:t('nav_security'),i:'sec'},{id:'audit',t:t('nav_audit'),i:'audit'}];
+const NAV_GROUPS=[{label:t('grp_monitor'),items:['dashboard','services','site']},{label:t('grp_data'),items:['backup','activation','logs']},{label:t('grp_system'),items:['tools','security','audit']}];
 const $=id=>document.getElementById(id);
 // 经主站反向代理访问时（站点管理后台入口 → 主站 /ops/），所有绝对路径 API/链接需带 /ops 前缀；
 // 直接访问面板自身端口（127.0.0.1:3457）时该前缀为空，行为完全不变。
@@ -227,10 +238,19 @@ function api(path,opts){opts=opts||{};opts.headers=Object.assign({'Content-Type'
 return fetch(PANEL_BASE+path,opts).then(async r=>{if(r.status===401){doLogoutUI();throw new Error('会话已过期');}const t=await r.json().catch(()=>({ok:false,message:'响应解析失败'}));if(!r.ok||t.ok===false)throw new Error(t.message||('请求失败 '+r.status));return t;});}
 function svcByName(n){return S.status&&S.status.services?S.status.services.find(s=>s.name===n):null}
 function svcCls(s){return s?('svc-card '+(s.running?'on':'off')):'svc-card'}
+// P3-99：请求期间按钮禁用 + loading 态，双击不再并发发起同一操作
+function busyBtn(btn,label){if(!btn||btn.disabled)return null;btn.disabled=true;const old=btn.textContent;if(label)btn.textContent=label;return ()=>{btn.disabled=false;if(label)btn.textContent=old;};}
 
-/* 操作面板 */
-function openOp(){document.getElementById('opPanel').classList.add('open')}
-function startOpTask(label,runPromise){openOp();opLog(label,'warn');return runPromise.then(r=>{opLog('✓ '+r.message,'ok');toast(r.message,'ok');return r;}).catch(e=>{opLog('✗ '+e.message,'err');toast(e.message,'err');throw e;});}
+/* ===== Modal 辅助（P3-104：role/aria-modal + 焦点陷阱 + Esc 关闭） ===== */
+let MODAL_CLOSE=null;
+function modalSetActive(){const box=$('modalBox');box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');const f=Array.from(box.querySelectorAll('button,input,select,a[href]')).filter(el=>!el.disabled);if(f.length)f[0].focus();}
+function modalClose(){const mask=$('modalMask'),box=$('modalBox');mask.classList.remove('show');box.innerHTML='';  MODAL_CLOSE=null;}
+function modalOpen(boxHtml,onClosed){modalClose();$('modalBox').innerHTML=boxHtml;$('modalMask').classList.add('show');modalSetActive();if(onClosed)MODAL_CLOSE=onClosed;return $('modalMask');} 
+
+/* 任务状态跟踪（P3-98）：ACTIVE_TASK 记录进行中任务，watchTask 回写 data-task 按钮；
+TASK_CONSUMED 记录每个任务已输出的行数，避免轮询重复刷屏 */
+let ACTIVE_TASK=null;const TASK_CONSUMED=new Map();
+function markTaskBtn(id,el){const node=el||document.activeElement;if(node&&node.setAttribute&&node.closest&&node.closest('button,a')){node.setAttribute('data-task',id);node.innerHTML='<span class="spin"></span> 执行中…';}else{const m=document.querySelector('[data-task-id="'+id+'"]');if(m)m.innerHTML='<span class="spin"></span> 执行中…';}}
 /* ===== 认证 ===== */
 function showAuth(mode){$('authWrap').style.display='flex';$('authInit').style.display=mode==='init'?'block':'none';$('authLogin').style.display=mode==='login'?'block':'none';}
 function enterApp(){$('authWrap').style.display='none';$('app').style.display='flex';startPolling();renderNav();switchPage(S.page);}
@@ -242,10 +262,10 @@ if(!env||!env.length){el.innerHTML='<div class="empty">未获取到环境信息�
 el.innerHTML='<table><tr><th>检查项</th><th>状态</th></tr>'+env.map(c=>`<tr><td>${esc(c.name)}${c.port?' <span class="muted">('+c.port+')</span>':''}<div class="muted" style="font-size:11px">${esc(c.exe||c.path||'')}</div></td><td>${c.ok?'<span style="color:#4ade80">✓ 就绪</span>':'<span style="color:#fbbf24">✗ 缺失</span>'}</td></tr>`).join('')+'</table>';}
 async function initPanel(){const p1=$('initPwd').value,p2=$('initPwd2').value;
 if(p1.length<8)return $('authErr').textContent='密码至少 8 位';if(p1!==p2)return $('authErr').textContent='两次密码不一致';
-try{const r=await api('/api/init',{method:'POST',body:JSON.stringify({password:p1})});S.token=r.token;wizGo(3);}catch(e){$('authErr').textContent=e.message;}}
+const done=busyBtn($('initBtn'),'初始化中…');try{const r=await api('/api/init',{method:'POST',body:JSON.stringify({password:p1})});S.token=r.token;wizGo(3);}catch(e){$('authErr').textContent=e.message;}finally{if(done)done();}}
 function wizStartAll(){$('wizStartAll').textContent='启动中…';$('wizStartAll').disabled=true;
 api('/api/service',{method:'POST',body:JSON.stringify({action:'start',name:'all'})}).then(r=>{opLog(r.message,'ok');enterApp();}).catch(e=>{opLog('一键启动失败：'+e.message,'err');enterApp();});}
-async function doLogin(){try{const r=await api('/api/login',{method:'POST',body:JSON.stringify({password:$('loginPwd').value})});S.token=r.token;$('authErr2').textContent='';enterApp();}catch(e){$('authErr2').textContent=e.message;}}
+async function doLogin(){const done=busyBtn($('loginBtn'),'登录中…');try{const r=await api('/api/login',{method:'POST',body:JSON.stringify({password:$('loginPwd').value})});S.token=r.token;$('authErr2').textContent='';enterApp();}catch(e){$('authErr2').textContent=e.message;}finally{if(done)done();}}
 
 /* ===== 导航 ===== */
 function renderNav(){const sb=$('sidebar');
@@ -255,7 +275,6 @@ function switchPage(id){S.page=id;document.querySelectorAll('.page').forEach(p=>
 const el=$('page-'+id);el.classList.add('active');const R={dashboard:renderDash,services:renderSvc,site:renderSite,backup:renderBackup,activation:renderActivation,logs:renderLogs,tools:renderTools,security:renderSec,audit:renderAudit};R[id]();}
 
 /* ===== 状态轮询 ===== */
-S.perf=[];/* {t,cpu,memPct,memUsedMB,memTotalMB} 性能采样历史，最多 30 条 */
 async function loadStatus(){try{S.status=await api('/api/status');applyTopbar();samplePerf();const pg=$('page-'+S.page);if(S.page==='dashboard'&&pg.classList.contains('active'))renderDash();else if(S.page==='services'&&pg.classList.contains('active'))renderSvc();}catch(e){/* 网络抖动忽略 */}}
 function startPolling(){clearInterval(S.statTimer);loadStatus();S.statTimer=setInterval(loadStatus,5000);}
 function samplePerf(){const st=S.status;if(!st||st.cpuPct==null&&st.memTotalMB==null)return;
@@ -287,16 +306,16 @@ const setChip=(id,s)=>{const dot=$(id);const ss=svcByName(s);if(!ss){dot.classNa
 setChip('chipMysql','MySQL');setChip('chipNginx','Nginx');setChip('chipNode','NodeServer');
 $('chipDisk').innerHTML=`<span class="dot ${st.diskGB!=null&&st.diskGB<=st.diskWarn?'warn':'ok'}"></span>磁盘 ${st.diskGB!=null?st.diskGB+' GB':'--'}`;}
 function svcCard(s){
-const st=s.proc?`<span class="mono">PID ${s.pid}</span> · ${s.proc.name} · CPU ${s.proc.cpu}% · 内存 ${fmtMem(s.proc.memMB)}`:'';
+const st=s.proc?`<span class="mono">PID ${esc(s.pid)}</span> · ${esc(s.proc.name)} · CPU ${esc(s.proc.cpu)}% · 内存 ${fmtMem(s.proc.memMB)}`:'';
 return `<div class="${svcCls(s)}"><div class="svc-top"><span class="dot ${s.running?'ok':'err'}"></span><span class="name">${esc(s.name)}</span><span class="port">端口 ${s.port}</span></div>
 <div class="svc-meta">${s.running?'<b style="color:#4ade80">运行中</b>':'<b style="color:#f87171">已停止</b>'}<br>${st||'未监听端口'}</div>
 <div class="svc-actions">
-<button class="btn btn-success btn-sm" onclick="svcAction('start','${esc(s.name)}')">启动</button>
-<button class="btn btn-ghost btn-sm" onclick="svcAction('stop','${esc(s.name)}')">停止</button>
-<button class="btn btn-ghost btn-sm" onclick="svcAction('restart','${esc(s.name)}')">重启</button>
+<button class="btn btn-success btn-sm" data-svc="start" data-name="${esc(s.name)}">启动</button>
+<button class="btn btn-ghost btn-sm" data-svc="stop" data-name="${esc(s.name)}">停止</button>
+<button class="btn btn-ghost btn-sm" data-svc="restart" data-name="${esc(s.name)}">重启</button>
 </div></div>`;}
-function svcAction(action,name){const label={start:'启动',stop:'停止',restart:'重启'}[action];
-api('/api/service',{method:'POST',body:JSON.stringify({action,name})}).then(r=>{toast(`${name} ${label}完成`);opLog(r.message,'ok');loadStatus();}).catch(e=>toast(e.message,'err'));}
+function svcAction(action,name){const btn=document.activeElement;const done=btn&&btn.tagName==='BUTTON'?busyBtn(btn):null;const label={start:'启动',stop:'停止',restart:'重启'}[action];
+api('/api/service',{method:'POST',body:JSON.stringify({action,name})}).then(r=>{toast(`${name} ${label}完成`);opLog(r.message,'ok');loadStatus();}).catch(e=>toast(e.message,'err')).finally(()=>{if(done)done();});}
 
 /* ===== 仪表盘 ===== */
 function renderDash(){const st=S.status;if(!st)return;const p=$('page-dashboard');
@@ -308,7 +327,7 @@ const memPct=st.memUsedMB!=null&&st.memTotalMB!=null?Math.min(100,Math.max(0,Mat
 const memTxt=st.memUsedMB!=null&&st.memTotalMB!=null?fmtMem(st.memUsedMB)+' / '+fmtMem(st.memTotalMB):'--';
 const cpuWarn=cpuPct!=null&&cpuPct>80,memWarn=memPct!=null&&memPct>80;
 p.innerHTML=`
-<div class="page-head"><h2>仪表盘</h2><p>服务器运行概况与快捷操作</p><div class="spacer"></div>
+<div class="page-head"><h2>${t('title_dashboard')}</h2><p>服务器运行概况与快捷操作</p><div class="spacer"></div>
 <span class="chip ${st.isAdmin?'':'chip-warn'}">${st.isAdmin?'管理员权限':'普通权限'}</span>
 <span class="chip">内网 ${esc(st.lanIp||'--')}</span>
 <button class="btn btn-ghost" onclick="loadStatus();toast('状态已刷新')">刷新</button></div>
@@ -325,9 +344,9 @@ p.innerHTML=`
 <div class="card"><div class="card-title">${IC.dash} 一键启停</div>
 <div class="svc-quick">
 ${st.services.map(s=>`<div class="sq-row"><span class="dot ${s.running?'ok':'err'}"></span><b>${esc(s.name)}</b><span class="sq-port">:${s.port}</span><span class="spacer"></span>
-<button class="btn btn-success btn-sm" onclick="svcAction('start','${esc(s.name)}')">启动</button>
-<button class="btn btn-danger btn-sm" onclick="svcAction('stop','${esc(s.name)}')">停止</button>
-<button class="btn btn-ghost btn-sm" onclick="svcAction('restart','${esc(s.name)}')">重启</button></div>`).join('')}
+<button class="btn btn-success btn-sm" data-svc="start" data-name="${esc(s.name)}">启动</button>
+<button class="btn btn-danger btn-sm" data-svc="stop" data-name="${esc(s.name)}">停止</button>
+<button class="btn btn-ghost btn-sm" data-svc="restart" data-name="${esc(s.name)}">重启</button></div>`).join('')}
 </div>
 <div class="form-row" style="flex-wrap:wrap;margin-top:10px">
 <button class="btn btn-brand" onclick="svcAction('start','all')">一键全部启动</button>
@@ -349,53 +368,54 @@ ${st.services.map(s=>`<div class="sq-row"><span class="dot ${s.running?'ok':'err
 drawPerf();}
 function go(id){S.page=id;renderNav();switchPage(id);}
 function openDesktop(kind){api(kind==='site'?'/api/open-site':'/api/open-dir',{method:'POST',body:'{}'}).then(r=>toast(r.message)).catch(e=>toast(e.message,'err'));}
-function quickBackup(){api('/api/backup',{method:'POST',body:'{}'}).then(r=>{toast('备份任务已启动');opLog('备份任务已启动 (task '+r.taskId+')','warn');watchTask(r.taskId);}).catch(e=>toast(e.message,'err'));}
+function quickBackup(){const btn=document.activeElement;const done=btn&&btn.tagName==='BUTTON'?busyBtn(btn):null;
+api('/api/backup',{method:'POST',body:'{}'}).then(r=>{ACTIVE_TASK=r.taskId;toast('备份任务已启动');opLog('备份任务已启动 (task '+r.taskId+')','warn');markTaskBtn(r.taskId,btn);watchTask(r.taskId);}).catch(e=>{toast(e.message,'err');if(done)done();});}
 
 /* ===== 服务管理 ===== */
 function renderSvc(){const st=S.status;if(!st)return;const p=$('page-services');
 p.innerHTML=`
-<div class="page-head"><h2>服务管理</h2><p>MySQL / Nginx / NodeServer 三套服务启停与端口检测</p><div class="spacer"></div>
+<div class="page-head"><h2>${t('title_services')}</h2><p>MySQL / Nginx / NodeServer 三套服务启停与端口检测</p><div class="spacer"></div>
 <button class="btn btn-success" onclick="svcAction('start','all')">全部启动</button>
 <button class="btn btn-ghost" onclick="svcAction('stop','all')">全部停止</button>
 <button class="btn btn-ghost" onclick="svcAction('restart','all')">全部重启</button>
 </div>
-<div class="card"><table><tr><th>服务</th><th>端口</th><th>状态</th><th>PID</th><th>进程</th><th>CPU / 内存</th><th>操作</th></tr>
+<div class="card"><div class="table-wrap"><table><tr><th>服务</th><th>端口</th><th>状态</th><th>PID</th><th>进程</th><th>CPU / 内存</th><th>操作</th></tr>
 ${st.services.map(s=>`<tr><td><b>${esc(s.name)}</b></td><td class="mono">${s.port}</td>
 <td><span class="dot ${s.running?'ok':'err'}"></span> ${s.running?'<span style="color:#4ade80">运行中</span>':'<span style="color:#f87171">已停止</span>'}</td>
-<td class="mono">${s.pid||'-'}</td><td>${s.proc?esc(s.proc.name):'-'}</td><td>${s.proc?s.proc.cpu+'% / '+fmtMem(s.proc.memMB):'-'}</td>
-<td><button class="btn btn-success btn-sm" onclick="svcAction('start','${esc(s.name)}')">启动</button> <button class="btn btn-ghost btn-sm" onclick="svcAction('stop','${esc(s.name)}')">停止</button> <button class="btn btn-ghost btn-sm" onclick="svcAction('restart','${esc(s.name)}')">重启</button></td></tr>`).join('')}
-</table></div>
+<td class="mono">${s.pid||'-'}</td><td>${s.proc?esc(s.proc.name):'-'}</td><td>${s.proc?esc(s.proc.cpu)+'% / '+fmtMem(s.proc.memMB):'-'}</td>
+<td><button class="btn btn-success btn-sm" data-svc="start" data-name="${esc(s.name)}">启动</button> <button class="btn btn-ghost btn-sm" data-svc="stop" data-name="${esc(s.name)}">停止</button> <button class="btn btn-ghost btn-sm" data-svc="restart" data-name="${esc(s.name)}">重启</button></td></tr>`).join('')}
+</table></div></div>
 <div class="grid g2">
 <div class="card"><div class="card-title">${IC.tools} 端口占用检测</div>
-<div class="form-row"><input type="number" id="portCheckInput" placeholder="输入端口号（默认 3456）" value="3456"><button class="btn btn-ghost" onclick="checkPort()">检测</button><button class="btn btn-danger" onclick="killPort()">释放端口</button></div>
+<div class="form-row"><input type="number" id="portCheckInput" placeholder="输入端口号（默认 3456）" value="3456"><button class="btn btn-ghost" id="portCheckBtn" onclick="checkPort()">检测</button><button class="btn btn-danger" id="portKillBtn" onclick="killPort()">释放端口</button></div>
 <div id="portResult" class="muted" style="font-size:12.5px">输入端口后点击检测。</div></div>
 <div class="card"><div class="card-title">${IC.tools} 打开本地目录</div>
 <div class="form-row"><button class="btn btn-ghost" onclick="openDesktop('dir')">项目根目录</button><button class="btn btn-ghost" onclick="openDesktop('logs')">日志目录</button><button class="btn btn-ghost" onclick="openDesktop('site')">打开网站</button></div></div>
 </div>`;}
-async function checkPort(){const port=$('portCheckInput').value.trim()||'3456';const r=await api('/api/ports?port='+encodeURIComponent(port));const el=$('portResult');
-el.innerHTML=r.occupied?`<span style="color:#f87171">● 端口 ${r.port} 被占用</span> — PID ${r.pid}（${esc(r.proc?r.proc.name:'未知进程')}）`:`<span style="color:#4ade80">● 端口 ${r.port} 空闲</span>`;}
-function killPort(){const port=$('portCheckInput').value.trim();if(!port)return toast('请输入端口','warn');
+async function checkPort(){const done=busyBtn($('portCheckBtn'),'检测中…');try{const port=$('portCheckInput').value.trim()||'3456';const r=await api('/api/ports?port='+encodeURIComponent(port));const el=$('portResult');
+el.innerHTML=r.occupied?`<span style="color:#f87171">● 端口 ${r.port} 被占用</span> — PID ${r.pid}（${esc(r.proc?r.proc.name:'未知进程')}）`:`<span style="color:#4ade80">● 端口 ${r.port} 空闲</span>`;}catch(e){toast(e.message,'err');}finally{if(done)done();}}
+function killPort(){const done=busyBtn($('portKillBtn'));const port=$('portCheckInput').value.trim();if(!port){if(done)done();return toast('请输入端口','warn');}
 confirmModal('释放占用端口',`将强制终止占用 <b class="mono">端口 ${port}</b> 的进程。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.kill}</span>`,'btn-danger','释放端口',()=>{
-api('/api/ports/kill',{method:'POST',body:JSON.stringify({port,confirm:CONFIRMS.kill})}).then(r=>{toast(r.message);opLog(r.message,'ok');checkPort();}).catch(e=>toast(e.message,'err'));});}
+api('/api/ports/kill',{method:'POST',body:JSON.stringify({port,confirm:CONFIRMS.kill})}).then(r=>{toast(r.message);opLog(r.message,'ok');checkPort();if(done)done();}).catch(e=>{toast(e.message,'err');if(done)done();});});}
 /* ===== 网站管理 ===== */
 const SITE={users:{page:1,size:20,kw:''}};
 function renderSite(){const p=$('page-site');
 p.innerHTML=`
-<div class="page-head"><h2>网站管理</h2><p>站点概览、用户管理与关键配置查看</p><div class="spacer"></div><button class="btn btn-ghost" onclick="loadSiteOverview()">刷新</button></div>
+<div class="page-head"><h2>${t('title_site')}</h2><p>站点概览、用户管理与关键配置查看</p><div class="spacer"></div><button class="btn btn-ghost" id="siteRefreshBtn" onclick="loadSiteOverview()">刷新</button></div>
 <div class="grid g4" id="siteStats"><div class="empty">加载中…</div></div>
 <div class="card"><div class="card-title">${IC.site} 用户管理</div>
 <div class="form-row"><input type="text" id="siteUserKw" placeholder="按登录ID或显示名搜索" value="${esc(SITE.users.kw)}"><button class="btn btn-brand" onclick="siteUserSearch()">搜索</button><button class="btn btn-ghost" onclick="siteUserReset()">重置</button></div>
 <div id="siteUserList"><div class="empty">加载中…</div></div>
 <div class="form-row" style="margin-top:12px" id="siteUserPager"></div></div>
 <div class="card"><div class="card-title">${IC.backup} 用户数据批量备份 / 还原</div>
-<div class="form-row"><input type="text" id="batchIds" placeholder="输入用户 ID，多个用逗号或空格分隔，例如 1,2,3" style="flex:1"><button class="btn btn-brand btn-sm" onclick="siteBatchExport()">批量导出</button></div>
-<div class="form-row" style="margin-top:8px"><input type="file" id="batchFile" accept=".json,application/json" style="flex:1"><button class="btn btn-warn btn-sm" onclick="siteBatchImport()">批量导入还原</button></div>
+<div class="form-row"><input type="text" id="batchIds" placeholder="输入用户 ID，多个用逗号或空格分隔，例如 1,2,3" style="flex:1"><button class="btn btn-brand btn-sm" id="batchExportBtn" onclick="siteBatchExport()">批量导出</button></div>
+<div class="form-row" style="margin-top:8px"><input type="file" id="batchFile" accept=".json,application/json" style="flex:1"><button class="btn btn-warn btn-sm" id="batchImportBtn" onclick="siteBatchImport()">批量导入还原</button></div>
 <div id="batchResult" class="muted" style="margin-top:8px;font-size:12.5px">支持按用户 ID 批量导出为 JSON 文件，或将备份 JSON 批量还原。</div>
 </div>
 <div class="card"><div class="card-title">${IC.sec} 关键配置</div><div id="siteConfigBox"><div class="empty">加载中…</div></div></div>
 <div class="card"><div class="card-title">${IC.sec} 权限管理</div><div id="sitePermBox"><div class="empty">加载中…</div></div></div>`;
 loadSiteOverview();loadSiteUsers();loadSiteConfig();loadSitePerms();}
-async function loadSiteOverview(){const el=$('siteStats');if(!el)return;
+async function loadSiteOverview(){const el=$('siteStats');if(!el)return;const done=busyBtn($('siteRefreshBtn'),'刷新中…');
 try{const r=await api('/api/site/overview');const d=r.data;const items=[
 {num:d.version,lbl:'网站版本',ic:IC.site},
 {num:d.users,lbl:'注册用户',ic:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>'},
@@ -405,16 +425,16 @@ try{const r=await api('/api/site/overview');const d=r.data;const items=[
 {num:d.members,lbl:'群组成员',ic:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>'}];
 el.innerHTML=items.map(x=>`<div class="card"><div class="stat"><div class="ic">${x.ic}</div><div><div class="num">${esc(x.num)}</div><div class="lbl">${x.lbl}</div></div></div></div>`).join('');
 if(d.dbError){toast('数据库读取异常：'+d.dbError,'warn');}}
-catch(e){el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
+catch(e){el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}finally{if(done)done();}}
 async function loadSiteUsers(){const el=$('siteUserList');if(!el)return;
 try{const q=new URLSearchParams({page:SITE.users.page,size:SITE.users.size,kw:SITE.users.kw});
 const r=await api('/api/site/users?'+q.toString());const {rows,total,page,size}=r.data;
 if(!rows.length){el.innerHTML='<div class="empty">无匹配用户</div>';$('siteUserPager').innerHTML='';return;}
-el.innerHTML='<table><tr><th>ID</th><th>登录ID</th><th>显示名</th><th>角色</th><th>状态</th><th>注册时间</th><th>操作</th></tr>'+
+el.innerHTML='<div class="table-wrap"><table><tr><th>ID</th><th>登录ID</th><th>显示名</th><th>角色</th><th>状态</th><th>注册时间</th><th>操作</th></tr>'+
 rows.map(u=>{const roleName={super_admin:'超级管理员',admin:'管理员',member:'成员'}[u.role]||u.role;
 const stat=u.banned?'<span style="color:#f87171">已禁用</span>':'<span style="color:#4ade80">正常</span>';
 return `<tr><td class="mono">${u.id}</td><td class="mono">${esc(u.login_id)}</td><td>${esc(u.display_name)}</td><td>${esc(roleName)}</td><td>${stat}</td><td class="mono">${esc(String(u.created_at||'').replace('T',' ').slice(0,19))}</td>
-<td><button class="btn btn-ghost btn-sm" onclick="siteToggleUser(${u.id},${u.banned?0:1})">${u.banned?'启用':'禁用'}</button> <button class="btn btn-ghost btn-sm" onclick="siteEditUser(${u.id},'${u.role}')">编辑</button> <button class="btn btn-warn btn-sm" onclick="siteResetPwd(${u.id})">重置密码</button> <button class="btn btn-ghost btn-sm" onclick="siteUserExport(${u.id})">导出</button> <button class="btn btn-ghost btn-sm" onclick="siteUserImport(${u.id})">导入</button> <button class="btn btn-danger btn-sm" onclick="siteDeleteUser(${u.id})">删除</button></td></tr>`;}).join('')+'</table>';
+<td><button class="btn btn-ghost btn-sm" data-op="utoggle" data-id="${u.id}" data-ban="${u.banned?1:0}">${u.banned?'启用':'禁用'}</button> <button class="btn btn-ghost btn-sm" data-op="uedit" data-id="${u.id}" data-role="${esc(u.role)}">编辑</button> <button class="btn btn-warn btn-sm" data-op="ureset" data-id="${u.id}">重置密码</button> <button class="btn btn-ghost btn-sm" data-op="uexport" data-id="${u.id}">导出</button> <button class="btn btn-ghost btn-sm" data-op="uimport" data-id="${u.id}">导入</button> <button class="btn btn-danger btn-sm" data-op="udel" data-id="${u.id}">删除</button></td></tr>`;}).join('')+'</table></div>';
 const pages=Math.ceil(total/size);
 $('siteUserPager').innerHTML=`<span class="muted" style="font-size:12.5px">共 ${total} 人 · 第 ${page}/${pages} 页</span><span class="spacer"></span>
 <button class="btn btn-ghost btn-sm" ${page<=1?'disabled':''} onclick="siteUserPage(${page-1})">上一页</button>
@@ -428,12 +448,12 @@ api('/api/site/user/toggle',{method:'POST',body:JSON.stringify({id,banned:ban})}
 function siteResetPwd(id){confirmModal('重置用户密码',`为 <b class="mono">#${id}</b> 设置新密码（至少 8 位）。重置后该用户需用新密码登录。`,'btn-warn','重置密码',(pwd)=>{
 if(!pwd||pwd.length<8)return toast('新密码至少 8 位','warn');
 api('/api/site/user/reset-password',{method:'POST',body:JSON.stringify({id,password:pwd})}).then(r=>{toast(r.message);opLog(r.message,'ok');}).catch(e=>toast(e.message,'err'));},'输入新密码（至少 8 位）');}
-function siteEditUser(id,role){const mask=$('modalMask'),box=$('modalBox');
+function siteEditUser(id,role){const box=$('modalBox');
 const opts=['member','admin','super_admin'].map(r=>`<label style="display:flex;align-items:center;gap:6px;margin:6px 0;cursor:pointer"><input type="radio" name="roleSel" value="${r}" ${r===role?'checked':''}> ${({super_admin:'超级管理员',admin:'管理员',member:'成员'})[r]}</label>`).join('');
-box.innerHTML=`<h3>修改用户身份</h3><div class="modal-body">用户 <b class="mono">#${id}</b> 当前角色：<b>${({super_admin:'超级管理员',admin:'管理员',member:'成员'})[role]||role}</b>。选择新角色：<div style="margin-top:8px">${opts}</div>
+modalOpen(`<h3>修改用户身份</h3><div class="modal-body">用户 <b class="mono">#${id}</b> 当前角色：<b>${({super_admin:'超级管理员',admin:'管理员',member:'成员'})[role]||esc(role)}</b>。选择新角色：<div style="margin-top:8px">${opts}</div>
 <p class="muted" style="margin-top:8px">改角色会自动同步其基础权限组（超管=权限组1 / 管理员=2 / 成员=3）。</p></div>
-<div class="modal-actions"><button class="btn btn-ghost" id="mCancel">取消</button><button class="btn btn-brand" id="mOk">保存</button></div>`;
-mask.classList.add('show');const close=()=>{mask.classList.remove('show');box.innerHTML='';};
+<div class="modal-actions"><button class="btn btn-ghost" id="mCancel">取消</button><button class="btn btn-brand" id="mOk">保存</button></div>`);
+const close=()=>modalClose();
 box.querySelector('#mCancel').onclick=close;
 box.querySelector('#mOk').onclick=()=>{const r=box.querySelector('input[name="roleSel"]:checked');close();
 if(!r)return toast('请选择角色','warn');
@@ -460,15 +480,15 @@ const c=r.imported||{};const total=Object.values(c).reduce((a,b)=>a+(b||0),0);
 toast('已还原用户 #'+id+'（'+total+' 条数据）','ok');opLog('导入用户数据 #'+id+' 成功（'+total+' 条）','ok');
 }catch(e){toast(e.message,'err');}};
 input.click();}
-async function siteBatchExport(){const ids=$('batchIds').value.split(/[,，\s]+/).map(s=>parseInt(s,10)).filter(Boolean);
-if(!ids.length)return toast('请输入要导出的用户 ID','warn');
+async function siteBatchExport(){const done=busyBtn($('batchExportBtn'),'导出中…');const ids=$('batchIds').value.split(/[,，\s]+/).map(s=>parseInt(s,10)).filter(Boolean);
+if(!ids.length){if(done)done();return toast('请输入要导出的用户 ID','warn');}
 try{const r=await fetch(PANEL_BASE+'/api/site/user/data/batch-export',{method:'POST',headers:Object.assign({'Content-Type':'application/json'},S.token?{'Authorization':'Bearer '+S.token}:{}),body:JSON.stringify({ids})});
 if(r.status===401){doLogoutUI();throw new Error('会话已过期');}
 if(!r.ok){let m='批量导出失败';try{const j=await r.json();m=j.message||m;}catch(e){}throw new Error(m);}
 const cd=r.headers.get('Content-Disposition')||'';const fm=/filename="?([^";]+)"?/i.exec(cd);const filename=fm?fm[1]:'users_batch_backup.json';
 const blob=await r.blob();downloadBlob(blob,filename);toast('批量导出完成','ok');opLog('批量导出用户数据完成','ok');batchResultMsg('已导出 '+ids.length+' 个用户到 '+filename);
-}catch(e){toast(e.message,'err');}}
-async function siteBatchImport(){const f=$('batchFile').files[0];if(!f)return toast('请先选择备份 JSON 文件','warn');
+}catch(e){toast(e.message,'err');}finally{if(done)done();}}
+async function siteBatchImport(){const done=busyBtn($('batchImportBtn'),'导入中…');const f=$('batchFile').files[0];if(!f){if(done)done();return toast('请先选择备份 JSON 文件','warn');}
 try{const text=await f.text();let data;try{data=JSON.parse(text);}catch(e){return toast('JSON 解析失败','err');}
 const users=data.users||(data&&!Array.isArray(data)&&data.meta&&data.user?{[data.user.id]:data}:null);
 if(!users||typeof users!=='object')return toast('备份文件格式不正确（缺少 users 字段）','err');
@@ -478,26 +498,40 @@ const total=imp.reduce((a,it)=>a+Object.values(it.imported||{}).reduce((x,y)=>x+
 const failCount=Object.keys(fail).length;
 toast('批量还原完成：'+imp.length+' 个用户，共 '+total+' 条','ok');opLog('批量导入完成：'+imp.length+' 个用户成功，'+failCount+' 个失败','ok');
 batchResultMsg('成功 '+imp.length+' 个用户（'+total+' 条），失败 '+failCount+' 个'+(failCount?'：'+Object.entries(fail).map(([k,v])=>'#'+k+'('+v+')').join('、'):''));
-}catch(e){toast(e.message,'err');}}
+}catch(e){toast(e.message,'err');}finally{if(done)done();}}
 /* ---- 权限管理 ---- */
-let SITE_PERMS=null;
+let SITE_PERMS=null;const PERM_USER={page:1,size:20,kw:'',total:0};
+const ROLENAME={super_admin:'超管',admin:'管理员',member:'成员'};
 async function loadSitePerms(){const el=$('sitePermBox');if(!el)return;
 try{const r=await api('/api/site/perm-groups');SITE_PERMS=r.data;
-const us=await api('/api/site/users?page=1&size=200&kw=');
-const roleName=({super_admin:'超管',admin:'管理员',member:'成员'});
-const opts=us.data.rows.map(u=>`<option value="${u.id}">#${u.id} ${esc(u.login_id)} (${esc(u.display_name)}·${roleName[u.role]||u.role})</option>`).join('');
 const rows=SITE_PERMS.groups.map(g=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px dashed rgba(128,128,128,.25)">
 <span><b>${esc(g.name)}</b> ${g.is_system?'<span style="color:#fbbf24;font-size:12px">系统组</span>':g.is_default?'<span style="color:#60a5fa;font-size:12px">默认组</span>':''} ${g.description?'<span class="muted">· '+esc(g.description)+'</span>':''}</span>
-<button class="btn btn-ghost btn-sm" onclick="permGroupConfig(${g.id})">配置权限</button></div>`).join('');
+<button class="btn btn-ghost btn-sm" data-op="pgconfig" data-gid="${g.id}">配置权限</button></div>`).join('');
 el.innerHTML=`<div style="margin-bottom:10px"><b>给用户配置所属权限组</b><span class="muted" style="font-size:12px"> · 基础组随角色自动跟随，自定义组可自由勾选</span></div>
-<div class="form-row"><select id="permUserId" style="max-width:440px" onchange="loadPermUserGroups()"><option value="">请选择用户…</option>${opts}</select></div>
+<div id="permUserSel"><div class="empty">用户列表加载中…</div></div>
 <div id="permUserGroups" class="muted" style="margin:8px 0;font-size:12.5px">选择用户后显示其权限组。</div>
-<button class="btn btn-brand btn-sm" onclick="permUserSave()">保存用户权限组</button>
+<button class="btn btn-brand btn-sm" id="permSaveBtn" onclick="permUserSave()">保存用户权限组</button>
 <hr style="margin:14px 0;border:none;border-top:1px solid rgba(128,128,128,.25)">
 <div style="margin-bottom:8px"><b>权限组配置</b><span class="muted" style="font-size:12px"> · 系统组也允许调整权限项，保存后全体对应角色立即生效</span></div>
 <div id="permGroupList">${rows||'<div class="empty">暂无权限组</div>'}</div>
-<div class="form-row" style="margin-top:10px"><input type="text" id="permNewName" placeholder="新权限组名称" style="max-width:220px"><button class="btn btn-ghost btn-sm" onclick="permGroupCreate()">创建权限组</button></div>`;}
+<div class="form-row" style="margin-top:10px"><input type="text" id="permNewName" placeholder="新权限组名称" style="max-width:220px"><button class="btn btn-ghost btn-sm" id="permNewBtn" onclick="permGroupCreate()">创建权限组</button></div>`;
+loadPermUsers();}
 catch(e){el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
+async function loadPermUsers(){const box=$('permUserSel');if(!box)return;
+const prev=$('permUserId');const keep=prev?prev.value:'';
+try{const q=new URLSearchParams({page:PERM_USER.page,size:PERM_USER.size,kw:PERM_USER.kw});
+const us=await api('/api/site/users?'+q.toString());PERM_USER.total=us.data.total||0;
+const opts=us.data.rows.map(u=>`<option value="${u.id}" ${String(u.id)===keep?'selected':''}>#${u.id} ${esc(u.login_id)} (${esc(u.display_name)}·${ROLENAME[u.role]||esc(u.role)})</option>`).join('');
+const pages=Math.max(1,Math.ceil(PERM_USER.total/PERM_USER.size));
+box.innerHTML=`<div class="form-row"><input type="text" id="permUserKw" placeholder="按登录ID/显示名搜索" style="flex:1;max-width:260px" value="${esc(PERM_USER.kw)}" onkeydown="if(event.key==='Enter')permUserSearch()"><button class="btn btn-ghost btn-sm" onclick="permUserSearch()">搜索</button></div>
+<div class="form-row"><select id="permUserId" style="flex:1;max-width:440px" onchange="loadPermUserGroups()"><option value="">请选择用户…</option>${opts}</select>
+<span class="muted" style="font-size:12px">　共 ${PERM_USER.total} 人 · 第 ${PERM_USER.page}/${pages} 页</span>
+<button class="btn btn-ghost btn-sm" onclick="permUserPage(${PERM_USER.page-1})" ${PERM_USER.page<=1?'disabled':''}>上一页</button>
+<button class="btn btn-ghost btn-sm" onclick="permUserPage(${PERM_USER.page+1})" ${PERM_USER.page>=pages?'disabled':''}>下一页</button></div>`;
+if(keep&&$('permUserId'))$('permUserId').value=keep;}
+catch(e){box.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
+function permUserSearch(){PERM_USER.kw=($('permUserKw')?$('permUserKw').value:'').trim();PERM_USER.page=1;loadPermUsers();}
+function permUserPage(p){if(p<1)return;PERM_USER.page=p;loadPermUsers();}
 async function loadPermUserGroups(){const id=parseInt($('permUserId').value,10);const box=$('permUserGroups');
 if(!id){box.innerHTML='选择用户后显示其权限组。';return;}
 try{const r=await api('/api/site/user/permgroups?id='+id);const d=r.data;
@@ -506,22 +540,22 @@ box.innerHTML=`当前角色：<b>${({super_admin:'超级管理员',admin:'管理
 d.groups.map(g=>{const isBase=[1,2,3].includes(g.id);
 return `<label style="display:inline-flex;align-items:center;gap:5px;margin:4px 8px 4px 0;cursor:${isBase?'not-allowed':'pointer'}"><input type="checkbox" data-gid="${g.id}" ${g.joined?'checked':''} ${isBase?'disabled':''}> ${esc(g.name)}${isBase?'（基础）':''}</label>`;}).join('');}
 catch(e){box.innerHTML=esc(e.message);}}
-async function permUserSave(){const id=parseInt($('permUserId').value,10);
-if(!id)return toast('请先选择用户','warn');
+async function permUserSave(){const done=busyBtn($('permSaveBtn'),'保存中…');const id=parseInt($('permUserId').value,10);
+if(!id){if(done)done();return toast('请先选择用户','warn');}
 const groupIds=Array.from($('permUserGroups').querySelectorAll('input[type=checkbox]:checked:not([disabled])')).map(c=>parseInt(c.dataset.gid,10));
-try{const r=await api('/api/site/user/permgroups',{method:'POST',body:JSON.stringify({id,groupIds})});toast(r.message);opLog(r.message,'ok');loadPermUserGroups();}catch(e){toast(e.message,'err');}}
+try{const r=await api('/api/site/user/permgroups',{method:'POST',body:JSON.stringify({id,groupIds})});toast(r.message);opLog(r.message,'ok');loadPermUserGroups();}catch(e){toast(e.message,'err');}finally{if(done)done();}}
 function permGroupConfig(groupId){const g=SITE_PERMS.groups.find(x=>x.id===groupId);if(!g)return;
-const mask=$('modalMask'),box=$('modalBox');const cur=SITE_PERMS.entries[groupId]||{};
+const box=$('modalBox');const cur=SITE_PERMS.entries[groupId]||{};
 const items=SITE_PERMS.keys.map(k=>`<label style="display:flex;align-items:center;gap:6px;margin:4px 0;cursor:pointer"><input type="checkbox" data-pk="${k}" ${cur[k]?'checked':''}> ${esc(SITE_PERMS.labels[k]||k)}</label>`).join('');
-box.innerHTML=`<h3>配置权限：${esc(g.name)}</h3><div class="modal-body" style="max-height:60vh;overflow:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 12px">${items}</div>
-<div class="modal-actions"><button class="btn btn-ghost" id="mCancel">取消</button><button class="btn btn-brand" id="mOk">保存权限</button></div>`;
-mask.classList.add('show');const close=()=>{mask.classList.remove('show');box.innerHTML='';};
+modalOpen(`<h3>配置权限：${esc(g.name)}</h3><div class="modal-body" style="max-height:60vh;overflow:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 12px">${items}</div>
+<div class="modal-actions"><button class="btn btn-ghost" id="mCancel">取消</button><button class="btn btn-brand" id="mOk">保存权限</button></div>`);
+const close=()=>modalClose();
 box.querySelector('#mCancel').onclick=close;
 box.querySelector('#mOk').onclick=()=>{const perms={};box.querySelectorAll('input[data-pk]').forEach(c=>{perms[c.dataset.pk]=c.checked?1:0;});close();
 api('/api/site/perm-group/save',{method:'POST',body:JSON.stringify({groupId,perms})}).then(x=>{toast(x.message);opLog(x.message,'ok');loadSitePerms();}).catch(e=>toast(e.message,'err'));};}
-async function permGroupCreate(){const name=$('permNewName').value.trim();
-if(!name)return toast('请输入权限组名称','warn');
-try{const r=await api('/api/site/perm-group/create',{method:'POST',body:JSON.stringify({name})});toast(r.message);opLog(r.message,'ok');loadSitePerms();}catch(e){toast(e.message,'err');}}
+async function permGroupCreate(){const done=busyBtn($('permNewBtn'),'创建中…');const name=$('permNewName').value.trim();
+if(!name){if(done)done();return toast('请输入权限组名称','warn');}
+try{const r=await api('/api/site/perm-group/create',{method:'POST',body:JSON.stringify({name})});toast(r.message);opLog(r.message,'ok');loadSitePerms();}catch(e){toast(e.message,'err');}finally{if(done)done();}}
 async function loadSiteConfig(){const el=$('siteConfigBox');if(!el)return;
 try{const r=await api('/api/site/config');const d=r.data;const m=d.mysql||{};
 const rows=[['MySQL 主机',m.host],['MySQL 端口',m.port],['MySQL 用户',m.user],['数据库名',m.database],['MySQL 密码',m.password||'(空)']];
@@ -532,18 +566,21 @@ el.innerHTML='<table><tr><th>配置项</th><th>值</th></tr>'+rows.map(x=>`<tr><
 catch(e){el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
 /* ===== 任务轮询 ===== */
 function watchTask(id){const iv=setInterval(()=>{api('/api/task/'+id).then(r=>{const t=r.task;
-const node=document.querySelector('[data-task="'+id+'"]');if(node){node.textContent=t.status==='running'?'<span class="spin"></span> 执行中':t.status==='done'?'✓ 完成':'✗ 失败';node.classList.toggle('err',t.status==='error');}
-if(t.output&&t.output.length&&t.output.length!==(t._lastLen||0)){t._lastLen=t.output.length;const newest=t.output.slice(-5);newest.forEach(l=>opLog('['+t.name+'] '+l));}
-if(t.status!=='running'){clearInterval(iv);opLog('['+t.name+'] '+(t.status==='done'?'完成':'失败: '+(t.error||'')),t.status==='done'?'ok':'err');if(t.status==='done'){toast(t.name+' 完成');loadStatus();if(S.page==='backup')renderBackup();}}}).catch(()=>clearInterval(iv));},1200);}
+const node=document.querySelector('[data-task="'+id+'"]');if(node){node.textContent=t.status==='running'?'<span class="spin"></span> 执行中…':t.status==='done'?'✓ 完成':'✗ 失败';node.classList.toggle('err',t.status==='error');}
+const lines=t.output||[];let last=TASK_CONSUMED.get(id)||0;if(lines.length<last)last=0;
+if(lines.length>last){lines.slice(last).forEach(l=>opLog('['+t.name+'] '+l));TASK_CONSUMED.set(id,lines.length);}
+if(t.status!=='running'){clearInterval(iv);TASK_CONSUMED.delete(id);if(ACTIVE_TASK===id)ACTIVE_TASK=null;if(node)node.disabled=false;
+opLog('['+t.name+'] '+(t.status==='done'?'完成':'失败: '+(t.error||'')),t.status==='done'?'ok':'err');if(t.status==='done'){toast(t.name+' 完成');loadStatus();if(S.page==='backup')renderBackup();}}}).catch(()=>{clearInterval(iv);TASK_CONSUMED.delete(id);if(ACTIVE_TASK===id)ACTIVE_TASK=null;});},1200);}
 
 /* ===== 数据备份 ===== */
 function renderBackup(){const st=S.status;if(!st)return;const p=$('page-backup');
 const spaceMsg=st.diskGB!=null?(st.diskGB<=st.diskWarn?'<span style="color:#fbbf24">⚠ 磁盘剩余 '+st.diskGB+' GB，请先清理空间再备份</span>':'磁盘剩余 '+st.diskGB+' GB'):'';
+const bkBtn=ACTIVE_TASK?`<button class="btn btn-brand" data-task="${ACTIVE_TASK}" disabled><span class="spin"></span> 备份执行中…</button>`:`<button class="btn btn-brand" id="quickBkBtn" onclick="quickBackup()">立即备份</button>`;
 p.innerHTML=`
-<div class="page-head"><h2>数据备份</h2><p>用户上传数据（uploads）的备份、下载与恢复</p><div class="spacer"></div>
-<button class="btn btn-brand" onclick="quickBackup()">立即备份</button></div>
+<div class="page-head"><h2>${t('title_backup')}</h2><p>用户上传数据（uploads）的备份、下载与恢复</p><div class="spacer"></div>
+${bkBtn}</div>
 <div class="card"><div class="card-title">${IC.backup} 备份说明</div>
-<div class="muted" style="font-size:12.5px;line-height:1.9">• 备份内容：<b>uploads/</b> 目录（相册、头像、上传文件等用户数据）。<br>• 备份目录：<span class="mono">${esc(S.status&&S.status.services?'backup/': 'backup/')}</span>，保留最近 10 份，自动覆盖最旧。<br>• 若文件被占用导致压缩失败，将自动降级为目录拷贝并记录告警。 ${spaceMsg}</div></div>
+<div class="muted" style="font-size:12.5px;line-height:1.9">• 备份内容：<b>uploads/</b> 目录（相册、头像、上传文件等用户数据）。<br>• 备份目录：<span class="mono">backup/</span>，保留最近 10 份，自动覆盖最旧。<br>• 若文件被占用导致压缩失败，将自动降级为目录拷贝并记录告警。 ${spaceMsg}</div></div>
 <div class="card"><div class="card-title">${IC.backup} 备份列表</div>
 <div id="backupList"><div class="empty">加载中…</div></div></div>
 <div class="danger-zone"><div class="dz-title">⚠ 高危操作区</div>
@@ -552,9 +589,9 @@ p.innerHTML=`
 <button class="btn btn-danger" style="margin-left:8px" onclick="exportConfigBackup()">导出配置备份</button></div>`;loadBackupList();}
 async function loadBackupList(){const el=$('backupList');if(!el)return;try{const r=await api('/api/backups');
 if(!r.backups.length){el.innerHTML='<div class="empty">暂无备份，点击右上角「立即备份」创建第一份。</div>';return;}
-el.innerHTML='<table><tr><th>文件名</th><th>类型</th><th>大小</th><th>时间</th><th>操作</th></tr>'+
+el.innerHTML='<div class="table-wrap"><table><tr><th>文件名</th><th>类型</th><th>大小</th><th>时间</th><th>操作</th></tr>'+
 r.backups.map(b=>`<tr><td class="mono">${esc(b.name)}</td><td>${esc(b.type)}</td><td>${b.sizeMB} MB</td><td>${esc(b.time)}</td>
-<td><a href="${PANEL_BASE}/api/backup/download?name=${encodeURIComponent(b.name)}">下载</a>${b.type==='用户数据'?' · <a href="javascript:void 0" onclick="restoreBackup(\''+esc(b.name).replace(/'/g,"\\'")+'\')">恢复</a>':''}</td></tr>`).join('')+'</table>';}
+<td><a href="${PANEL_BASE}/api/backup/download?name=${encodeURIComponent(b.name)}">下载</a>${b.type==='用户数据'?' · <a href="javascript:void 0" data-restore="${esc(b.name)}">恢复</a>':''}</td></tr>`).join('')+'</table></div>';}
 catch(e){el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
 function restoreBackup(name){const st=S.status;const running=st&&st.services?st.services.some(s=>s.name==='NodeServer'&&s.running):false;
 if(running){toast('NodeServer 正在运行，请先停止服务再恢复','warn');return;}
@@ -564,12 +601,12 @@ function clearUserData(){const st=S.status;const running=st&&st.services?st.serv
 if(running){toast('NodeServer 正在运行，请先停止服务再操作','warn');return;}
 confirmModal('清除全部用户数据',`将删除 <b>uploads/</b> 下所有文件且<b>无法恢复</b>。请确认已备份。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.high}</span>`,'btn-danger','永久删除',()=>{
 api('/api/clear-data',{method:'POST',body:JSON.stringify({confirm:CONFIRMS.high})}).then(r=>{toast(r.message);opLog(r.message,'ok');loadBackupList();}).catch(e=>toast(e.message,'err'));});}
-function exportConfigBackup(){api('/api/export-config',{method:'POST',body:'{}'}).then(r=>{toast(r.message);opLog(r.message,'ok');}).catch(e=>toast(e.message,'err'));}
+function exportConfigBackup(){const done=busyBtn(document.activeElement,'导出中…');api('/api/export-config',{method:'POST',body:'{}'}).then(r=>{toast(r.message);opLog(r.message,'ok');}).catch(e=>toast(e.message,'err')).finally(()=>{if(done)done();});}
 
 /* ===== 日志中心 ===== */
 function renderLogs(){const p=$('page-logs');
 p.innerHTML=`
-<div class="page-head"><h2>日志中心</h2><p>查看最近日志、搜索错误、清理日志文件</p><div class="spacer"></div>
+<div class="page-head"><h2>${t('title_logs')}</h2><p>查看最近日志、搜索错误、清理日志文件</p><div class="spacer"></div>
 <button class="btn btn-ghost" onclick="loadRecentLogs()">刷新</button><button class="btn btn-danger" onclick="clearLogs()">清理日志</button></div>
 <div class="card"><div class="card-title">${IC.tools} 错误搜索</div>
 <div class="form-row"><input type="text" id="logKw" placeholder="关键词，多个用空格分隔（默认搜索 ERROR / FATAL / Exception / 失败）"><button class="btn btn-brand" onclick="searchLogs()">搜索</button></div>
@@ -586,12 +623,12 @@ try{const r=await api('/api/logs/search',{method:'POST',body:JSON.stringify({key
 res.innerHTML=r.total?`找到 <b>${r.total}</b> 条匹配，展示前 ${r.matches.length} 条：`:'<span style="color:#4ade80">未发现匹配项</span>';
 if(r.matches.length){res.innerHTML+='<div class="logbox" style="max-height:260px;margin-top:8px">'+r.matches.map(m=>{const e=esc(m);const hl=kw.split(/\s+/).filter(Boolean).reduce((s,k)=>s.replace(new RegExp('('+k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi'),'<b class="err">$1</b>'),e);return hl;}).join('\n')+'</div>';}}
 catch(e){res.innerHTML='<span style="color:#f87171">'+esc(e.message)+'</span>';}}
-function clearLogs(){confirmModal('清理全部日志',`将删除 logs 目录下除审计日志外的所有日志文件。\n此操作不可恢复。`,'btn-danger','确认清理',()=>{
-api('/api/logs/clear',{method:'POST',body:'{}'}).then(r=>{toast(r.message);opLog(r.message,'ok');loadRecentLogs();}).catch(e=>toast(e.message,'err'));});}
+function clearLogs(){confirmModal('清理全部日志',`将删除 logs 目录下除审计日志外的所有日志文件。\n此操作不可恢复。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.clearLogs}</span>`,'btn-danger','确认清理',(v)=>{
+api('/api/logs/clear',{method:'POST',body:JSON.stringify({confirm:v})}).then(r=>{toast(r.message);opLog(r.message,'ok');loadRecentLogs();}).catch(e=>toast(e.message,'err'));},CONFIRMS.clearLogs);}
 /* ===== 系统工具 ===== */
 function renderTools(){const st=S.status;const p=$('page-tools');
 p.innerHTML=`
-<div class="page-head"><h2>系统工具</h2><p>环境检查、缓存清理、配置导出、网站打包</p></div>
+<div class="page-head"><h2>${t('title_tools')}</h2><p>环境检查、缓存清理、配置导出、网站打包</p></div>
 <div class="grid g2">
 <div class="card"><div class="card-title">${IC.tools} 运行环境依赖检查</div>
 <div id="envResult"><button class="btn btn-ghost" onclick="checkEnv()">开始检查</button></div></div>
@@ -602,7 +639,7 @@ p.innerHTML=`
 <div class="muted" style="font-size:12px">导出到 backup/ 目录，自动保留最近 5 份。</div></div>
 <div class="card"><div class="card-title">${IC.backup} 网站导出打包</div>
 <div class="form-row"><label class="check"><input type="checkbox" id="exportDataChk"> 同时包含用户数据（uploads / assets 相册头像）</label></div>
-<div class="form-row"><button class="btn btn-brand" onclick="exportSite()">开始导出</button></div>
+<div class="form-row">${ACTIVE_TASK?`<button class="btn btn-brand" data-task="${ACTIVE_TASK}" disabled><span class="spin"></span> 导出执行中…</button>`:'<button class="btn btn-brand" id="exportSiteBtn" onclick="exportSite()">开始导出</button>'}</div>
 <div class="muted" style="font-size:12px">复用 export-site.ps1 打包逻辑，输出到 backup/ 目录，耗时约 1-3 分钟，可在底部操作面板查看进度。</div></div>
 <div class="card"><div class="card-title">${IC.tools} 缓存清理</div>
 <div class="form-row"><button class="btn btn-warn" onclick="cleanCache()">清理项目缓存</button></div>
@@ -619,39 +656,39 @@ catch(e){el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
 async function checkEnv(){const el=$('envResult');if(!el)return;el.innerHTML='<div class="empty"><span class="spin"></span> 检查中…</div>';
 try{const r=await api('/api/env/check');el.innerHTML='<table><tr><th>检查项</th><th>路径</th><th>结果</th></tr>'+r.checks.map(c=>`<tr><td>${esc(c.item)}</td><td class="mono">${esc(c.path)}</td><td>${c.ok?'<span style="color:#4ade80">✓ 正常</span>':'<span style="color:#f87171">✗ 缺失</span>'}</td></tr>`).join('')+'</table>';}
 catch(e){el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
-function exportPanelConfig(){api('/api/export-panel-config',{method:'POST',body:'{}'}).then(r=>{toast(r.message);opLog(r.message,'ok');}).catch(e=>toast(e.message,'err'));}
-function exportSite(){const inc=$('exportDataChk').checked;
-api('/api/export-site',{method:'POST',body:JSON.stringify({includeData:inc})}).then(r=>{toast('导出任务已启动');opLog('网站导出任务已启动 (task '+r.taskId+')','warn');watchTask(r.taskId);}).catch(e=>toast(e.message,'err'));}
+function exportPanelConfig(){const done=busyBtn(document.activeElement,'导出中…');api('/api/export-panel-config',{method:'POST',body:'{}'}).then(r=>{toast(r.message);opLog(r.message,'ok');}).catch(e=>toast(e.message,'err')).finally(()=>{if(done)done();});}
+function exportSite(){const done=busyBtn($('exportSiteBtn'),'启动中…');const inc=$('exportDataChk').checked;
+api('/api/export-site',{method:'POST',body:JSON.stringify({includeData:inc})}).then(r=>{ACTIVE_TASK=r.taskId;toast('导出任务已启动');opLog('网站导出任务已启动 (task '+r.taskId+')','warn');markTaskBtn(r.taskId,$('exportSiteBtn'));watchTask(r.taskId);}).catch(e=>{toast(e.message,'err');if(done)done();});}
 function cleanCache(){confirmModal('清理项目缓存',`将删除 __pycache__ / temp / cache / node_modules/.cache 目录。\n不影响网站数据和代码。`,'btn-warn','确认清理',()=>{
 api('/api/cache-clean',{method:'POST',body:'{}'}).then(r=>{toast(r.message);opLog(r.message,'ok');}).catch(e=>toast(e.message,'err'));});}
 
 /* ===== 安全配置 ===== */
 function renderSec(){const p=$('page-security');
 p.innerHTML=`
-<div class="page-head"><h2>安全配置</h2><p>面板密码、访问范围与超级管理员密码重置</p></div>
+<div class="page-head"><h2>${t('title_security')}</h2><p>面板密码、访问范围与超级管理员密码重置</p></div>
 <div class="grid g2">
 <div class="card"><div class="card-title">${IC.sec} 修改面板管理密码</div>
 <div class="fld"><label>当前密码</label><input type="password" id="cpOld"></div>
 <div class="fld"><label>新密码（至少 8 位）</label><input type="password" id="cpNew"></div>
 <div class="fld"><label>确认新密码</label><input type="password" id="cpNew2"></div>
-<button class="btn btn-brand" onclick="changePwd()">更新密码</button></div>
+<button class="btn btn-brand" id="changePwdBtn" onclick="changePwd()">更新密码</button></div>
 <div class="card"><div class="card-title">${IC.sec} 局域网访问</div>
 <div class="muted" style="font-size:12.5px;line-height:1.9" id="lanDesc">当前仅本机可访问（127.0.0.1:3457）。开启后同一局域网设备可访问此运维后台。</div>
 <div class="form-row" style="margin-top:10px"><label class="check"><input type="checkbox" id="lanChk" oninput="$('lanPwdRow').style.display=this.checked?'':'none'"> 允许局域网访问（需重启面板生效）</label></div>
 <div class="form-row" id="lanPwdRow" style="display:none"><input type="password" id="lanPwd" placeholder="开启局域网访问须重新输入面板密码" autocomplete="off"></div>
-<button class="btn btn-ghost" onclick="saveLan()">保存设置</button></div>
+<button class="btn btn-ghost" id="saveLanBtn" onclick="saveLan()">保存设置</button></div>
 </div>
 <div class="danger-zone"><div class="dz-title">⚠ 破窗恢复 · 重置超级管理员密码</div>
 <div class="dz-desc">当忘记超级管理员密码时可在此重置（调用 server/scripts/reset-superadmin.js）。</div>
 <div class="form-row"><input type="text" id="rsLogin" placeholder="账号 login（默认 super_admin）" value="super_admin"><input type="text" id="rsPass" placeholder="输入新的临时密码"></div>
 <button class="btn btn-danger" onclick="resetSuperAdmin()">重置超级管理员密码</button></div>`;
 $('lanChk').checked=!!(S.status&&S.status.lan);}
-function changePwd(){const o=$('cpOld').value,n=$('cpNew').value,n2=$('cpNew2').value;
-if(n.length<8)return toast('新密码至少 8 位','warn');if(n!==n2)return toast('两次新密码不一致','warn');
-api('/api/change-password',{method:'POST',body:JSON.stringify({old:o,newPassword:n})}).then(r=>{toast(r.message);opLog(r.message,'ok');['cpOld','cpNew','cpNew2'].forEach(i=>$(i).value='');doLogoutUI();}).catch(e=>toast(e.message,'err'));}
-function saveLan(){const lan=$('lanChk').checked;const pwd=$('lanPwd').value;
-if(lan&&!pwd)return toast('开启局域网访问需重新输入面板密码','warn');
-api('/api/settings',{method:'POST',body:JSON.stringify({lan,password:pwd})}).then(r=>{toast(r.message);$('lanDesc').textContent=lan?'⚠ 已允许局域网访问（重启面板后生效），请确保密码强度足够。':'已设为仅本机访问（重启面板后生效）。';$('lanPwd').value='';opLog(r.message,'ok');}).catch(e=>{$('lanChk').checked=!!(S.status&&S.status.lan);toast(e.message,'err');});}
+function changePwd(){const done=busyBtn($('changePwdBtn'),'更新中…');const o=$('cpOld').value,n=$('cpNew').value,n2=$('cpNew2').value;
+if(n.length<8){if(done)done();return toast('新密码至少 8 位','warn');}if(n!==n2){if(done)done();return toast('两次新密码不一致','warn');}
+api('/api/change-password',{method:'POST',body:JSON.stringify({old:o,newPassword:n})}).then(r=>{toast(r.message);opLog(r.message,'ok');['cpOld','cpNew','cpNew2'].forEach(i=>$(i).value='');doLogoutUI();}).catch(e=>toast(e.message,'err')).finally(()=>{if(done)done();});}
+function saveLan(){const done=busyBtn($('saveLanBtn'),'保存中…');const lan=$('lanChk').checked;const pwd=$('lanPwd').value;
+if(lan&&!pwd){if(done)done();return toast('开启局域网访问需重新输入面板密码','warn');}
+api('/api/settings',{method:'POST',body:JSON.stringify({lan,password:pwd})}).then(r=>{toast(r.message);$('lanDesc').textContent=lan?'⚠ 已允许局域网访问（重启面板后生效），请确保密码强度足够。':'已设为仅本机访问（重启面板后生效）。';$('lanPwd').value='';opLog(r.message,'ok');}).catch(e=>{$('lanChk').checked=!!(S.status&&S.status.lan);toast(e.message,'err');}).finally(()=>{if(done)done();});}
 function resetSuperAdmin(){const login=$('rsLogin').value.trim()||'super_admin';const pass=$('rsPass').value.trim();
 if(!pass)return toast('请填写临时密码','warn');
 confirmModal('重置超级管理员密码',`将重置 <span class="mono">${esc(login)}</span> 的密码为：<b class="mono">${esc(pass)}</b>\n此操作会影响网站登录。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.reset}</span>`,'btn-danger','确认重置',()=>{
@@ -659,7 +696,7 @@ api('/api/reset-superadmin',{method:'POST',body:JSON.stringify({login,pass,confi
 
 /* ===== 审计日志 ===== */
 function renderAudit(){const p=$('page-audit');
-p.innerHTML=`<div class="page-head"><h2>审计日志</h2><p>面板全部操作记录（服务启停、备份、高危操作等）</p><div class="spacer"></div><button class="btn btn-ghost" onclick="loadAudit()">刷新</button></div>
+p.innerHTML=`<div class="page-head"><h2>${t('title_audit')}</h2><p>面板全部操作记录（服务启停、备份、高危操作等）</p><div class="spacer"></div><button class="btn btn-ghost" onclick="loadAudit()">刷新</button></div>
 <div class="card"><div id="auditBox"><div class="empty">加载中…</div></div></div>`;loadAudit();}
 async function loadAudit(){const el=$('auditBox');if(!el)return;try{const r=await api('/api/audit-log');
 el.innerHTML=r.lines.length?`<div class="logbox" style="max-height:420px">${r.lines.map(esc).join('\n')}</div>`:'<div class="empty">暂无审计记录</div>';}
@@ -668,7 +705,7 @@ catch(e){el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
 /* ===== 激活码管理 ===== */
 let AC={codes:[],kw:''};
 function renderActivation(){const p=$('page-activation');
-p.innerHTML=`<div class="page-head"><h2>激活码管理</h2><p>激活码保存在服务器本地文件（离线可用）；已使用的码永久绑定，未使用的码可作废</p><div class="spacer"></div><button class="btn btn-ghost" onclick="loadActivation()">刷新</button></div>
+p.innerHTML=`<div class="page-head"><h2>${t('title_activation')}</h2><p>激活码保存在服务器本地文件（离线可用）；已使用的码永久绑定，未使用的码可作废</p><div class="spacer"></div><button class="btn btn-ghost" onclick="loadActivation()">刷新</button></div>
 <div class="grid g4" id="acStats"><div class="empty">加载中…</div></div>
 <div class="card"><div class="card-title">${IC.ac} 激活码列表</div>
 <div class="form-row"><input type="text" id="acKw" placeholder="搜索激活码 / 备注 / 创建人" value="${esc(AC.kw)}" onkeydown="if(event.key==='Enter')activationSearch()"><button class="btn btn-brand" onclick="activationSearch()">搜索</button>
@@ -692,13 +729,13 @@ if(!kw)return true;
 return String(c.code||'').toLowerCase().includes(kw)||String(c.note||'').toLowerCase().includes(kw)||String(c.created_by||'').toLowerCase().includes(kw);});
 if(!rows.length){el.innerHTML='<div class="empty">无匹配激活码</div>';return;}
 const fmt=t=>esc(String(t||'').replace('T',' ').slice(0,19));
-el.innerHTML='<table><tr><th>激活码</th><th>状态</th><th>备注</th><th>创建人</th><th>创建时间</th><th>使用 / 作废信息</th><th>操作</th></tr>'+
+el.innerHTML='<div class="table-wrap"><table><tr><th>激活码</th><th>状态</th><th>备注</th><th>创建人</th><th>创建时间</th><th>使用 / 作废信息</th><th>操作</th></tr>'+
 rows.map(c=>{const st=acState(c);
 const expSoon=st==='unused'&&c.expires_at&&new Date(c.expires_at).getTime()-Date.now()<7*86400000;
 const tag={unused:'<span style="color:#4ade80">未使用</span>',used:'<span style="color:#fbbf24">已使用</span>',revoked:'<span style="color:#f87171">已作废</span>',expired:'<span style="color:#f97316">已过期</span>'}[st]+(expSoon?' <span style="color:#f59e0b">⚡即将过期</span>':'');
 const info=c.used?('由 <b>'+esc(c.used_by||'?')+'</b> 于 '+fmt(c.used_at)+' 使用'):(c.revoked?('由 '+esc(c.revoked_by||'?')+' 于 '+fmt(c.revoked_at)+' 作废'+(c.revoked_reason?'（'+esc(c.revoked_reason)+'）':'')):(c.expires_at?('有效期至 <b class="mono">'+fmt(c.expires_at)+'</b>'+(st==='expired'?'<span style="color:#f97316">（已过期）</span>':(expSoon?'<span style="color:#f59e0b">（即将过期）</span>':''))):'-'));
 return `<tr><td class="mono">${esc(c.code)}</td><td>${tag}</td><td>${esc(c.note||'-')}</td><td>${esc(c.created_by||'-')}</td><td class="mono">${fmt(c.created_at)}</td><td>${info}</td>
-<td><button class="btn btn-ghost btn-sm" onclick="acCopy('${esc(c.code)}')">复制</button>${st==='unused'?' <button class="btn btn-danger btn-sm" onclick="acRevoke(\''+esc(c.code)+'\')">作废</button>':''}</td></tr>`;}).join('')+'</table>';}
+<td><button class="btn btn-ghost btn-sm" data-code="${esc(c.code)}">复制</button>${st==='unused'?` <button class="btn btn-danger btn-sm" data-revoke="${esc(c.code)}">作废</button>`:''}</td></tr>`;}).join('')+'</table></div>';}
 function activationSearch(){AC.kw=$('acKw').value.trim();renderAcList();}
 function acCopy(code){navigator.clipboard.writeText(code).then(()=>toast('已复制 '+code)).catch(()=>toast('复制失败，请手动选择复制','warn'));}
 function acCopyUnused(){const codes=AC.codes.filter(c=>acState(c)==='unused').map(c=>c.code);
@@ -716,30 +753,30 @@ const csv='\uFEFF'+[head].concat(data).map(r=>r.map(v=>'"'+String(v==null?'':v).
 const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='activation-codes-'+new Date().toISOString().slice(0,10)+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);toast('已导出 '+rows.length+' 条激活码');}
 function acRevoke(code){confirmModal('作废激活码',`确定要作废激活码 <b class="mono">${esc(code)}</b> 吗？<br>作废后立即失效且不可恢复；已被使用的码无法作废。`,'btn-danger','作废',(reason)=>{
 api('/api/activation-codes/revoke',{method:'POST',body:JSON.stringify({code,reason})}).then(r=>{toast(r.message);opLog(r.message,'ok');loadActivation();}).catch(e=>toast(e.message,'err'));},'输入作废原因（必填）');}
-function acGenerateModal(){const mask=$('modalMask'),box=$('modalBox');
-box.innerHTML=`<h3>生成激活码</h3><div class="modal-body">激活码保存在服务器本地文件，生成后可复制分发给用户注册使用；可设置有效期，过期后注册将提示已过期。
+function acGenerateModal(){const box=$('modalBox');
+modalOpen(`<h3>生成激活码</h3><div class="modal-body">激活码保存在服务器本地文件，生成后可复制分发给用户注册使用；可设置有效期，过期后注册将提示已过期。
 <div class="form-row" style="margin-top:10px"><input type="number" id="acGenCount" min="1" max="200" value="5" placeholder="数量" style="flex:0 0 110px" title="数量（1-200）"><input type="number" id="acGenExpires" min="0" max="3650" value="0" placeholder="有效期天数（0=永久）" style="flex:0 0 180px" title="有效期天数，0 = 永久"><input type="text" id="acGenNote" placeholder="备注（可选）" style="flex:1" maxlength="100"></div></div>
-<div class="modal-actions"><button class="btn btn-ghost" id="mCancel">取消</button><button class="btn btn-brand" id="mOk">生成</button></div>`;
-mask.classList.add('show');const close=()=>{mask.classList.remove('show');box.innerHTML='';};
+<div class="modal-actions"><button class="btn btn-ghost" id="mCancel">取消</button><button class="btn btn-brand" id="mOk">生成</button></div>`);
+const close=()=>modalClose();
 box.querySelector('#mCancel').onclick=close;
 box.querySelector('#mOk').onclick=async()=>{const count=parseInt(box.querySelector('#acGenCount').value,10)||0;const expiresDays=Math.max(0,Math.min(3650,parseInt(box.querySelector('#acGenExpires').value,10)||0));const note=box.querySelector('#acGenNote').value.trim();
 if(count<1||count>200)return toast('数量需在 1-200 之间','warn');
 try{const r=await api('/api/activation-codes/generate',{method:'POST',body:JSON.stringify({count,note,expiresDays})});
 close();opLog('生成激活码 '+r.data.count+' 枚','ok');
 const expLine=r.data.expiresAt?`<p class="muted" style="margin:6px 0 0">有效期至：<b class="mono">${esc(String(r.data.expiresAt).replace('T',' ').slice(0,19))}</b></p>`:'';
-box.innerHTML=`<h3>生成成功（${r.data.count} 枚）</h3><div class="modal-body"><div class="logbox" style="max-height:260px">${r.data.codes.map(esc).join('\n')}</div>${expLine}<p class="muted" style="margin-top:8px">请立即复制保存；之后仍可在列表中查看。</p></div>
-<div class="modal-actions"><button class="btn btn-ghost" id="mCancel2">关闭</button><button class="btn btn-brand" id="mCopyAll">复制全部</button></div>`;
-mask.classList.add('show');const close2=()=>{mask.classList.remove('show');box.innerHTML='';};
+modalOpen(`<h3>生成成功（${r.data.count} 枚）</h3><div class="modal-body"><div class="logbox" style="max-height:260px">${r.data.codes.map(esc).join('\n')}</div>${expLine}<p class="muted" style="margin-top:8px">请立即复制保存；之后仍可在列表中查看。</p></div>
+<div class="modal-actions"><button class="btn btn-ghost" id="mCancel2">关闭</button><button class="btn btn-brand" id="mCopyAll">复制全部</button></div>`);
+const close2=()=>modalClose();
 box.querySelector('#mCancel2').onclick=close2;
 box.querySelector('#mCopyAll').onclick=()=>{navigator.clipboard.writeText(r.data.codes.join('\n')).then(()=>toast('已复制全部激活码')).catch(()=>toast('复制失败，请手动选择复制','warn'));};
 loadActivation();}catch(e){toast(e.message,'err');}};}
 
 /* ===== Modal ===== */
 function confirmModal(title,body,btnCls,btnText,onOk,placeholder){const mask=$('modalMask'),box=$('modalBox');
-box.innerHTML=`<h3>${title}</h3><div class="modal-body">${body}</div><input type="text" id="confirmInput" placeholder="${placeholder||'输入确认短语'}">
-<div class="modal-actions"><button class="btn btn-ghost" id="mCancel">取消</button><button class="btn ${btnCls}" id="mOk">${btnText}</button></div>`;
-mask.classList.add('show');const input=box.querySelector('#confirmInput');input.focus();
-const close=()=>{mask.classList.remove('show');box.innerHTML='';};
+modalOpen(`<h3>${title}</h3><div class="modal-body">${body}</div><input type="text" id="confirmInput" placeholder="${placeholder||'输入确认短语'}">
+<div class="modal-actions"><button class="btn btn-ghost" id="mCancel">取消</button><button class="btn ${btnCls}" id="mOk">${btnText}</button></div>`);
+const input=box.querySelector('#confirmInput');
+const close=()=>modalClose();
 box.querySelector('#mCancel').onclick=close;
 box.querySelector('#mOk').onclick=()=>{const v=input.value.trim();close();if(v)onOk(v);else toast(placeholder?'输入不能为空，已取消':'未输入确认短语，已取消','warn');};
 mask.onclick=e=>{if(e.target===mask)close();};}
@@ -754,9 +791,30 @@ document.getElementById('loginPwd').addEventListener('keydown',e=>{if(e.key==='E
 document.getElementById('initPwd2').addEventListener('keydown',e=>{if(e.key==='Enter')initPanel();});
 document.getElementById('wizNext').onclick=()=>wizGo(2);
 document.getElementById('wizStartAll').onclick=wizStartAll;
-document.getElementById('wizEnter').onclick=()=>enterApp();}
+document.getElementById('wizEnter').onclick=()=>enterApp();
+document.addEventListener('keydown',e=>{if(!$('modalMask').classList.contains('show'))return;
+if(e.key==='Escape'){const cb=MODAL_CLOSE;modalClose();if(cb)cb();return;}
+if(e.key==='Tab'){const box=$('modalBox');const f=Array.from(box.querySelectorAll('button,input,select,a[href]')).filter(el=>!el.disabled);if(!f.length)return;const first=f[0],last=f[f.length-1];
+if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-op],[data-svc],[data-code],[data-revoke],[data-restore]');if(!b)return;
+const{op,svc,name,code,revoke,restore,id,ban,role,gid}=b.dataset;
+if(svc)return svcAction(svc,name);
+if(code!==undefined)return acCopy(code);
+if(revoke!==undefined)return acRevoke(revoke);
+if(restore!==undefined)return restoreBackup(restore);
+switch(op){
+case'svc':svcAction(svc||'start',name);break;
+case'pgconfig':permGroupConfig(+gid);break;
+case'utoggle':siteToggleUser(+id,+ban);break;
+case'uedit':siteEditUser(+id,role);break;
+case'ureset':siteResetPwd(+id);break;
+case'uexport':siteUserExport(+id);break;
+case'uimport':siteUserImport(+id);break;
+case'udel':siteDeleteUser(+id);break;
+}});}
 (function init(){bind();
-api('/api/bootstrap').then(r=>{S.initialized=r.initialized;
+api('/api/bootstrap').then(r=>{
 if(r.initialized){showAuth('login');}
 else{showAuth('init');wizGo(1);api('/api/setup-env').then(e=>renderWizEnv(e.env)).catch(()=>renderWizEnv(null));}
 }).catch(e=>{document.body.innerHTML='<div style="padding:40px;text-align:center;color:#f87171">面板服务不可用：'+esc(e.message)+'<br><br><span class="muted">请确认 panel-server.js 已启动（双击 start-panel.bat）</span></div>';});})();

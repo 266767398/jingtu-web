@@ -110,6 +110,36 @@ function Get-ProcessInfo([int]$procId) {
     return $null
 }
 
+# P2-157：.NET Framework 版 Expand-Archive 对 zip 条目中的 ../ 或绝对路径无防护，
+# 恶意构造的备份 zip 可向 dataDir 之外覆写文件（如 server.js/panel-server.js 导致 RCE）。
+# 改用 System.IO.Compression 逐条目校验：拒绝 .. 段/绝对路径/盘符，并以规范化路径
+# 二次确认目标仍位于解压目录内。
+function Expand-ZipSafe {
+    param([string]$ZipPath, [string]$DestPath)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        $destFull = [System.IO.Path]::GetFullPath($DestPath).TrimEnd('\') + '\'
+        foreach ($entry in $zip.Entries) {
+            $name = $entry.FullName
+            $norm = @($name.Split('/') | Where-Object { $_ -ne '' -and $_ -ne '.' })
+            if ($norm -contains '..') { throw "备份包包含非法路径条目：$name" }
+            if ($name -match '^[/\\]' -or $name -match '^[A-Za-z]:') { throw "备份包包含绝对路径条目：$name" }
+            if ($entry.FullName.EndsWith('/')) { continue } # 目录条目由后续文件隐式创建
+            $rel = $norm -join '\'
+            $target = [System.IO.Path]::GetFullPath((Join-Path $DestPath $rel))
+            if (-not $target.StartsWith($destFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                throw "备份包条目越界：$name"
+            }
+            $td = Split-Path $target -Parent
+            if (-not (Test-Path $td)) { New-Item -ItemType Directory -Path $td -Force | Out-Null }
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
+        }
+    } finally {
+        try { $zip.Dispose() } catch {}
+    }
+}
+
 function Get-ServiceStatus {
     $list = @()
     foreach ($svc in $Config.services) {
@@ -247,8 +277,16 @@ try {
                 $zip = $dest; $mode = "dir"
             }
             $keep = 10; try { if ($Config.backupRetention) { $keep = [int]$Config.backupRetention } } catch {}
-            $all = Get-ChildItem $BackupDir -File -Filter "userdata-*" | Sort-Object LastWriteTime -Descending
-            if ($all.Count -gt $keep) { $all | Select-Object -Skip $keep | Remove-Item -Force -ErrorAction SilentlyContinue }
+            # P2-155：保留策略必须同时覆盖 zip 文件与目录型降级备份
+            # （Compress-Archive 因文件占用失败时降级为 userdata-$stamp/ 目录拷贝），
+            # 否则目录型备份既不可见也不受清理，长期占盘。
+            $all = Get-ChildItem $BackupDir -Filter "userdata-*" | Sort-Object LastWriteTime -Descending
+            if ($all.Count -gt $keep) {
+                $all | Select-Object -Skip $keep | ForEach-Object {
+                    if ($_.PSIsContainer) { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+                    else { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
+                }
+            }
             if ((Test-Path $zip) -and (Get-Item $zip).PSIsContainer -eq $false -and (Get-Item $zip).Length -eq 0) {
                 Remove-Item $zip -Force; throw "备份包为空，已删除"
             }
@@ -261,10 +299,24 @@ try {
         "backups" {
             $list = @()
             if (Test-Path $BackupDir) {
-                $list = Get-ChildItem $BackupDir -File | Sort-Object LastWriteTime -Descending | ForEach-Object {
+                # P2-155：不再用 -File 过滤——目录型降级备份（userdata-$stamp/）也必须列出；
+                # 目录 sizeMB 为递归大小合计。restore-staging-* 与 .tmp-dl-* 为瞬时中间产物，
+                # 显式排除避免被误当成备份列出。
+                $list = Get-ChildItem $BackupDir | Where-Object { $_.Name -notlike "restore-staging-*" -and $_.Name -notlike ".tmp-dl-*" } |
+                    Sort-Object LastWriteTime -Descending | ForEach-Object {
                     $type = "其他"
-                    if ($_.Name -like "userdata-*") { $type = "用户数据" } elseif ($_.Name -like "config-*") { $type = "配置备份" }
-                    [ordered]@{ name = $_.Name; sizeMB = [math]::Round($_.Length / 1MB, 2); time = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss"); type = $type }
+                    if ($_.Name -like "userdata-*") { $type = "用户数据" }
+                    elseif ($_.Name -like "snapshot-*") { $type = "恢复快照" }
+                    elseif ($_.Name -like "config-*") { $type = "配置备份" }
+                    $sizeMB = if ($_.PSIsContainer) {
+                        $bytes = (Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue |
+                            Measure-Object -Property Length -Sum).Sum
+                        if (-not $bytes) { $bytes = 0 }
+                        [math]::Round($bytes / 1MB, 2)
+                    } else {
+                        [math]::Round($_.Length / 1MB, 2)
+                    }
+                    [ordered]@{ name = $_.Name; sizeMB = $sizeMB; time = $_.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss"); type = $type; isDir = $_.PSIsContainer }
                 }
             }
             $out.data = @{ backups = @($list); backupDir = $BackupDir }
@@ -283,18 +335,25 @@ try {
             if (($status | Where-Object { $_.name -eq $bizName }).running) { throw "服务正在运行，请先停止服务再恢复" }
             $dataDir = Get-DataDir
             # P1-49: 快照失败即中止恢复，绝不先删数据（损坏备份不得造成现网数据丢失）
-            $snap = Join-Path $BackupDir ("userdata-snapshot-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".zip")
+            # P3-106：快照改用独立前缀 snapshot-*（不再以 userdata- 开头）——旧命名会被
+            # userdata-* 保留策略与列表误归为「用户数据」，多次恢复后真实备份被快照挤掉
+            #（仅 10 份保留名额）；且备份列表不应把快照显示成可「恢复」的备份。
+            $snap = Join-Path $BackupDir ("snapshot-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".zip")
             $snapMsg = ""
             if (Test-Path $dataDir) {
                 try { Compress-Archive -Path $dataDir -DestinationPath $snap -Force; $snapMsg = "已生成快照：$snap" } catch {}
                 if (-not (Test-Path $snap) -or (Get-Item $snap).Length -eq 0) { throw "快照生成失败，已中止恢复（当前数据未被清除）" }
             }
+            # P3-106：快照独立前缀后不再受 userdata-* 保留策略约束，须自设上限（保留最近 5 份）
+            $snaps = @(Get-ChildItem $BackupDir -Filter "snapshot-*.zip" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+            if ($snaps.Count -gt 5) { $snaps | Select-Object -Skip 5 | ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue } }
             # P1-49: 先解压/复制到临时目录并校验成功，再原子替换目标目录；
             # 任何一步失败时目标目录尚未被触碰，配合快照可完整回滚
             $staging = Join-Path $BackupDir ("restore-staging-" + [guid]::NewGuid().ToString("N"))
             New-Item -ItemType Directory -Path $staging -Force | Out-Null
             try {
-                if ($target.EndsWith(".zip")) { Expand-Archive -Path $target -DestinationPath $staging -Force }
+                # P2-157：禁用有 zip-slip 隐患的 Expand-Archive——改用逐条目校验的解压
+                if ($target.EndsWith(".zip")) { Expand-ZipSafe -ZipPath $target -DestPath $staging }
                 else {
                     Get-ChildItem $target -Recurse -File | ForEach-Object {
                         $rel = $_.FullName.Substring($target.Length).TrimStart('\')
@@ -345,7 +404,9 @@ try {
             if (-not (Test-Path $LogsDir)) { $out.data = @{ matches = @() }; $out.ok = $true; break }
             $kws = @("ERROR", "FATAL", "Exception", "失败")
             try { if ($Config.logSearchKeywords) { $kws = @($Config.logSearchKeywords) } } catch {}
-            if ($Arg) { $kws = @($Arg) }
+            # P3-100：界面提示「多个用空格分隔」，前端高亮也按空格切分——
+            # 服务端必须同样按空白拆词，否则 "ERROR 失败" 被当成一个整关键词无法命中
+            if ($Arg) { $kws = @($Arg -split '\s+' | Where-Object { $_ -ne "" }) }
             $lines = @()
             Get-ChildItem $LogsDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -notlike "panel-audit*" } | ForEach-Object {
                 $fname = $_.Name

@@ -16,8 +16,36 @@ const router = express.Router();
 const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
 
 // §69: 路径校验，防止兄弟目录前缀绕过（如 uploads-evil 以 uploads 开头但非子目录）
+// P3-43: 增加符号链接解析——已存在路径 fs.realpathSync 归一后做前缀校验；
+// 尚不存在的路径（create-dir/rename 目标等）取「最深已存在祖先」realpath 后拼接尾部；
+// 无法解析（权限/越根等）返回 null，调用方按 fail-closed 拒绝。
+function realpathForCheck(fullPath) {
+  try {
+    return fs.realpathSync(fullPath);
+  } catch (e) {
+    let tail = [];
+    let cur = fullPath;
+    for (let i = 0; i < 20; i++) {
+      try {
+        return path.resolve(fs.realpathSync(cur), ...tail.reverse());
+      } catch (e2) {
+        const parent = path.dirname(cur);
+        if (parent === cur) return null;
+        tail.push(path.basename(cur));
+        cur = parent;
+      }
+    }
+    return null;
+  }
+}
+
+let realUploadsDir;
+try { realUploadsDir = fs.realpathSync(uploadsDir); } catch (e) { realUploadsDir = path.resolve(uploadsDir); }
+
 function isWithinUploads(fullPath) {
-  return fullPath === uploadsDir || fullPath.startsWith(uploadsDir + path.sep);
+  const resolved = realpathForCheck(fullPath);
+  if (!resolved) return false;
+  return resolved === realUploadsDir || resolved.startsWith(realUploadsDir + path.sep);
 }
 
 // §35: walkDir 递归深度上限，防止循环符号链接或异常深目录导致栈溢出

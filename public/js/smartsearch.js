@@ -179,6 +179,7 @@
 
   // 延迟防抖
   var debounceTimer = null;
+  var searchSeq = 0; // P3-64: 搜索竞态防护——旧请求返回时不覆盖新查询结果
 
   function runSearch(raw) {
     var q = (raw || '').trim();
@@ -189,6 +190,7 @@
     }
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(function() {
+      var my = ++searchSeq;
       var list = [];
       // 导航匹配
       NAV_ITEMS.forEach(function(n) {
@@ -204,6 +206,7 @@
       // 成员 + 活动 + 群组玩家搜索（并发）
       if (q.length >= 1) {
         Promise.all([searchUsers(q), searchEvents(q), searchGroupMembers(q)]).then(function(arr) {
+          if (my !== searchSeq) return; // P3-64: 已有更新的搜索请求，丢弃本次陈旧结果
           var users = arr[0] || [], events = arr[1] || [], groups = arr[2] || [];
           var extra = users.map(function(u) {
             return {
@@ -228,9 +231,9 @@
             };
           }));
           renderList(list.concat(extra));
-        }).catch(function() { renderList(list); });
+        }).catch(function() { if (my === searchSeq) renderList(list); });
       } else {
-        renderList(list);
+        if (my === searchSeq) renderList(list);
       }
     }, 180);
   }
@@ -367,7 +370,7 @@
       if (typeof window.openPostDetail === 'function') {
         window.openPostDetail(id);
       } else {
-        toast(__('auto_smartsearch_18') + id, 'info');
+        toast(__('smartsearch.post') + ' #' + id, 'info');
       }
     }, 120);
   }
@@ -412,9 +415,11 @@
 
   function stripTags(s) {
     if (!s) return '';
-    var d = document.createElement('div');
-    d.innerHTML = s;
-    return d.textContent || '';
+    // P3-60: 用 <template> 解析剥标签——innerHTML 解析会让 <img onerror=...>
+    // 在 detached 节点上照样触发（图片加载即触发 error 事件），template 只解析不执行
+    const t = document.createElement('template');
+    t.innerHTML = s;
+    return t.textContent || '';
   }
 
   // 供其他模块调用

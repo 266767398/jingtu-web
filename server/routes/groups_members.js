@@ -10,7 +10,7 @@
  *   description: VRChat群组名册与统计接口
  */
 const express = require('express');
-const { ok, getPool, handleError, sendError, ErrorCodes, paginate } = require('../utils');
+const { ok, getPool, handleError, sendError, ErrorCodes, paginate, escapeLike } = require('../utils');
 const { requireAuth, requireAdminCompat } = require('../auth');
 const { vrchatGetInstance } = require('../vrc');
 const logger = require('../logger');
@@ -49,8 +49,8 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       const params = [];
       if (search) {
         // 玩家搜索：匹配显示名 / VRChat 名称 / VRChat ID（大小写不敏感）
-        sql += ` AND (LOWER(display_name) LIKE ? OR LOWER(vrchat_name) LIKE ? OR LOWER(vrchat_id) LIKE ?)`;
-        const like = `%${search.toLowerCase()}%`;
+        sql += ` AND (LOWER(display_name) LIKE ? ESCAPE '!' OR LOWER(vrchat_name) LIKE ? ESCAPE '!' OR LOWER(vrchat_id) LIKE ? ESCAPE '!')`;
+        const like = `%${escapeLike(search.toLowerCase())}%`;
         params.push(like, like, like);
       }
 

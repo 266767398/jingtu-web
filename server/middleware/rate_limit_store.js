@@ -48,16 +48,12 @@ class HybridStore {
 
   async decrement(key) {
     if (cache.isEnabled()) {
-      const info = await this.get(key);
-      if (info && info.totalHits > 0) {
-        const next = Math.max(info.totalHits - 1, 0);
-        const ttlSeconds = Math.max(
-          1,
-          info.resetTime ? Math.ceil((info.resetTime.getTime() - Date.now()) / 1000) : Math.ceil(this.windowMs / 1000)
-        );
-        await cache.set(this.redisKey(key), String(next), ttlSeconds);
-        return;
-      }
+      // P3-138：此前 get-then-set 在并发成功登录时互相覆盖丢更新（本地 MemoryStore 的
+      // decrement 是原子的，两侧行为不一致）。改为单条 Lua 原子减计数（floor 0 且保留
+      // TTL）；键不存在返回 -1 视为无需再减，Redis 异常返回 null 时回退本地保证限流存活。
+      const total = await cache.decrBy(this.redisKey(key), Math.ceil(this.windowMs / 1000));
+      if (total !== null) return;
+      await this.local.decrement(key);
       return;
     }
     await this.local.decrement(key);
@@ -87,6 +83,16 @@ class HybridStore {
   }
 
   async resetAll() {
+    if (cache.isEnabled()) {
+      // P3-137：此前 resetAll 只清本地 MemoryStore，Redis 分支的计数键永不重置，
+      // 管理侧「一键重置限流」在共享态下形同虚设。现按本 store 前缀批量删除
+      // 共享态计数（keys 扫描仅出现在管理操作，非请求热路径）。
+      const pattern = `${this.prefix}*`;
+      const keys = await cache.keys(pattern);
+      if (keys && keys.length) {
+        await Promise.all(keys.map((k) => cache.del(k)));
+      }
+    }
     await this.local.resetAll();
   }
 

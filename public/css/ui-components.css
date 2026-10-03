@@ -1723,7 +1723,7 @@ select.form-input {
   overflow-y: auto;
   animation: mmPop .15s ease;
 }
-.mobile-more-menu.open { display: grid; }
+.mobile-more-menu.show { display: grid; }
 .mobile-more-item {
   display: flex;
   align-items: center;

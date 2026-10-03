@@ -23,7 +23,28 @@ module.exports = {
     'ws_service.js',
     'panel_proxy.js',
     'cache.js',
-    'mailer.js'
+    'mailer.js',
+    // P2-152①：此前 vrc_pipeline/webhook/backup-core/schedule/tasks/auth_*_service/settings/validation 等
+    // 核心模块完全不在统计范围，缺失被掩盖——先全部纳入立可见基线（0% 也照实呈现），
+    // 后续按「向下取整+1pt余量」棘轮逐轮上调门槛。
+    'vrc_pipeline.js',
+    'webhook.js',
+    'backup-core.js',
+    'schedule.js',
+    'tasks.js',
+    'auth_local_service.js',
+    'auth_reset_service.js',
+    'auth_vrc_service.js',
+    'auth_session.js',
+    'settings.js',
+    'validation.js',
+    'share-auth-util.js',
+    'activation_code_service.js',
+    'cache_service.js',
+    'media_providers.js',
+    'world_cache.js',
+    'route_guard.js',
+    'video_utils.js'
   ],
   coverageReporters: ['text', 'lcov', 'html', 'json-summary'],
   // 覆盖率阈值基线（棘轮式只升）。规则：阈值 = 实测向下取整且保留 ≥1pt 余量。
@@ -35,18 +56,24 @@ module.exports = {
   // 注意 Jest 的 per-glob 阈值按「每个命中文件」分别判定而非聚合，故逐文件设 floor。
   // upload 域现仅命中 middleware/uploads_auth.js（上传主逻辑在 files/avatar 路由，尚无专属测试）；
   // admin/upload 各文件分支实测 0%，floor 无防回退意义故暂不设 branches 项，待 P2-69 补测后回填。
+  // P2-152（2026-10-01）：collectCoverageFrom 纳入核心模块后统计口径扩大，
+  // 新增的 schedule/tasks/cache_service 等零守卫模块摊薄整体，实测基线
+  // 20.18/9.41/16.41/21.95 → 按「向下取整+1pt 余量」棘轮定为 19/8/15/20
+  // （仍高于原 16/6/11/19，符合只升规则）。
+  // 同时为本轮补测模块（auth_local/auth_reset/auth_session/webhook/backup-core）与
+  // P2-153 覆盖的 routes/files、routes/backups 逐文件设 floor：阈值 = 实测向下取整 -1pt。
   coverageThreshold: {
     global: {
-      lines: 19,
-      statements: 16,
-      functions: 11,
-      branches: 6
+      lines: 20,
+      statements: 19,
+      functions: 15,
+      branches: 8
     },
     './auth.js': {
-      lines: 19,
-      statements: 16,
-      functions: 20,
-      branches: 6
+      lines: 81,
+      statements: 78,
+      functions: 84,
+      branches: 56
     },
     './routes/auth.js': {
       // P3-23②：per-glob 按文件判定，99 阈值意味着任何新增未测分支即全红（棘轮过紧）；
@@ -77,9 +104,56 @@ module.exports = {
       functions: 5
     },
     './middleware/uploads_auth.js': {
-      lines: 10,
-      statements: 7,
-      functions: 15
+      // P2-153：uploads_auth 补测后实测 90.54/77.04/100/92.98，回填 branches 并整体上调
+      // P3-140（2026-10-01）：shareVerifyCache 缓存路径补 11 例动态测试后实测 98.68/97.89/100/89.04，
+      // 门槛维持不动（棘轮只升不降，余量更宽）
+      lines: 91,
+      statements: 89,
+      functions: 98,
+      branches: 76
+    },
+    // P2-152：本轮补测模块逐文件 floor（阈值 = 实测向下取整 -1pt）
+    './auth_session.js': {
+      lines: 99,
+      statements: 99,
+      functions: 99,
+      branches: 94
+    },
+    './auth_local_service.js': {
+      lines: 61,
+      statements: 53,
+      functions: 86,
+      branches: 40
+    },
+    './auth_reset_service.js': {
+      lines: 79,
+      statements: 76,
+      functions: 82,
+      branches: 72
+    },
+    './webhook.js': {
+      lines: 86,
+      statements: 84,
+      functions: 58,
+      branches: 84
+    },
+    './backup-core.js': {
+      lines: 58,
+      statements: 55,
+      functions: 59,
+      branches: 53
+    },
+    './routes/files.js': {
+      lines: 46,
+      statements: 45,
+      functions: 59,
+      branches: 36
+    },
+    './routes/backups.js': {
+      lines: 55,
+      statements: 55,
+      functions: 54,
+      branches: 21
     }
   },
   verbose: true,

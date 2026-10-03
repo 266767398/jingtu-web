@@ -57,8 +57,13 @@ jest.mock('../vrc', () => {
   };
 });
 
-// 数据库：同步流程里的查询全部返回空
-const mockQuery = jest.fn(async () => [[]]);
+// 数据库：同步流程里的查询全部返回空；P3-55 起全量同步走 GET_LOCK 跨进程互斥，
+// mock 返回「已获得锁」，否则同步会被 409 拦在 VRChat 调用之前。
+const mockQuery = jest.fn(async (sql) => {
+  if (String(sql).includes('GET_LOCK')) return [[{ got: 1 }]];
+  if (String(sql).includes('RELEASE_LOCK')) return [[]];
+  return [[]];
+});
 const mockConn = {
   query: mockQuery,
   beginTransaction: jest.fn(async () => {}),

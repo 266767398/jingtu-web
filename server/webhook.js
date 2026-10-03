@@ -1,5 +1,53 @@
 const axios = require('axios');
+const net = require('net');
+const dns = require('dns');
+const { promisify } = require('util');
 const { getPool } = require('./utils');
+const crypto = require('crypto');
+
+const dnsLookup = promisify(dns.lookup);
+const WEBHOOK_URL_ALLOW_PROTOCOLS = ['http:', 'https:'];
+
+// P2-129: SSRF 防护——仅允许公网 http/https 目标，拒绝环回/私网/链路本地/文档地址
+function isBlockedWebhookAddress(ip) {
+  if (!ip || net.isIP(ip) === 0) return true;
+  if (ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0') return true;
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4) return true;
+  if (parts[0] === 0 || parts[0] === 10) return true;
+  if (parts[0] === 127) return true;
+  if (parts[0] === 169 && parts[1] === 254) return true; // 链路本地
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // CGNAT
+  if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true; // 文档（IETF）
+  if (parts[0] === 198 && parts[1] === 18) return true; // 文档
+  if (parts[0] === 198 && parts[1] === 51 && parts[2] === 100) return true; // 文档
+  if (parts[0] === 203 && parts[1] === 0 && parts[2] === 113) return true; // 文档
+  return false;
+}
+
+// P2-129: 校验 webhook URL（协议 + 主机可解析为公网地址）。返回 { ok } 或 { ok:false, reason }
+async function validateWebhookUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (e) {
+    return { ok: false, reason: 'URL 格式非法' };
+  }
+  if (!WEBHOOK_URL_ALLOW_PROTOCOLS.includes(parsed.protocol)) {
+    return { ok: false, reason: '仅支持 http/https 协议' };
+  }
+  try {
+    const { address } = await dnsLookup(parsed.hostname);
+    if (isBlockedWebhookAddress(address)) {
+      return { ok: false, reason: '不允许指向内网/环回/本机地址的 URL' };
+    }
+  } catch (e) {
+    return { ok: false, reason: '域名解析失败' };
+  }
+  return { ok: true };
+}
 
 const WEBHOOK_EVENTS = {
   USER_REGISTERED: 'user_registered',
@@ -14,6 +62,49 @@ const WEBHOOK_EVENTS = {
   SECURITY_ALERT: 'security_alert',
   SYSTEM_ERROR: 'system_error'
 };
+
+// P3-72: 发送重试 + 有界待补发队列——失败指数退避重试（上限 3 次），仍失败入队定时重发，
+// 避免事件（注册/安全告警/系统错误）因目标瞬时故障而永久静默丢失。
+const WEBHOOK_RETRY_MAX = 3;
+const WEBHOOK_RETRY_BASE_MS = 300;
+const PENDING_QUEUE_MAX = 1000;
+const PENDING_FLUSH_MS = 60 * 1000;
+const PENDING_FLUSH_BATCH = 50;
+const PENDING_ITEM_ATTEMPTS_MAX = 5;
+const pendingDeliveries = [];
+
+function _retryDelay(attempt) {
+  const base = process.env.NODE_ENV === 'test' ? 5 : WEBHOOK_RETRY_BASE_MS;
+  return Math.min(10000, base * Math.pow(2, attempt));
+}
+const _sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function enqueuePending(item) {
+  if (pendingDeliveries.length >= PENDING_QUEUE_MAX) {
+    console.error('[webhook] 待补发队列已满，丢弃:', item.eventType, item.url);
+    return false;
+  }
+  pendingDeliveries.push(item);
+  return true;
+}
+
+// 待补发队列定时重发（尽力而为；单条累计 >PENDING_ITEM_ATTEMPTS_MAX 轮仍失败则彻底放弃）
+async function flushPendingDeliveries() {
+  if (pendingDeliveries.length === 0) return;
+  const batch = pendingDeliveries.splice(0, PENDING_FLUSH_BATCH);
+  for (const item of batch) {
+    const r = await sendWebhook(item.url, item.eventType, item.data, item.secret, { noPending: true });
+    if (!r.success) {
+      item.attempts = (item.attempts || 0) + 1;
+      if (item.attempts < PENDING_ITEM_ATTEMPTS_MAX) {
+        enqueuePending(item);
+      } else {
+        console.error('[webhook] 待补发重发超限，彻底放弃:', item.eventType, item.url);
+      }
+    }
+  }
+}
+setInterval(() => { flushPendingDeliveries().catch(() => {}); }, PENDING_FLUSH_MS).unref();
 
 async function getWebhooks(eventType = null) {
   try {
@@ -32,6 +123,8 @@ async function getWebhooks(eventType = null) {
 
 async function createWebhook(url, events, secret = '') {
   try {
+    const urlCheck = await validateWebhookUrl(url);
+    if (!urlCheck.ok) throw new Error('Webhook URL 校验失败: ' + urlCheck.reason);
     const pool = getPool();
     const [result] = await pool.query(
       'INSERT INTO webhooks (url, events, secret, enabled) VALUES (?, ?, ?, 1)',
@@ -44,12 +137,36 @@ async function createWebhook(url, events, secret = '') {
   }
 }
 
+// P2-129: 显式白名单列更新——字段名即 SQL 片段（列名不转义），杜绝透传任意列
+const WEBHOOK_UPDATE_ALLOWED = ['url', 'events', 'secret', 'enabled'];
+function _normalizeWebhookUpdate(updates) {
+  const out = {};
+  if (!updates || typeof updates !== 'object') return out;
+  for (const key of WEBHOOK_UPDATE_ALLOWED) {
+    if (updates[key] !== undefined) out[key] = updates[key];
+  }
+  return out;
+}
+
 async function updateWebhook(id, updates) {
   try {
     const pool = getPool();
+    const allowed = _normalizeWebhookUpdate(updates);
+    const keys = Object.keys(allowed);
+    if (keys.length === 0) {
+      const [hasRows] = await pool.query('SELECT id FROM webhooks WHERE id = ?', [id]);
+      return hasRows.length > 0;
+    }
+    // 显式列构造 SET 子句（列名来自白名单常量，不使用用户字段名拼接）
+    const sets = keys.map(k => k + ' = ?');
+    const vals = keys.map(k => (k === 'events' && Array.isArray(allowed[k]) ? allowed[k].join(',') : allowed[k]));
+    if (allowed.url !== undefined) {
+      const urlCheck = await validateWebhookUrl(allowed.url);
+      if (!urlCheck.ok) throw new Error('Webhook URL 校验失败: ' + urlCheck.reason);
+    }
     const [result] = await pool.query(
-      'UPDATE webhooks SET ? WHERE id = ?',
-      [updates, id]
+      'UPDATE webhooks SET ' + sets.join(', ') + ' WHERE id = ?',
+      vals.concat([id])
     );
     return result.affectedRows > 0;
   } catch (e) {
@@ -69,14 +186,29 @@ async function deleteWebhook(id) {
   }
 }
 
-function signPayload(payload, secret) {
-  if (!secret) return null;
-  const crypto = require('crypto');
-  return crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
+// P2-129: 签名规范化序列化——按 key 排序后 stringify，接收方按排序键重建对象即可验签
+function canonicalStringify(obj) {
+  if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
+  if (Array.isArray(obj)) return '[' + obj.map(canonicalStringify).join(',') + ']';
+  const keys = Object.keys(obj).sort();
+  const parts = keys.map(k => JSON.stringify(k) + ':' + canonicalStringify(obj[k]));
+  return '{' + parts.join(',') + '}';
 }
 
-async function sendWebhook(url, eventType, data, secret = '') {
+function signPayload(payload, secret) {
+  if (!secret) return null;
+  return crypto.createHmac('sha256', secret).update(canonicalStringify(payload)).digest('hex');
+}
+
+async function sendWebhook(url, eventType, data, secret = '', opts = {}) {
+  const { noPending = false } = opts || {};
   try {
+    // P2-129: 发送前校验目标 URL——拒绝内网/环回/链路本地，阻断 SSRF + 数据外带
+    const urlCheck = await validateWebhookUrl(url);
+    if (!urlCheck.ok) {
+      console.error('[webhook] URL 校验拦截:', urlCheck.reason, url);
+      return { success: false, error: 'Webhook URL 被安全策略拦截: ' + urlCheck.reason };
+    }
     const payload = {
       event: eventType,
       timestamp: Date.now(),
@@ -93,13 +225,30 @@ async function sendWebhook(url, eventType, data, secret = '') {
       headers['X-JingTu-Signature'] = signPayload(payload, secret);
     }
 
-    const response = await axios.post(url, payload, {
-      headers,
-      timeout: 5000
-    });
-
-    console.log('[webhook] 发送成功:', eventType, url);
-    return { success: true, status: response.status };
+    // P3-72: 指数退避重试（单次发送最多 WEBHOOK_RETRY_MAX 次重试），仍失败入待补发队列
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const response = await axios.post(url, payload, {
+          headers,
+          timeout: 5000
+        });
+        console.log('[webhook] 发送成功:', eventType, url);
+        return { success: true, status: response.status };
+      } catch (e) {
+        if (attempt < WEBHOOK_RETRY_MAX) {
+          await _sleep(_retryDelay(attempt));
+          continue;
+        }
+        // 重试耗尽：写入待补发队列并升级告警日志（flushPendingDeliveries 重发时不再二次入队）
+        if (!noPending) {
+          const enqueued = enqueuePending({ url, eventType, data, secret, attempts: 0 });
+          console.error('[webhook] 发送失败（已达最大重试）:', eventType, url, e.message, enqueued ? '(已入待补发队列)' : '(待补发队列已满)');
+        } else {
+          console.error('[webhook] 待补发重发失败:', eventType, url, e.message);
+        }
+        return { success: false, error: e.message };
+      }
+    }
   } catch (e) {
     console.error('[webhook] 发送失败:', eventType, url, e.message);
     return { success: false, error: e.message };
@@ -228,6 +377,7 @@ async function triggerSystemError(error, context = {}) {
   });
 }
 
+// §P2-149: 纯函数导出（测试专用）——signPayload/规范化序列化/SSRF 地址校验此前零测试
 module.exports = {
   WEBHOOK_EVENTS,
   getWebhooks,
@@ -246,5 +396,14 @@ module.exports = {
   triggerEventDeleted,
   triggerAnnouncementCreated,
   triggerSecurityAlert,
-  triggerSystemError
+  triggerSystemError,
+  signPayload,
+  canonicalStringify,
+  validateWebhookUrl,
+  isBlockedWebhookAddress,
+  getPendingCount: () => pendingDeliveries.length,
+  flushPendingDeliveries,
+  enqueuePending,
+  // 测试专用：清空待补发队列（避免跨用例串扰）
+  resetPendingQueue: () => { pendingDeliveries.length = 0; }
 };

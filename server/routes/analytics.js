@@ -77,7 +77,8 @@ router.get('/admin/analytics/requests', requireAdminCompat, async (req, res) => 
 router.get('/admin/analytics/users', requireAdminCompat, async (req, res) => {
   try {
     const pool = getPool();
-    const days = parseInt(req.query.days) || 7;
+    // P3-112：days 钳制到 1-365，杜绝负值/超大值扫全表
+    const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 7));
     
     const [dailyRegistrations] = await pool.query(`
       SELECT DATE(created_at) as date, COUNT(*) as count 
@@ -119,7 +120,8 @@ router.get('/admin/analytics/users', requireAdminCompat, async (req, res) => {
 router.get('/admin/analytics/content', requireAdminCompat, async (req, res) => {
   try {
     const pool = getPool();
-    const days = parseInt(req.query.days) || 7;
+    // P3-112：days 钳制到 1-365，杜绝负值/超大值扫全表
+    const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || 7));
     
     const [dailyPosts] = await pool.query(`
       SELECT DATE(created_at) as date, COUNT(*) as count
@@ -185,7 +187,11 @@ router.get('/admin/analytics/system', requireAdminCompat, async (req, res) => {
         used: formatBytes(os.totalmem() - os.freemem()),
         usagePercent: ((os.totalmem() - os.freemem()) / os.totalmem() * 100).toFixed(1)
       },
-      network: os.networkInterfaces()
+      // P3-112：原先直接返回 os.networkInterfaces()（含内网 IP 与 MAC，扩大攻击面），
+      // 改为仅上报公网出口地址，并去掉 MAC 等网卡细节
+      network: {
+        egress: egressAddresses(os.networkInterfaces())
+      }
     };
     
     const cache = await getCacheStatus();
@@ -217,6 +223,38 @@ function formatUptime(seconds) {
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
   return `${days}天 ${hours}小时 ${minutes}分钟 ${secs}秒`;
+}
+
+// P3-112：过滤内网/回环/保留/链路本地地址，仅保留公网出口地址
+function isPrivateAddress(iface) {
+  if (!iface || typeof iface.address !== 'string') return true;
+  const addr = iface.address;
+  const isV4 = iface.family === 'IPv4' || iface.family === 4;
+  if (isV4) {
+    if (addr === '127.0.0.1') return true;
+    const parts = addr.split('.').map(Number);
+    if (parts.length !== 4) return true;
+    if (parts[0] === 10) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 0 || parts[0] >= 224) return true;
+    return false;
+  }
+  const lower = addr.toLowerCase();
+  if (lower === '::1' || lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('2001:db8:')) return true;
+  return false;
+}
+
+function egressAddresses(interfaces) {
+  const list = [];
+  for (const ifaceList of Object.values(interfaces || {})) {
+    for (const iface of ifaceList) {
+      if (!iface || iface.internal || isPrivateAddress(iface)) continue;
+      list.push({ family: iface.family, address: iface.address });
+    }
+  }
+  return list;
 }
 
 module.exports = router;

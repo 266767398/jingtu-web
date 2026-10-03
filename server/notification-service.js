@@ -9,6 +9,9 @@ const mailer = require('./mailer');
 const wsService = require('./ws_service');
 
 class NotificationService {
+  static SETTINGS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时
+  static SETTINGS_CACHE_MAX = 5000;
+
   constructor() {
     this._settingsCache = new Map();
   }
@@ -16,10 +19,13 @@ class NotificationService {
   setWSReferences() {
   }
 
+  // P3-49: 设置缓存带 TTL（1 小时）与容量上限，防止永不读到的用户条目无限增长
   async getUserSettings(userId) {
-    if (this._settingsCache.has(userId)) {
-      return this._settingsCache.get(userId);
+    const cached = this._settingsCache.get(userId);
+    if (cached && Date.now() - cached.at < NotificationService.SETTINGS_CACHE_TTL_MS) {
+      return cached.settings;
     }
+    if (cached) this._settingsCache.delete(userId);
     try {
       const [rows] = await getPool().query(`SELECT notification_settings FROM users WHERE id = ?`, [userId]);
       if (rows.length === 0) {
@@ -31,7 +37,11 @@ class NotificationService {
         email: settings.email || false,
         sound: settings.sound !== false
       };
-      this._settingsCache.set(userId, result);
+      // 容量兜底：超过上限整体清空（缓存只是每用户省 1 次查询的优化，重建代价低）
+      if (this._settingsCache.size >= NotificationService.SETTINGS_CACHE_MAX) {
+        this._settingsCache.clear();
+      }
+      this._settingsCache.set(userId, { at: Date.now(), settings: result });
       return result;
     } catch (e) {
       console.warn('⚠️ 获取用户通知设置失败:', e.message);

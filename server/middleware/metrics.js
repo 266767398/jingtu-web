@@ -20,12 +20,18 @@ const requestStats = {
 };
 
 /**
- * 路由模板归一化：把路径中纯数字段替换为 :id，避免 /api/users/123、/api/users/456
- * 各自占用一个键导致 endpoints 对象无限增长（高基数键内存泄漏）
+ * 路由模板归一化：把路径中高基数段替换为占位符，避免 /api/users/123、/api/users/usr_xxx…
+ * 各自占用一个键导致 endpoints 对象无限增长（高基数键内存泄漏）。
+ * P3-78: 在纯数字（:id）之外，扩展覆盖 UUID 形态与 VRChat ID（usr_/wrld_/avtr_/grp_ 前缀 UUID）。
  */
 function normalizePath(p) {
   if (!p || typeof p !== 'string') return p;
-  return p.split('/').map(seg => /^\d+$/.test(seg) ? ':id' : seg).join('/');
+  return p.split('/').map(seg => {
+    if (/^\d+$/.test(seg)) return ':id';
+    if (/^[0-9a-fA-F]{8}-[0-9a-fA-F-]{20,36}$/.test(seg)) return ':uuid';
+    if (/^[a-z]+_[0-9a-fA-F-]{12,}$/.test(seg)) return ':vrcid';
+    return seg;
+  }).join('/');
 }
 
 function metricsMiddleware(req, res, next) {

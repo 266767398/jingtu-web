@@ -196,8 +196,8 @@ footer .social-link:hover {
 }
 
 /* ========== 14. 搜索框焦点动画 ========== */
-input:focus, select:focus, textarea:focus {
-  box-shadow: 0 0 0 3px var(--hover);
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  box-shadow: 0 0 0 3px var(--accent-light), 0 0 20px rgba(124, 92, 252, .15);
   transition: box-shadow .2s ease, border-color .2s ease;
 }
 
@@ -253,12 +253,18 @@ body.home-active .tab-indicator { opacity: 0 !important; }
 /* 让 tab 文本浮在指示器之上 */
 .tab { z-index: 1; }
 /* 提高特异性，覆盖后加载的 ui-components.css 中 .tab.active/.tab[aria-selected="true"] 的紫色背景，
-   使主标签栏只保留滑动药丸指示器 */
+   使主标签栏只保留滑动药丸指示器。
+   §P1-40: 激活文字默认跟随主题色（--text），保证 JS 未就绪/indicator 未定位/浅色主题的初始帧可读；
+   待指示器定位完成（ui.js 给 .tabs 加 .tab-indicator-ready）再切换为紫药丸上的白字。 */
 #mainContainer > .tabs .tab.active,
 #mainContainer > .tabs .tab[aria-selected="true"] {
   background: transparent;
-  color: #fff;
+  color: var(--text);
   box-shadow: none;
+}
+#mainContainer > .tabs.tab-indicator-ready .tab.active,
+#mainContainer > .tabs.tab-indicator-ready .tab[aria-selected="true"] {
+  color: #fff;
 }
 /* 隐藏旧的伪元素下划线，避免与 JS 滑动药丸指示器冲突导致视觉方向错乱 */
 #mainContainer > .tabs .tab.active::after { display: none; }
@@ -470,15 +476,10 @@ body.home-active .tab-indicator { opacity: 0 !important; }
   font-size: 14px;
 }
 
-/* 移动端适配 */
+/* 移动端:文本已用 .sr-only 隐藏（可访问性树保留，屏幕阅读器可读），emoji 常显 */
 @media (max-width: 768px) {
   .lang-switcher-btn {
-    font-size: 0;
     padding: 4px 6px;
-  }
-  .lang-switcher-btn::before {
-    content: '🌐';
-    font-size: 16px;
   }
 }
 
@@ -1224,10 +1225,7 @@ body.home-active .tab-indicator { opacity: 0 !important; }
   transform: scale(4);
 }
 
-/* ========== 47. 输入框聚焦光晕效果 ========== */
-input:focus, select:focus, textarea:focus {
-  box-shadow: 0 0 0 3px var(--hover), 0 0 20px rgba(124,92,252,.15);
-}
+/* ========== 47. 输入框聚焦光晕效果（已合并至 §14 的 :focus-visible 规则） ========== */
 
 /* ========== 48. 列表项交错动画 ========== */
 .list-item {
@@ -1271,18 +1269,10 @@ input:focus, select:focus, textarea:focus {
   animation: pulse-glow 1.5s infinite;
 }
 
-/* ========== 51. 标签页切换平滑过渡 ========== */
-.tab-content {
-  transition: opacity .3s ease, transform .3s cubic-bezier(.4,0,.2,1);
-}
+/* ========== 51. 标签页切换动画（由 §2 的 animation 负责，transition 与 animation 抢占同属性且 display:none 下不生效，已移除） ========== */
 .tab-content:not(.d-none) {
   opacity: 1;
   transform: translateY(0);
-}
-.tab-content.d-none {
-  opacity: 0;
-  transform: translateY(10px);
-  pointer-events: none;
 }
 
 /* ========== 52. 滚动到顶部按钮（V9.5 合并到 ui-components.css，保留别名兜底） ========== */

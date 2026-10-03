@@ -13,9 +13,13 @@ body.home-active #mainContainer .nav-scroller {
   display: none !important;
 }
 /* 移动端（≤768px）：底部功能栏接管导航，顶部选项栏隐藏；
-   包裹层本身不得残留占位，否则会在页面顶部留下一条空白导航条 */
+   包裹层本身不得残留占位，否则会在页面顶部留下一条空白导航条。
+   注意：nav-scroller.js 从未真正创建 .nav-scroller 包裹层（原注释误述），
+   因此隐藏规则必须同时命中裸 .tabs，否则手机端非首页顶部选项栏会错误显示
+   并产生与底部栏重复的横滑选项（「上面选项翻动」问题）。 */
 @media (max-width: 768px) {
-  #mainContainer .nav-scroller {
+  #mainContainer .nav-scroller,
+  #mainContainer > .tabs {
     display: none !important;
   }
 }

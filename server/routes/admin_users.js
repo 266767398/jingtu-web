@@ -8,7 +8,7 @@
  *   description: 管理后台用户管理接口
  */
 const express = require('express');
-const { fail, ok, getPool, handleError, logOper, sendError, ErrorCodes, paginate } = require('../utils');
+const { fail, ok, getPool, handleError, logOper, sendError, ErrorCodes, paginate, escapeLike } = require('../utils');
 const {
   requireAdminCompat, requireRole,
   hashPassword, validatePasswordStrength, verifyPassword,
@@ -62,13 +62,14 @@ module.exports = function createAdminUsersRouter() {
   // ==================== 管理员用户管理 CRUD ====================
   router.get('/admin/users', requireAdminCompat, async (req, res) => {
     try {
-      const { page, pageSize, offset } = paginate(req, { defaultSize: 20 });
+      // P3-117：与全站其他列表接口对齐，pageSize 上限 100，防止一次拉全表
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 100 });
       const search = req.query.search ? req.query.search.trim() : '';
       const roleFilter = req.query.role ? req.query.role.trim() : '';
       const statusFilter = req.query.status ? req.query.status.trim() : '';
       let where = ['u.deleted_at IS NULL'];
       const params = [];
-      if (search) { where.push('(u.login_id LIKE ? OR u.display_name LIKE ? OR u.vrchat_name LIKE ?)'); params.push(`%${search}%`, `%${search}%`, `%${search}%`); }
+      if (search) { where.push('(u.login_id LIKE ? ESCAPE \'!\' OR u.display_name LIKE ? ESCAPE \'!\' OR u.vrchat_name LIKE ? ESCAPE \'!\')'); params.push(`%${escapeLike(search)}%`, `%${escapeLike(search)}%`, `%${escapeLike(search)}%`); }
       if (roleFilter) { where.push('u.role = ?'); params.push(roleFilter); }
       if (statusFilter === 'banned') { where.push('u.banned = 1'); }
       else if (statusFilter === 'pending') { where.push('u.approved = 0 AND u.banned = 0'); }
@@ -92,6 +93,20 @@ module.exports = function createAdminUsersRouter() {
     if (!loginId || !password) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '用户名和密码不能为空');
     const pwCheck = validatePasswordStrength(password);
     if (!pwCheck.valid) return fail(res, 400, pwCheck.errors.join('; '));
+    // P3-117：displayName/email 与改名系统、用户资料口径一致做长度/字符/格式校验
+    const name = (displayName !== undefined && displayName !== null && String(displayName).trim() !== '')
+      ? String(displayName).trim()
+      : '';
+    if (displayName !== undefined && displayName !== null && displayName !== '') {
+      if (name.length > 50) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '显示名不能超过50字');
+      // 控制字符/HTML 尖括号等非法字符（no-control-regex 为误报，见 admin_name_change）
+      // eslint-disable-next-line no-control-regex
+      if (/[<>\u0000-\u001f\u007f]/.test(name)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '显示名包含不允许的字符');
+    }
+    if (email !== undefined && email !== null && String(email).trim() !== ''
+        && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim())) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '邮箱格式不正确');
+    }
     try {
       const [dup] = await getPool().query(`SELECT id FROM users WHERE login_id = ?`, [loginId]);
       if (dup.length > 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '用户名已存在');
@@ -99,7 +114,7 @@ module.exports = function createAdminUsersRouter() {
       const userRole = role && ['super_admin', 'admin', 'member'].includes(role) ? role : 'member';
       const [result] = await getPool().query(
         `INSERT INTO users (login_id, display_name, password_hash, role, approved, email) VALUES (?, ?, ?, ?, 1, ?)`,
-        [loginId, displayName || loginId, hashedPw, userRole, email || null]
+        [loginId, name || loginId, hashedPw, userRole, email && String(email).trim() ? email.trim() : null]
       );
       const userId = result.insertId;
       let groupId = 3;

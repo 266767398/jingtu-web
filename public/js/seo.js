@@ -110,7 +110,7 @@
     if (opts.title) {
       setMeta('og:title', opts.title);
       setMeta('twitter:title', opts.title);
-      document.title = opts.title + ' · ' + DEFAULTS.siteName;
+      document.title = opts.title + ' · ' + getDefaults().siteName;
     }
     if (opts.description) {
       setMeta('og:description', opts.description);

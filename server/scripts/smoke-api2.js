@@ -1,9 +1,17 @@
 // 从前端 JS 里提取真实调用的 GET 端点，逐个冒烟，找出 5xx
+// P3-148：登录口令改环境变量注入（对齐 smoke-api.js 的 SMOKE_LOGIN_ID / SMOKE_PASSWORD 口径）
 const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
 const BASE = 'http://127.0.0.1:3456';
 const JS_DIR = path.join(__dirname, '..', '..', 'public', 'js');
+
+const LOGIN_ID = process.env.SMOKE_LOGIN_ID;
+const LOGIN_PASS = process.env.SMOKE_PASSWORD;
+if (!LOGIN_ID || !LOGIN_PASS) {
+  console.error('需要设置 SMOKE_LOGIN_ID / SMOKE_PASSWORD（对应 P2-172 创建的 __diag 账号口令）');
+  process.exit(2);
+}
 
 // 收集 api('/api/...') 里的静态路径（跳过含模板变量的）
 function collect() {
@@ -26,8 +34,8 @@ function collect() {
   const b = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'], protocolTimeout: 300000 });
   const p = await b.newPage();
   await p.goto(BASE, { waitUntil: 'networkidle2' });
-  await p.type('#loginId', '__diag');
-  await p.type('#loginPassword', 'Diag#2026x');
+  await p.type('#loginId', LOGIN_ID);
+  await p.type('#loginPassword', LOGIN_PASS);
   await p.click('#loginPwdBtn');
   await new Promise(r => setTimeout(r, 4500));
 
@@ -36,10 +44,8 @@ function collect() {
     for (const url of list) {
       try {
         const r = await fetch(url, { credentials: 'include' });
-        let body = '';
-        if (r.status >= 500) { try { body = (await r.text()).slice(0, 200); } catch { } }
-        out.push({ url, status: r.status, body });
-      } catch (e) { out.push({ url, status: 'THROW', body: e.message }); }
+        out.push({ url, status: r.status });
+      } catch (e) { out.push({ url, status: 'THROW' }); }
     }
     return out;
   }, all);
@@ -52,7 +58,7 @@ function collect() {
 
   if (fails.length) {
     console.log('\n=== 5xx（真实故障）===');
-    fails.forEach(r => console.log(`  ${r.status} ${r.url}\n      ${r.body}`));
+    fails.forEach(r => console.log(`  ${r.status} ${r.url}`));
   }
   if (notFound.length) {
     console.log('\n=== 404（前端调了不存在的端点）===');

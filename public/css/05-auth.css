@@ -6,8 +6,7 @@
   color: var(--text3); opacity: 0; font-size: 14px;
   transition: opacity 0.2s;
 }
-.login-input:focus::placeholder { opacity: 0; }
-.login-input:not(:focus):not(:placeholder-shown)::placeholder { opacity: 0; }/* 密码切换按钮在浮动标签下的适配 */.pwd-wrap { position: relative; }.pwd-wrap .login-input { padding-right: 44px; }.pwd-wrap .pwd-toggle {  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);  z-index: 2;}/* 登录选项行 */.login-options {  display: flex; align-items: center; justify-content: space-between;  margin: 16px 0; padding: 0 4px;}.login-checkbox-wrap {  display: flex; align-items: center; gap: 8px; cursor: pointer;  position: relative; user-select: none;}/* P2-90: 原先 display:none 把真实 input 移出可访问性树——键盘无法聚焦「记住我」。
+.login-input:focus::placeholder { opacity: 0; }/* 密码切换按钮在浮动标签下的适配 */.pwd-wrap { position: relative; }.pwd-wrap .login-input { padding-right: 44px; }.pwd-wrap .pwd-toggle {  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);  z-index: 2;}/* 登录选项行 */.login-options {  display: flex; align-items: center; justify-content: space-between;  margin: 16px 0; padding: 0 4px;}.login-checkbox-wrap {  display: flex; align-items: center; gap: 8px; cursor: pointer;  position: relative; user-select: none;}/* P2-90: 原先 display:none 把真实 input 移出可访问性树——键盘无法聚焦「记住我」。
    改为 visually-hidden：input 仍可获得焦点，勾选状态由 :checked + .login-checkbox-mark 渲染 */
 .login-checkbox { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 .login-checkbox:focus-visible + .login-checkbox-mark { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 4px rgba(124, 92, 252, 0.25); }
@@ -115,8 +114,8 @@
   height: 52px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid var(--accent-color, #6c8cff);
-  background: var(--bg-elevated, #1c2230);
+  border: 2px solid var(--accent);
+  background: var(--card-elevated);
 }
 .lap-label {
   font-size: 11px;

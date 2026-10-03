@@ -16,7 +16,10 @@ const mysql = require('mysql2');
 const { spawn } = require('child_process');
 const { holder, DB_CONFIG } = require('./db');
 
-const BACKUP_DIR = path.join(__dirname, '..', 'backups');
+// P2-151: 支持环境变量注入备份目录（测试隔离），默认保持生产路径不变
+const BACKUP_DIR = process.env.BACKUP_DIR
+  ? path.resolve(process.env.BACKUP_DIR)
+  : path.join(__dirname, '..', 'backups');
 const AUTO_PREFIX = 'auto_';
 // P1-48: 恢复前自动备份前缀（回滚锚点；不参与 auto_ 自动清理，管理员可手动删）
 const PRE_RESTORE_PREFIX = 'pre_restore_';
@@ -75,8 +78,11 @@ function createBackup({ prefix = '' } = {}) {
     try {
       ensureBackupDir();
       const dbName = holder.dbName || DB_CONFIG.database || 'jingtu_group';
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `${prefix}${dbName}_${timestamp}.sql`;
+      // §P3-89: 时间戳已含毫秒，再加 4 位随机后缀——同一毫秒内并发 createBackup
+      // 也不会同名互相覆盖（原实现同秒并发可互相覆盖）
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const rand = Math.random().toString(36).slice(2, 6).padEnd(4, '0');
+      const filename = `${prefix}${dbName}_${ts}_${rand}.sql`;
       filePath = path.join(BACKUP_DIR, filename);
 
       const args = [
@@ -269,7 +275,10 @@ function restoreBackup(filename) {
  */
 function cleanupAutoBackups(daysToKeep) {
   if (!fs.existsSync(BACKUP_DIR)) return 0;
-  const threshold = Date.now() - daysToKeep * 24 * 60 * 60 * 1000;
+  // §P3-89: daysToKeep 下限校验——<=0 时 threshold 为未来时刻会把全部 auto_ 备份
+  // 误判为过期而删光（原实现无校验），按 1 天兜底
+  const safeDays = Number.isFinite(Number(daysToKeep)) && Number(daysToKeep) >= 1 ? Number(daysToKeep) : 1;
+  const threshold = Date.now() - safeDays * 24 * 60 * 60 * 1000;
   let deleted = 0;
   fs.readdirSync(BACKUP_DIR)
     .filter((f) => f.endsWith('.sql') && f.startsWith(AUTO_PREFIX))

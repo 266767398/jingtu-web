@@ -96,11 +96,15 @@ const LFI_PATTERNS = [
   /proc\/meminfo/i,
 ];
 
+// P3-50: RFI 组收窄——.php 链接类仅作用于 URL/Query/Params（正文纯文本放行，避免误杀
+// 社群用户在动态/描述中贴含 .php 后缀的普通第三方链接）；data:// 收窄为带可执行
+// 内容特征的前缀（text/application + 参数分隔符 ; 或 ,），`data:image/png;base64` 等
+// 正常数据 URI 不再命中。
 const RFI_PATTERNS = [
   /http:\/\/[^/]+\/.+\.php/i,
   /https:\/\/[^/]+\/.+\.php/i,
   /ftp:\/\/[^/]+\/.+\.php/i,
-  /data:\/\/.+/i,
+  /data:(?:text|application)\/[a-z0-9+.-]+[\s\S]*[;,]/i,
   /php:\/\/input/i,
 ];
 
@@ -181,8 +185,14 @@ function detectAttack(req) {
     { patterns: SHELL_CMD_PATTERNS, type: '命令执行' },
   ];
 
+  // P3-50: Body 目标跳过 RFI 组（正文纯文本放行 .php 普通链接；RFI 威胁由业务层校验兜底）
+  const BODY_RFI_EXCLUDED = '远程文件包含';
+
   for (const target of targets) {
-    for (const scanSet of scanSets) {
+    const targetScanSets = target.name === 'Body'
+      ? scanSets.filter(s => s.type !== BODY_RFI_EXCLUDED)
+      : scanSets;
+    for (const scanSet of targetScanSets) {
       const result = typeof target.data === 'string'
         ? scanString(target.data, scanSet.patterns, scanSet.type)
         : scanObject(target.data, scanSet.patterns, scanSet.type);

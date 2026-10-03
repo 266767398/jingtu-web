@@ -186,6 +186,23 @@ let sqliteFilePath = '';
 const tableMeta = new Map();
 const jsonColumns = new Map();
 
+// §P2-145: SQLite 为单连接模型，事务与普通查询共用同一底层 db。
+// 用串行锁队列保证：任意时刻至多一个事务持有连接；事务激活期间，
+// 来自 pool 的普通查询排队等待事务结束，避免落入未提交事务互相牵连，
+// 也避免第二个并发事务 beginTransaction 时抛 "cannot start a transaction"。
+let _sqliteTxTail = Promise.resolve();
+let _sqliteTxActive = false;
+let _sqliteTxConnId = 0;
+let _sqliteConnSeq = 0;
+
+function sqliteTxLock() {
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  const wait = _sqliteTxTail.then(() => gate);
+  _sqliteTxTail = wait.catch(() => {});
+  return { wait, release };
+}
+
 function getSQLiteDb() {
   if (sqliteDb) return sqliteDb;
   sqliteFilePath = process.env.JINGTU_SQLITE_PATH || path.join(__dirname, 'data', 'jingtu.sqlite');
@@ -258,11 +275,19 @@ function registerSQLiteFunctions(db) {
     return Number.isFinite(ms) ? Math.floor(ms / 1000) : 0;
   });
   db.function('database', { deterministic: true }, () => holder.dbName);
-  db.function('json_contains', { deterministic: true, varargs: true }, (target, candidate) => {
+  db.function('json_contains', { deterministic: true, varargs: true }, (target, candidate, pathArg) => {
     if (target === null || target === undefined || candidate === null || candidate === undefined) return 0;
     try {
-      const t = JSON.parse(String(target));
+      let t = JSON.parse(String(target));
       const c = JSON.parse(String(candidate));
+      // §P3-84: 支持 MySQL 的 `JSON_CONTAINS(x, y, '$.path')` 第三参——path 非法原样报 0
+      if (pathArg !== null && pathArg !== undefined && String(pathArg).trim() !== '') {
+        const path = String(pathArg).trim();
+        if (!/^\$\./.test(path)) return 0;
+        const sub = resolveJsonPath(t, path);
+        if (sub === undefined) return 0;
+        t = sub;
+      }
       return jsonContains(t, c) ? 1 : 0;
     } catch (_) {
       return 0;
@@ -280,13 +305,50 @@ function registerSQLiteFunctions(db) {
   });
 }
 
+// §P3-84: MySQL JSON path 简易解析（`$.a.b[0]`），用于 JSON_CONTAINS 第三参
+function resolveJsonPath(t, path) {
+  const m = /^\$\.(.+)$/.exec(path);
+  if (!m) return undefined;
+  const segs = m[1].split('.');
+  let cur = t;
+  for (const raw of segs) {
+    const idxM = /^(\w+)\[(\d+)\]$/.exec(raw) || /^\[(\d+)\]$/.exec(raw);
+    let key = null;
+    let idx = null;
+    if (idxM) {
+      key = idxM[1];
+      idx = Number(idxM[2]);
+    } else {
+      key = raw;
+    }
+    if (key === null || key === undefined) {
+      if (!Array.isArray(cur) || idx >= cur.length) return undefined;
+      cur = cur[idx];
+      continue;
+    }
+    if (cur === null || cur === undefined || typeof cur !== 'object' || !(key in cur)) return undefined;
+    cur = cur[key];
+    if (idx !== null) {
+      if (!Array.isArray(cur) || idx >= cur.length) return undefined;
+      cur = cur[idx];
+    }
+  }
+  return cur;
+}
+
+// §P3-84: 对齐 MySQL JSON_CONTAINS 语义——
+// 候选为数组时 target 必须是数组且包含候选全部元素（顺序无关）；
+// 候选为对象时递归按 key 匹配；否则为标量/数组元素的包含或相等判定。
 function jsonContains(t, c) {
+  if (Array.isArray(c)) {
+    return Array.isArray(t) && c.every((el) => t.some((te) => jsonContains(te, el)));
+  }
   if (Array.isArray(t)) {
-    return t.some(el => jsonContains(el, c));
+    return t.some((el) => jsonContains(el, c));
   }
   if (t && typeof t === 'object') {
-    if (c && typeof c === 'object' && !Array.isArray(c)) {
-      return Object.keys(c).every(k => k in t && jsonContains(t[k], c[k]));
+    if (c && typeof c === 'object') {
+      return Object.keys(c).every((k) => k in t && jsonContains(t[k], c[k]));
     }
     return false;
   }
@@ -564,7 +626,14 @@ function handledShow(sqlStr, params) {
   }
   if (/^SHOW\s+INDEX\s+FROM/i.test(upper)) {
     const m = /^SHOW\s+INDEX\s+FROM\s+`?(\w+)`?/i.exec(sqlStr);
-    return m ? showIndexFrom(m[1]) : [];
+    if (!m) return [];
+    let rows = showIndexFrom(m[1]);
+    // §P3-82: 支持 `SHOW INDEX FROM t WHERE Key_name = 'x'` 过滤（migrate-v5.6 依赖
+    // 该条件判断索引是否已存在，原实现忽略 WHERE 会误判跳过建索引）
+    const wm = /WHERE\s+Key_name\s*=\s*(?:'([^']+)'|"([^"]+)"|`?(\w+)`?)/i.exec(sqlStr);
+    const want = wm ? (wm[1] || wm[2] || wm[3]) : null;
+    if (want) rows = rows.filter((r) => String(r.Key_name) === String(want));
+    return rows;
   }
   if (/^SHOW\s+COLUMNS\s+FROM/i.test(upper)) {
     const m = /^SHOW\s+COLUMNS\s+FROM\s+`?(\w+)`?/i.exec(sqlStr);
@@ -591,15 +660,28 @@ function handledInfoSchema(sqlStr, params) {
   if (/FROM\s+information_schema\.COLUMNS/i.test(sqlStr)) {
     const tname = params && params[0] ? String(params[0]) : null;
     const colKey = params && params[1] ? String(params[1]) : null;
+    const mapCol = (c) => ({ COLUMN_NAME: c.name, DATA_TYPE: c.baseType || c.mysqlType.replace(/\(.*/, '') });
     if (tname) {
       const meta = tableMeta.get(tname.toLowerCase());
       if (meta) {
         return meta.columns
           .filter(c => colKey === 'PRI' ? c.primary : true)
-          .map(c => ({ COLUMN_NAME: c.name, DATA_TYPE: c.baseType || c.mysqlType.replace(/\(.*/, '') }));
+          .map(mapCol);
+      }
+      return [];
+    }
+    // §P3-82: 无参数查询（如 migration.js 的 `SELECT COLUMN_NAME, DATA_TYPE FROM
+    // information_schema.COLUMNS`）原实现静默返回空 schema，上游误以为库无任何列；
+    // 现按 sqlite_master 全量业务表返回全部列。
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
+    const rows = [];
+    for (const t of tables) {
+      const meta = tableMeta.get(String(t.name).toLowerCase());
+      if (meta) {
+        for (const c of meta.columns) rows.push(mapCol(c));
       }
     }
-    return [];
+    return rows;
   }
   return [];
 }
@@ -676,18 +758,47 @@ function extractInsertTarget(head) {
   return m ? m[1] : null;
 }
 
-function getConflictColumns(tableName) {
+function getConflictCandidates(tableName) {
   const key = String(tableName || '').toLowerCase();
   const meta = tableMeta.get(key);
   if (!meta) return [];
+  const cands = [];
   for (const u of meta.tailUnique) {
-    if (u.cols && u.cols.length) return u.cols;
+    if (u.cols && u.cols.length) cands.push(u.cols.slice());
+  }
+  // 列级 UNIQUE 是逐列独立的单列索引，不可合并为复合 conflict target
+  const seen = new Set(cands.map(c => c.join('\u0001')));
+  for (const col of meta.columns) {
+    if (col.unique && !seen.has(col.name)) { cands.push([col.name]); seen.add(col.name); }
   }
   const primaries = meta.columns.filter(c => c.primary).map(c => c.name);
-  if (primaries.length) return primaries;
-  const uniqCols = meta.columns.filter(c => c.unique).map(c => c.name);
-  if (uniqCols.length) return uniqCols;
-  return [];
+  if (primaries.length) {
+    const sig = primaries.join('\u0001');
+    if (!seen.has(sig)) cands.push(primaries);
+  }
+  return cands;
+}
+
+const _dupWarned = new Set();
+const DUP_WARN_MAX = 50;
+function warnSqliteConflictTarget(tableName, n) {
+  if (_dupWarned.has(tableName)) return;
+  if (_dupWarned.size >= DUP_WARN_MAX) _dupWarned.clear();
+  _dupWarned.add(tableName);
+  console.warn('[SQLite模式] 表 ' + tableName + ' 存在 ' + n + ' 个业务唯一约束候选冲突目标，ON CONFLICT 仅能指定其中之一，MySQL 的 ON DUPLICATE KEY 任意约束冲突语义无法完整迁移；已按首个候选处理，请确认其为目标约束');
+}
+
+function getConflictTarget(tableName) {
+  const key = String(tableName || '').toLowerCase();
+  const meta = tableMeta.get(key);
+  const cands = getConflictCandidates(tableName);
+  if (meta) {
+    // 自增主键在普通 INSERT（不显式指定 id）中不会成为冲突源，排除后统计真实业务候选
+    const autoPkCols = new Set(meta.columns.filter(c => c.autoInc).map(c => c.name));
+    const realCands = cands.filter(c => !(c.length === 1 && autoPkCols.has(c[0])));
+    if (realCands.length > 1) warnSqliteConflictTarget(tableName || '<unknown>', realCands.length);
+  }
+  return cands.length ? cands[0] : [];
 }
 
 function rewriteOnDuplicate(s) {
@@ -699,7 +810,7 @@ function rewriteOnDuplicate(s) {
   const newAssigns = assigns.map(a => a.replace(/\bVALUES\s*\(\s*([A-Za-z0-9_]+)\s*\)/gi, 'excluded.$1'));
   if (/\bINSERT\s+OR\s+IGNORE\b/i.test(head)) return head;
   const tname = extractInsertTarget(head);
-  const conflictCols = getConflictColumns(tname);
+  const conflictCols = getConflictTarget(tname);
   const onPart = conflictCols.length
     ? 'ON CONFLICT (' + conflictCols.map(c => qid(c)).join(', ') + ') DO UPDATE SET '
     : 'ON CONFLICT DO UPDATE SET ';
@@ -722,9 +833,124 @@ function rewriteJsonUnquoteExtract(s) {
   return s;
 }
 
+const _forUpdateWarned = new Set();
+const FOR_UPDATE_WARN_MAX = 64;
+function warnSqliteForUpdateStripped(originalSql) {
+  const fp = String(originalSql).trim().slice(0, 120);
+  if (_forUpdateWarned.has(fp)) return;
+  if (_forUpdateWarned.size >= FOR_UPDATE_WARN_MAX) _forUpdateWarned.clear();
+  _forUpdateWarned.add(fp);
+  console.warn('[SQLite模式] 语句包含 FOR UPDATE（行级锁），已静默移除，并发保护依赖 BEGIN IMMEDIATE 事务；若该语句不在事务内，并发语义可能与 MySQL 不一致: ' + fp);
+}
+
+// §P2-143: SQL 字符串/注释感知掩蔽器。
+// 先提取单/双引号字符串字面量、行/块注释为占位 token（并把反引号标识符去引号），
+// 让后续所有函数改写（NOW()/IF()/CURRENT_TIMESTAMP/FOR UPDATE/LIMIT 等）不再误伤字面量；
+// 全部改写完成后再按序还原，用户数据永不被静默篡改。
+function createSqlMasker() {
+  const chunks = [];
+  let seq = 0;
+  const token = () => '\u0001JTM' + (seq++) + '\u0001';
+  return {
+    mask(sql) {
+      const n = sql.length;
+      let out = '';
+      let i = 0;
+      while (i < n) {
+        const c = sql[i];
+        const c2 = sql[i + 1];
+        if (c === "'" || c === '"') {
+          let j = i + 1;
+          let lit = c;
+          while (j < n) {
+            // §P3-83: 支持 MySQL 反斜杠转义（`\\`/`\'`/`\"`），否则字符串字面量提前终止、
+            // 掩蔽错位会把用户数据暴露给后续改写
+            if (sql[j] === '\\' && (sql[j + 1] === '\\' || sql[j + 1] === "'" || sql[j + 1] === '"')) {
+              lit += sql[j] + sql[j + 1];
+              j += 2;
+              continue;
+            }
+            if (sql[j] === c) {
+              lit += c;
+              if (sql[j + 1] === c) { lit += c; j += 2; continue; }
+              break;
+            }
+            lit += sql[j];
+            j++;
+          }
+          chunks.push(lit);
+          out += token();
+          i = j + 1;
+          continue;
+        }
+        if (c === '`') {
+          let j = i + 1;
+          let ident = '';
+          while (j < n && sql[j] !== '`') { ident += sql[j]; j++; }
+          out += ident;
+          i = j + 1;
+          continue;
+        }
+        if (c === '/' && c2 === '*') {
+          const end = sql.indexOf('*/', i + 2);
+          const e = end < 0 ? n : end + 2;
+          chunks.push(sql.slice(i, e));
+          out += token();
+          i = e;
+          continue;
+        }
+        if (c === '-' && c2 === '-' && (i + 2 >= n || /\s/.test(sql[i + 2]))) {
+          let j = i + 2;
+          while (j < n && sql[j] !== '\n') j++;
+          chunks.push(sql.slice(i, j));
+          out += token();
+          i = j;
+          continue;
+        }
+        if (c === '#') {
+          let j = i + 1;
+          while (j < n && sql[j] !== '\n') j++;
+          chunks.push(sql.slice(i, j));
+          out += token();
+          i = j;
+          continue;
+        }
+        out += c;
+        i++;
+      }
+      return out;
+    },
+    restore(sql) {
+      // 用 String.fromCharCode 拼接正则源，规避 eslint no-control-regex（字面量/转义序列写 \u0001 均命中）
+      const sep = String.fromCharCode(1);
+      return sql.replace(new RegExp('[' + sep + ']JTM(\\d+)[' + sep + ']', 'g'), (mm, num) => chunks[+num] || '');
+    }
+  };
+}
+
+// §P2-144: CONCAT(a,b,...) → (a || b || ...)（SQLite 模式）。字符串感知由 masker 保证。
+function rewriteConcat(s) {
+  const re = /\bCONCAT\s*\(/gi;
+  const out = [];
+  let last = 0;
+  let m;
+  while ((m = re.exec(s))) {
+    const p = extractParen(s, m.index + m[0].length - 1);
+    if (p.end < 0) { re.lastIndex = m.index + 1; continue; }
+    const args = splitTopLevel(p.argStr).map(a => a.trim()).filter(Boolean);
+    out.push(s.slice(last, m.index));
+    out.push(args.length === 1 ? '(' + args[0] + ')' : '(' + args.join(' || ') + ')');
+    last = p.end + 1;
+    re.lastIndex = p.end + 1;
+  }
+  if (!out.length) return s;
+  out.push(s.slice(last));
+  return out.join('');
+}
+
 function transformSQL(sqlStr, params) {
-  let s = String(sqlStr);
-  s = s.replace(/`/g, '');
+  const masker = createSqlMasker();
+  let s = masker.mask(String(sqlStr));
   s = s.replace(/\bIF\s*\(/gi, 'iif(');
   s = s.replace(/\bDATE_SUB\s*\(\s*NOW\s*\(\s*\)\s*,\s*INTERVAL\s+(\?|-?\d+(?:\.\d+)?)\s+(\w+)\s*\)/gi, (mm, num, unit) => "datetime('now','localtime'," + intervalModifier('-', unit, num) + ")");
   s = s.replace(/\bDATE_ADD\s*\(\s*NOW\s*\(\s*\)\s*,\s*INTERVAL\s+(\?|-?\d+(?:\.\d+)?)\s+(\w+)\s*\)/gi, (mm, num, unit) => "datetime('now','localtime'," + intervalModifier('+', unit, num) + ")");
@@ -743,18 +969,16 @@ function transformSQL(sqlStr, params) {
   s = s.replace(/\bFIND_IN_SET\s*\(/gi, 'find_in_set(');
   s = s.replace(/\bGREATEST\s*\(/gi, 'greatest(');
   s = s.replace(/\bUNIX_TIMESTAMP\s*\(/gi, 'unix_timestamp(');
-  s = s.replace(/\/\*[^]*?\*\//g, ' ');
-  s = s.replace(/\s+FOR\s+UPDATE\b/gi, ' ');
+  s = rewriteConcat(s);
+  s = s.replace(/\s+FOR\s+UPDATE\b/gi, (mm) => {
+    warnSqliteForUpdateStripped(s);
+    return ' ';
+  });
   s = s.replace(/\bINSERT\s+IGNORE\s+INTO\b/gi, 'INSERT OR IGNORE INTO');
   s = rewriteOnDuplicate(s);
-  s = s.replace(/\bLIMIT\s+\?\s+OFFSET\s+\?/gi, () => {
-    const offset = numOr(params.pop());
-    const limit = numOr(params.pop());
-    return 'LIMIT ' + limit + ' OFFSET ' + offset;
-  });
-  s = s.replace(/\bLIMIT\s+\?/gi, () => 'LIMIT ' + numOr(params.pop()));
   const r = scanSQL(s, params);
-  return r;
+  // §P2-143: scanSQL 返回 {sql, params}，masker 需还原的对象是 sql 字符串本身
+  return { sql: masker.restore(r.sql), params: r.params };
 }
 
 function scanSQL(sqlStr, params) {
@@ -770,6 +994,12 @@ function scanSQL(sqlStr, params) {
     const c = sqlStr[i];
     if (inS) {
       out.push(c); pushTail(c);
+      // §P3-83: MySQL 默认启用反斜杠转义（NO_BACKSLASH_ESCAPES=OFF），
+      // `\'`/`\"`/`\\` 不得提前终止字符串字面量，否则后续 `?` 与参数错位。
+      if (c === '\\' && (sqlStr[i + 1] === '\\' || sqlStr[i + 1] === inS)) {
+        out.push(sqlStr[i + 1]); pushTail(sqlStr[i + 1]); i++;
+        continue;
+      }
       if (c === inS) {
         if (sqlStr[i + 1] === inS) { out.push(inS); pushTail(inS); i++; continue; }
         inS = null;
@@ -785,6 +1015,13 @@ function scanSQL(sqlStr, params) {
         continue;
       }
       const before = tail.replace(/\s+$/, '');
+      // §P3-81: LIMIT/OFFSET 按占位符流顺序消费参数（原实现从参数尾部 pop，
+      // 一旦 LIMIT 之后仍有其他 `?` 即错位绑定）；非法值按 numOr 回落 0/默认。
+      if (/LIMIT$|OFFSET$/i.test(before)) {
+        const lit = String(numOr(takeParam()));
+        out.push(lit); pushTail(lit);
+        continue;
+      }
       if (/IN\s*\($/i.test(before)) {
         let j = i + 1;
         while (j < sqlStr.length && /\s/.test(sqlStr[j])) j++;
@@ -1032,8 +1269,13 @@ function execDDL(sqlStr) {
   return [];
 }
 
-function execQuery(sqlStr, paramsIn) {
+async function execQuery(sqlStr, paramsIn, connId) {
   const db = getSQLiteDb();
+  // §P2-145: 事务进行中时，非「当前事务连接」的查询排队等待事务结束（SQLite 单连接），
+  // 避免并发查询落入他人未提交事务互相牵连；持有事务的连接直接执行。
+  if (_sqliteTxActive && connId !== _sqliteTxConnId) {
+    await _sqliteTxTail;
+  }
   let sql = String(sqlStr).trim().replace(/;+\s*$/, '');
   if (!sql) return [[], undefined];
   let params = paramsIn === undefined || paramsIn === null ? [] : (Array.isArray(paramsIn) ? paramsIn.slice() : [paramsIn]);
@@ -1089,16 +1331,35 @@ function execQuery(sqlStr, paramsIn) {
 }
 
 function createSQLiteConnection() {
-  return {
-    query: async (sql, params) => execQuery(sql, params),
-    execute: async (sql, params) => execQuery(sql, params),
-    beginTransaction: async () => { getSQLiteDb().exec('BEGIN'); },
-    commit: async () => { getSQLiteDb().exec('COMMIT'); },
-    rollback: async () => { getSQLiteDb().exec('ROLLBACK'); },
+  const conn = {
+    _seq: ++_sqliteConnSeq,
+    query: async (sql, params) => execQuery(sql, params, conn._seq),
+    execute: async (sql, params) => execQuery(sql, params, conn._seq),
+    beginTransaction: async () => {
+      const lk = sqliteTxLock();
+      await lk.wait;
+      conn._txLock = lk;
+      _sqliteTxActive = true;
+      _sqliteTxConnId = conn._seq;
+      getSQLiteDb().exec('BEGIN IMMEDIATE');
+    },
+    commit: async () => {
+      getSQLiteDb().exec('COMMIT');
+      _sqliteTxActive = false;
+      _sqliteTxConnId = 0;
+      if (conn._txLock) { const lk = conn._txLock; conn._txLock = null; lk.release(); }
+    },
+    rollback: async () => {
+      try { getSQLiteDb().exec('ROLLBACK'); } catch (_) {}
+      _sqliteTxActive = false;
+      _sqliteTxConnId = 0;
+      if (conn._txLock) { const lk = conn._txLock; conn._txLock = null; lk.release(); }
+    },
     release: () => {},
     end: async () => {},
     threadId: 1
   };
+  return conn;
 }
 
 function queryStream(promise, opts) {
@@ -1127,10 +1388,11 @@ function queryStream(promise, opts) {
 }
 
 function createCallbackConnection() {
-  return {
+  const conn = {
+    _seq: ++_sqliteConnSeq,
     query(sql, params, cb) {
       if (typeof params === 'function') { cb = params; params = undefined; }
-      const p = Promise.resolve().then(() => execQuery(sql, params));
+      const p = Promise.resolve().then(() => execQuery(sql, params, conn._seq));
       if (typeof cb === 'function') {
         p.then((res) => cb(null, res[0])).catch((e) => cb(e));
         return undefined;
@@ -1139,20 +1401,36 @@ function createCallbackConnection() {
       return queryObj;
     },
     execute(sql, params, cb) {
-      return this.query(sql, params, cb);
+      return conn.query(sql, params, cb);
     },
     beginTransaction(cb) {
-      try { getSQLiteDb().exec('BEGIN'); if (cb) cb(null); } catch (e) { if (cb) cb(e); }
+      const lk = sqliteTxLock();
+      lk.wait.then(() => {
+        conn._txLock = lk;
+        _sqliteTxActive = true;
+        _sqliteTxConnId = conn._seq;
+        try { getSQLiteDb().exec('BEGIN IMMEDIATE'); if (cb) cb(null); }
+        catch (e) { _sqliteTxActive = false; _sqliteTxConnId = 0; lk.release(); conn._txLock = null; if (cb) cb(e); }
+      }).catch((e) => { if (cb) cb(e); });
     },
     commit(cb) {
-      try { getSQLiteDb().exec('COMMIT'); if (cb) cb(null); } catch (e) { if (cb) cb(e); }
+      try { getSQLiteDb().exec('COMMIT'); } catch (e) { if (cb) { cb(e); return; } }
+      _sqliteTxActive = false;
+      _sqliteTxConnId = 0;
+      if (conn._txLock) { const lk = conn._txLock; conn._txLock = null; lk.release(); }
+      if (cb) cb(null);
     },
     rollback(cb) {
-      try { getSQLiteDb().exec('ROLLBACK'); if (cb) cb(null); } catch (e) { if (cb) cb(e); }
+      try { getSQLiteDb().exec('ROLLBACK'); } catch (_) {}
+      _sqliteTxActive = false;
+      _sqliteTxConnId = 0;
+      if (conn._txLock) { const lk = conn._txLock; conn._txLock = null; lk.release(); }
+      if (cb) cb(null);
     },
     release() {},
     end(cb) { if (cb) cb(null); }
   };
+  return conn;
 }
 
 function createCallbackPool() {
@@ -1312,4 +1590,31 @@ if (!SQLITE_MODE) {
   console.log('⏰ 数据库心跳监测已启动（间隔 ' + (DB_HEARTBEAT_INTERVAL / 1000) + ' 秒）');
 }
 
-module.exports = { holder, DB_NAME, DB_CONFIG, getPool, recreatePool, applyDbConfig };
+// §P2-150: 方言翻译层纯函数导出（仅测试专用）——transformSQL 是 SQLite↔MySQL 兼容承重墙，
+// 此前零测试；导出输入→输出黄金用例可直接断言（不改任何运行路径）。
+module.exports = {
+  holder,
+  DB_NAME,
+  DB_CONFIG,
+  getPool,
+  recreatePool,
+  applyDbConfig,
+  transformSQL,
+  scanSQL,
+  rewriteConcat,
+  rewriteFunctionCalls,
+  rewriteJsonUnquoteExtract,
+  sanitizeParam,
+  splitTopLevel,
+  parseColumnDef,
+  sqliteTypeOf,
+  intervalModifier,
+  numOr,
+  qid,
+  stripQ,
+  extractInsertTarget,
+  getConflictCandidates,
+  getConflictTarget,
+  jsonContains,
+  resolveJsonPath
+};

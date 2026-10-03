@@ -254,8 +254,10 @@ describe('moderations routes', () => {
   });
 
   test('resolve rejects already-handled item with 409', async () => {
+    // P3-121：条件翻转「WHERE status='pending'」失败（affectedRows=0）→ 409
     mockQueryBySql([
-      [/SELECT id, target_user_id, target_type, status FROM moderations/, [[{ id: 1, target_user_id: 5, target_type: 'player', status: 'approved' }]]]
+      [/SELECT id, target_user_id, target_type, status FROM moderations/, [[{ id: 1, target_user_id: 5, target_type: 'player', status: 'approved' }]]],
+      [/UPDATE moderations SET status/, [{ affectedRows: 0 }]]
     ]);
     const response = await request(createApp())
       .post('/api/moderations/1/resolve')

@@ -29,7 +29,10 @@ function updateUserUI() {
   // 顶部导航栏
   const avatar = document.getElementById('headerUserAvatar');
   const name = document.getElementById('headerUserName');
-  if (avatar) avatar.src = avatarUrl || '/api/avatar/default';
+  if (avatar) {
+    avatar.src = avatarUrl || '/api/avatar/default';
+    avatar.onerror = function() { window.__avatarFail && window.__avatarFail(this, avatarUrl || '/api/avatar/default'); };
+  }
   if (name) name.textContent = currentUser.displayName || currentUser.loginId || __('unknown_user');
   // 角色标签跟随显示
   const roleBadge = document.getElementById('adminBadge');
@@ -43,7 +46,10 @@ function updateUserUI() {
   const profileName = document.getElementById('meName');
   const profileLoginId = document.getElementById('meLoginId');
   const profileRole = document.getElementById('meRole');
-  if (profileAvatar) profileAvatar.src = avatarUrl || '/api/avatar/default';
+  if (profileAvatar) {
+    profileAvatar.src = avatarUrl || '/api/avatar/default';
+    profileAvatar.onerror = function() { window.__avatarFail && window.__avatarFail(this, avatarUrl || '/api/avatar/default'); };
+  }
   if (profileName) profileName.textContent = currentUser.displayName || '';
   if (profileLoginId && !profileLoginId.value) {
     profileLoginId.value = currentUser.loginId || '';
@@ -176,6 +182,8 @@ function updateTabIndicator() {
   var active = tabs.querySelector('.tab.active');
   if (!active || document.body.classList.contains('home-active') || !mqDesktop) {
     indicator.style.opacity = '0';
+    // §P1-40: 指示器未就绪时激活文字用主题色，保证初始帧/浅色主题可读
+    tabs.classList.remove('tab-indicator-ready');
     return;
   }
   var targetW = active.offsetWidth;
@@ -190,12 +198,15 @@ function updateTabIndicator() {
     // 强制重排后再恢复过渡，确保后续滑动动画正常
     void indicator.offsetWidth;
     indicator.style.transition = prev || '';
+    tabs.classList.add('tab-indicator-ready');
     updateTabIndicator._inited = true;
     return;
   }
   indicator.style.opacity = '1';
   indicator.style.width = targetW + 'px';
   indicator.style.transform = 'translateX(' + targetX + 'px)';
+  // §P1-40: 指示器定位完成，激活文字切为紫药丸上的白字
+  tabs.classList.add('tab-indicator-ready');
 }
 
 // 窗口尺寸变化、i18n 文本渲染、首页显隐切换时，重新定位指示器
@@ -797,7 +808,7 @@ function initMobileTabMenu() {
     if (MOBILE_BAR_TABS.has(it.id)) return;
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'mobile-tab-item';
+    b.className = 'mobile-more-item';
     b.dataset.tab = it.id;
     b.innerHTML = '<span class="mm-emoji">' + it.emoji + '</span><span data-i18n="' + it.i18n + '">' + (__(it.i18n) || it.id) + '</span>';
     b.addEventListener('click', function () {

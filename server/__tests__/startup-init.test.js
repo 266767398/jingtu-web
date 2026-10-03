@@ -30,4 +30,16 @@ describe('后台子系统启动初始化（P1-2）', () => {
     const tasks = require('../tasks');
     expect(() => tasks.startTasks()).not.toThrow();
   });
+
+  test('tasks.startTasks 幂等——二次调用不重复注册（P3-90）', () => {
+    const tasks = require('../tasks');
+    tasks.stopTasks();
+    tasks.startTasks();
+    const once = tasks.getTaskStatus().length;
+    expect(once).toBeGreaterThan(0);
+    tasks.startTasks(); // 二次调用：原实现会重复注册全部 CronJob 任务翻倍
+    const twice = tasks.getTaskStatus().length;
+    expect(twice).toBe(once);
+    tasks.stopTasks();
+  });
 });

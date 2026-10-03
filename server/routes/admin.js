@@ -11,7 +11,7 @@
  *   description: 管理后台相关接口
  */
 const express = require('express');
-const { ok, getPool, handleError, logOper, sendError, ErrorCodes, paginate } = require('../utils');
+const { ok, getPool, handleError, logOper, sendError, ErrorCodes, paginate, escapeLike } = require('../utils');
 const { requireAdminCompat, requireRole } = require('../auth');
 const logger = require('../logger');
 const settings = require('../settings');
@@ -86,8 +86,8 @@ module.exports = function (groupId, vrcCookieCfg) {
       if (user) {
         // admin_vrcid 列历史上混存了 login_id、数字用户 ID 和 VRChat ID 三种值，
         // 所以模糊匹配要同时覆盖原始列和 JOIN 出来的显示名。
-        where.push('(l.admin_vrcid LIKE ? OR u1.display_name LIKE ? OR u2.display_name LIKE ?)');
-        const like = `%${user}%`;
+        where.push('(l.admin_vrcid LIKE ? ESCAPE \'!\' OR u1.display_name LIKE ? ESCAPE \'!\' OR u2.display_name LIKE ? ESCAPE \'!\')');
+        const like = `%${escapeLike(user)}%`;
         params.push(like, like, like);
       }
       const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
@@ -156,11 +156,30 @@ module.exports = function (groupId, vrcCookieCfg) {
   });
 
   // ==================== 系统配置 ====================
+  // P3-110：system_config 含 rtc_turn_credential/media_provider_mirrors 等凭据，
+  // GET 对敏感键统一脱敏，避免任意 admin 明文读取；PUT 对回传占位符的键跳过写入
+  // （占位符仅表示「未修改」，只有填新值才更新），保证前端编辑表单 round-trip 不覆盖真实凭据。
+  const CONFIG_MASK = '__MASKED__';
+  const SENSITIVE_KEY_RE = /(PASSWORD|SECRET|KEY|TOKEN|CREDENTIAL)/i;
+  const SENSITIVE_INLINE_RE = /(password|passwd|secret|token|api_?key|credential|client_secret)=([^\s&]*)/gi;
+  function maskConfigValue(key, value) {
+    if (!value || typeof value !== 'string') return value;
+    if (SENSITIVE_KEY_RE.test(key)) return CONFIG_MASK;
+    // URL userinfo 内嵌凭据：scheme://user:pass@host
+    if (/^[a-zA-Z][\w+.-]*:\/\/[^/:\s]*:[^@\s]*@/i.test(value)) {
+      return value.replace(/^(.*:\/\/[^:/\s]*:)[^@\s]*@/, '$1' + CONFIG_MASK + '@');
+    }
+    // 内联 "key=secret" 片段
+    if (SENSITIVE_INLINE_RE.test(value)) {
+      return value.replace(SENSITIVE_INLINE_RE, '$1' + CONFIG_MASK);
+    }
+    return value;
+  }
   router.get('/admin/config', requireAdminCompat, async (req, res) => {
     try {
       const [rows] = await getPool().query(`SELECT config_key AS configKey, config_value AS configValue FROM system_config`);
       const config = { groupId };
-      for (const row of rows) config[row.configKey] = row.configValue;
+      for (const row of rows) config[row.configKey] = maskConfigValue(row.configKey, row.configValue);
       res.json(config);
     } catch (e) { handleError(res, e, '[admin/config]'); }
   });
@@ -174,6 +193,8 @@ module.exports = function (groupId, vrcCookieCfg) {
       for (const key of allowedKeys) {
         if (incoming[key] !== undefined) {
           const val = typeof incoming[key] === 'string' ? incoming[key] : String(incoming[key]);
+          // P3-110：占位符视为「未修改」，跳过写入以保留数据库原值
+          if (val === CONFIG_MASK) continue;
           await getPool().query(`INSERT INTO system_config (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?`, [key, val, val]);
         }
       }

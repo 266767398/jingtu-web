@@ -22,9 +22,16 @@ let _offlineSummaryInterval = null;
 
 // §29 会话校验所需上下文（首次 setupWebSocket 时延迟初始化）
 let _sessionStore = null;
-let _sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+// P2-121: 不再在模块加载期生成随机密钥——统一由 server.js 把 effectiveSecret 注入，
+// 避免「ws_service 与 server.js 各自随机」导致开发态 WS 签名互不认全 401。
+let _sessionSecret = process.env.SESSION_SECRET || null; // 显式注入优先，其次回落到环境变量
 let _originWhitelist = []; // 生产环境严格校验的 Origin 白名单
 let _wsAuthFailStreak = 0; // 未认证连接失败计数（用于异常/扫描监测）
+
+// P2-121: 供 server.js 注入与 HTTP session 同一把签名密钥（缺 SESSION_SECRET 时 server.js 会拒绝生产启动/开发态用临时密钥）
+function setSessionSecret(secret) {
+  if (secret) _sessionSecret = secret;
+}
 
 function _buildOriginWhitelist() {
   const list = [];
@@ -42,7 +49,13 @@ function _buildOriginWhitelist() {
 function _initSessionContext() {
   if (_sessionStore) return;
   _originWhitelist = _buildOriginWhitelist();
-  _sessionSecret = process.env.SESSION_SECRET || _sessionSecret;
+  if (!_sessionSecret) _sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+  // P2-179: SQLite 模式下没有 MySQL 可用，WS session 同样回退到 MemoryStore（与 server.js HTTP session 一致）
+  if (process.env.JINGTU_DB_ENGINE === 'sqlite') {
+    console.warn('[ws_service] JINGTU_DB_ENGINE=sqlite：WS session 使用 MemoryStore');
+    _sessionStore = new session.MemoryStore();
+    return;
+  }
   try {
     const MySQLStore = require('express-mysql-session')(session);
     _sessionStore = new MySQLStore({
@@ -148,6 +161,35 @@ const userWsMap = new Map();
 const groupMemberCache = new Map();
 const debounceTimers = new Map();
 
+// P2-123: 私信限流状态（per-sender→receiver 滑窗）。仅允许与建立社交关系的用户私信；防私信骚扰刷量。
+const PRIVATE_CHAT_RATE_WINDOW = 30 * 1000;
+const PRIVATE_CHAT_RATE_LIMIT = 20; // 30s 内同一 (sender→receiver) 最多 20 条
+const privateChatRateMap = new Map(); // `${userId}:${targetUser}` -> { count, windowStart }
+const PRIVATE_CHAT_RATE_MAX_ENTRIES = 2000;
+
+function _prunePrivateChatRate() {
+  if (privateChatRateMap.size > PRIVATE_CHAT_RATE_MAX_ENTRIES) {
+    const now = Date.now();
+    for (const [k, v] of privateChatRateMap) {
+      if (now - v.windowStart >= PRIVATE_CHAT_RATE_WINDOW) privateChatRateMap.delete(k);
+    }
+  }
+}
+
+// P2-123: 好友（双向 accepted）或存在任一方向的已建立关注关系 → 允许私信
+async function _canPrivateChat(pool, userId, targetUser) {
+  const [friendRows] = await pool.query(
+    `SELECT 1 FROM user_friends WHERE status='accepted' AND ((user_id=? AND friend_id=?) OR (user_id=? AND friend_id=?)) LIMIT 1`,
+    [userId, targetUser, targetUser, userId]
+  );
+  if (friendRows && friendRows.length > 0) return true;
+  const [followRows] = await pool.query(
+    `SELECT 1 FROM user_follows WHERE (follower_id=? AND following_id=?) OR (follower_id=? AND following_id=?) LIMIT 1`,
+    [userId, targetUser, targetUser, userId]
+  );
+  return !!(followRows && followRows.length > 0);
+}
+
 // §RTC 实时通话语音房状态：roomKey -> Set<userId>
 // 私聊房 key: p:低id:高id；群语音房 key: g:群id
 const rtcRooms = new Map();
@@ -199,7 +241,7 @@ function setupWebSocket(server) {
       }
     }, WS_HEARTBEAT_INTERVAL).unref();
 
-    ws.on('message', (data) => {
+    ws.on('message', async (data) => {
       try {
         const msg = JSON.parse(data.toString());
 
@@ -224,12 +266,27 @@ function setupWebSocket(server) {
                 }
               });
             }
-            onlineUsers.set(userId, {
-              displayName: msg.displayName || '',
-              avatarUrl: msg.avatarUrl || '',
-              lastPing: Date.now(),
-              location: null
-            });
+            // P3-39: 在线状态由 users.online_visible 决断（不信任客户端上报的隐身标记，天然防伪造）
+            try {
+              const [uvRows] = await getPool().query(`SELECT online_visible FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1`, [userId]);
+              const onlineVisible = uvRows.length > 0 ? uvRows[0].online_visible !== 0 : true;
+              onlineUsers.set(userId, {
+                displayName: msg.displayName || '',
+                avatarUrl: msg.avatarUrl || '',
+                lastPing: Date.now(),
+                location: null,
+                onlineVisible
+              });
+            } catch (e) {
+              logger && logger.warn('[ws]', '读取 online_visible 失败，按可见处理', { userId, err: (e && e.message) || '' });
+              onlineUsers.set(userId, {
+                displayName: msg.displayName || '',
+                avatarUrl: msg.avatarUrl || '',
+                lastPing: Date.now(),
+                location: null,
+                onlineVisible: true
+              });
+            }
 
             if (!userWsMap.has(userId)) {
               userWsMap.set(userId, new Set());
@@ -243,6 +300,28 @@ function setupWebSocket(server) {
 
         if (msg.type === 'offline' && userId) {
           forceOffline(userId, 'manual');
+          return;
+        }
+
+        // P3-39: 在线隐身开关——写库 users.online_visible 并刷新内存条目后重新广播在线清单
+        if (msg.type === 'presence' && userId) {
+          const visible = msg.onlineVisible;
+          if (visible !== 0 && visible !== 1 && visible !== false && visible !== true) {
+            try { ws.send(JSON.stringify({ type: 'presence:error', error: 'onlineVisible 必须是 0/1' })); } catch (e) {}
+            return;
+          }
+          try {
+            await getPool().query(
+              `UPDATE users SET online_visible = ?, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL`,
+              [visible ? 1 : 0, userId]
+            );
+            if (onlineUsers.has(userId)) {
+              onlineUsers.get(userId).onlineVisible = visible ? true : false;
+            }
+            broadcastOnlineUsers();
+          } catch (e) {
+            logger && logger.warn('[ws]', '切换在线隐身失败', { userId, err: (e && e.message) || '' });
+          }
           return;
         }
 
@@ -492,6 +571,35 @@ async function handlePrivateChat(userId, msg, ws) {
 
   try {
     const pool = getPool();
+    // P2-123: 好友/关注校验——无社交关系即拒绝，防陌生私信骚扰
+    let canChat = false;
+    try {
+      canChat = await _canPrivateChat(pool, userId, targetUser);
+    } catch (_e) {
+      // 关系校验查询失败：fail-closed，不落库不广播
+      ws.send(JSON.stringify({ type: 'chat:error', error: '消息发送失败，请稍后重试' }));
+      return;
+    }
+    if (!canChat) {
+      ws.send(JSON.stringify({ type: 'chat:error', error: '仅好友或已关注用户之间可以私信' }));
+      return;
+    }
+
+    // P2-123: per-(sender,receiver) 滑窗限流
+    const now = Date.now();
+    const rateKey = userId + ':' + targetUser;
+    let rateInfo = privateChatRateMap.get(rateKey);
+    if (!rateInfo || now - rateInfo.windowStart >= PRIVATE_CHAT_RATE_WINDOW) {
+      rateInfo = { count: 0, windowStart: now };
+      privateChatRateMap.set(rateKey, rateInfo);
+      _prunePrivateChatRate();
+    }
+    if (rateInfo.count >= PRIVATE_CHAT_RATE_LIMIT) {
+      ws.send(JSON.stringify({ type: 'chat:error', error: '消息发送过于频繁，请稍后再试' }));
+      return;
+    }
+    rateInfo.count++;
+
     const [result] = await pool.query(
       `INSERT INTO messages (sender_id, receiver_id, content) VALUES (?, ?, ?)`,
       [userId, targetUser, trimmed]
@@ -816,12 +924,15 @@ function broadcastRosterUpdate(payload) {
 }
 
 function broadcastOnlineUsers() {
-  const list = Array.from(onlineUsers.entries()).map(([id, info]) => ({
-    userId: id,
-    displayName: info.displayName,
-    avatarUrl: info.avatarUrl,
-    hasLocation: !!info.location
-  }));
+  // P3-39: users.online_visible=0（隐身）的用户不进在线清单广播；但连接保持在线（可继续收私信/群消息）
+  const list = Array.from(onlineUsers.entries())
+    .filter(([, info]) => info.onlineVisible !== false)
+    .map(([id, info]) => ({
+      userId: id,
+      displayName: info.displayName,
+      avatarUrl: info.avatarUrl,
+      hasLocation: !!info.location
+    }));
   
   const msg = JSON.stringify({
     type: 'online_users',
@@ -1140,6 +1251,7 @@ function getOnlineUsers() {
 
 module.exports = {
   setupWebSocket,
+  setSessionSecret,
   broadcastRosterUpdate,
   broadcastOnlineUsers,
   broadcastToUser,

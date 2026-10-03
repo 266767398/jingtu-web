@@ -11,6 +11,9 @@ const router = express.Router();
 const { getPool, handleError } = require('../utils');
 const logger = require('../logger');
 
+// P3-45: 单文件 URL 上限 50000（sitemaps 协议上限），不再截断站点内容
+const SITEMAP_MAX_URLS = 50000;
+
 // baseUrl 仅从环境变量读取，忽略 Host 头，防止 Host 头注入导致 SEO 劫持
 // P2-72：接入 APP_URL（docker-compose 实际透传的站点地址变量）作为回退，
 // 否则容器部署下 sitemap 会落到本地默认值；默认端口同步修正为真实监听端口 3456。
@@ -63,7 +66,7 @@ router.get('/sitemap.xml', async (req, res) => {
 
     try {
       const [events] = await getPool().query(
-        `SELECT id, updated_at FROM event WHERE is_archive = 0 AND visibility = 'public' ORDER BY updated_at DESC LIMIT 100`
+        `SELECT id, updated_at FROM event WHERE is_archive = 0 AND visibility = 'public' ORDER BY updated_at DESC LIMIT ${SITEMAP_MAX_URLS}`
       );
       events.forEach(evt => {
         const lastmod = evt.updated_at ? new Date(evt.updated_at).toISOString().split('T')[0] : now;
@@ -80,7 +83,7 @@ router.get('/sitemap.xml', async (req, res) => {
 
     try {
       const [posts] = await getPool().query(
-        `SELECT id, updated_at FROM posts WHERE visibility = 'public' ORDER BY updated_at DESC LIMIT 100`
+        `SELECT id, updated_at FROM posts WHERE visibility = 'public' ORDER BY updated_at DESC LIMIT ${SITEMAP_MAX_URLS}`
       );
       posts.forEach(post => {
         const lastmod = post.updated_at ? new Date(post.updated_at).toISOString().split('T')[0] : now;
@@ -97,7 +100,7 @@ router.get('/sitemap.xml', async (req, res) => {
 
     try {
       const [photos] = await getPool().query(
-        `SELECT id, create_time FROM album_photo WHERE is_recycle = 0 AND visibility = 'public' ORDER BY create_time DESC LIMIT 100`
+        `SELECT id, create_time FROM album_photo WHERE is_recycle = 0 AND visibility = 'public' ORDER BY create_time DESC LIMIT ${SITEMAP_MAX_URLS}`
       );
       photos.forEach(photo => {
         const lastmod = photo.create_time ? new Date(photo.create_time).toISOString().split('T')[0] : now;

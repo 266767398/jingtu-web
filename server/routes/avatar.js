@@ -237,7 +237,13 @@ module.exports = function () {
 
     // 3) 限速（仅对「回源」计费）：超限返回占位头像而非 429 JSON，
     //    避免 <img> 裂图并刷满控制台；上游节流由 CDN 全局令牌桶兜底。
-    const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString().split(',')[0].trim();
+    // P3-119：仅当直连对端为回环（即经本机 nginx 反代）时才信任 x-forwarded-for，
+    // 否则回退 socket 地址——客户端直接连时不采信可自造的 XFF，避免轮换桶绕过每 IP 限速。
+    const socketAddr = (req.socket && req.socket.remoteAddress) || '';
+    const isLoopbackPeer = socketAddr === '::1' || socketAddr === '127.0.0.1' || socketAddr === '::ffff:127.0.0.1';
+    const clientIp = (isLoopbackPeer && req.headers['x-forwarded-for'])
+      ? String(req.headers['x-forwarded-for']).split(',')[0].trim()
+      : socketAddr;
     if (avatarRateLimited(clientIp)) {
       res.set('Content-Type', 'image/svg+xml');
       res.set('Cache-Control', 'no-store');

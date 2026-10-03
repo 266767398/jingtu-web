@@ -95,8 +95,13 @@ function setupCsrf(app) {
 
   // 获取 CSRF Token（绑定到当前 session，防止 token 被跨用户复用）
   app.get('/api/csrf-token', async (req, res) => {
+    // P2-167：fail-closed——会话未初始化（无 req.sessionID）时拒绝签发，不再
+    // 落入匿名兜底记录（身份不明的记录可被任意会话复用，一旦 session 初始化被
+    // 跳过，整个 CSRF 防线即失效）。正常装配下 session 中间件恒先于本路由挂载，
+    // sessionID 必然存在；此处仅防御异常装配/测试环境的兜底路径。
+    if (!req.sessionID) return fail(res, 403, '会话未初始化，无法获取 CSRF token');
     const token = generateCsrfToken();
-    const sid = req.sessionID || 'anon';
+    const sid = req.sessionID;
     await csrfStoreSet(token, { sid, createdAt: Date.now() });
     // token 已绑定到当前 sessionID，校验时仅需验证记录中的 sid 匹配
     res.json({ csrfToken: token });
@@ -139,7 +144,9 @@ function setupCsrf(app) {
     }
     // session 绑定检查：校验 token 生成时所绑定的 sessionID 是否与当前请求一致
     // 防止 token 被跨用户/跨会话复用（例如 CSRF token 泄露后攻击者用自己的 session 使用）
-    if (record.sid && record.sid !== 'anon' && record.sid !== req.sessionID) {
+    // P2-167：移除匿名豁免分支——所有记录必须与会话严格匹配；
+    // 会话缺失（record.sid 不存在或与当前 sessionID 不一致）时校验必然失败，fail-closed。
+    if (!record.sid || record.sid !== req.sessionID) {
       await csrfStoreDelete(token);
       return fail(res, 403, 'CSRF token 与当前会话不匹配');
     }

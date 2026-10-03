@@ -10,7 +10,7 @@
     "test:coverage": "jest --coverage",
     "test:watch": "jest --watch",
     "test:ci": "jest --coverage --ci --forceExit",
-    "test:node": "node --test test/*.test.js",
+    "test:node": "node --test --test-force-exit test/*.test.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },

@@ -17,7 +17,7 @@ const {
   encryptAES, decryptAES, requireAuth, requireRole,
   requireAdminCompat, getAvatarUrl
 } = require('../auth');
-const { fail, ok,  getPool, safeError, validateFields, handleError, sendError, ErrorCodes, createErr, createFileFilter, secureUpload, paginate, logOper  } = require('../utils');;
+const { fail, ok,  getPool, safeError, validateFields, handleError, sendError, ErrorCodes, createErr, createFileFilter, secureUpload, paginate, logOper, escapeLike  } = require('../utils');;
 const { VRC_API, VRC_API_KEY } = require('../vrc');
 const logger = require('../logger');
 
@@ -421,9 +421,9 @@ router.get('/search', requireAuth, async (req, res) => {
   try {
     const q = req.query.q ? req.query.q.trim() : '';
     if (!q || q.length < 2) return res.json({ users: [], total: 0 });
-    const like = '%' + q + '%';
+    const like = '%' + escapeLike(q) + '%';
     const [rows] = await getPool().query(
-      'SELECT id, display_name, vrchat_id, vrchat_name, vrchat_avatar_url, avatar_type, custom_avatar_path, role FROM users WHERE deleted_at IS NULL AND banned = 0 AND approved = 1 AND (display_name LIKE ? OR vrchat_name LIKE ?) ORDER BY display_name ASC LIMIT 20',
+      'SELECT id, display_name, vrchat_id, vrchat_name, vrchat_avatar_url, avatar_type, custom_avatar_path, role FROM users WHERE deleted_at IS NULL AND banned = 0 AND approved = 1 AND (display_name LIKE ? ESCAPE \'!\' OR vrchat_name LIKE ? ESCAPE \'!\') ORDER BY display_name ASC LIMIT 20',
       [like, like]
     );
     const users = rows.map(u => ({
@@ -531,7 +531,14 @@ router.put('/:id', requireRole('admin'), async (req, res) => {
   try {
     const { displayName, role, email } = req.body;
     const updates = {};
-    if (displayName) updates.display_name = displayName;
+    // P3-122：与 PUT /me/profile、admin 改名同一口径——display_name ≤50 且非空、禁控制字符
+    if (displayName !== undefined && displayName !== null && String(displayName).trim() !== '') {
+      const nm = String(displayName).trim();
+      if (nm.length > 50) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '显示名不能超过50字');
+      // eslint-disable-next-line no-control-regex
+      if (/[<>\u0000-\u001f\u007f]/.test(nm)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '显示名包含不允许的字符');
+      updates.display_name = nm;
+    }
     if (email !== undefined) {
       if (email && typeof email === 'string' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '邮箱格式不正确');
@@ -740,7 +747,8 @@ router.get('/:id/card', requireAuth, async (req, res, next) => {
       roleLabel: u.role === 'super_admin' ? '超级管理员' : u.role === 'admin' ? '管理员' : u.role === 'member' ? '成员' : '访客',
       avatarUrl: getAvatarUrl(u),
       birthday: u.birthday,
-      location: u.location,
+      // P2-163: location 脱敏口径与 /list 一致——location_visible 未开启时返回 null
+      location: u.location_visible ? u.location : null,
       locationVisible: !!u.location_visible,
       motto: prefs.motto || '',
       bio: prefs.bio || '',
@@ -776,6 +784,10 @@ router.get('/:userId/events', requireAuth, async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
     if (!userId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
+    // P2-163: 按 visibility 过滤——private 活动仅本人（被查者=自己）或管理员可见；
+    // 同时过滤 is_archive，避免遍历 userId 枚举他人私密活动报名列表
+    const isSelf = req.session.userId === userId;
+    const isAdminView = req.session.role === 'super_admin' || req.session.role === 'admin';
     const [rows] = await getPool().query(
       `SELECT e.id, e.title, e.event_time AS eventTime, e.ends_at AS endsAt, e.place,
               e.description, e.event_type AS eventType, e.visibility,
@@ -784,8 +796,12 @@ router.get('/:userId/events', requireAuth, async (req, res) => {
        FROM event_sign es
        JOIN event e ON es.event_id = e.id
        WHERE es.user_vrcid = ?
+         AND e.is_archive = 0
+         AND (e.visibility IN ('public','members_only')
+              OR (e.visibility = 'private' AND ? = 1)
+              OR (e.visibility = 'private' AND ? = 1))
        ORDER BY e.event_time DESC`,
-      [userId]
+      [userId, isSelf ? 1 : 0, isAdminView ? 1 : 0]
     );
     res.json({ events: rows });
   } catch (e) { handleError(res, e, '[users]'); }

@@ -4,9 +4,9 @@ let membersSearchTimer = null;
 
 async function loadMembers() {
   const container = document.getElementById('membersList');
-  if (container) showSkeleton(container, 'grid', 8);
   if (membersLoading) return;
   membersLoading = true;
+  if (container) showSkeleton(container, 'grid', 8);
   try {
     const res = await api('/api/users/list', { method: 'GET' });
     if (res.ok) {
@@ -111,7 +111,7 @@ function renderMembers(members) {
   container.innerHTML = members.map(m => `
     <div class="member-card">
       <div class="member-card-click" onclick="goToProfile('${escJsStr(String(m.id))}')">
-        <img src="${escAttr(m.avatarUrl || '/api/avatar/default')}" class="member-avatar" alt="${escAttr(m.displayName || m.loginId)}" loading="lazy"
+        <img src="${escAttr(m.avatarUrl || '/api/avatar/default')}" class="member-avatar" alt="${escAttr(m.displayName || m.loginId)}" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(m.avatarUrl || '/api/avatar/default')}')"
           data-avatars="${escAttr(m.avatarUrl || '/api/avatar/default')};${escAttr(m.profilePicOverrideThumbnail||'')};${escAttr(m.userIcon||'')}" onclick="cycleAvatar(this)" >
         <div class="member-info">
           <div class="member-name">${esc(m.displayName || m.loginId)}${(m.trustLevel || m.trustLevelCn) ? ` <span class="member-trust-badge" style="background:${trustColorOf(m.trustLevel) || '#9e9e9e'}">${esc(m.trustLevelCn || m.trustLevel)}</span>` : ''}</div>
@@ -1079,6 +1079,8 @@ function renderVrcMemberCard(d, forId) {
         <button type="button" class="btn btn-sm btn-outline" onclick="openAvatarDetail('${escJsStr(d.vrchatId || '')}','${escJsStr(d.avatarId || '')}','${escJsStr(d.displayName || '')}',${lu.bound ? (Number(lu.id) || 0) : 0},'${escJsStr(avatar)}')">🖼️ ${__('members.avatar_detail_btn')}</button>
         ${!isSelfCard && !d.isFriend && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" onclick="vrcSendFriendRequest('${escJsStr(d.vrchatId)}', this)">🤝 ${__('members.vrc_friend_request_btn')}</button>` : ''}
         ${!isSelfCard && d.vrchatId && inst && !inst.isOffline && /^wrld_[0-9a-fA-F-]+:.+$/.test(d.location || '') ? `<button type="button" class="btn btn-sm btn-outline" onclick="vrcSendInvite('${escJsStr(d.vrchatId)}','${escJsStr(d.location)}', this)">📨 ${__('members.vrc_invite_btn')}</button>` : ''}
+        ${!isSelfCard && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" onclick="vrcBoop('${escJsStr(d.vrchatId)}', this)" title="${escAttr(__('members.vrc_boop_hint'))}">👋 ${__('members.vrc_boop_btn')}</button>` : ''}
+        ${!isSelfCard && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" onclick="vrcEditNote('${escJsStr(d.vrchatId)}', this)">📝 ${__('members.vrc_note_btn')}</button>` : ''}
       </div>
     </div>`;
 }
@@ -1125,6 +1127,54 @@ async function vrcSendFriendRequest(targetUserId, btn) {
     toast(__('members.vrc_friend_request_failed'), 'error');
     if (btn) btn.disabled = false;
   }
+}
+
+// ==================== F-24 VRChat 个人写操作（Boop / 备注） ====================
+// 两个写接口均要求已绑定 VRChat 账号（NEED_BIND 由后端引导）；真实调用需 VRChat
+// 官方 API 权限与互为好友关系，交付后以真实账号联调验证（见 docs/19 F-24）。
+async function vrcBoop(targetUserId, btn) {
+  if (!targetUserId) return;
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api('/api/vrc-invites/boop', {
+      method: 'POST',
+      body: JSON.stringify({ targetUserId })
+    });
+    if (res.ok) {
+      toast(__('members.vrc_boop_sent'), 'success');
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast(errText(err) || __('members.vrc_boop_failed'), 'error');
+    }
+  } catch (e) {
+    toast(__('members.vrc_boop_failed'), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function vrcEditNote(targetUserId, btn) {
+  if (!targetUserId) return;
+  showInput(__('members.vrc_note_prompt'), '', async (val) => {
+    if (val === null) return;
+    if (btn) btn.disabled = true;
+    try {
+      const res = await api('/api/vrc-invites/note', {
+        method: 'POST',
+        body: JSON.stringify({ targetUserId, note: val })
+      });
+      if (res.ok) {
+        toast(val ? __('members.vrc_note_saved') : __('members.vrc_note_cleared'), 'success');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast(errText(err) || __('members.vrc_note_failed'), 'error');
+      }
+    } catch (e) {
+      toast(__('members.vrc_note_failed'), 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
 }
 
 // ==================== F-16 头像详情（使用历史 + 标签 + 收藏） ====================
@@ -1220,7 +1270,7 @@ function renderAvatarDetail(history, tags) {
 
   body.innerHTML = `
     <div class="avatar-detail-current">
-      <img class="avatar-detail-current-img" src="${escAttr(d.avatarUrl || '/api/avatar/default')}" alt="${escAttr(d.displayName)}" onerror="this.src='/api/avatar/default'">
+      <img class="avatar-detail-current-img" src="${escAttr(d.avatarUrl || '/api/avatar/default')}" alt="${escAttr(d.displayName)}" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(d.avatarUrl || '/api/avatar/default')}')">
       <div class="avatar-detail-current-meta">
         <div class="avatar-detail-current-name">${esc(d.displayName)}</div>
         <div class="avatar-detail-current-id" title="${escAttr(d.avatarId)}">${esc(d.avatarId || __('members.avatar_no_id'))}</div>

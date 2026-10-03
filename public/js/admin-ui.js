@@ -21,7 +21,7 @@
     perms: function () { if (typeof loadPermissions === 'function') loadPermissions(); },
     'perm-groups': function () { if (typeof loadPermGroups === 'function') loadPermGroups(); },
     'model-coll': function () { if (typeof loadAdminModelCollections === 'function') loadAdminModelCollections(); },
-    settings: function () { if (typeof loadSystemConfig === 'function') loadSystemConfig(); },
+    settings: function () { if (typeof loadSystemConfig === 'function') loadSystemConfig(); if (typeof loadGitUpdateStatus === 'function') loadGitUpdateStatus(); },
     logs: function () { if (typeof loadOperLog === 'function') loadOperLog(1); },
     live: loadAdminLive,
     content: loadAdminContent,
@@ -218,7 +218,7 @@
               var cell = escapeHtml(b);
               // 相册内容展示缩略图（后端返回 thumbPath/photoPath）
               if (_contentTab === 'album' && (it.thumbPath || it.photoPath)) {
-                cell = '<img src="' + escapeHtml(it.thumbPath || it.photoPath) + '" alt="" style="width:56px;height:40px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:8px">' + cell;
+                cell = '<img src="' + escapeHtml(it.thumbPath || it.photoPath) + '" alt="" onerror="window.__imgFail(this)" style="width:56px;height:40px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:8px">' + cell;
               }
               // 操作按钮：查看（公告/动态/相册）+ 编辑（公告/动态）+ 删除
               var actions = '';

@@ -288,7 +288,8 @@ async function vrchatGetCurrentUser(cookie) {
  */
 async function vrchatGetGroupEvents(groupId, cookie = null, n = 100, offset = 0) {
   const safeId = sanitizeVrcId(groupId);
-  const endpoint = `/calendar/${safeId}?n=${n}&offset=${offset}&apiKey=${VRC_API_KEY}`;
+  const [safeN, safeOffset] = _clampPaging(n, offset, 100); // P3-77
+  const endpoint = `/calendar/${safeId}?n=${safeN}&offset=${safeOffset}&apiKey=${VRC_API_KEY}`;
   return await vrchatRequest('GET', endpoint, null, cookie);
 }
 
@@ -299,6 +300,16 @@ async function vrchatGetWorld(worldId, cookie = null) {
   const safeId = sanitizeVrcId(worldId);
   const endpoint = `/worlds/${safeId}?apiKey=${VRC_API_KEY}`;
   return await vrchatRequest('GET', endpoint, null, cookie);
+}
+
+/**
+ * P3-77: 分页参数统一钳制——对齐 vrchatGetNotifications 既有口径：
+ * n ∈ [1,100]，offset ≥0；非数字/越界回退默认值，防止数据面超载。
+ */
+function _clampPaging(n, offset, defaultN = 50) {
+  const safeN = Math.min(100, Math.max(parseInt(n, 10) || defaultN, 1));
+  const safeOffset = Math.max(parseInt(offset, 10) || 0, 0);
+  return [safeN, safeOffset];
 }
 
 /**
@@ -354,6 +365,30 @@ async function vrchatSendFriendRequest(targetUserId, cookie) {
   const safeUserId = sanitizeVrcId(targetUserId);
   const endpoint = `/user/${safeUserId}/friendRequest?apiKey=${VRC_API_KEY}`;
   return await vrchatRequest('POST', endpoint, {}, cookie);
+}
+
+/**
+ * F-24: 保存用户备注（PUT /user/{userId}/note）。
+ * 写侧严格使用用户本人绑定的 cookie，由 routes/vrc_invites.js 调用。
+ * note 长度限制 512 字符（超出截断），空串删除备注（官方语义：空 note 清空）。
+ */
+async function vrchatSaveNote(targetUserId, noteText, cookie) {
+  const safeUserId = sanitizeVrcId(targetUserId);
+  const note = typeof noteText === 'string' ? noteText.slice(0, 512) : '';
+  const endpoint = `/user/${safeUserId}/note?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('PUT', endpoint, { note }, cookie);
+}
+
+/**
+ * F-24: 向指定用户发送 Boop（POST /user/{userId}/boop）。
+ * 官方要求双方为好友，非好友返回 400「These users are not friends」。
+ * emojiId 可选（VRC+ 自定义表情 FileID 或内置常量）；不传则发送默认 Boop。
+ */
+async function vrchatBoop(targetUserId, cookie, emojiId = null) {
+  const safeUserId = sanitizeVrcId(targetUserId);
+  const body = emojiId ? { emojiId } : {};
+  const endpoint = `/user/${safeUserId}/boop?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('POST', endpoint, body, cookie);
 }
 
 /**
@@ -539,7 +574,8 @@ async function vrchatGetGroup(groupId, cookie) {
  */
 async function vrchatGetGroupMembers(groupId, cookie, n = 100, offset = 0) {
   const safeId = sanitizeVrcId(groupId);
-  const endpoint = `/groups/${safeId}/members?apiKey=${VRC_API_KEY}&n=${n}&offset=${offset}`;
+  const [safeN, safeOffset] = _clampPaging(n, offset, 100); // P3-77
+  const endpoint = `/groups/${safeId}/members?apiKey=${VRC_API_KEY}&n=${safeN}&offset=${safeOffset}`;
   return await vrchatRequest('GET', endpoint, null, cookie);
 }
 
@@ -704,7 +740,8 @@ async function vrchatRemoveGroupMemberRole(groupId, userId, roleId, cookie) {
  */
 async function vrchatGetGroupAuditLogs(groupId, cookie, n = 50, offset = 0) {
   const safeId = sanitizeVrcId(groupId);
-  const endpoint = `/groups/${safeId}/auditLogs?apiKey=${VRC_API_KEY}&n=${n}&offset=${offset}`;
+  const [safeN, safeOffset] = _clampPaging(n, offset, 50); // P3-77
+  const endpoint = `/groups/${safeId}/auditLogs?apiKey=${VRC_API_KEY}&n=${safeN}&offset=${safeOffset}`;
   return await vrchatRequest('GET', endpoint, null, cookie);
 }
 
@@ -724,7 +761,8 @@ async function vrchatGetGroupEconomy(groupId, cookie) {
  */
 async function vrchatGetGroupBans(groupId, cookie, n = 50, offset = 0) {
   const safeId = sanitizeVrcId(groupId);
-  const endpoint = `/groups/${safeId}/bans?apiKey=${VRC_API_KEY}&n=${n}&offset=${offset}`;
+  const [safeN, safeOffset] = _clampPaging(n, offset, 50); // P3-77
+  const endpoint = `/groups/${safeId}/bans?apiKey=${VRC_API_KEY}&n=${safeN}&offset=${safeOffset}`;
   return await vrchatRequest('GET', endpoint, null, cookie);
 }
 
@@ -1036,7 +1074,8 @@ async function vrchatRemoveFavorite(cookie, favoriteId) {
  * 获取收藏分组列表（返回全部分组，每项含 type/name/displayName/ownerUserId/count）
  */
 async function vrchatGetFavoriteGroups(cookie, n = 50, offset = 0) {
-  return vrchatRequest('GET', `/favorite/groups?n=${n}&offset=${offset}&apiKey=${VRC_API_KEY}`, null, cookie);
+  const [safeN, safeOffset] = _clampPaging(n, offset, 50); // P3-77
+  return vrchatRequest('GET', `/favorite/groups?n=${safeN}&offset=${safeOffset}&apiKey=${VRC_API_KEY}`, null, cookie);
 }
 
 /**
@@ -1090,6 +1129,8 @@ module.exports = {
   vrchatGetInstance,
   vrchatSendInvite,
   vrchatSendFriendRequest,
+  vrchatSaveNote,
+  vrchatBoop,
   vrchatSearchWorlds,
   vrchatListWorlds,
   vrchatGetPopularWorlds,

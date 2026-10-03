@@ -44,7 +44,7 @@ const dbMod = require('./db');
 const wsService = require('./ws_service');
 const { fail, getPool, createFileFilter, sendError, ErrorCodes, ok } = require('./utils');
 const startSchedule = require('./schedule');
-const { requireAdminCompat } = require('./auth');
+const { requireAdminCompat, requireSuperAdmin } = require('./auth');
 const {
   ddosLimiter, loginBruteForceLimiter,
   uploadLimiter, adminLimiter, searchLimiter, jttLimiter,
@@ -58,6 +58,7 @@ const { enableWaf } = require('./middleware/waf');
 const { metricsMiddleware } = require('./middleware/metrics');
 const { setupPanelProxy } = require('./panel_proxy');
 const { setupUploadsAuth, setupAssetsAlbumAuth } = require('./middleware/uploads_auth');
+const { uploadsStaticLimiter } = require('./middleware/rate_limit');
 const { setupCsrf } = require('./middleware/csrf');
 const cache = require('./cache');
 const cacheService = require('./cache_service');
@@ -66,8 +67,9 @@ const tasks = require('./tasks');
 const setupVrcAuth = require('./vrc_auth');
 const createStatsRouter = require('./routes/stats');
 
-// Swagger 文档不在此处静态引入：生产环境（NODE_ENV=production）不再加载，
-// 因此部署生产时可安全使用 `npm ci --omit=dev`；仅在非生产环境按需 lazy 引入。
+// Swagger 文档不在此处静态引入：默认任何环境均不加载，仅在显式设置
+// ENABLE_SWAGGER=1 时按需 lazy 引入（见文件尾部挂载点），部署生产可安全使用
+// `npm ci --omit=dev`。
 
 const app = express();
 
@@ -101,9 +103,16 @@ const server = http.createServer(app);
 const PORT = parseInt(process.env.PORT, 10) || 3456;
 
 // ==================== 常量 ====================
+// P3-79: GROUP_ID 必须显式配置——未配置时生产环境拒绝启动（防止误同步到无关 VRChat 群组）；
+// 仅测试/开发（NODE_ENV=test 或 SQLite 引擎）环境保留默认值便于本地运行与测试加载。
 const defaultGroupId = 'grp_7a45b436-159c-4d9c-8303-e186ec25fc35';
 if (!process.env.GROUP_ID) {
-  logger.warn('[server]', 'WARNING: GROUP_ID 未在 .env 中设置，使用默认值！请检查是否为正确的 VRChat 群组 ID');
+  const isTestOrSqlite = process.env.NODE_ENV === 'test' || process.env.JINGTU_DB_ENGINE === 'sqlite';
+  if (process.env.NODE_ENV === 'production' && !isTestOrSqlite) {
+    logger.error('[server]', 'GROUP_ID 未在 .env 中配置。为防止误同步到无关 VRChat 群组，服务拒绝启动。请将 GROUP_ID 配置为你的 VRChat 群组 ID 后重试。');
+    process.exit(1);
+  }
+  logger.error('[server]', 'GROUP_ID 未在 .env 中配置，使用默认群组 ID（仅限开发/测试环境）。生产环境必须显式配置 GROUP_ID 指向你的 VRChat 群组。');
 }
 const GROUP_ID = process.env.GROUP_ID || defaultGroupId;
 const ROOT_DIR = path.join(__dirname, '..');
@@ -175,8 +184,10 @@ app.use(compression({
 // 必须置于安全响应头（CSP/X-Frame-Options）之前，否则面板内联脚本会被主站 CSP 拦截；
 // 面板自身的 Bearer Token 鉴权保持不变。
 // 探测/自动拉起/代理/重试逻辑已抽至 panel_proxy.js；
-// 先过管理员鉴权，避免把仅监听 localhost 的管理面板经公网入口暴露给匿名用户。
-setupPanelProxy(app, { ROOT_DIR, requireAdminCompat });
+// P2-154：入口鉴权从 requireAdminCompat（admin 级可穿透）提升为 requireSuperAdmin——
+// 面板凭共享密码即可重置超管密码/清空用户数据/停杀服务/导出含 PII 站点包，
+// 普通管理员（可能仅获局部数据面权限）不得触及机器级运维面。
+setupPanelProxy(app, { ROOT_DIR, requireSuperAdmin });
 // ==================== 运维面板反向代理 END ====================
 
 // 安全响应头（CSP + X-Frame-Options + HSTS + X-Content-Type-Options）
@@ -302,6 +313,8 @@ if (!SESSION_SECRET) {
   logger.warn('[server]', 'SESSION_SECRET 未设置，使用临时密钥（仅适用于 setup 初始化）');
 }
 const effectiveSecret = SESSION_SECRET || require('crypto').randomBytes(32).toString('hex');
+// P2-121: 把同一把签名密钥注入 ws_service，避免两个模块各自随机导致开发态 WS 全部 401
+wsService.setSessionSecret(effectiveSecret);
 
 // 生产环境密钥强校验：SESSION_SECRET / ENCRYPT_KEY 缺失则启动失败（M2）
 if (process.env.NODE_ENV === 'production') {
@@ -313,10 +326,11 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 let sessionStore;
-if (process.env.NODE_ENV === 'test') {
+if (process.env.NODE_ENV === 'test' || process.env.JINGTU_DB_ENGINE === 'sqlite') {
   // P2-1：集成测试（supertest require 本模块）不依赖 MySQL；且 express-mysql-session
   // 构造时会启动未 unref 的过期清理定时器，会挂住 Jest worker 进程，故测试环境直接用 MemoryStore。
-  logger.warn('[session]', 'NODE_ENV=test：session 使用 MemoryStore（supertest 集成测试专用）');
+  // SQLite 模式下没有 MySQL 可用，session 同样回退到 MemoryStore。
+  logger.warn('[session]', 'NODE_ENV=test 或 JINGTU_DB_ENGINE=sqlite：session 使用 MemoryStore');
 } else {
   try {
     const MySQLStore = require('express-mysql-session')(session);
@@ -355,6 +369,9 @@ app.use(session({
 // 分享链接由 routes/share.js 在返回内容时把 /uploads/... 改写为 /uploads/...?share=<code>，
 // 从而让匿名分享查看者仍能加载其媒体，但不暴露其它用户的上传。
 // 鉴权逻辑已抽至 middleware/uploads_auth.js（分享令牌绑定具体资源 + 严格路径匹配）。
+// P3-140：/uploads 静态媒体按 IP 限流（上限 1000/15min，见 rate_limit.js），
+// 防有效分享码拼不同路径放大 DB 查询——必须在鉴权之前挂载，使未登录刷量同样受限。
+app.use('/uploads', uploadsStaticLimiter);
 setupUploadsAuth(app);
 app.use('/uploads', express.static(path.join(ROOT_DIR, 'uploads'), {
   maxAge: 0,
@@ -369,21 +386,29 @@ app.use('/uploads', express.static(path.join(ROOT_DIR, 'uploads'), {
 }));
 
 // Session 验证中间件 — 确保用户未被封禁且仍存在
+// P2-122: banned 校验结果在 session 上短缓存 30s（bannedCheckedAt），避免每请求查库使 DB QPS 翻倍；
+// 30s 内新封禁用户最多延迟 30s 生效（安全起见 30s 后立即重查）。
+const BANNED_CHECK_TTL = 30 * 1000;
 app.use('/api', async (req, res, next) => {
   if (req.session?.userId) {
-    try {
-      const pool = getPool();
-      if (pool) {
-        const [rows] = await pool.query('SELECT banned FROM users WHERE id=? AND deleted_at IS NULL', [req.session.userId]);
-        if (rows.length === 0 || rows[0].banned) {
-          req.session.destroy(() => {});
-          return fail(res, 401, '账户已被禁用，请重新登录', { code: 'ACCOUNT_DISABLED' });
+    const now = Date.now();
+    const checkedAt = req.session.bannedCheckedAt || 0;
+    if (now - checkedAt > BANNED_CHECK_TTL) {
+      try {
+        const pool = getPool();
+        if (pool) {
+          const [rows] = await pool.query('SELECT banned FROM users WHERE id=? AND deleted_at IS NULL', [req.session.userId]);
+          if (rows.length === 0 || rows[0].banned) {
+            req.session.destroy(() => {});
+            return fail(res, 401, '账户已被禁用，请重新登录', { code: 'ACCOUNT_DISABLED' });
+          }
+          req.session.bannedCheckedAt = now;
         }
+      } catch (e) {
+        // 封禁状态校验依赖数据库；查询失败时按 fail-closed 拒绝，避免被封禁用户绕过校验。
+        console.error('[session] 封禁状态校验失败:', e.message);
+        return fail(res, 503, '服务暂时不可用，请稍后重试', { code: 'SERVICE_UNAVAILABLE' });
       }
-    } catch (e) {
-      // 封禁状态校验依赖数据库；查询失败时按 fail-closed 拒绝，避免被封禁用户绕过校验。
-      console.error('[session] 封禁状态校验失败:', e.message);
-      return fail(res, 503, '服务暂时不可用，请稍后重试', { code: 'SERVICE_UNAVAILABLE' });
     }
   }
   next();
@@ -534,6 +559,9 @@ const adminRouter = require('./routes/admin')(GROUP_ID, {
 });
 app.use('/api', adminRouter);
 
+// ==================== 在线更新路由（超管专属，GIT 拉取 + 自动重启） ====================
+app.use('/api', require('./routes/git_update'));
+
 // ==================== 相册 API（已提取到独立模块） ====================
 const albumRouter = require('./routes/album')(authState, notificationService);
 app.use('/api', albumRouter);
@@ -634,12 +662,14 @@ app.use('/api', (req, res) => {
   fail(res, 404, '请求的资源不存在');
 });
 
-// Swagger 文档仅在非生产环境挂载（生产可省略 devDependencies）。
-// 若仍需在生产查看 API 文档，请在反向代理层对 /api-docs 做鉴权或 IP 白名单。
-if (process.env.NODE_ENV !== 'production') {
+// P2-169：Swagger 文档默认不挂载——原逻辑仅靠 NODE_ENV!=='production' 判断，
+// 生产环境未配置 NODE_ENV 时（phpstudy/pm2/forever 常见漏配）会把 /api-docs 无鉴权
+// 暴露到公网。改为显式开关 ENABLE_SWAGGER=1 才挂载，且文档访问自身叠加
+// requireSuperAdmin 鉴权（见 swagger.js），双保险杜绝无鉴权 API 文档公开。
+if (process.env.ENABLE_SWAGGER === '1') {
   try {
     const { setupSwagger } = require('./swagger');
-    setupSwagger(app);
+    setupSwagger(app, { requireSuperAdmin });
   } catch (e) {
     logger.warn('[server]', 'Swagger 加载失败（已跳过）：', e.message);
   }

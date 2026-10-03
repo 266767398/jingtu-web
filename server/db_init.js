@@ -260,6 +260,7 @@ async function initDatabase() {
         custom_avatar_path VARCHAR(255) COMMENT '自定义头像路径',
         vrchat_avatar_url VARCHAR(500) COMMENT 'VRChat头像URL（currentAvatarThumbnailImageUrl）',
         avatar_visible TINYINT DEFAULT 1 COMMENT '头像是否显示（1=显示，0=隐藏；与 avatar_type 选哪种解耦）',
+        online_visible TINYINT DEFAULT 1 COMMENT '在线状态是否公开展示（1=可见，0=隐身）',
         qq_number_enc VARCHAR(500) COMMENT 'QQ号 AES-256-CBC加密',
         birthday DATE NULL COMMENT '生日（自愿填写）',
         location VARCHAR(200) COMMENT '所在地（自愿填写）',
@@ -415,6 +416,24 @@ async function initDatabase() {
         UNIQUE KEY uk_vrc_avatar(vrchat_id, avatar_id),
         INDEX idx_vrchat_id(vrchat_id),
         INDEX idx_time(created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // F-21 在线活动时间轴：在线会话表（检测到上线开会话，离线封口回填时长）
+      // 定时任务每分钟对 group_roster 好友（is_friend=1）Diff is_online：
+      // 离线→在线 INSERT 新会话（ended_at NULL 表示进行中）；在线→离线 UPDATE 封口回填时长与所在世界。
+      // 超长会话（>30 小时未封口，进程重启/漏检兜底）按 24 小时分段，避免时间轴单条跨度过大。
+      `CREATE TABLE IF NOT EXISTS activity_sessions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        vrchat_id VARCHAR(100) NOT NULL COMMENT 'VRChat 用户 ID（group_roster 主键）',
+        started_at DATETIME NOT NULL COMMENT '会话开始（检测到上线）',
+        ended_at DATETIME DEFAULT NULL COMMENT '会话结束（检测到离线；NULL=进行中）',
+        duration_minutes INT DEFAULT 0 COMMENT '会话时长（分钟，封口时回填）',
+        world_id VARCHAR(100) DEFAULT '' COMMENT '封口时所在世界（world_name 兜底，与 world_visit_current 同口径）',
+        world_name VARCHAR(255) DEFAULT '',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_vrchat_id(vrchat_id),
+        INDEX idx_started(started_at),
+        INDEX idx_vrchat_start(vrchat_id, started_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
       // F-16 头像标签：私有标签（owner_id 为本站用户），一个头像可打多个标签，同一 (owner, avatar, tag) 唯一。
@@ -1403,26 +1422,24 @@ async function initDatabase() {
         const existingCols = cols.map(c => c.Field);
         console.log(`  当前 users 表字段: ${existingCols.join(', ')}`);
         
-        const missingCols = ['approved', 'banned', 'failed_login_attempts', 'locked_until', 'location_updated_at'].filter(c => !existingCols.includes(c));
+        // §P3-85: 修复分支改由 usersSecurityCols 全量列表驱动——原 hardcode 仅 5 列，
+        // notification_settings/email/pronouns/previous_display_names/last_platform
+        // 失败时永远进不了修复循环，老库会永久缺列。
+        const missingCols = [];
+        for (const sql of usersSecurityCols) {
+          const m = /ADD\s+COLUMN\s+`?(\w+)`?/i.exec(sql);
+          const name = m ? m[1] : null;
+          if (name && !existingCols.includes(name)) missingCols.push({ name, sql });
+        }
         if (missingCols.length > 0) {
-          console.warn(`  缺少字段: ${missingCols.join(', ')}`);
+          console.warn(`  缺少字段: ${missingCols.map(c => c.name).join(', ')}`);
           console.log(`  正在尝试修复...`);
-          for (const col of missingCols) {
+          for (const { name, sql } of missingCols) {
             try {
-              let sql;
-              switch(col) {
-                case 'approved': sql = `ALTER TABLE users ADD COLUMN ${col} TINYINT DEFAULT 0`; break;
-                case 'banned': sql = `ALTER TABLE users ADD COLUMN ${col} TINYINT DEFAULT 0`; break;
-                case 'failed_login_attempts': sql = `ALTER TABLE users ADD COLUMN ${col} INT DEFAULT 0`; break;
-                case 'locked_until': sql = `ALTER TABLE users ADD COLUMN ${col} DATETIME NULL`; break;
-                case 'location_updated_at': sql = `ALTER TABLE users ADD COLUMN ${col} DATETIME NULL`; break;
-              }
-              if (sql) {
-                await holder.pool.query(sql);
-                console.log(`    ✓ 已添加字段: ${col}`);
-              }
+              await holder.pool.query(sql);
+              console.log(`    ✓ 已添加字段: ${name}`);
             } catch (e2) {
-              console.warn(`    ✗ 添加字段 ${col} 失败: ${e2.message}`);
+              console.warn(`    ✗ 添加字段 ${name} 失败: ${e2.message}`);
             }
           }
         }
@@ -1701,22 +1718,29 @@ async function initDatabase() {
     }
 
     // V6.88: member_note 表结构修复 - 将 owner_vrcid/target_vrcid (VARCHAR) 改为 owner_id/target_id (INT)
+    // §P2-147: 旧行为 CHANGE COLUMN ... INT NOT NULL，把 usr_xxx 形式的 VRChat ID 强转 INT
+    // （严格模式 1366 / 非严格全变 0，且重建唯一索引遇重复 (0,0) 报 1062 被静默吞）。
+    // 现改为分步安全迁移：加 INT 列 → 经 users.vrchat_id 回填 users.id → 清理不可映射行 → 删旧列 → 重建索引。
     try {
       const [cols] = await holder.pool.query('SHOW COLUMNS FROM member_note');
       const hasVrcidCols = cols.some(c => c.Field === 'owner_vrcid');
       if (hasVrcidCols) {
-        await holder.pool.query(`ALTER TABLE member_note 
-          CHANGE COLUMN owner_vrcid owner_id INT NOT NULL,
-          CHANGE COLUMN target_vrcid target_id INT NOT NULL,
-          DROP INDEX uk_owner_target,
-          ADD UNIQUE KEY uk_owner_target(owner_id, target_id),
-          ADD INDEX idx_owner(owner_id),
-          ADD INDEX idx_target(target_id)`);
-        console.log('  ✅ member_note 表结构已修复');
+        await holder.pool.query(`ALTER TABLE member_note ADD COLUMN owner_id INT NULL, ADD COLUMN target_id INT NULL`);
+        await holder.pool.query(`UPDATE member_note m LEFT JOIN users u ON u.vrchat_id = m.owner_vrcid SET m.owner_id = u.id`);
+        await holder.pool.query(`UPDATE member_note m LEFT JOIN users u ON u.vrchat_id = m.target_vrcid SET m.target_id = u.id`);
+        await holder.pool.query(`UPDATE member_note SET owner_id = 0 WHERE owner_id IS NULL`);
+        await holder.pool.query(`UPDATE member_note SET target_id = 0 WHERE target_id IS NULL`);
+        await holder.pool.query(`DELETE FROM member_note WHERE owner_id = 0 AND target_id = 0`);
+        try { await holder.pool.query(`ALTER TABLE member_note DROP INDEX uk_owner_target`); } catch (e2) {
+          if (e2.errno !== 1091 && e2.code !== 'ER_CANT_DROP_FIELD_OR_KEY') throw e2;
+        }
+        await holder.pool.query(`ALTER TABLE member_note DROP COLUMN owner_vrcid, DROP COLUMN target_vrcid`);
+        await holder.pool.query(`ALTER TABLE member_note MODIFY COLUMN owner_id INT NOT NULL, MODIFY COLUMN target_id INT NOT NULL, ADD UNIQUE KEY uk_owner_target(owner_id, target_id), ADD INDEX idx_owner(owner_id), ADD INDEX idx_target(target_id)`);
+        console.log('  ✅ member_note 表结构已修复（旧 vrchat_id 已迁移为 users.id）');
       }
     } catch (e) {
       if (e.errno !== 1054 && e.errno !== 1060 && e.errno !== 1061) {
-        console.warn('  ⚠️ member_note migration:', e.message);
+        console.warn('  ⚠️ member_note migration 失败（需人工核查数据）:', e.message);
       }
     }
 
@@ -1761,6 +1785,11 @@ async function initDatabase() {
     // V7.13 §11.8.8: users 表添加 avatar_visible（头像总显示开关，与 avatar_type 选哪种解耦）
     try { await holder.pool.query(`ALTER TABLE users ADD COLUMN avatar_visible TINYINT DEFAULT 1 COMMENT '头像是否显示（1=显示，0=隐藏；与 avatar_type 选哪种解耦）'`); } catch (e) {
       if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ avatar_visible migration:', e.message);
+    }
+
+    // P3-39: users 表添加 online_visible（在线状态隐身开关，broadcastOnlineUsers 过滤用）
+    try { await holder.pool.query(`ALTER TABLE users ADD COLUMN online_visible TINYINT DEFAULT 1 COMMENT '在线状态是否公开展示（1=可见，0=隐身）'`); } catch (e) {
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ online_visible migration:', e.message);
     }
 
     // V7.00 R25 §66: chat_groups 添加 is_public/invite_code 字段（已存在库升级，新建库已在 CREATE TABLE 中包含）
@@ -1964,6 +1993,7 @@ async function initDatabase() {
         rating_count INT NOT NULL DEFAULT 0 COMMENT '社区评分人数',
         heat INT NOT NULL DEFAULT 0 COMMENT '社区热度',
         visibility ENUM('private','public') NOT NULL DEFAULT 'private' COMMENT '可见性',
+        public_key VARCHAR(100) GENERATED ALWAYS AS (CASE WHEN visibility='public' THEN target_id ELSE NULL END) STORED COMMENT '公开态全站唯一键(P2-159)',
         show_author TINYINT(1) NOT NULL DEFAULT 0 COMMENT '公开时是否显示公开者名字（署名公开）',
         is_recommended TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否管理员推荐',
         recommended_by INT NULL COMMENT '推荐者用户ID',
@@ -1982,7 +2012,8 @@ async function initDatabase() {
         INDEX idx_category (category),
         INDEX idx_folder (folder_id),
         INDEX idx_heat (heat),
-        INDEX idx_public_heat (visibility, heat)
+        INDEX idx_public_heat (visibility, heat),
+        UNIQUE KEY uk_public_key (public_key)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
@@ -1991,6 +2022,32 @@ async function initDatabase() {
       await holder.pool.query(`ALTER TABLE collections ADD COLUMN \`show_author\` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '公开时是否显示公开者名字'`);
     } catch (e) {
       if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ collections.show_author migration:', e.message);
+    }
+
+    // P2-159: 公开收藏全站唯一约束迁移（生成列 public_key：仅 visibility='public' 时非空）。
+    // 1) 先清理历史重复公开行（保留每个 target_id 下 id 最小的一行，与 discover 去重口径一致），
+    //    避免后续建唯一索引时 1062；2) 补生成列；3) 补唯一索引。三步均幂等。
+    try {
+      await holder.pool.query(`
+        DELETE FROM collections WHERE visibility='public' AND id IN (
+          SELECT id FROM (
+            SELECT d.id FROM collections d JOIN collections k
+              ON k.target_id = d.target_id AND k.visibility='public' AND k.id < d.id
+          ) tmp
+        )
+      `);
+    } catch (e) {
+      console.warn('  ⚠️ collections 公开重复行清理:', e.message);
+    }
+    try {
+      await holder.pool.query(`ALTER TABLE collections ADD COLUMN \`public_key\` VARCHAR(100) GENERATED ALWAYS AS (CASE WHEN visibility='public' THEN target_id ELSE NULL END) STORED COMMENT '公开态全站唯一键(P2-159)'`);
+    } catch (e) {
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ collections.public_key migration:', e.message);
+    }
+    try {
+      await holder.pool.query(`ALTER TABLE collections ADD UNIQUE INDEX uk_public_key (\`public_key\`)`);
+    } catch (e) {
+      if (e.errno !== 1061 && e.code !== 'ER_DUP_KEYNAME') console.warn('  ⚠️ collections.uk_public_key migration:', e.message);
     }
 
     await holder.pool.query(`

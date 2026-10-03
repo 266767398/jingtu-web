@@ -9,7 +9,7 @@
 const express = require('express');
 const { requireAuth } = require('../auth');
 const wsService = require('../ws_service');
-const { getPool, fail, safeError } = require('../utils');
+const { getPool, fail, safeError, escapeLike } = require('../utils');
 const logger = require('../logger');
 
 module.exports = function createStatsRouter() {
@@ -107,20 +107,20 @@ module.exports = function createStatsRouter() {
     try {
       const q = (req.query.q || '').trim();
       if (q.length < 2) return res.json({ announcements: [], events: [], users: [] });
-      const like = `%${q}%`;
+      const like = `%${escapeLike(q)}%`;
 
       const [announcements] = await getPool().query(
-        `SELECT id, title, content FROM announcement WHERE title LIKE ? OR content LIKE ? ORDER BY create_time DESC LIMIT 5`,
+        `SELECT id, title, content FROM announcement WHERE title LIKE ? ESCAPE '!' OR content LIKE ? ESCAPE '!' ORDER BY create_time DESC LIMIT 5`,
         [like, like]
       );
 
       const [events] = await getPool().query(
-        `SELECT id, title, description FROM event WHERE (title LIKE ? OR description LIKE ?) AND is_archive=0 ORDER BY event_time DESC LIMIT 5`,
+        `SELECT id, title, description FROM event WHERE (title LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!') AND is_archive=0 ORDER BY event_time DESC LIMIT 5`,
         [like, like]
       );
 
       const [users] = await getPool().query(
-        `SELECT id, login_id AS loginId, display_name AS displayName FROM users WHERE deleted_at IS NULL AND approved=1 AND banned=0 AND (login_id LIKE ? OR display_name LIKE ?) LIMIT 5`,
+        `SELECT id, login_id AS loginId, display_name AS displayName FROM users WHERE deleted_at IS NULL AND approved=1 AND banned=0 AND (login_id LIKE ? ESCAPE '!' OR display_name LIKE ? ESCAPE '!') LIMIT 5`,
         [like, like]
       );
 

@@ -25,8 +25,31 @@ const JTT_ACCOUNT_PREFIX = 'jt_'; // 账号ID前缀：jt_ + 32 位 hex（契约 
 const stateReportCache = new Map(); // accountId -> lastReportTs
 // 签名 nonce 防重放缓存（内存实现，重启失效；契约 §7-2 接受，可换 jtt_nonce 表）
 const nonceCache = new Map(); // key: accountId + ':' + nonce -> ts
+
+// P3-36: nonceCache 稳态清理——抽公共函数，触发阈值由 10000 降至 5000（写路径超过即清过期项，稳态不再常驻上限附近）
+const JTT_NONCE_PRUNE_THRESHOLD = 5000;
+function pruneNonceCache(now) {
+  for (const [k, v] of nonceCache) {
+    if (now - v > SIGNATURE_WINDOW_SEC * 1000) nonceCache.delete(k);
+  }
+}
 // 深链票据缓存（内存实现，一次性、10 分钟有效；契约 §7-2 接受，可换 jtt_deeplink_tickets 表）
 const deeplinkTickets = new Map(); // ticket -> { type, targetId, inviteCode, expiresAt }
+
+// P2-120: 内存缓存超过阈值时遍历删除过期条目（对齐 nonceCache 的「>N 删过期」模式，防无界增长 OOM）
+const JTT_CACHE_PRUNE_THRESHOLD = 5000;
+function pruneJttCaches(now) {
+  if (stateReportCache.size > JTT_CACHE_PRUNE_THRESHOLD) {
+    for (const [k, ts] of stateReportCache) {
+      if (now - ts > STATE_RATE_LIMIT_MS) stateReportCache.delete(k);
+    }
+  }
+  if (deeplinkTickets.size > JTT_CACHE_PRUNE_THRESHOLD) {
+    for (const [k, v] of deeplinkTickets) {
+      if (v.expiresAt <= now) deeplinkTickets.delete(k);
+    }
+  }
+}
 
 // 构造签名串：METHOD \n PATH \n TIMESTAMP \n NONCE \n RAW_BODY（契约 §4.1）
 function buildSignatureString(method, path, timestamp, nonce, rawBody) {
@@ -159,10 +182,8 @@ async function jttAuth(req, res, next) {
       return sendError(res, 401, ErrorCodes.JTT_SIGNATURE_INVALID, 'nonce 重复（防重放）');
     }
     nonceCache.set(nonceKey, now);
-    if (nonceCache.size > 10000) {
-      for (const [k, v] of nonceCache) {
-        if (now - v > SIGNATURE_WINDOW_SEC * 1000) nonceCache.delete(k);
-      }
+    if (nonceCache.size > JTT_NONCE_PRUNE_THRESHOLD) {
+      pruneNonceCache(now);
     }
     // 3) RAW_BODY：全局 express.json 先于本中间件解析，用 rawBodyApprox 近似（无 body 签空串）
     const rawBody = rawBodyApprox(req);
@@ -428,7 +449,10 @@ router.post('/states', jttAuth, async (req, res) => {
     if (last && now - last < STATE_RATE_LIMIT_MS) {
       return sendError(res, 429, ErrorCodes.RATE_LIMITED, '状态上报过于频繁，请 15 秒后再试');
     }
-    if (accountId) stateReportCache.set(accountId, now);
+    if (accountId) {
+      stateReportCache.set(accountId, now);
+      pruneJttCaches(now);
+    }
     // UPSERT：以 user_id 为唯一键（jtt_game_states.uk_user）写当前状态（契约 §4.2）
     if (!['public', 'members_only', 'private'].includes(visibility)) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'visibility 须为 public/members_only/private');
@@ -572,6 +596,7 @@ router.post('/deeplink/generate', requireAuth, async (req, res) => {
     const ticket = crypto.randomBytes(18).toString('hex');
     const expiresAt = new Date(Date.now() + minutes * 60 * 1000);
     deeplinkTickets.set(ticket, { type, targetId: targetId != null ? targetId : null, inviteCode: inviteCode != null ? String(inviteCode) : null, expiresAt: expiresAt.getTime() });
+    pruneJttCaches(Date.now());
     // 按 type 构造 jt1:// 链接（契约 §5.1），参数 URL 编码；targetId 按 type 复用（join=房间ID / session/start=gameKey / account/import=账号文件URL）
     const enc = v => encodeURIComponent(v == null ? '' : String(v));
     let deepLink;
@@ -694,10 +719,8 @@ router.post('/accounts/register', async (req, res) => {
       return sendError(res, 401, ErrorCodes.JTT_SIGNATURE_INVALID, 'nonce 重复（防重放）');
     }
     nonceCache.set(nonceKey, now);
-    if (nonceCache.size > 10000) {
-      for (const [k, v] of nonceCache) {
-        if (now - v > SIGNATURE_WINDOW_SEC * 1000) nonceCache.delete(k);
-      }
+    if (nonceCache.size > JTT_NONCE_PRUNE_THRESHOLD) {
+      pruneNonceCache(now);
     }
     // ③ TOFU 验签：账号尚未入表，用请求体 publicKey 验签（首次信任由绑定码带外保证）
     const rawBody = rawBodyApprox(req);

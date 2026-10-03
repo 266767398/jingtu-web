@@ -109,11 +109,10 @@ function requireRole(...roles) {
       return fail(res, 401, '请先登录');
     }
     const requiredLevel = Math.max(...roles.map(r => ROLE_LEVEL[r] || 0));
+    // P2-127: 每次回查数据库角色——升级与降级均即时生效，不再依赖 session 生存期（被封禁/降级后原高权不放行）
     let userLevel = ROLE_LEVEL[req.session.role] || 0;
-    if (userLevel < requiredLevel) {
-      const freshRole = await refreshRoleFromDb(req.session);
-      if (freshRole) userLevel = ROLE_LEVEL[freshRole] || 0;
-    }
+    const freshRole = await refreshRoleFromDb(req.session);
+    if (freshRole) userLevel = ROLE_LEVEL[freshRole] || 0;
     if (userLevel < requiredLevel) {
       return fail(res, 403, '权限不足');
     }

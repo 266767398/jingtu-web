@@ -57,12 +57,15 @@ function switchTabSilent(tab) {
 
 // ==================== 渲染资料头部 ====================
 function renderProfileHeader(user, isOwner) {
-  // 封面
+  // 封面（CSS 背景图：立即设置 + Image 预探失败时回退默认封面，与头像默认资源兜底语义一致）
   const coverBg = document.getElementById('profileCoverBg');
   const coverImg = user.coverImage || user.preferences?.coverImage || '';
   if (coverBg) {
     if (coverImg) {
       coverBg.style.backgroundImage = `url(${escCssUrl(coverImg)})`;
+      const probe = new Image();
+      probe.onerror = function() { coverBg.style.backgroundImage = 'url(/assets/group-banner.png)'; };
+      probe.src = coverImg;
     } else {
       coverBg.style.backgroundImage = '';
     }
@@ -73,6 +76,7 @@ function renderProfileHeader(user, isOwner) {
   if (avatar) {
     avatar.src = user.avatarUrl || user.vrchatAvatarUrl || '/api/avatar/default';
     avatar.alt = user.displayName || user.loginId || '';
+    avatar.onerror = function() { window.__avatarFail && window.__avatarFail(this, user.avatarUrl || user.vrchatAvatarUrl || '/api/avatar/default'); };
   }
 
   // 显示名
@@ -172,15 +176,18 @@ function renderAlbums(albums, isOwner) {
     const photoCount = album.photoCount || album.photos?.length || 0;
     const privacy = album.privacy || 'public';
     const privacyLabels = { 'public': __('profile_page.public'), 'members_only': __('profile_page.member'), 'private': __('profile_page.private') };
+    // P2-131: 未知 privacy 值回退到安全文案与默认样式，不把原值拼入 HTML
+    const privacyLabel = privacyLabels[privacy] || __('profile_page.private');
+    const privacyClass = privacyLabels[privacy] ? privacy : 'private';
 
     return `
     <div class="profile-album-card" onclick="openAlbum(${album.id})">
-      <img class="profile-album-cover" src="${escAttr(cover || '/api/avatar/default')}" alt="${name}" loading="lazy" onerror="this.src='/api/avatar/default'">
+      ${imgWithFallback(cover || '/api/avatar/default', 'profile-album-cover', album.name || __('profile_page.unnamed_album'))}
       <div class="profile-album-info">
         <div class="profile-album-name">${name}</div>
         <div class="profile-album-meta">
           <span>${__('profile_page.n_files', {n: photoCount})}</span>
-          <span class="privacy-badge ${privacy} ml-4">${privacyLabels[privacy] || privacy}</span>
+          <span class="privacy-badge ${privacyClass} ml-4">${privacyLabel}</span>
         </div>
       </div>
     </div>`;
@@ -212,6 +219,9 @@ function renderVideos(videos, isOwner) {
     const date = video.createdAt ? fmtDate(video.createdAt) : '';
     const privacy = video.privacy || 'public';
     const privacyLabels = { 'public': __('profile_page.public'), 'members_only': __('profile_page.member'), 'private': __('profile_page.private') };
+    // P2-131: 未知 privacy 值回退到安全文案与默认样式，不把原值拼入 HTML
+    const privacyLabel = privacyLabels[privacy] || __('profile_page.private');
+    const privacyClass = privacyLabels[privacy] ? privacy : 'private';
 
     return `
     <div class="profile-video-card" onclick="openVideo(${video.id})">
@@ -222,7 +232,7 @@ function renderVideos(videos, isOwner) {
         <div class="profile-video-meta">
           ${duration ? '<span>⏱ ' + duration + '</span>' : ''}
           ${date ? '<span>📅 ' + date + '</span>' : ''}
-          <span class="privacy-badge ${privacy}">${privacyLabels[privacy] || privacy}</span>
+          <span class="privacy-badge ${privacyClass}">${privacyLabel}</span>
         </div>
       </div>
     </div>`;
@@ -281,7 +291,7 @@ async function openAlbum(albumId) {
         const isVideo = photo.mediaType === 'video';
         const vidHtml = isVideo
           ? '<div class="profile-photo-video-thumb"><span style="font-size:32px">🎬</span></div>'
-          : '<img src="' + escAttr(thumb) + '" alt="' + esc(desc) + '" loading="lazy">';
+          : imgWithFallback(thumb, '', desc);
         return '<div class="profile-photo-card" onclick="profileViewMedia(' + photo.id + ')">'
           + vidHtml
           + (isVideo ? '<span class="album-media-badge" style="position:absolute;top:4px;right:4px;font-size:16px">🎬</span>' : '')

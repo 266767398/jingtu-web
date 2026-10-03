@@ -1,6 +1,15 @@
 // 复验本轮修复：操作日志端点 / i18n 关键键 / 滚轮 / 相册上传按钮
+// P3-148：登录口令改环境变量注入（对齐 smoke-api.js 的 SMOKE_LOGIN_ID / SMOKE_PASSWORD 口径，
+// 与 P2-172 的 DIAG_ACCOUNT_PASS 同一来源）；操作日志响应体脱敏（只打状态，不打正文）。
 const puppeteer = require('puppeteer');
 const BASE = 'http://127.0.0.1:3456';
+
+const LOGIN_ID = process.env.SMOKE_LOGIN_ID;
+const LOGIN_PASS = process.env.SMOKE_PASSWORD;
+if (!LOGIN_ID || !LOGIN_PASS) {
+  console.error('需要设置 SMOKE_LOGIN_ID / SMOKE_PASSWORD（对应 P2-172 创建的 __diag 账号口令）');
+  process.exit(2);
+}
 
 (async () => {
   const browser = await puppeteer.launch({
@@ -12,8 +21,8 @@ const BASE = 'http://127.0.0.1:3456';
   p.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text().slice(0, 200)); });
 
   await p.goto(BASE, { waitUntil: 'networkidle2' });
-  await p.type('#loginId', '__diag');
-  await p.type('#loginPassword', 'Diag#2026x');
+  await p.type('#loginId', LOGIN_ID);
+  await p.type('#loginPassword', LOGIN_PASS);
   await p.click('#loginPwdBtn');
   await new Promise(r => setTimeout(r, 4000));
 
@@ -40,14 +49,12 @@ const BASE = 'http://127.0.0.1:3456';
     console.log(`   ${ok ? 'OK  ' : 'FAIL'} ${k.padEnd(18)} -> ${v}`);
   }
 
-  // 2) 操作日志端点
+  // 2) 操作日志端点（只打状态码，响应体含操作者/行为信息，P3-148 脱敏）
   const logRes = await p.evaluate(async () => {
     const r = await fetch('/api/admin/oper-logs?page=1&pageSize=5', { credentials: 'include' });
-    const t = await r.text();
-    return { status: r.status, body: t.slice(0, 600) };
+    return { status: r.status };
   });
   console.log('\n[2] /api/admin/oper-logs ->', logRes.status);
-  console.log('   ', logRes.body);
 
   // 3) 滚轮
   const wheel = await p.evaluate(async () => {

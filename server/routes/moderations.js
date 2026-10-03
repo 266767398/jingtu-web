@@ -174,14 +174,17 @@ module.exports = (getVRCCookieUserOnly) => {
       if (rows.length === 0) {
         return sendError(res, 404, ErrorCodes.NOT_FOUND, '审核项不存在');
       }
-      if (rows[0].status !== 'pending') {
+      const status = action === 'approve' ? 'approved' : 'rejected';
+      // P3-121：状态翻转改为条件更新「WHERE status='pending'」，以 affectedRows 判定
+      // 处理权——两个管理员并发处理同一审核项时，仅一个能翻转成功，另者得到 0 → 409，
+      // 不再出现双方都通过检查并各自执行远程 block/mute 的竞态
+      const [upd] = await getPool().query(
+        'UPDATE moderations SET status = ?, resolved_by = ?, resolved_at = NOW(), resolution_note = ? WHERE id = ? AND status = ?',
+        [status, req.session.userId, (note || '').slice(0, 500), id, 'pending']
+      );
+      if (upd.affectedRows === 0) {
         return sendError(res, 409, ErrorCodes.CONFLICT, '该审核项已处理');
       }
-      const status = action === 'approve' ? 'approved' : 'rejected';
-      await getPool().query(
-        'UPDATE moderations SET status = ?, resolved_by = ?, resolved_at = NOW(), resolution_note = ? WHERE id = ?',
-        [status, req.session.userId, (note || '').slice(0, 500), id]
-      );
       await logOper(req.session.userId, '处理审核举报', `审核项: ${id}, 结果: ${status}`);
 
       // F-18 远程动作：approve 时按 target_type 执行远程 VRChat 屏蔽/静音（graceful）

@@ -1,4 +1,6 @@
 const nodemailer = require('nodemailer');
+const fs = require('fs');
+const path = require('path');
 
 let transporter = null;
 let isEnabled = false;
@@ -6,6 +8,57 @@ let isEnabled = false;
 const mailQueue = [];
 let isProcessing = false;
 const MAX_RETRIES = 3;
+
+// P3-73: 队列上限 + 落盘持久化——突发群发不再无限堆内存；进程重启从磁盘恢复未发送邮件
+const MAIL_QUEUE_MAX = parseInt(process.env.MAIL_QUEUE_MAX, 10) || 1000;
+const QUEUE_INTERVAL_MS_FAST = parseInt(process.env.MAIL_QUEUE_INTERVAL_MS, 10) || 250; // 恢复期加快节奏
+const QUEUE_INTERVAL_MS_SLOW = 1000; // 失败后放慢，避免触发 SMTP 风控
+const PERSIST_FILE = process.env.MAIL_QUEUE_FILE || path.join(__dirname, '..', 'runtime', 'mail_queue.json');
+
+function _persistQueue() {
+  if (process.env.NODE_ENV === 'test') return;
+  try {
+    fs.mkdirSync(path.dirname(PERSIST_FILE), { recursive: true });
+    fs.writeFileSync(PERSIST_FILE, JSON.stringify(mailQueue.slice(0, MAIL_QUEUE_MAX)));
+  } catch (e) {
+    console.error('[mailer] 邮件队列落盘失败:', e.message);
+  }
+}
+
+function _loadQueue() {
+  if (process.env.NODE_ENV === 'test') return;
+  try {
+    if (!fs.existsSync(PERSIST_FILE)) return;
+    const raw = JSON.parse(fs.readFileSync(PERSIST_FILE, 'utf8'));
+    if (!Array.isArray(raw)) return;
+    for (const item of raw) {
+      if (!item || !item.to || mailQueue.length >= MAIL_QUEUE_MAX) break;
+      mailQueue.push({
+        to: item.to,
+        subject: item.subject || '',
+        html: item.html || null,
+        text: item.text || null,
+        retries: item.retries || 0,
+        delay: item.delay || 0,
+        timestamp: item.timestamp || Date.now()
+      });
+    }
+  } catch (e) {
+    console.error('[mailer] 邮件队列恢复失败:', e.message);
+  }
+}
+
+// 模块加载时恢复上次未发送的邮件（P3-73：进程重启不丢队列）
+_loadQueue();
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 function initMailer() {
   try {
@@ -70,24 +123,30 @@ async function processQueue() {
 
   while (mailQueue.length > 0) {
     const item = mailQueue.shift();
+    let failed = false;
     try {
       const result = await sendEmailDirect(item.to, item.subject, item.html, item.text);
       if (!result.success) {
         if (item.retries < MAX_RETRIES) {
           item.retries++;
-          item.delay = Math.pow(2, item.retries) * 1000;
+          item.delay = Math.min(60000, Math.pow(2, item.retries) * 1000);
           setTimeout(() => {
             mailQueue.push(item);
+            _persistQueue();
             processQueue();
           }, item.delay);
         } else {
           console.error(`[mailer] 邮件发送失败，已达最大重试次数: ${item.to}`);
         }
+        failed = true;
       }
     } catch (e) {
       console.error('[mailer] 队列处理异常:', e.message);
+      failed = true;
     }
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    _persistQueue();
+    // P3-73: SMTP 恢复期（连续成功）加快处理节奏尽快排空积压；失败后回落到慢节奏避免风控
+    await new Promise(resolve => setTimeout(resolve, failed ? QUEUE_INTERVAL_MS_SLOW : QUEUE_INTERVAL_MS_FAST));
   }
 
   isProcessing = false;
@@ -97,6 +156,11 @@ function sendEmail(to, subject, html, text) {
   if (!isEnabled) {
     console.warn('[mailer] 邮件服务未启用，跳过发送');
     return { success: false, error: '邮件服务未配置' };
+  }
+  // P3-73: 队列有上限——超限直接拒绝入队（宁可失败也不无限堆内存）
+  if (mailQueue.length >= MAIL_QUEUE_MAX) {
+    console.error('[mailer] 邮件队列已满，拒绝入队:', to);
+    return { success: false, error: '邮件队列已满，请稍后重试' };
   }
 
   mailQueue.push({
@@ -108,6 +172,7 @@ function sendEmail(to, subject, html, text) {
     delay: 0,
     timestamp: Date.now()
   });
+  _persistQueue();
 
   processQueue();
   return { success: true, queued: true, message: '邮件已加入队列' };
@@ -142,7 +207,7 @@ async function sendWelcomeEmail(email, username) {
         <h1 style="margin: 0;">🎉 欢迎加入境途同游</h1>
       </div>
       <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px;">
-        <p>尊敬的 ${username}，</p>
+        <p>尊敬的 ${escapeHtml(username)}，</p>
         <p>欢迎加入境途同游！我们很高兴您成为我们社区的一员。</p>
         <p>您现在可以：</p>
         <ul>
@@ -167,10 +232,10 @@ async function sendEventNotification(email, event) {
       </div>
       <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px;">
         <p>您好，</p>
-        <p>即将开始的活动：<strong>${event.title}</strong></p>
-        <p>${event.description}</p>
+        <p>即将开始的活动：<strong>${escapeHtml(event.title)}</strong></p>
+        <p>${escapeHtml(event.description)}</p>
         <p><strong>时间：</strong>${new Date(event.start_time).toLocaleString()}</p>
-        ${event.location ? `<p><strong>地点：</strong>${event.location}</p>` : ''}
+        ${event.location ? `<p><strong>地点：</strong>${escapeHtml(event.location)}</p>` : ''}
       </div>
       <p style="text-align: center; color: #999; font-size: 12px; margin-top: 20px;">境途同游 - VRChat群组管理平台</p>
     </div>
