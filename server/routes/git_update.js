@@ -11,6 +11,8 @@
  *   拉起新的 node server.js」，端口释放后再启动，避免 EADDRINUSE。
  */
 const path = require('path');
+const os = require('os');
+const fs = require('fs');
 const { execFile } = require('child_process');
 const express = require('express');
 const { ok, sendError, ErrorCodes, logOper } = require('../utils');
@@ -70,31 +72,49 @@ async function installServerDeps() {
  * 排程自动重启（Windows）：独立 PowerShell 进程先杀旧进程，等端口释放后再拉起新服务。
  * 调用方必须在 HTTP 响应已发出后再执行；return 后立即 detach，主进程不受影响。
  *
- * 注意（2026-10-03 实测修复）：不得用裸命令名 'powershell.exe' / 'node'，服务进程的
- * env PATH 与交互终端不同，detached 子进程会 spawn 失败或 Start-Process 解析不到可执行
- * 文件而抛 statement-terminating error 把整段 -Command 中止，导致“已排程”日志正常但
- * 服务不重启。改用绝对路径：PowerShell 用 SystemRoot 定位，node 用 process.execPath
- * （重启后与当前运行的服务是同一份 node 二进制）。
+ * 注意（2026-10-03 实测根因，二次修复）：早期实现是「node 直接 execFile detach 一个
+ * PowerShell，由它 Stop-Process 结束后再 Start-Process 拉起新服务」；实测发现该
+ * PowerShell 与 node 同属一个进程树/作业，**它执行 Stop-Process 杀掉父进程 node 的瞬间
+ * 自己也会被连带终止**（后续语句根本不执行）——表现为日志正常打印「已排程自动重启服务」
+ * 但服务只死不复。绝对路径（SystemRoot 定位 powershell、process.execPath 定位 node）解决
+ * 的是另一层「按名字解析不到可执行文件」的问题，但并不能让该 PowerShell 在杀父后存活。
+ * 二次修复改为 **WMI 中继**：node 只负责「写一段执行脚本 + detach 一个最小 PowerShell，
+ * 该 PowerShell 调用 Win32_Process.Create 让 WmiPrvSE 宿主创建真正的执行脚本进程」。
+ * 执行脚本进程的父进程是 WmiPrvSE、**不在 node 的作业/进程树里**，杀掉旧 node 后依然
+ * 存活，可以继续把新 server.js 拉起（已用 ai-scratch/test_wmi_restart.js 端到端验证）。
  */
 function scheduleRestart() {
   try {
     const psExe = (process.env.SystemRoot || 'C:\\Windows') + '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
     const nodeExe = process.execPath || 'node';
-    const ps = [
+    const stamp = process.pid + '-' + Date.now();
+    const scriptFile = path.join(os.tmpdir(), `jingtu-restart-${stamp}.ps1`);
+    const outLog = path.join(ROOT, 'logs', `restart-${stamp}.out.log`);
+    const errLog = path.join(ROOT, 'logs', `restart-${stamp}.err.log`);
+    fs.mkdirSync(path.join(ROOT, 'logs'), { recursive: true });
+    const executorPs = [
       `$ErrorActionPreference='SilentlyContinue'`,
+      `# 自动重启执行脚本（WMI 中继创建，父进程为 WmiPrvSE，脱离 node 进程树）`,
       `Start-Sleep -Milliseconds 1500`,
       `Stop-Process -Id ${process.pid} -Force`,
       `Start-Sleep -Seconds 2`,
-      `Start-Process -FilePath '${nodeExe}' -ArgumentList 'server.js' -WorkingDirectory '${SERVER_DIR.replace(/\\/g, '/')}' -WindowStyle Hidden`
+      `Start-Process -FilePath '${nodeExe}' -ArgumentList 'server.js' -WorkingDirectory '${SERVER_DIR.replace(/\\/g, '/')}' -WindowStyle Hidden -RedirectStandardOutput '${outLog}' -RedirectStandardError '${errLog}'`,
+      `Remove-Item -Path '${scriptFile}' -Force -ErrorAction SilentlyContinue`
     ].join('\n');
-    const child = execFile(psExe, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', ps], {
+    fs.writeFileSync(scriptFile, executorPs, 'utf8');
+    const wmiCmd = `${psExe} -NoProfile -ExecutionPolicy Bypass -File ${scriptFile}`;
+    const spawnerPs = [
+      `$ErrorActionPreference='SilentlyContinue'`,
+      `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '${wmiCmd}' } | Out-Null`
+    ].join('\n');
+    const child = execFile(psExe, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', spawnerPs], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true
     });
     child.on('error', (e) => logger.error('[git-update]', '重启排程子进程启动失败:', e.message));
     child.unref();
-    logger.info('[git-update]', '已排程自动重启服务（进程 pid=' + process.pid + '）');
+    logger.info('[git-update]', '已排程自动重启服务（进程 pid=' + process.pid + '，WMI 中继重启）');
   } catch (e) {
     logger.error('[git-update]', '排程自动重启失败:', e.message);
   }
