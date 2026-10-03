@@ -388,7 +388,7 @@ async function saveSystemVrcCredentials() {
 }
 
 // ==================== 在线更新（超管专属，GIT 拉取 + 自动重启） ====================
-// 前端仅渲染状态与发起请求；git fetch/merge、依赖安装检测、Windows 重启排程均在
+// 前端仅渲染状态与发起请求；git fetch/merge、依赖安装检测、跨平台重启排程均在
 // server/routes/git_update.js 完成。更新只改受版本控制的文件，不触碰 .env/数据库/uploads。
 function gitEsc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
