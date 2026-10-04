@@ -13,7 +13,7 @@ const {
   vrchatVerifyTwoFactor
 } = require('./vrc');
 const { fail, ok, getPool, encryptCookie, handleError, sendError, ErrorCodes } = require('./utils');
-const { passwordResetLimiter } = require('./middleware/rate_limit');
+const { passwordResetLimiter, createCustomLimiter } = require('./middleware/rate_limit');
 const { requireAuth } = require('./auth');
 const logger = require('./logger');
 const securityAlert = require('./security_alert');
@@ -90,10 +90,18 @@ function _register2faFailure(loginToken, state) {
 
 // 路由注册委托：routes/auth.js 原位调用，四个端点连中间件一并注册
 function registerVrcRoutes(router) {
+// AUTH-5：VRChat 登录第一步（模式 A）可用任意 VRChat 用户名+密码触发邮箱 OTP →
+// 骚扰 + 上游 API 配额消耗（VRChat 限额约 10 次/15min/IP）。收紧该端点限流：
+// 15 分钟 10 次/IP（含 mode A 与会话失效后的重试），阻断轮换刷 OTP。
+const vrcLoginLimiter = createCustomLimiter({
+  name: 'vrc-login',
+  max: 10,
+  message: { error: 'VRChat 登录请求过于频繁，请稍后再试', retryAfter: 900 }
+});
 // ==================== VRChat 登录（两步内联流程） ====================
 // 第一→ POST { username, password } →需要验证码时返回{ need2fa, loginToken }
 // 第二→ POST { code, loginToken } →验证码验证+ 完成登录
-router.post('/vrchat-login', async (req, res) => {
+router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
   try {
     const { username, password, code, method, loginToken } = req.body;
 

@@ -97,8 +97,10 @@ describe('security regressions', () => {
   });
 
   // 迁移接口和系统级 VRChat 控制可探测环境或改写全局登录态，必须只有管理员能访问。
+  // H-1 加固：迁移面（含 /migrate /replace-config）提升为仅超级管理员（requireSuperAdmin）。
   test('protects migration and system VRChat control routes', () => {
-    expect(files.migrationRoute).toMatch(/router\.use\(requireAdminCompat\)/);
+    expect(files.migrationRoute).toMatch(/router\.use\(requireSuperAdmin\)/);
+    expect(files.migrationRoute).not.toMatch(/router\.use\(requireAdminCompat\)/);
     expect(files.vrcSystemRoute).toMatch(/router\.post\('\/login',\s*requireAdminCompat/);
     expect(files.vrcSystemRoute).toMatch(/router\.post\('\/2fa',\s*requireAdminCompat/);
     expect(files.vrcSystemRoute).toMatch(/router\.post\('\/logout',\s*requireAdminCompat/);

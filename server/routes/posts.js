@@ -11,7 +11,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { requireAuth } = require('../auth');
+const { requireAuth, hasRole, currentRole } = require('../auth');
 const { fail, ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, logOper, paginate, escapeLike  } = require('../utils');;
 const cacheService = require('../cache_service');
 const webhook = require('../webhook');
@@ -492,7 +492,8 @@ router.put('/:id', requireAuth, (req, res, next) => {
       cleanupNewFiles();
       return sendError(res, 404, ErrorCodes.NOT_FOUND, '动态不存在');
     }
-    const isAdmin = ['admin', 'super_admin'].includes(req.session.role);
+    // IDOR-2: 实时 DB 角色判断，避免 session 角色陈旧导致降权不生效
+    const isAdmin = await hasRole(req, 'admin', 'super_admin');
     if (posts[0].user_id !== userId && !isAdmin) {
       await connection.rollback();
       cleanupNewFiles();
@@ -567,7 +568,7 @@ router.put('/:id', requireAuth, (req, res, next) => {
     webhook.triggerPostUpdated(post).catch(() => {});
     // 审计：编辑动态（管理员代编辑时内容里追加操作者标记）
     try {
-      const isAdmin = ['admin', 'super_admin'].includes(req.session.role) && posts[0].user_id !== userId;
+      const isAdmin = await hasRole(req, 'admin', 'super_admin') && posts[0].user_id !== userId;
       await logOper(userId, isAdmin ? '编辑动态(管理)' : '编辑动态', `动态#${postId}` + (isAdmin ? `, 原作者#${posts[0].user_id}` : ''));
     } catch (_) { /* 审计失败不影响主流程 */ }
     ok(res, { post });
@@ -590,7 +591,8 @@ router.delete('/:id', requireAuth, async (req, res) => {
     const postId = parseInt(req.params.id);
     if (!postId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
     const userId = req.session.userId;
-    const userRole = req.session.role;
+    // IDOR-2: 实时 DB 角色判断
+    const userRole = await currentRole(req);
 
     connection = await getPool().getConnection();
     await connection.beginTransaction();
@@ -826,7 +828,6 @@ router.put('/:id/comments/:commentId', requireAuth, async (req, res) => {
     const commentId = parseInt(req.params.commentId);
     const postId = parseInt(req.params.id);
     const userId = req.session.userId;
-    const userRole = req.session.role;
     const { content } = req.body;
 
     if (!commentId || !postId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
@@ -835,7 +836,8 @@ router.put('/:id/comments/:commentId', requireAuth, async (req, res) => {
 
     const [comments] = await getPool().query(`SELECT user_id FROM post_comment WHERE id = ? AND post_id = ?`, [commentId, postId]);
     if (!comments.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '评论不存在');
-    if (comments[0].user_id !== userId && userRole !== 'super_admin' && userRole !== 'admin') {
+    // IDOR-2: 实时 DB 角色判断
+    if (comments[0].user_id !== userId && !(await hasRole(req, 'admin', 'super_admin'))) {
       return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权编辑此评论');
     }
 
@@ -854,12 +856,12 @@ router.delete('/:id/comments/:commentId', requireAuth, async (req, res) => {
     const commentId = parseInt(req.params.commentId);
     const postId = parseInt(req.params.id);
     const userId = req.session.userId;
-    const userRole = req.session.role;
 
     const [comments] = await getPool().query(`SELECT * FROM post_comment WHERE id = ? AND post_id = ?`, [commentId, postId]);
     if (!comments.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '评论不存在');
 
-    if (comments[0].user_id !== userId && userRole !== 'super_admin' && userRole !== 'admin') {
+    // IDOR-2: 实时 DB 角色判断
+    if (comments[0].user_id !== userId && !(await hasRole(req, 'admin', 'super_admin'))) {
       return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权删除此评论');
     }
 
@@ -881,8 +883,8 @@ router.delete('/:id/comments/:commentId', requireAuth, async (req, res) => {
 router.put('/:id/pin', requireAuth, async (req, res) => {
   try {
     const postId = parseInt(req.params.id);
-    const userRole = req.session.role;
-    if (userRole !== 'super_admin' && userRole !== 'admin') {
+    // IDOR-2: 实时 DB 角色判断（置顶为管理动作）
+    if (!(await hasRole(req, 'admin', 'super_admin'))) {
       return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权操作');
     }
     const { pinned } = req.body;

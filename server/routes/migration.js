@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const mysql = require('mysql2/promise');
+const net = require('net');
 const fs = require('fs');
 const path = require('path');
 const { ok, fail, safeError } = require('../utils');
-const { requireAdminCompat } = require('../auth');
+const { requireSuperAdmin } = require('../auth');
 const { validateRequest, migrationValidations } = require('../validation');
 const logger = require('../logger');
 
@@ -15,48 +16,58 @@ const PANEL_CONFIGS = {
   aapanel: { name: 'aaPanel', defaultPort: 3306, userPattern: '用户名_前缀', defaultUser: '' }
 };
 
-// 数据迁移可探测内网数据库并读取本机配置，仅允许管理员使用。
-router.use(requireAdminCompat);
+// H-1: 数据迁移可探测内网数据库并改写本机配置——高危面，仅允许超级管理员使用。
+router.use(requireSuperAdmin);
+
+// H-1: 数据库连接目标 hosts 白名单——仅允许本机回环与私网地址，阻断 SSRF
+//（防攻击者借 /test-connection /migrate 探测公网主机/云元数据/未授权服务）。
+const HOST_MATCHES = [
+  /^localhost$/i, /^::1$/, /^127\./,
+  /^10\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./
+];
+function assertSafeHost(host) {
+  const h = String(host || '').trim().replace(/^\[([^\]]+)\]$/, '$1');
+  if (!h) throw new Error('数据库主机不能为空');
+  if (HOST_MATCHES.some(re => re.test(h))) return;
+  throw new Error('连接目标主机不在白名单内（迁移仅支持本机回环/私网数据库）');
+}
+
+// H-1: /detect 不再携带 root 空凭据做 MySQL 认证探测（避免凭据中转与数据库列表泄露），
+// 改为纯 TCP 端口连通性探测。
+function probeTcpPort(host, port, timeout = 2000) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host, port, timeout });
+    let settled = false;
+    const done = (payload) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(payload);
+    };
+    socket.once('connect', () => done({ open: true }));
+    socket.once('error', (e) => done({ open: false, message: e.code || e.message }));
+    socket.once('timeout', () => done({ open: false, message: 'ETIMEDOUT' }));
+  });
+}
 
 router.get('/detect', async (req, res) => {
   try {
     const results = [];
     const ports = [3306, 3307, 3308, 3309];
     const hosts = ['127.0.0.1', 'localhost'];
-    
+
     for (const host of hosts) {
       for (const port of ports) {
-        try {
-          const conn = await mysql.createConnection({
-            host,
-            port,
-            user: 'root',
-            password: '',
-            connectTimeout: 2000
-          });
-          
-          const [databases] = await conn.query(`SHOW DATABASES`);
-          await conn.end();
-          
-          results.push({
-            host,
-            port,
-            success: true,
-            databases: databases.map(d => d.Database),
-            message: `连接成功，发现 ${databases.length} 个数据库`
-          });
-        } catch (e) {
-          results.push({
-            host,
-            port,
-            success: false,
-            databases: [],
-            message: e.message
-          });
-        }
+        const probe = await probeTcpPort(host, port);
+        results.push({
+          host,
+          port,
+          success: probe.open,
+          message: probe.open ? '端口可连接' : probe.message
+        });
       }
     }
-    
+
     ok(res, { results });
   } catch (e) {
     fail(res, 200, safeError(e.message), { results: [] });
@@ -70,6 +81,8 @@ router.post('/test-connection', validateRequest(migrationValidations.testConnect
     if (!host || !port || !database || !user || !password) {
       return fail(res, 400, '参数不完整');
     }
+    // H-1: 主机白名单，阻断 SSRF
+    try { assertSafeHost(host); } catch (e) { return fail(res, 403, e.message); }
     
     const conn = await mysql.createConnection({
       host,
@@ -112,6 +125,8 @@ router.post('/get-databases', async (req, res) => {
     if (!host || !port || !user || !password) {
       return fail(res, 400, '参数不完整');
     }
+    // H-1: 主机白名单，阻断 SSRF
+    try { assertSafeHost(host); } catch (e) { return fail(res, 403, e.message); }
     
     const conn = await mysql.createConnection({
       host,
@@ -141,6 +156,8 @@ router.post('/get-tables', async (req, res) => {
     if (!host || !port || !database || !user || !password) {
       return fail(res, 400, '参数不完整');
     }
+    // H-1: 主机白名单，阻断 SSRF
+    try { assertSafeHost(host); } catch (e) { return fail(res, 403, e.message); }
     
     const conn = await mysql.createConnection({
       host,
@@ -224,7 +241,7 @@ async function migrateTableDataInBatches(sourceConn, targetConn, tableName, logs
   return { migrated, note: pkCol ? `按主键 ${pkCol} 排序分页` : '无主键顺序分页' };
 }
 
-router.post('/migrate', requireAdminCompat, validateRequest(migrationValidations.migrate), async (req, res) => {
+router.post('/migrate', requireSuperAdmin, validateRequest(migrationValidations.migrate), async (req, res) => {
   let sourceConn = null;
   let targetConn = null;
   
@@ -234,6 +251,8 @@ router.post('/migrate', requireAdminCompat, validateRequest(migrationValidations
     if (!sourceDb || !targetDb) {
       return fail(res, 400, '源数据库和目标数据库配置不能为空');
     }
+    // H-1: 主机白名单，阻断 SSRF
+    try { assertSafeHost(sourceDb.host); assertSafeHost(targetDb.host); } catch (e) { return fail(res, 403, e.message); }
     
     sourceConn = await mysql.createConnection({
       host: sourceDb.host,
@@ -404,7 +423,7 @@ const ALLOWED_CONFIG_FILES = [
   'server/settings.json'
 ];
 
-router.post('/replace-config', requireAdminCompat, validateRequest(migrationValidations.replaceConfig), async (req, res) => {
+router.post('/replace-config', requireSuperAdmin, validateRequest(migrationValidations.replaceConfig), async (req, res) => {
   try {
     const { files, dbConfig } = req.body;
     

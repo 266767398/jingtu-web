@@ -150,9 +150,13 @@ function _preloadRemaining() {
       var conf = TAB_SEO_MAP[tab];
       if (!conf) return; // 未知 Tab：保留上一次的 SEO
       var defaults = window.SITE_SEO.getDefaults ? window.SITE_SEO.getDefaults() : {};
+      function _seoText(key, fallback) {
+        var v = __(key);
+        return (v && v !== key) ? v : (fallback || '');
+      }
       window.SITE_SEO.setPageSeo({
-        title: __(conf.title),
-        description: __(conf.description) || defaults.description || '',
+        title: _seoText(conf.title, defaults.title || ''),
+        description: _seoText(conf.description, defaults.description || ''),
         path: conf.path,
         image: defaults.image
       });

@@ -1,5 +1,6 @@
 const mysql = require('mysql2/promise');
 const path = require('path');
+const logger = require('./logger');
 // P1-13：本文件同时被 server.js / routes/setup.js 进程内 require，也被 DEPLOY.md、
 // docker-entrypoint.sh、install.sh 以 `node db_init.js` 独立调用。db.js 自身不加载 .env
 // （仅 MYSQL_PASSWORD 有文件回退），独立运行时若不先 dotenv 会拿空配置连不上库。
@@ -27,7 +28,7 @@ async function initDatabase() {
       await tempConn.query(
         `CREATE DATABASE IF NOT EXISTS \`${holder.dbName}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
       );
-      console.log(`✅ 数据库 ${holder.dbName} 已就绪`);
+      logger.info('db-init', `✅ 数据库 ${holder.dbName} 已就绪`);
       await tempConn.end();
       tempConn = null;
       dbReady = true;
@@ -35,24 +36,24 @@ async function initDatabase() {
     } catch (err) {
       lastError = err;
       if (tempConn) {
-        try { await tempConn.end(); } catch (e) { console.warn('  关闭临时连接失败:', e.message); }
+        try { await tempConn.end(); } catch (e) { logger.warn('db-init', '  关闭临时连接失败:', e.message); }
         tempConn = null;
       }
-      console.warn(`⚠️ 数据库连接尝试 ${attempt}/${maxRetries} 失败: ${err.message}`);
+      logger.warn('db-init', `⚠️ 数据库连接尝试 ${attempt}/${maxRetries} 失败: ${err.message}`);
       if (attempt < maxRetries) {
-        console.log(`⏳ 等待 ${attempt * 2} 秒后重试...`);
+        logger.info('db-init', `⏳ 等待 ${attempt * 2} 秒后重试...`);
         await new Promise(r => setTimeout(r, attempt * 2000));
       }
     }
   }
   
   if (!dbReady) {
-    console.error('❌ 建库失败:', lastError ? lastError.message : '未知错误');
-    console.error('   请检查 .env 文件中的数据库配置是否正确：');
-    console.error('   MYSQL_HOST:', DB_CONFIG.host);
-    console.error('   MYSQL_USER:', DB_CONFIG.user);
-    console.error('   MYSQL_DATABASE:', holder.dbName);
-    console.error('   错误类型:', (lastError && lastError.code) || 'UNKNOWN');
+    logger.error('db-init', '❌ 建库失败:', lastError ? lastError.message : '未知错误');
+    logger.error('db-init', '   请检查 .env 文件中的数据库配置是否正确：');
+    logger.error('db-init', '   MYSQL_HOST:', DB_CONFIG.host);
+    logger.error('db-init', '   MYSQL_USER:', DB_CONFIG.user);
+    logger.error('db-init', '   MYSQL_DATABASE:', holder.dbName);
+    logger.error('db-init', '   错误类型:', (lastError && lastError.code) || 'UNKNOWN');
     throw lastError || new Error('建库失败：数据库连接重试全部耗尽');
   }
 
@@ -1271,7 +1272,7 @@ async function initDatabase() {
         try {
           await holder.pool.query(sql);
         } catch (e) {
-          console.warn(`  ⚠️ 表 sessions 建表失败（将影响登录态持久化，请检查权限后重启）: ${e.message}`);
+          logger.warn('db-init', `  ⚠️ 表 sessions 建表失败（将影响登录态持久化，请检查权限后重启）: ${e.message}`);
         }
         continue;
       }
@@ -1279,7 +1280,7 @@ async function initDatabase() {
         await holder.pool.query(sql);
       } catch (e) {
         createFailures.push(`${label}: ${e.message}`);
-        console.error(`  ❌ 建表失败 ${label}: ${e.message}`);
+        logger.error('db-init', `  ❌ 建表失败 ${label}: ${e.message}`);
       }
     }
 
@@ -1334,7 +1335,7 @@ async function initDatabase() {
     for (const sql of rosterCols) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
-        else { console.warn('  ⚠️ roster migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ roster migration:', e.message); }
       }
     }
     // Add indexes if missing (MySQL 5.7)
@@ -1348,8 +1349,8 @@ async function initDatabase() {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1061 || e.code === 'ER_DUP_KEYNAME') { /* index exists */ }
         // P1-47: 目标列缺失属升级事故（补列清单漏列），按严重错误告警而非静默 warning
-        else if (e.errno === 1054 || e.code === 'ER_BAD_FIELD_ERROR') { console.error('  ❌ roster index 严重错误（目标列缺失，请检查 rosterCols 补列清单）:', e.message); }
-        else { console.warn('  ⚠️ roster index:', e.message); }
+        else if (e.errno === 1054 || e.code === 'ER_BAD_FIELD_ERROR') { logger.error('db-init', '  ❌ roster index 严重错误（目标列缺失，请检查 rosterCols 补列清单）:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ roster index:', e.message); }
       }
     }
 
@@ -1365,7 +1366,7 @@ async function initDatabase() {
     for (const sql of worldCacheCols) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
-        else { console.warn('  ⚠️ world cache migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ world cache migration:', e.message); }
       }
     }
 
@@ -1376,7 +1377,7 @@ async function initDatabase() {
     for (const sql of moderationCols) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
-        else { console.warn('  ⚠️ moderation migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ moderation migration:', e.message); }
       }
     }
 
@@ -1404,23 +1405,23 @@ async function initDatabase() {
     for (const sql of usersSecurityCols) {
       try { 
         await holder.pool.query(sql); 
-        console.log(`  ✓ 迁移: ${sql.split(' ').slice(5).join(' ')}`);
+        logger.info('db-init', `  ✓ 迁移: ${sql.split(' ').slice(5).join(' ')}`);
       } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { 
-          console.log(`  ✓ 已存在: ${sql.split(' ').slice(5).join(' ')}`);
+          logger.info('db-init', `  ✓ 已存在: ${sql.split(' ').slice(5).join(' ')}`);
         } else { 
-          console.warn(`  ⚠️ 迁移失败: ${sql.split(' ').slice(5).join(' ')} - ${e.message}`);
+          logger.warn('db-init', `  ⚠️ 迁移失败: ${sql.split(' ').slice(5).join(' ')} - ${e.message}`);
           migrationErrors.push(sql);
         }
       }
     }
     
     if (migrationErrors.length > 0) {
-      console.warn(`  ⚠️ 检测到 ${migrationErrors.length} 个迁移失败，尝试检查表结构...`);
+      logger.warn('db-init', `  ⚠️ 检测到 ${migrationErrors.length} 个迁移失败，尝试检查表结构...`);
       try {
         const [cols] = await holder.pool.query('SHOW COLUMNS FROM users');
         const existingCols = cols.map(c => c.Field);
-        console.log(`  当前 users 表字段: ${existingCols.join(', ')}`);
+        logger.info('db-init', `  当前 users 表字段: ${existingCols.join(', ')}`);
         
         // §P3-85: 修复分支改由 usersSecurityCols 全量列表驱动——原 hardcode 仅 5 列，
         // notification_settings/email/pronouns/previous_display_names/last_platform
@@ -1432,19 +1433,19 @@ async function initDatabase() {
           if (name && !existingCols.includes(name)) missingCols.push({ name, sql });
         }
         if (missingCols.length > 0) {
-          console.warn(`  缺少字段: ${missingCols.map(c => c.name).join(', ')}`);
-          console.log(`  正在尝试修复...`);
+          logger.warn('db-init', `  缺少字段: ${missingCols.map(c => c.name).join(', ')}`);
+          logger.info('db-init', `  正在尝试修复...`);
           for (const { name, sql } of missingCols) {
             try {
               await holder.pool.query(sql);
-              console.log(`    ✓ 已添加字段: ${name}`);
+              logger.info('db-init', `    ✓ 已添加字段: ${name}`);
             } catch (e2) {
-              console.warn(`    ✗ 添加字段 ${name} 失败: ${e2.message}`);
+              logger.warn('db-init', `    ✗ 添加字段 ${name} 失败: ${e2.message}`);
             }
           }
         }
       } catch (e) {
-        console.error(`  ✗ 检查表结构失败: ${e.message}`);
+        logger.error('db-init', `  ✗ 检查表结构失败: ${e.message}`);
       }
     }
 
@@ -1456,7 +1457,7 @@ async function initDatabase() {
     for (const sql of eventV637Cols) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
-        else { console.warn('  ⚠️ event V6.37 migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ event V6.37 migration:', e.message); }
       }
     }
     // P3-10：event.visibility 扩 'private' 取值——路由层（P0-3 可见性执行）早已按 private 语义实现
@@ -1465,7 +1466,7 @@ async function initDatabase() {
     try {
       await holder.pool.query(`ALTER TABLE event MODIFY COLUMN visibility ENUM('public','members_only','private') DEFAULT 'public'`);
     } catch (e) {
-      console.warn('  ⚠️ event visibility ENUM migration:', e.message);
+      logger.warn('db-init', '  ⚠️ event visibility ENUM migration:', e.message);
     }
     const eventV637Indexes = [
       `ALTER TABLE event ADD INDEX idx_visibility(visibility)`,
@@ -1475,7 +1476,7 @@ async function initDatabase() {
     for (const sql of eventV637Indexes) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1061 || e.code === 'ER_DUP_KEYNAME') { /* index exists */ }
-        else { console.warn('  ⚠️ event V6.37 index:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ event V6.37 index:', e.message); }
       }
     }
 
@@ -1488,7 +1489,7 @@ async function initDatabase() {
     for (const sql of usersV637Indexes) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1061 || e.code === 'ER_DUP_KEYNAME') { /* index exists */ }
-        else { console.warn('  ⚠️ users V6.37 index:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ users V6.37 index:', e.message); }
       }
     }
 
@@ -1560,7 +1561,7 @@ async function initDatabase() {
     for (const u of existingMembers) {
       // 超级管理员加入组1，管理员加入组2，普通用户加入组3
       const [roleCheck] = await holder.pool.query(`SELECT role FROM users WHERE id = ?`, [u.id]);
-      let gid = 3; // 默认成员组
+      let gid = 3; 
       if (roleCheck.length > 0) {
         if (roleCheck[0].role === 'super_admin') gid = 1;
         else if (roleCheck[0].role === 'admin') gid = 2;
@@ -1578,7 +1579,7 @@ async function initDatabase() {
     for (const sql of albumPhotoVideoCols) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
-        else { console.warn('  ⚠️ album_photo video migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ album_photo video migration:', e.message); }
       }
     }
 
@@ -1590,7 +1591,7 @@ async function initDatabase() {
     for (const sql of userPhotosVideoCols) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
-        else { console.warn('  ⚠️ user_photos video migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ user_photos video migration:', e.message); }
       }
     }
 
@@ -1601,7 +1602,7 @@ async function initDatabase() {
     for (const sql of userLocationCols) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
-        else { console.warn('  ⚠️ user location migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ user location migration:', e.message); }
       }
     }
 
@@ -1614,7 +1615,7 @@ async function initDatabase() {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
         else if (e.errno === 1061 || e.code === 'ER_DUP_KEYNAME') { /* index exists */ }
-        else { console.warn('  ⚠️ album_photo event_id migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ album_photo event_id migration:', e.message); }
       }
     }
 
@@ -1629,7 +1630,7 @@ async function initDatabase() {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
         else if (e.errno === 1061 || e.code === 'ER_DUP_KEYNAME') { /* index exists */ }
-        else { console.warn('  ⚠️ notifications target migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ notifications target migration:', e.message); }
       }
     }
 
@@ -1642,7 +1643,7 @@ async function initDatabase() {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
         else if (e.errno === 1061 || e.code === 'ER_DUP_KEYNAME') { /* index exists */ }
-        else { console.warn('  ⚠️ event create_user_id migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ event create_user_id migration:', e.message); }
       }
     }
 
@@ -1653,7 +1654,7 @@ async function initDatabase() {
     for (const sql of chatGroupAdminCols) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
-        else { console.warn('  ⚠️ chat_group_members is_admin migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ chat_group_members is_admin migration:', e.message); }
       }
     }
 
@@ -1694,15 +1695,15 @@ async function initDatabase() {
 
     // V6.17: notifications 添加 is_archived 字段（通知归档）
     try { await holder.pool.query(`ALTER TABLE notifications ADD COLUMN is_archived TINYINT(1) DEFAULT 0 COMMENT '是否归档'`); } catch (e) {
-      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ notifications is_archived migration:', e.message);
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ notifications is_archived migration:', e.message);
     }
 
     // V6.18: messages 和 chat_group_messages 添加 edited_at 字段（消息编辑）
     try { await holder.pool.query(`ALTER TABLE messages ADD COLUMN edited_at DATETIME NULL COMMENT '编辑时间'`); } catch (e) {
-      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ messages edited_at migration:', e.message);
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ messages edited_at migration:', e.message);
     }
     try { await holder.pool.query(`ALTER TABLE chat_group_messages ADD COLUMN edited_at DATETIME NULL COMMENT '编辑时间'`); } catch (e) {
-      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ chat_group_messages edited_at migration:', e.message);
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ chat_group_messages edited_at migration:', e.message);
     }
 
     // V6.16: messages 和 chat_group_messages 添加 deleted_at 字段（软删除）
@@ -1713,7 +1714,7 @@ async function initDatabase() {
     for (const sql of softDeleteCols) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
-        else { console.warn('  ⚠️ soft_delete migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ soft_delete migration:', e.message); }
       }
     }
 
@@ -1736,11 +1737,11 @@ async function initDatabase() {
         }
         await holder.pool.query(`ALTER TABLE member_note DROP COLUMN owner_vrcid, DROP COLUMN target_vrcid`);
         await holder.pool.query(`ALTER TABLE member_note MODIFY COLUMN owner_id INT NOT NULL, MODIFY COLUMN target_id INT NOT NULL, ADD UNIQUE KEY uk_owner_target(owner_id, target_id), ADD INDEX idx_owner(owner_id), ADD INDEX idx_target(target_id)`);
-        console.log('  ✅ member_note 表结构已修复（旧 vrchat_id 已迁移为 users.id）');
+        logger.info('db-init', '  ✅ member_note 表结构已修复（旧 vrchat_id 已迁移为 users.id）');
       }
     } catch (e) {
       if (e.errno !== 1054 && e.errno !== 1060 && e.errno !== 1061) {
-        console.warn('  ⚠️ member_note migration 失败（需人工核查数据）:', e.message);
+        logger.warn('db-init', '  ⚠️ member_note migration 失败（需人工核查数据）:', e.message);
       }
     }
 
@@ -1756,7 +1757,7 @@ async function initDatabase() {
       }
     } catch (e) {
       if (e.errno !== 1054 && e.errno !== 1060 && e.errno !== 1061) {
-        console.warn('  ⚠️ member_note F-15 migration:', e.message);
+        logger.warn('db-init', '  ⚠️ member_note F-15 migration:', e.message);
       }
     }
 
@@ -1773,44 +1774,44 @@ async function initDatabase() {
     for (const sql of checkinUserCols) {
       try { await holder.pool.query(sql); } catch (e) {
         if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
-        else { console.warn('  ⚠️ checkin user migration:', e.message); }
+        else { logger.warn('db-init', '  ⚠️ checkin user migration:', e.message); }
       }
     }
 
     // V7.00: users 表添加成就积分字段
     try { await holder.pool.query(`ALTER TABLE users ADD COLUMN achievement_points INT DEFAULT 0 COMMENT '成就积分'`); } catch (e) {
-      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ achievement_points migration:', e.message);
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ achievement_points migration:', e.message);
     }
 
     // V7.13 §11.8.8: users 表添加 avatar_visible（头像总显示开关，与 avatar_type 选哪种解耦）
     try { await holder.pool.query(`ALTER TABLE users ADD COLUMN avatar_visible TINYINT DEFAULT 1 COMMENT '头像是否显示（1=显示，0=隐藏；与 avatar_type 选哪种解耦）'`); } catch (e) {
-      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ avatar_visible migration:', e.message);
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ avatar_visible migration:', e.message);
     }
 
     // P3-39: users 表添加 online_visible（在线状态隐身开关，broadcastOnlineUsers 过滤用）
     try { await holder.pool.query(`ALTER TABLE users ADD COLUMN online_visible TINYINT DEFAULT 1 COMMENT '在线状态是否公开展示（1=可见，0=隐身）'`); } catch (e) {
-      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ online_visible migration:', e.message);
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ online_visible migration:', e.message);
     }
 
     // V7.00 R25 §66: chat_groups 添加 is_public/invite_code 字段（已存在库升级，新建库已在 CREATE TABLE 中包含）
     try { await holder.pool.query(`ALTER TABLE chat_groups ADD COLUMN is_public TINYINT(1) DEFAULT 1 COMMENT '是否公开群（1=任何人可加入，0=需邀请码）'`); } catch (e) {
-      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ chat_groups is_public migration:', e.message);
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ chat_groups is_public migration:', e.message);
     }
     try { await holder.pool.query(`ALTER TABLE chat_groups ADD COLUMN invite_code VARCHAR(32) DEFAULT NULL COMMENT '加群邀请码（is_public=0 时必填）'`); } catch (e) {
-      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ chat_groups invite_code migration:', e.message);
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ chat_groups invite_code migration:', e.message);
     }
     try { await holder.pool.query(`ALTER TABLE chat_groups ADD INDEX idx_is_public (is_public)`); } catch (e) {
-      if (e.errno !== 1061 && e.code !== 'ER_DUP_KEYNAME') console.warn('  ⚠️ chat_groups idx_is_public migration:', e.message);
+      if (e.errno !== 1061 && e.code !== 'ER_DUP_KEYNAME') logger.warn('db-init', '  ⚠️ chat_groups idx_is_public migration:', e.message);
     }
 
     // V7.10: live_streams 添加 stream_key（推流码）。
     // 此前推流地址直接用自增 ID 拼成站内相对路径 /live/rtmp/<id>，OBS 无法使用，
     // 且任何人猜到 ID 就能顶替推流。现改为随机推流码 + 完整 rtmp:// 地址。
     try { await holder.pool.query(`ALTER TABLE live_streams ADD COLUMN stream_key VARCHAR(64) COMMENT 'OBS 推流码'`); } catch (e) {
-      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ live_streams stream_key migration:', e.message);
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ live_streams stream_key migration:', e.message);
     }
     try { await holder.pool.query(`ALTER TABLE live_streams ADD UNIQUE INDEX uk_stream_key (stream_key)`); } catch (e) {
-      if (e.errno !== 1061 && e.code !== 'ER_DUP_KEYNAME') console.warn('  ⚠️ live_streams uk_stream_key migration:', e.message);
+      if (e.errno !== 1061 && e.code !== 'ER_DUP_KEYNAME') logger.warn('db-init', '  ⚠️ live_streams uk_stream_key migration:', e.message);
     }
 
     // V7.10: 聊天消息的媒体附件列。
@@ -1826,7 +1827,7 @@ async function initDatabase() {
       ];
       for (const [col, def] of cols) {
         try { await holder.pool.query(`ALTER TABLE \`${table}\` ADD COLUMN \`${col}\` ${def}`); } catch (e) {
-          if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn(`  ⚠️ ${table}.${col} migration:`, e.message);
+          if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', `  ⚠️ ${table}.${col} migration:`, e.message);
         }
       }
     }
@@ -1848,7 +1849,7 @@ async function initDatabase() {
     ];
     for (const [col, def] of modelCollAddCols) {
       try { await holder.pool.query(`ALTER TABLE model_collections ADD COLUMN \`${col}\` ${def}`); } catch (e) {
-        if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn(`  ⚠️ model_collections.${col} migration:`, e.message);
+        if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', `  ⚠️ model_collections.${col} migration:`, e.message);
       }
     }
     // V8.1: 模型收藏馆第三方获取(BOOTH)字段迁移
@@ -1857,7 +1858,7 @@ async function initDatabase() {
       [`booth_url`, `VARCHAR(512) DEFAULT '' COMMENT 'BOOTH 商品页链接(替代下载动作)'`]
     ]) {
       try { await holder.pool.query(`ALTER TABLE model_collections ADD COLUMN \`${col}\` ${def}`); } catch (e) {
-        if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn(`  ⚠️ model_collections.${col} migration:`, e.message);
+        if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', `  ⚠️ model_collections.${col} migration:`, e.message);
       }
     }
 
@@ -1870,10 +1871,10 @@ async function initDatabase() {
       await holder.pool.query(
         'ALTER TABLE user_checkin ADD UNIQUE INDEX uk_user_date (user_id, checkin_date)'
       );
-      console.log('🔧 老库兼容：user_checkin 已补建 uk_user_date 唯一索引');
+      logger.info('db-init', '🔧 老库兼容：user_checkin 已补建 uk_user_date 唯一索引');
     } catch (e) {
       const idxExists = (e.code === 'ER_DUP_KEYNAME' || e.errno === 1061 || /Duplicate key name/i.test(e.message));
-      if (!idxExists) console.warn('  ⚠️ user_checkin uk_user_date 兼容迁移:', e.message);
+      if (!idxExists) logger.warn('db-init', '  ⚠️ user_checkin uk_user_date 兼容迁移:', e.message);
     }
 
     // V7.00: 插入签到奖励默认数据
@@ -2021,7 +2022,7 @@ async function initDatabase() {
     try {
       await holder.pool.query(`ALTER TABLE collections ADD COLUMN \`show_author\` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '公开时是否显示公开者名字'`);
     } catch (e) {
-      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ collections.show_author migration:', e.message);
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ collections.show_author migration:', e.message);
     }
 
     // P2-159: 公开收藏全站唯一约束迁移（生成列 public_key：仅 visibility='public' 时非空）。
@@ -2037,17 +2038,17 @@ async function initDatabase() {
         )
       `);
     } catch (e) {
-      console.warn('  ⚠️ collections 公开重复行清理:', e.message);
+      logger.warn('db-init', '  ⚠️ collections 公开重复行清理:', e.message);
     }
     try {
       await holder.pool.query(`ALTER TABLE collections ADD COLUMN \`public_key\` VARCHAR(100) GENERATED ALWAYS AS (CASE WHEN visibility='public' THEN target_id ELSE NULL END) STORED COMMENT '公开态全站唯一键(P2-159)'`);
     } catch (e) {
-      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') console.warn('  ⚠️ collections.public_key migration:', e.message);
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ collections.public_key migration:', e.message);
     }
     try {
       await holder.pool.query(`ALTER TABLE collections ADD UNIQUE INDEX uk_public_key (\`public_key\`)`);
     } catch (e) {
-      if (e.errno !== 1061 && e.code !== 'ER_DUP_KEYNAME') console.warn('  ⚠️ collections.uk_public_key migration:', e.message);
+      if (e.errno !== 1061 && e.code !== 'ER_DUP_KEYNAME') logger.warn('db-init', '  ⚠️ collections.uk_public_key migration:', e.message);
     }
 
     await holder.pool.query(`
@@ -2068,7 +2069,7 @@ async function initDatabase() {
       `SELECT config_value FROM system_config WHERE config_key = 'collections_migrated' LIMIT 1`
     );
     if (!migFlag || migFlag.length === 0) {
-      console.log('🔄 迁移历史收藏数据到统一 collections 表...');
+      logger.info('db-init', '🔄 迁移历史收藏数据到统一 collections 表...');
       await holder.pool.query(`
         INSERT IGNORE INTO collections
           (user_id, kind, target_id, name, author, author_id, thumbnail, description, platform, status, invalid_reason, last_checked_at, invalid_at, unity_version, asset_url, size_bytes, content_rating, category, tags, favorite_count, rating_avg, rating_count, heat, visibility, is_recommended, recommended_by, notes, created_at, updated_at)
@@ -2092,7 +2093,7 @@ async function initDatabase() {
       await holder.pool.query(
         `INSERT IGNORE INTO system_config (config_key, config_value) VALUES ('collections_migrated', '1')`
       );
-      console.log('✅ 历史收藏迁移完成');
+      logger.info('db-init', '✅ 历史收藏迁移完成');
     }
 
     // P2-77：表数改为运行时统计。旧硬编码「73张表」与实际 81 张早已漂移失真。
@@ -2104,17 +2105,17 @@ async function initDatabase() {
       );
       tableCountText = String(cntRows[0] ? cntRows[0].cnt : '未知');
     } catch (e) {
-      console.warn('  ⚠️ 统计表数量失败:', e.message);
+      logger.warn('db-init', '  ⚠️ 统计表数量失败:', e.message);
     }
 
     if (createFailures.length > 0) {
-      console.error(`❌ 数据库初始化未完全成功：${createFailures.length} 张表建表失败`);
-      createFailures.forEach((f) => console.error('   - ' + f));
+      logger.error('db-init', `❌ 数据库初始化未完全成功：${createFailures.length} 张表建表失败`);
+      createFailures.forEach((f) => logger.error('db-init', '   - ' + f));
       throw new Error(`数据库初始化失败：${createFailures.length} 张表未能创建（详见上方日志）`);
     }
-    console.log(`✅ 数据库初始化完成（当前库共 ${tableCountText} 张表 + 默认数据）`);
+    logger.info('db-init', `✅ 数据库初始化完成（当前库共 ${tableCountText} 张表 + 默认数据）`);
   } catch (err) {
-    console.error('❌ 数据库初始化失败:', err.message);
+    logger.error('db-init', '❌ 数据库初始化失败:', err.message);
     throw err;
   }
 }
@@ -2145,9 +2146,9 @@ async function setMigrationVersion(version) {
 // （退出码 / 体积 / mysqldump 文件头）；导出落在 backups/ 根目录，与手动/自动备份同栈。
 async function backupDatabase() {
   const { createBackup } = require('./backup-core');
-  console.log('📦 创建迁移前备份...');
+  logger.info('db-init', '📦 创建迁移前备份...');
   const info = await createBackup({ prefix: 'migration_' });
-  console.log(`✅ 迁移前备份完成: ${info.filename} (${info.sizeFormatted})`);
+  logger.info('db-init', `✅ 迁移前备份完成: ${info.filename} (${info.sizeFormatted})`);
   return {
     filepath: info.filePath,
     version: CURRENT_MIGRATION_VERSION,
@@ -2158,17 +2159,17 @@ async function backupDatabase() {
 async function rollbackToVersion(targetVersion) {
   const current = await getMigrationVersion();
   if (current <= targetVersion) {
-    console.log('ℹ️ 已是目标版本或更低，无需回滚');
+    logger.info('db-init', 'ℹ️ 已是目标版本或更低，无需回滚');
     return;
   }
-  console.log(`🔄 准备从版本 ${current} 回滚到版本 ${targetVersion}`);
+  logger.info('db-init', `🔄 准备从版本 ${current} 回滚到版本 ${targetVersion}`);
   // P1-13：备份文件名口径与 backupDatabase 保持一致（backups/ 根目录、migration_ 前缀、
   // 库名+时间戳命名）；旧提示里的 migrations/migration_backup_v*.sql 路径从未存在过。
-  console.log('⚠️ 回滚需要手动恢复备份，请使用以下命令：');
-  console.log('   mysql -u<user> -p <database> < backups/migration_<库名>_<时间戳>.sql');
-  console.log('   （管理后台「数据库备份」页也可直接恢复，含完整性校验）');
+  logger.info('db-init', '⚠️ 回滚需要手动恢复备份，请使用以下命令：');
+  logger.info('db-init', '   mysql -u<user> -p <database> < backups/migration_<库名>_<时间戳>.sql');
+  logger.info('db-init', '   （管理后台「数据库备份」页也可直接恢复，含完整性校验）');
   await setMigrationVersion(targetVersion);
-  console.log(`✅ 版本号已回滚至 ${targetVersion}（数据需手动恢复）`);
+  logger.info('db-init', `✅ 版本号已回滚至 ${targetVersion}（数据需手动恢复）`);
 }
 
 module.exports = initDatabase;
@@ -2186,11 +2187,11 @@ module.exports.CURRENT_MIGRATION_VERSION = CURRENT_MIGRATION_VERSION;
 if (require.main === module) {
   initDatabase()
     .then(async () => {
-      try { await holder.pool.end(); } catch (e) { console.warn('[db_init] 关闭连接池失败:', e.message); }
+      try { await holder.pool.end(); } catch (e) { logger.warn('db-init', '[db_init] 关闭连接池失败:', e.message); }
       process.exit(0);
     })
     .catch(async (err) => {
-      console.error('❌ 数据库初始化失败:', err.message);
+      logger.error('db-init', '❌ 数据库初始化失败:', err.message);
       try { await holder.pool.end(); } catch (_) { /* 池可能未建立，忽略 */ }
       process.exit(1);
     });

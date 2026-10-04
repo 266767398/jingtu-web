@@ -24,9 +24,9 @@ let _offlineSummaryInterval = null;
 let _sessionStore = null;
 // P2-121: 不再在模块加载期生成随机密钥——统一由 server.js 把 effectiveSecret 注入，
 // 避免「ws_service 与 server.js 各自随机」导致开发态 WS 签名互不认全 401。
-let _sessionSecret = process.env.SESSION_SECRET || null; // 显式注入优先，其次回落到环境变量
-let _originWhitelist = []; // 生产环境严格校验的 Origin 白名单
-let _wsAuthFailStreak = 0; // 未认证连接失败计数（用于异常/扫描监测）
+let _sessionSecret = process.env.SESSION_SECRET || null; 
+let _originWhitelist = []; 
+let _wsAuthFailStreak = 0; 
 
 // P2-121: 供 server.js 注入与 HTTP session 同一把签名密钥（缺 SESSION_SECRET 时 server.js 会拒绝生产启动/开发态用临时密钥）
 function setSessionSecret(secret) {
@@ -52,7 +52,7 @@ function _initSessionContext() {
   if (!_sessionSecret) _sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
   // P2-179: SQLite 模式下没有 MySQL 可用，WS session 同样回退到 MemoryStore（与 server.js HTTP session 一致）
   if (process.env.JINGTU_DB_ENGINE === 'sqlite') {
-    console.warn('[ws_service] JINGTU_DB_ENGINE=sqlite：WS session 使用 MemoryStore');
+    logger.warn('ws', '[ws_service] JINGTU_DB_ENGINE=sqlite：WS session 使用 MemoryStore');
     _sessionStore = new session.MemoryStore();
     return;
   }
@@ -64,19 +64,25 @@ function _initSessionContext() {
       user: process.env.MYSQL_USER || 'root',
       password: process.env.MYSQL_PASSWORD || '',
       database: process.env.MYSQL_DATABASE || 'jingtu_group',
-      createDatabaseTable: false, // 表应由 server.js 创建，这里只读
+      createDatabaseTable: false, 
       schema: { tableName: 'sessions' }
     });
   } catch (e) {
-    console.warn('⚠️ [ws_service] express-mysql-session 加载失败，WS 鉴权将退化为 MemoryStore（仅开发可用）:', e.message);
+    logger.warn('ws', '⚠️ [ws_service] express-mysql-session 加载失败，WS 鉴权将退化为 MemoryStore（仅开发可用）:', e.message);
     _sessionStore = new session.MemoryStore();
   }
 }
 
 // §29 verifyClient：校验 Origin 白名单 + 解析 session cookie，拒绝未认证连接
+let _wsConnCount = 0; 
 function _verifyClient(info, cb) {
   _initSessionContext();
   const req = info.req;
+
+  // WS-1: 并发连接粗上限（在认证之前即拒绝，防连接风暴）
+  if (_wsConnCount >= WS_MAX_CONNECTIONS) {
+    return cb(false, 503, 'Too many connections');
+  }
 
   // 1) Origin 校验（统一校验：无论生产还是 dev，只要请求带 Origin 就校验白名单/同源）
   const origin = req.headers.origin || '';
@@ -86,9 +92,9 @@ function _verifyClient(info, cb) {
     // 覆盖「页面在 80 端口、WS 经 3456 端口」导致的白名单端口不匹配，以及局域网 IP 等各种访问形态。
     let sameHost = false;
     try {
-      const originHost = new URL(origin).host; // 已自动去掉默认端口(80/443)
+      const originHost = new URL(origin).host; 
       let reqHost = (req.headers.host || '').toLowerCase();
-      reqHost = reqHost.replace(/:(80|443)$/, ''); // 规范化 Host，去掉默认端口
+      reqHost = reqHost.replace(/:(80|443)$/, ''); 
       sameHost = !!originHost && originHost.toLowerCase() === reqHost;
     } catch (_e) { /* ignore */ }
     if (!inWhitelist && !sameHost) {
@@ -163,9 +169,29 @@ const debounceTimers = new Map();
 
 // P2-123: 私信限流状态（per-sender→receiver 滑窗）。仅允许与建立社交关系的用户私信；防私信骚扰刷量。
 const PRIVATE_CHAT_RATE_WINDOW = 30 * 1000;
-const PRIVATE_CHAT_RATE_LIMIT = 20; // 30s 内同一 (sender→receiver) 最多 20 条
-const privateChatRateMap = new Map(); // `${userId}:${targetUser}` -> { count, windowStart }
+const PRIVATE_CHAT_RATE_LIMIT = 20; 
+const privateChatRateMap = new Map(); 
 const PRIVATE_CHAT_RATE_MAX_ENTRIES = 2000;
+// WS-4: 用户级私信聚合限流——同一用户在 30s 内向所有目标合计不超过 180 条（防扇出刷量）
+const PRIVATE_CHAT_AGG_LIMIT = 180;
+const userChatRateMap = new Map(); 
+const USER_CHAT_RATE_MAX_ENTRIES = 2000;
+// WS-4: 群聊限流——30s 内同一用户合计最多 40 条群消息（防群刷屏与 DB 写放大）
+const GROUP_CHAT_RATE_LIMIT = 40;
+
+function _userChatRate(userId, limit, windowMs) {
+  const now = Date.now();
+  const key = String(userId) + ':all';
+  let info = userChatRateMap.get(key);
+  if (!info || now - info.windowStart >= windowMs) {
+    info = { count: 0, windowStart: now };
+    if (userChatRateMap.size >= USER_CHAT_RATE_MAX_ENTRIES) userChatRateMap.clear();
+    userChatRateMap.set(key, info);
+  }
+  if (info.count >= limit) return false;
+  info.count++;
+  return true;
+}
 
 function _prunePrivateChatRate() {
   if (privateChatRateMap.size > PRIVATE_CHAT_RATE_MAX_ENTRIES) {
@@ -193,14 +219,31 @@ async function _canPrivateChat(pool, userId, targetUser) {
 // §RTC 实时通话语音房状态：roomKey -> Set<userId>
 // 私聊房 key: p:低id:高id；群语音房 key: g:群id
 const rtcRooms = new Map();
-const userRtcRooms = new Map(); // userId -> Set<roomKey>（断线清理用）
-const rtcRateMap = new Map();   // userId -> { count, windowStart }（信令限流）
+const userRtcRooms = new Map(); 
+const rtcRateMap = new Map();   
 const RTC_RATE_WINDOW = 10 * 1000;
-const RTC_RATE_LIMIT = 90;      // 10 秒内最多 90 条信令
-const RTC_MAX_MSG = 256 * 1024; // 单条信令体上限（SDP/ICE 常 <64KB）
+const RTC_RATE_LIMIT = 90;      
+const RTC_MAX_MSG = 256 * 1024; 
+// WS-1: 单帧载荷上限（默认 100MiB → 收紧到 1MiB，防大帧内存 DoS）
+const WS_MAX_PAYLOAD = 1024 * 1024;
+// WS-1: 全进程并发连接粗上限（防连接风暴耗尽 fd/内存）
+const WS_MAX_CONNECTIONS = 2000;
+
+// WS-3: 服务端消息净化——剥离 HTML 标签（聊天为纯文本，防存储型 XSS 最后一层防线）
+function stripHtmlTags(s) {
+  const str = String(s == null ? '' : s).replace(/<[^>]*>/g, '');
+  let out = '';
+  for (let i = 0; i < str.length; i++) {
+    const cc = str.charCodeAt(i);
+    // 去除控制字符（保留 \t \n \r）
+    if (cc < 0x20 && cc !== 0x09 && cc !== 0x0a && cc !== 0x0d) continue;
+    out += str[i];
+  }
+  return out;
+}
 
 function setupWebSocket(server) {
-  _wss = new WebSocketServer({ server, path: '/ws', verifyClient: _verifyClient });
+  _wss = new WebSocketServer({ server, path: '/ws', verifyClient: _verifyClient, maxPayload: WS_MAX_PAYLOAD });
 
   _heartbeatInterval = setInterval(() => {
     const now = Date.now();
@@ -222,6 +265,7 @@ function setupWebSocket(server) {
   }, 30 * 1000).unref();
 
   _wss.on('connection', (ws, req) => {
+    _wsConnCount++;
     // §29 userId 直接来自 verifyClient 中已认证的 session，忽略客户端发送的 msg.userId
     let userId = (req && req.wsUserId) || null;
     // §29-兜底：若 verifyClient 因异常未成功附着 userId，绝不接受该连接，
@@ -267,21 +311,33 @@ function setupWebSocket(server) {
               });
             }
             // P3-39: 在线状态由 users.online_visible 决断（不信任客户端上报的隐身标记，天然防伪造）
+            // WS-2: displayName/avatarUrl 必须以数据库为准——客户端声明的昵称/头像可被用来冒充他人。
             try {
-              const [uvRows] = await getPool().query(`SELECT online_visible FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1`, [userId]);
-              const onlineVisible = uvRows.length > 0 ? uvRows[0].online_visible !== 0 : true;
+              const [uvRows] = await getPool().query(
+                `SELECT online_visible, display_name, avatar_type, custom_avatar_path, vrchat_avatar_url
+                 FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1`, [userId]);
+              if (uvRows.length === 0) {
+                try { ws.close(1008, 'User not found'); } catch (e) {}
+                return;
+              }
+              const u = uvRows[0];
+              const onlineVisible = u.online_visible !== 0;
+              const avatarUrl = u.custom_avatar_path || u.vrchat_avatar_url || '';
               onlineUsers.set(userId, {
-                displayName: msg.displayName || '',
-                avatarUrl: msg.avatarUrl || '',
+                displayName: u.display_name || '',
+                avatarUrl,
                 lastPing: Date.now(),
                 location: null,
                 onlineVisible
               });
             } catch (e) {
               logger && logger.warn('[ws]', '读取 online_visible 失败，按可见处理', { userId, err: (e && e.message) || '' });
+              const [uvRows] = await getPool().query(
+                `SELECT display_name, custom_avatar_path, vrchat_avatar_url FROM users WHERE id = ? LIMIT 1`, [userId]);
+              const u = uvRows && uvRows[0] || {};
               onlineUsers.set(userId, {
-                displayName: msg.displayName || '',
-                avatarUrl: msg.avatarUrl || '',
+                displayName: u.display_name || '',
+                avatarUrl: u.custom_avatar_path || u.vrchat_avatar_url || '',
                 lastPing: Date.now(),
                 location: null,
                 onlineVisible: true
@@ -389,17 +445,18 @@ function setupWebSocket(server) {
         // 服务器端入口统一，内部按 msg.type 分发；userId 强制取连接绑定的 session userId
         if (msg.type && msg.type.indexOf('rtc:') === 0 && userId) {
           handleRtcSignal(userId, msg, ws).catch(e => {
-            console.warn('[ws] RTC 信令处理异常:', e.message);
+            logger.warn('ws', '[ws] RTC 信令处理异常:', e.message);
           });
           return;
         }
 
       } catch (e) {
-        console.warn('⚠️ WS 消息处理异常:', e.message);
+        logger.warn('ws', '⚠️ WS 消息处理异常:', e.message);
       }
     });
 
     ws.on('close', (code) => {
+      _wsConnCount = Math.max(0, _wsConnCount - 1);
       clearInterval(pingInterval);
 
       // §RTC 连接断开：清理其占用的语音房（含群语音房），并通知房内其他成员
@@ -486,7 +543,7 @@ function debounce(key, fn) {
   debounceTimers.set(key, timer);
 }
 
-function handleLocationUpdate(userId, msg, ws) {
+async function handleLocationUpdate(userId, msg, ws) {
   const lat = parseFloat(msg.lat);
   const lng = parseFloat(msg.lng);
   // 坐标必须合法，否则既不落库也不广播，避免污染地图
@@ -495,10 +552,24 @@ function handleLocationUpdate(userId, msg, ws) {
     return;
   }
 
+  // WS-6: 隐私门前置——location_visible=0 的用户不记录在线位置、不广播任何位置标记，
+  // 杜绝「关闭位置共享仍被 hasLocation 标志暴露 GPS 开启状态」的泄漏。
+  let visible = false;
+  try {
+    const [vis] = await getPool().query(
+      'SELECT location_visible FROM users WHERE id = ? AND deleted_at IS NULL', [userId]);
+    visible = vis.length > 0 && vis[0].location_visible === 1;
+  } catch (e) {
+    visible = false;
+  }
+  if (!visible) return;
+
+  // WS-2: displayName/avatarUrl 一律取服务端权威值（onlineUsers 由 DB 写入），不信任客户端传入
+  const userInfo0 = onlineUsers.get(userId);
   const locationData = {
     userId,
-    displayName: msg.displayName || onlineUsers.get(userId)?.displayName || '',
-    avatarUrl: msg.avatarUrl || onlineUsers.get(userId)?.avatarUrl || '',
+    displayName: userInfo0?.displayName || '',
+    avatarUrl: userInfo0?.avatarUrl || '',
     lat,
     lng,
     accuracy: msg.accuracy || null,
@@ -513,22 +584,19 @@ function handleLocationUpdate(userId, msg, ws) {
   const debounceKey = `location:${userId}`;
   debounce(debounceKey, async () => {
     try {
-      // 隐私开关校验：仅当用户开启位置共享（location_visible=1）时才向在线用户广播实时坐标；
-      // 否则即便落库被 WHERE location_visible=1 拦截，仍可能因 WS 广播而泄露实时 GPS。
-      const [vis] = await getPool().query(
+      // 双保险：debounce 触发时再次核实隐私开关（可能在此期间被关闭）
+      const [vis2] = await getPool().query(
         'SELECT location_visible FROM users WHERE id = ? AND deleted_at IS NULL', [userId]);
-      const visible = vis.length > 0 && vis[0].location_visible === 1;
-      // 持久化：仅在用户已开启位置共享时写入，否则 GET /api/users/all/locations
-      // 永远查不到数据，且刷新页面后位置全部丢失。
+      const visibleNow = vis2.length > 0 && vis2[0].location_visible === 1;
+      if (!visibleNow) return;
+      // 持久化：仅在用户已开启位置共享时写入
       persistLocation(userId, lat, lng);
-      if (visible) {
-        broadcastAllExcept(ws, {
-          type: 'location:update',
-          ...locationData
-        });
-      }
+      broadcastAllExcept(ws, {
+        type: 'location:update',
+        ...locationData
+      });
     } catch (e) {
-      console.warn('[ws] 位置广播隐私校验失败:', e.message);
+      logger.warn('ws', '[ws] 位置广播隐私校验失败:', e.message);
     }
   });
 }
@@ -541,7 +609,7 @@ async function persistLocation(userId, lat, lng) {
       [lat, lng, userId]
     );
   } catch (e) {
-    console.warn('[ws] 位置持久化失败:', e.message);
+    logger.warn('ws', '[ws] 位置持久化失败:', e.message);
   }
 }
 
@@ -559,18 +627,28 @@ function stopLocation(userId, ws) {
   getPool().query(
     `UPDATE users SET lat = NULL, lng = NULL, location_updated_at = NULL WHERE id = ?`,
     [userId]
-  ).catch(e => console.warn('[ws] 位置清除失败:', e.message));
+  ).catch(e => logger.warn('ws', '[ws] 位置清除失败:', e.message));
 }
 
 async function handlePrivateChat(userId, msg, ws) {
   const targetUser = parseInt(msg.receiverId);
   if (!targetUser || targetUser === userId) return;
   
-  const trimmed = (msg.content || '').trim().slice(0, 2000);
+  // WS-3: 服务端净化（剥离 HTML 标签），纯文本聊天存储型 XSS 防线
+  const trimmed = stripHtmlTags(msg.content || '').trim().slice(0, 2000);
   if (!trimmed) return;
 
   try {
     const pool = getPool();
+    // IDOR-6(WS): 对方已拉黑我 → 拒绝发信（与 HTTP chat/send 一致）
+    const [blocked] = await pool.query(
+      `SELECT 1 FROM user_friends WHERE user_id = ? AND friend_id = ? AND status = 'blocked' LIMIT 1`,
+      [targetUser, userId]
+    );
+    if (blocked.length) {
+      ws.send(JSON.stringify({ type: 'chat:error', error: '对方已拉黑你，无法发送消息' }));
+      return;
+    }
     // P2-123: 好友/关注校验——无社交关系即拒绝，防陌生私信骚扰
     let canChat = false;
     try {
@@ -599,6 +677,11 @@ async function handlePrivateChat(userId, msg, ws) {
       return;
     }
     rateInfo.count++;
+    // WS-4: 用户级私信聚合限流——防对多个目标扇出刷量
+    if (!_userChatRate(userId, PRIVATE_CHAT_AGG_LIMIT, PRIVATE_CHAT_RATE_WINDOW)) {
+      ws.send(JSON.stringify({ type: 'chat:error', error: '消息发送过于频繁，请稍后再试' }));
+      return;
+    }
 
     const [result] = await pool.query(
       `INSERT INTO messages (sender_id, receiver_id, content) VALUES (?, ?, ?)`,
@@ -637,12 +720,18 @@ function handleTyping(userId, msg) {
 
 async function handleGroupChat(userId, msg, ws) {
   const groupId = parseInt(msg.groupId);
-  const trimmed = (msg.content || '').trim().slice(0, 2000);
+  // WS-3: 服务端净化 + 截断
+  const trimmed = stripHtmlTags(msg.content || '').trim().slice(0, 2000);
 
   if (!groupId || !trimmed) return;
 
   try {
     const pool = getPool();
+    // WS-4: 群聊限流（30s 合计上限），防刷屏与 DB 写放大
+    if (!_userChatRate(userId, GROUP_CHAT_RATE_LIMIT, PRIVATE_CHAT_RATE_WINDOW)) {
+      ws.send(JSON.stringify({ type: 'chat:error', error: '消息发送过于频繁，请稍后再试' }));
+      return;
+    }
     // §62 校验发送者是否为该群成员，非成员拒绝并返回 chat:error
     const [memberRows] = await pool.query(
       `SELECT id FROM chat_group_members WHERE group_id = ? AND user_id = ?`,
@@ -665,7 +754,8 @@ async function handleGroupChat(userId, msg, ws) {
       message: {
         id: result.insertId,
         senderId: userId,
-        senderName: userInfo?.displayName || msg.displayName || '',
+        // WS-2: senderName 以服务端权威值为准
+        senderName: userInfo?.displayName || '',
         senderAvatar: userInfo?.avatarUrl || '',
         content: trimmed,
         msgType: 'text',
@@ -689,7 +779,7 @@ function handleGroupLocation(userId, msg) {
 
   // P1-42：位置投毒防线——非群成员拒收、坐标必须有限数、隐私闸与单人定位一致
   getGroupMembers(groupId).then(memberSet => {
-    if (!memberSet.has(userId)) return; // 非成员不处理，也不向该群回任何数据
+    if (!memberSet.has(userId)) return; 
     if (!Number.isFinite(Number(msg.lat)) || !Number.isFinite(Number(msg.lng))) return;
 
     const userInfo = onlineUsers.get(userId);
@@ -697,7 +787,8 @@ function handleGroupLocation(userId, msg) {
       type: 'group:location:update',
       groupId,
       userId,
-      displayName: userInfo?.displayName || msg.displayName || '',
+      // WS-2: 服务端权威身份，不信任客户端
+      displayName: userInfo?.displayName || '',
       avatarUrl: userInfo?.avatarUrl || '',
       lat: Number(msg.lat),
       lng: Number(msg.lng),
@@ -734,8 +825,15 @@ async function handleHistoryRequest(userId, ws, msg) {
     // §61 强制使用连接绑定的 userId，targetId 解析为整数避免类型混淆
     const targetId = parseInt(msg.targetId);
 
-    const limit = parseInt(pageSize) || 50;
-    const offset = (parseInt(page) || 0) * limit;
+    // WS-5: 历史记录限流（60s 内 30 次）+ 分页上限（pageSize≤100、offset≤10000），
+    // 防频繁/超大分页打爆数据库查询。
+    if (!_userChatRate(userId, 30, 60 * 1000)) {
+      ws.send(JSON.stringify({ type: 'history:error', error: '请求过于频繁，请稍后再试' }));
+      return;
+    }
+    const limit = Math.min(parseInt(pageSize) || 50, 100);
+    const pageNum = Math.min(Math.max(parseInt(page) || 0, 0), 10000);
+    const offset = pageNum * limit;
 
     let query, params;
 
@@ -784,7 +882,8 @@ async function handleHistoryRequest(userId, ws, msg) {
       hasMore: rows.length >= limit
     }));
   } catch (e) {
-    ws.send(JSON.stringify({ type: 'history:error', error: e.message }));
+    // 避免将底层错误堆栈/SQL 细节透传给客户端
+    ws.send(JSON.stringify({ type: 'history:error', error: '消息记录获取失败，请稍后重试' }));
   }
 }
 
@@ -1152,7 +1251,7 @@ async function handleRtcSignal(userId, msg, ws) {
   const groupId = parseInt(msg.groupId, 10);
   if (!groupId) return;
   const roomKey = rtcGroupRoomKey(groupId);
-  const memberSet = await getGroupMembers(groupId); // 60s 缓存，断言群成员身份
+  const memberSet = await getGroupMembers(groupId); 
 
   if (type === 'rtc:group:join') {
     if (!memberSet.has(userId)) {
@@ -1190,8 +1289,8 @@ async function handleRtcSignal(userId, msg, ws) {
       return;
     }
     const room = rtcRooms.get(roomKey);
-    if (!room || !room.has(userId) || !room.has(targetId)) return; // 双方都必须在房内
-    const kind = type.slice(10); // offer | answer | candidate
+    if (!room || !room.has(userId) || !room.has(targetId)) return; 
+    const kind = type.slice(10); 
     const payload = { type: `rtc:group:${kind}`, groupId, roomKey, senderId: userId, targetId, timestamp: Date.now() };
     if (msg.sdp) payload.sdp = msg.sdp;
     if (msg.candidate) payload.candidate = msg.candidate;

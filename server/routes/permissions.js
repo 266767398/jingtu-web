@@ -16,7 +16,7 @@
 const express = require('express');
 const router = express.Router();
 const { fail, getPool, handleError, getAvatarUrl, sendError, ErrorCodes } = require('../utils');
-const { requireAuth, requireRole, ROLE_LEVEL, ROLE_LABELS } = require('../auth');
+const { requireAuth, requireRole, ROLE_LEVEL, ROLE_LABELS, currentRole } = require('../auth');
 const { ALL_PERMISSIONS, PERMISSION_LABELS } = require('./permission_groups');
 
 // VRChat 群组成员状态 → 中文（membership_status 取值）
@@ -38,11 +38,13 @@ const ROLE_BASE_GROUP = { super_admin: 1, admin: 2, member: 3 };
  * 鉴权：看自己只需登录；看他人必须是 super_admin。
  * （权限详情属敏感信息，不允许普通 admin 越权查看其它账号。）
  */
-function resolveTarget(req, res, next) {
+async function resolveTarget(req, res, next) {
   const targetId = parseInt(req.params.userId, 10);
   if (!targetId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的用户ID');
   if (targetId === req.session.userId) return next();
-  if ((ROLE_LEVEL[req.session.role] || 0) < ROLE_LEVEL.super_admin) {
+  // IDOR-2: 实时 DB 角色判断
+  const role = await currentRole(req);
+  if ((ROLE_LEVEL[role] || 0) < ROLE_LEVEL.super_admin) {
     return fail(res, 403, '权限不足，仅可查看自己的权限');
   }
   next();

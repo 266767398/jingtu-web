@@ -6,6 +6,7 @@
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const logger = require('./logger');
 
 let ffmpegPath = null;
 let ffprobePath = null;
@@ -20,7 +21,7 @@ function getFfmpegPaths() {
     ffmpegPath = ffinstaller.path.replace(/\\/g, '/');
     // ffprobe 不在该包中，稍后尝试从其他来源获取
     if (fs.existsSync(ffmpegPath)) {
-      console.log('[video] 使用 @ffmpeg-installer/ffmpeg:', ffmpegPath);
+      logger.info('video', '[video] 使用 @ffmpeg-installer/ffmpeg:', ffmpegPath);
       // 尝试同一目录下找 ffprobe
       ffprobePath = ffmpegPath.replace('ffmpeg.exe', 'ffprobe.exe');
       if (!fs.existsSync(ffprobePath)) ffprobePath = null;
@@ -36,12 +37,12 @@ function getFfmpegPaths() {
     const probeResult = execSync('where ffprobe 2>nul', { encoding: 'utf8', timeout: 3000 });
     ffprobePath = probeResult.split('\n')[0].trim();
     if (fs.existsSync(ffmpegPath)) {
-      console.log('[video] 使用系统 ffmpeg:', ffmpegPath);
+      logger.info('video', '[video] 使用系统 ffmpeg:', ffmpegPath);
       return { ffmpegPath, ffprobePath };
     }
   } catch (e) { /* not in PATH */ }
 
-  console.warn('[video] ffmpeg 未找到，视频缩略图提取功能不可用');
+  logger.warn('video', '[video] ffmpeg 未找到，视频缩略图提取功能不可用');
   return { ffmpegPath: null, ffprobePath: null };
 }
 
@@ -89,7 +90,7 @@ async function extractVideoThumbnail(videoInputPath, outputDir) {
 
   // 确保输入文件存在
   if (!fs.existsSync(videoInputPath)) {
-    console.warn('[video] 视频文件不存在:', videoInputPath);
+    logger.warn('video', '[video] 视频文件不存在:', videoInputPath);
     return '';
   }
 
@@ -113,12 +114,12 @@ async function extractVideoThumbnail(videoInputPath, outputDir) {
     // 使用 child_process 直接调用 ffmpeg（避免 fluent-ffmpeg 异步依赖）
     const { spawn } = require('child_process');
     const args = [
-      '-y',                        // 覆盖已存在
-      '-i', videoInputPath,        // 输入
-      '-vframes', '1',             // 仅提取一帧
-      '-f', 'image2',              // 输出格式
-      '-q:v', '2',                 // 质量（2=高质量）
-      '-s', '400x225',             // 16:9 缩放到 400px 宽
+      '-y',                        
+      '-i', videoInputPath,        
+      '-vframes', '1',             
+      '-f', 'image2',              
+      '-q:v', '2',                 
+      '-s', '400x225',             
       tmpPath
     ];
 
@@ -130,7 +131,7 @@ async function extractVideoThumbnail(videoInputPath, outputDir) {
     const timer = setTimeout(() => {
       timedOut = true;
       proc.kill();
-      console.warn('[video] ffmpeg 超时:', videoInputPath);
+      logger.warn('video', '[video] ffmpeg 超时:', videoInputPath);
     }, 12000);
 
     // P3-142：无论成功/失败/超时，统一在进程结束后处理临时文件——
@@ -146,7 +147,7 @@ async function extractVideoThumbnail(videoInputPath, outputDir) {
             resolve(thumbName);
             return;
           } catch (e) {
-            console.warn('[video] 缩略图落定失败:', e.message);
+            logger.warn('video', '[video] 缩略图落定失败:', e.message);
           }
         }
         cleanupTmp();
@@ -158,13 +159,13 @@ async function extractVideoThumbnail(videoInputPath, outputDir) {
 
     proc.on('close', (code) => {
       clearTimeout(timer);
-      if (code !== 0) console.warn('[video] ffmpeg 退出码', code, stderr.slice(-200));
+      if (code !== 0) logger.warn('video', '[video] ffmpeg 退出码', code, stderr.slice(-200));
       settle();
     });
 
     proc.on('error', (err) => {
       clearTimeout(timer);
-      console.warn('[video] ffmpeg 执行错误:', err.message);
+      logger.warn('video', '[video] ffmpeg 执行错误:', err.message);
       settle();
     });
   });

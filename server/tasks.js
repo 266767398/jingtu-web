@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { sendSystemAlert } = require('./mailer');
 const cache = require('./cache');
+const logger = require('./logger');
 const { createBackup, cleanupAutoBackups } = require('./backup-core');
 
 const jobs = [];
@@ -45,10 +46,10 @@ async function cleanupExpiredSessions() {
       'DELETE FROM sessions WHERE expires < UNIX_TIMESTAMP()'
     );
     if (result.affectedRows > 0) {
-      console.log(`[task] 清理过期会话: ${result.affectedRows} 条`);
+      logger.info('tasks', `[task] 清理过期会话: ${result.affectedRows} 条`);
     }
   } catch (e) {
-    console.error('[task] 清理过期会话失败:', e);
+    logger.error('tasks', '[task] 清理过期会话失败:', e);
     await alertThrottled('cleanupExpiredSessions', '任务执行失败', `清理过期会话失败: ${e.message}`);
   }
 }
@@ -73,13 +74,13 @@ async function cleanupExpiredFiles() {
 
     const cleanupDir = (dir, depth) => {
       if (depth > MAX_CLEAN_DEPTH) {
-        console.warn(`[task] 临时目录递归深度超限（>${MAX_CLEAN_DEPTH}），跳过 ${dir}`);
+        logger.warn('tasks', `[task] 临时目录递归深度超限（>${MAX_CLEAN_DEPTH}），跳过 ${dir}`);
         return;
       }
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (scanned >= MAX_CLEAN_FILES) {
-          console.warn(`[task] 临时文件扫描数达上限（${MAX_CLEAN_FILES}），中止剩余清理`);
+          logger.warn('tasks', `[task] 临时文件扫描数达上限（${MAX_CLEAN_FILES}），中止剩余清理`);
           return;
         }
         const fullPath = path.join(dir, entry.name);
@@ -107,13 +108,13 @@ async function cleanupExpiredFiles() {
     }
 
     if (deleted > 0 || failed > 0) {
-      console.log(`[task] 清理过期临时文件: 删除 ${deleted} 个` + (failed ? `，失败 ${failed} 个` : ''));
+      logger.info('tasks', `[task] 清理过期临时文件: 删除 ${deleted} 个` + (failed ? `，失败 ${failed} 个` : ''));
     }
     if (failed > 0) {
       await alertThrottled('cleanupExpiredFilesPartial', '临时文件清理部分失败', `临时文件删除失败 ${failed} 个，请检查文件权限/占用`);
     }
   } catch (e) {
-    console.error('[task] 清理过期文件失败:', e);
+    logger.error('tasks', '[task] 清理过期文件失败:', e);
     await alertThrottled('cleanupExpiredFiles', '任务执行失败', `清理过期文件失败: ${e.message}`);
   }
 }
@@ -156,13 +157,13 @@ async function generateDailyStats() {
 
     await cache.set(`stats:daily:${today}`, stats, 7 * 24 * 60 * 60);
 
-    console.log(`[task] 生成日报统计: ${JSON.stringify(stats)}`);
+    logger.info('tasks', `[task] 生成日报统计: ${JSON.stringify(stats)}`);
 
     await sendSystemAlert('日报统计',
       `📊 今日统计\n用户注册: ${stats.newUsers}\n动态发布: ${stats.newPosts}\n活动创建: ${stats.newEvents}\n活跃用户: ${stats.activeUsers}`
     );
   } catch (e) {
-    console.error('[task] 生成日报统计失败:', e);
+    logger.error('tasks', '[task] 生成日报统计失败:', e);
     await alertThrottled('generateDailyStats', '任务执行失败', `生成日报统计失败: ${e.message}`);
   }
 }
@@ -176,10 +177,10 @@ async function cleanupExpiredNotifications() {
       [daysToKeep]
     );
     if (result.affectedRows > 0) {
-      console.log(`[task] 清理过期通知: ${result.affectedRows} 条`);
+      logger.info('tasks', `[task] 清理过期通知: ${result.affectedRows} 条`);
     }
   } catch (e) {
-    console.error('[task] 清理过期通知失败:', e);
+    logger.error('tasks', '[task] 清理过期通知失败:', e);
     await alertThrottled('cleanupExpiredNotifications', '任务执行失败', `清理过期通知失败: ${e.message}`);
   }
 }
@@ -188,9 +189,9 @@ async function cleanupExpiredNotifications() {
 async function runAutoBackup() {
   try {
     const info = await createBackup({ prefix: 'auto_' });
-    console.log(`[task] 自动备份完成: ${info.filename} (${info.sizeFormatted})`);
+    logger.info('tasks', `[task] 自动备份完成: ${info.filename} (${info.sizeFormatted})`);
   } catch (e) {
-    console.error('[task] 自动备份失败:', e);
+    logger.error('tasks', '[task] 自动备份失败:', e);
     await alertThrottled('runAutoBackup', '自动备份失败', `自动数据库备份失败: ${e.message}`);
   }
 }
@@ -201,10 +202,10 @@ async function cleanupExpiredBackups() {
     const daysToKeep = parseInt(process.env.BACKUP_RETENTION_DAYS) || 7;
     const deleted = cleanupAutoBackups(daysToKeep);
     if (deleted > 0) {
-      console.log(`[task] 清理过期自动备份: ${deleted} 个`);
+      logger.info('tasks', `[task] 清理过期自动备份: ${deleted} 个`);
     }
   } catch (e) {
-    console.error('[task] 清理过期备份失败:', e);
+    logger.error('tasks', '[task] 清理过期备份失败:', e);
     await alertThrottled('cleanupExpiredBackups', '任务执行失败', `清理过期备份失败: ${e.message}`);
   }
 }
@@ -216,10 +217,10 @@ async function cleanupExpiredShareLinks() {
     const pool = getPool();
     const [result] = await pool.query('DELETE FROM share_links WHERE expires_at < NOW()');
     if (result.affectedRows > 0) {
-      console.log(`[task] 清理过期分享链接: ${result.affectedRows} 条`);
+      logger.info('tasks', `[task] 清理过期分享链接: ${result.affectedRows} 条`);
     }
   } catch (e) {
-    console.error('[task] 清理过期分享链接失败:', e);
+    logger.error('tasks', '[task] 清理过期分享链接失败:', e);
     await alertThrottled('cleanupExpiredShareLinks', '任务执行失败', `清理过期分享链接失败: ${e.message}`);
   }
 }
@@ -231,7 +232,7 @@ function startTasks() {
   const running = new Set();
   const guard = (key, fn) => async () => {
     if (running.has(key)) {
-      console.warn(`[task] ${key} 上一次执行尚未结束，跳过本轮重叠触发`);
+      logger.warn('tasks', `[task] ${key} 上一次执行尚未结束，跳过本轮重叠触发`);
       return;
     }
     running.add(key);
@@ -255,15 +256,15 @@ function startTasks() {
     job.start();
   }
 
-  console.log('[task] 定时任务系统已启动');
+  logger.info('tasks', '[task] 定时任务系统已启动');
 }
 
 function stopTasks() {
   for (const job of jobs) {
     try { job.stop(); } catch (_) {}
   }
-  jobs.length = 0; // §P3-90: 清空已注册任务，保证 startTasks 幂等
-  console.log('[task] 定时任务系统已停止');
+  jobs.length = 0; 
+  logger.info('tasks', '[task] 定时任务系统已停止');
 }
 
 function getTaskStatus() {

@@ -38,7 +38,7 @@ router.get('/health/detailed', requireAdminCompat, async (req, res) => {
         },
         load: os.loadavg()
       },
-      version: 'V6.29'
+      version: 'V8.2'
     });
   } catch (e) {
     // 不回显数据库原始错误，避免泄露连接串/主机名

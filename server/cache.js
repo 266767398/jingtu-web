@@ -1,3 +1,5 @@
+const logger = require('./logger');
+
 let redisClient = null;
 let isEnabled = false;
 
@@ -9,7 +11,7 @@ async function initCache() {
     const redisDb = parseInt(process.env.REDIS_DB) || 0;
 
     if (!process.env.REDIS_HOST) {
-      console.log('[cache] Redis未配置，跳过初始化');
+      logger.info('cache', '[cache] Redis未配置，跳过初始化');
       return;
     }
 
@@ -19,29 +21,29 @@ async function initCache() {
     });
 
     await redisClient.connect();
-    console.log('[cache] Redis连接成功');
+    logger.info('cache', '[cache] Redis连接成功');
     isEnabled = true;
 
     redisClient.on('error', (err) => {
-      console.error('[cache] Redis错误:', err);
+      logger.error('cache', '[cache] Redis错误:', err);
       isEnabled = false;
     });
 
     redisClient.on('disconnect', () => {
-      console.warn('[cache] Redis断开连接');
+      logger.warn('cache', '[cache] Redis断开连接');
       isEnabled = false;
     });
 
     redisClient.on('reconnecting', () => {
-      console.log('[cache] Redis重连中...');
+      logger.info('cache', '[cache] Redis重连中...');
     });
 
     redisClient.on('ready', () => {
-      console.log('[cache] Redis重新连接成功');
+      logger.info('cache', '[cache] Redis重新连接成功');
       isEnabled = true;
     });
   } catch (e) {
-    console.error('[cache] Redis初始化失败:', e.message);
+    logger.error('cache', '[cache] Redis初始化失败:', e.message);
     isEnabled = false;
   }
 }
@@ -59,7 +61,7 @@ async function get(key) {
     }
     return null;
   } catch (e) {
-    console.error('[cache] get error:', e);
+    logger.error('cache', '[cache] get error:', e);
     return null;
   }
 }
@@ -74,7 +76,7 @@ async function set(key, value, ttlSeconds = 3600) {
       await redisClient.set(key, serialized);
     }
   } catch (e) {
-    console.error('[cache] set error:', e);
+    logger.error('cache', '[cache] set error:', e);
   }
 }
 
@@ -83,7 +85,7 @@ async function del(key) {
   try {
     await redisClient.del(key);
   } catch (e) {
-    console.error('[cache] del error:', e);
+    logger.error('cache', '[cache] del error:', e);
   }
 }
 
@@ -93,7 +95,7 @@ async function exists(key) {
     const result = await redisClient.exists(key);
     return result === 1;
   } catch (e) {
-    console.error('[cache] exists error:', e);
+    logger.error('cache', '[cache] exists error:', e);
     return false;
   }
 }
@@ -119,7 +121,7 @@ async function incr(key, ttlSeconds) {
     }
     return { total, ttl: ttl > 0 ? remaining : ttl };
   } catch (e) {
-    console.error('[cache] incr error:', e);
+    logger.error('cache', '[cache] incr error:', e);
     isEnabled = false;
     return null;
   }
@@ -155,7 +157,7 @@ async function decrBy(key, ttlSeconds) {
     const result = await redisClient.eval(DECRBY_SCRIPT, { keys: [key], arguments: [String(ttl)] });
     return typeof result === 'number' ? result : Number.parseInt(result, 10);
   } catch (e) {
-    console.error('[cache] decrBy error:', e);
+    logger.error('cache', '[cache] decrBy error:', e);
     isEnabled = false;
     return null;
   }
@@ -169,7 +171,7 @@ async function ttl(key) {
   try {
     return await redisClient.ttl(key);
   } catch (e) {
-    console.error('[cache] ttl error:', e);
+    logger.error('cache', '[cache] ttl error:', e);
     isEnabled = false;
     return -2;
   }
@@ -180,7 +182,7 @@ async function expire(key, seconds) {
   try {
     return await redisClient.expire(key, Math.ceil(seconds));
   } catch (e) {
-    console.error('[cache] expire error:', e);
+    logger.error('cache', '[cache] expire error:', e);
     isEnabled = false;
     return false;
   }
@@ -200,7 +202,7 @@ async function closeCache() {
     try {
       client.disconnect();
     } catch (closeErr) {
-      console.error('[cache] closeCache error:', closeErr);
+      logger.error('cache', '[cache] closeCache error:', closeErr);
     }
   }
 }
@@ -210,7 +212,7 @@ async function keys(pattern) {
   try {
     return await redisClient.keys(pattern);
   } catch (e) {
-    console.error('[cache] keys error:', e);
+    logger.error('cache', '[cache] keys error:', e);
     return [];
   }
 }
@@ -220,7 +222,7 @@ async function flushAll() {
   try {
     await redisClient.flushAll();
   } catch (e) {
-    console.error('[cache] flushAll error:', e);
+    logger.error('cache', '[cache] flushAll error:', e);
   }
 }
 

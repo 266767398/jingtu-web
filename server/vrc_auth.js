@@ -520,8 +520,9 @@ module.exports = function setupVrcAuth() {
               authState.cookie = saved.cookie; // 保留内存中的明文
               saved.cookie = encrypted;
               const tmp = SESSION_FILE + '.tmp';
-              fs.writeFileSync(tmp, JSON.stringify(saved, null, 2), 'utf8');
+              fs.writeFileSync(tmp, JSON.stringify(saved, null, 2), { encoding: 'utf8', mode: 0o600 });
               fs.renameSync(tmp, SESSION_FILE);
+              try { fs.chmodSync(SESSION_FILE, 0o600); } catch (e) { /* Windows 无 POSIX 权限语义 */ }
             }
           }
         }
@@ -547,8 +548,9 @@ module.exports = function setupVrcAuth() {
       }
     };
     const tmp = SESSION_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(stateToSave, null, 2), 'utf8');
+    fs.writeFileSync(tmp, JSON.stringify(stateToSave, null, 2), { encoding: 'utf8', mode: 0o600 });
     fs.renameSync(tmp, SESSION_FILE);
+    try { fs.chmodSync(SESSION_FILE, 0o600); } catch (e) { /* Windows 无 POSIX 权限语义 */ }
     updatePipelineAuth();
   }
 

@@ -238,7 +238,7 @@ function switchTab(tab, force) {
   });
   updateTabIndicator();
   // 页面标题随 Tab 切换（国际化）
-  const tabTitleKeys = { 'home': 'nav.home', 'members': 'nav.members', 'vrc': 'nav.vrc', 'announcements': 'nav.announcements', 'events': 'nav.events', 'album': 'nav.album', 'map': 'nav.map', 'chat': 'nav.chat', 'birthday': 'nav.birthday', 'admin': 'nav.admin', 'me': 'nav.me', 'profile-user': 'nav.profile', 'posts': 'nav.posts', 'live': 'nav.live', 'friends': 'friends.title', 'follows': 'follows.title' };
+  const tabTitleKeys = { 'home': 'nav.home', 'members': 'nav.members', 'vrc': 'nav.vrc', 'announcements': 'nav.announcements', 'events': 'nav.events', 'album': 'nav.album', 'map': 'nav.map', 'chat': 'nav.chat', 'birthday': 'nav.birthday', 'admin': 'nav.admin', 'me': 'nav.me', 'profile-user': 'nav.profile', 'posts': 'nav.posts', 'live': 'nav.live', 'friends': 'friends.title', 'follows': 'follows.title', 'notifications': 'nav.notifications' };
   document.title = `${__('page_title_prefix')} - ${__(tabTitleKeys[tab] || 'nav.home')}`;
   // Tab 内容入场动画：先重置动画再触发
   const contentEl = document.getElementById('tab-' + tab);

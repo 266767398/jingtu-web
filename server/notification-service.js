@@ -7,9 +7,10 @@
 const { getPool, safeError } = require('./utils');
 const mailer = require('./mailer');
 const wsService = require('./ws_service');
+const logger = require('./logger');
 
 class NotificationService {
-  static SETTINGS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 小时
+  static SETTINGS_CACHE_TTL_MS = 60 * 60 * 1000; 
   static SETTINGS_CACHE_MAX = 5000;
 
   constructor() {
@@ -44,7 +45,7 @@ class NotificationService {
       this._settingsCache.set(userId, { at: Date.now(), settings: result });
       return result;
     } catch (e) {
-      console.warn('⚠️ 获取用户通知设置失败:', e.message);
+      logger.warn('notify', '⚠️ 获取用户通知设置失败:', e.message);
       return { browser: true, email: false, sound: true };
     }
   }
@@ -62,7 +63,7 @@ class NotificationService {
         [userId, type, title, message, relatedId, targetType, targetId, postId]
       );
     } catch (e) {
-      console.warn('⚠️ 创建通知失败:', e.message);
+      logger.warn('notify', '⚠️ 创建通知失败:', e.message);
     }
   }
 
@@ -71,7 +72,7 @@ class NotificationService {
       const [users] = await getPool().query(`SELECT id FROM users WHERE deleted_at IS NULL AND banned = 0`);
       await this._bulkFanOut(users.map(u => u.id), type, title, message, target);
     } catch (e) {
-      console.warn('⚠️ 群发通知失败:', e.message);
+      logger.warn('notify', '⚠️ 群发通知失败:', e.message);
     }
   }
 
@@ -83,7 +84,7 @@ class NotificationService {
       );
       await this._bulkFanOut(admins.map(a => a.id), type, title, message, target);
     } catch (e) {
-      console.warn('⚠️ 管理员群发通知失败:', e.message);
+      logger.warn('notify', '⚠️ 管理员群发通知失败:', e.message);
     }
   }
 
@@ -106,13 +107,13 @@ class NotificationService {
           values
         );
       } catch (e) {
-        console.warn('⚠️ 批量创建通知失败:', e.message);
+        logger.warn('notify', '⚠️ 批量创建通知失败:', e.message);
       }
       let rows = null;
       try {
         [rows] = await getPool().query(`SELECT id, notification_settings FROM users WHERE id IN (?)`, [slice]);
       } catch (e) {
-        console.warn('⚠️ 批量查询通知设置失败:', e.message);
+        logger.warn('notify', '⚠️ 批量查询通知设置失败:', e.message);
       }
       if (rows) {
         for (const row of rows) {
@@ -155,7 +156,7 @@ class NotificationService {
         payload: { ...payload, notificationType: type } 
       });
     } catch (e) {
-      console.warn('⚠️ WebSocket 广播失败:', e.message);
+      logger.warn('notify', '⚠️ WebSocket 广播失败:', e.message);
     }
   }
 
@@ -186,10 +187,10 @@ class NotificationService {
         </div>`;
       const result = mailer.sendEmail(user.email, `【境途同游】${title}`, html, `${message}\n\n-- 境途同游团队`);
       if (!result.success) {
-        console.warn('⚠️ 发送邮件通知失败:', result.error);
+        logger.warn('notify', '⚠️ 发送邮件通知失败:', result.error);
       }
     } catch (e) {
-      console.warn('⚠️ 发送邮件通知失败:', e.message);
+      logger.warn('notify', '⚠️ 发送邮件通知失败:', e.message);
     }
   }
 
@@ -200,7 +201,7 @@ class NotificationService {
         payload: { ...payload, notificationType: type } 
       });
     } catch (e) {
-      console.warn('⚠️ WebSocket 推送失败:', e.message);
+      logger.warn('notify', '⚠️ WebSocket 推送失败:', e.message);
     }
   }
 
@@ -215,7 +216,7 @@ class NotificationService {
       );
       return rows;
     } catch (e) {
-      console.error('获取通知列表失败:', e.message);
+      logger.error('notify', '获取通知列表失败:', e.message);
       return [];
     }
   }
@@ -229,7 +230,7 @@ class NotificationService {
       }
       return true;
     } catch (e) {
-      console.error('标记通知已读失败:', e.message);
+      logger.error('notify', '标记通知已读失败:', e.message);
       return false;
     }
   }
@@ -239,7 +240,7 @@ class NotificationService {
       const [[{ count }]] = await getPool().query(`SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0`, [userId]);
       return count || 0;
     } catch (e) {
-      console.error('获取未读通知数失败:', e.message);
+      logger.error('notify', '获取未读通知数失败:', e.message);
       return 0;
     }
   }

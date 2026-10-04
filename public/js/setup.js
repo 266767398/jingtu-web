@@ -664,7 +664,7 @@ async function saveAndStart() {
         resultDiv.innerHTML = __('setup.config_updated', { msg: adminMsg });
       } else {
         const adminMsg = data.adminCreated ? __('setup.admin_created')
-          : (data.adminError ? __('setup.admin_create_fail', { err: data.adminError }) : '');
+          : (data.adminError ? __('setup.admin_create_fail', { err: escapeHtml(String(data.adminError)) }) : '');
         resultDiv.innerHTML = __('setup.config_saved', { msg: adminMsg });
       }
       setTimeout(() => { window.location.href = '/'; }, 2500);

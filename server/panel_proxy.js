@@ -13,6 +13,7 @@
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const logger = require('./logger');
 
 const PANEL_UPSTREAM = { host: '127.0.0.1', port: Number(process.env.PANEL_PORT || 3457) };
 // 生命周期参数均可通过环境变量调节（便于部署调参与测试）：
@@ -22,12 +23,12 @@ const PANEL_UPSTREAM = { host: '127.0.0.1', port: Number(process.env.PANEL_PORT 
 const IDLE_MS = (Number(process.env.PANEL_IDLE_MINUTES) || 20) * 60 * 1000;
 const IDLE_CHECK_INTERVAL = (Number(process.env.PANEL_IDLE_CHECK_SECONDS) || 60) * 1000;
 const START_POLL_MS = Number(process.env.PANEL_START_POLL_MS) || 1000;
-const START_WAIT_MAX = 10000;          // ensurePanelStarted 等待健康上限
+const START_WAIT_MAX = 10000;          
 
-let panelSpawnPending = false;  // trySpawnPanelServer 10s 去重标记
-let panelChild = null;          // 本模块拉起的面板进程引用（仅自动拉起的才由空闲策略托管）
-let lastOpsActivity = 0;        // 最近一次 /ops 代理访问时间戳（0 = 面板从未被网站访问）
-let idleTimer = null;           // 空闲检查定时器
+let panelSpawnPending = false;  
+let panelChild = null;          
+let lastOpsActivity = 0;        
+let idleTimer = null;           
 
 /* ---------- 探测与拉起 ---------- */
 
@@ -66,9 +67,9 @@ function doSpawnPanel(rootDir) {
     child.on('exit', () => { if (panelChild === child) panelChild = null; });
     child.unref();
     panelChild = child;
-    console.log('[ops] 运维面板未运行，已自动拉起 panel-server.js (pid=' + child.pid + ')');
+    logger.info('panel-proxy', '[ops] 运维面板未运行，已自动拉起 panel-server.js (pid=' + child.pid + ')');
   } catch (e) {
-    console.error('[ops] 自动拉起运维面板失败:', e.message);
+    logger.error('panel-proxy', '[ops] 自动拉起运维面板失败:', e.message);
   }
 }
 
@@ -111,9 +112,9 @@ function stopPanelProcess() {
     } else {
       try { process.kill(pid, 'SIGTERM'); } catch (e) { /* 进程已退出则忽略 */ }
     }
-    console.log('[ops] 运维面板空闲超时，已自动关闭 (pid=' + pid + ')');
+    logger.info('panel-proxy', '[ops] 运维面板空闲超时，已自动关闭 (pid=' + pid + ')');
   } catch (e) {
-    console.error('[ops] 关闭运维面板失败:', e.message);
+    logger.error('panel-proxy', '[ops] 关闭运维面板失败:', e.message);
   }
   panelChild = null;
 }

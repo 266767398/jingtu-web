@@ -538,7 +538,8 @@ async function loadVrcNotifications() {
         (time ? ' <span class="text-muted2">· ' + time + '</span>' : '') + '</div>' + msg + '</div>';
     }).join('');
   } catch (e) {
-    listEl.innerHTML = '<p class="text-red text-13">' + (e.message || __('admin_vrc.notif_fail')) + '</p>';
+    const errText = String(e.message || __('admin_vrc.notif_fail'));
+    listEl.innerHTML = '<p class="text-red text-13">' + (typeof esc === 'function' ? esc(errText) : errText) + '</p>';
   }
 }
 

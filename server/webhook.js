@@ -4,6 +4,7 @@ const dns = require('dns');
 const { promisify } = require('util');
 const { getPool } = require('./utils');
 const crypto = require('crypto');
+const logger = require('./logger');
 
 const dnsLookup = promisify(dns.lookup);
 const WEBHOOK_URL_ALLOW_PROTOCOLS = ['http:', 'https:'];
@@ -16,14 +17,14 @@ function isBlockedWebhookAddress(ip) {
   if (parts.length !== 4) return true;
   if (parts[0] === 0 || parts[0] === 10) return true;
   if (parts[0] === 127) return true;
-  if (parts[0] === 169 && parts[1] === 254) return true; // 链路本地
+  if (parts[0] === 169 && parts[1] === 254) return true; 
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
   if (parts[0] === 192 && parts[1] === 168) return true;
-  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // CGNAT
-  if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true; // 文档（IETF）
-  if (parts[0] === 198 && parts[1] === 18) return true; // 文档
-  if (parts[0] === 198 && parts[1] === 51 && parts[2] === 100) return true; // 文档
-  if (parts[0] === 203 && parts[1] === 0 && parts[2] === 113) return true; // 文档
+  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; 
+  if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true; 
+  if (parts[0] === 198 && parts[1] === 18) return true; 
+  if (parts[0] === 198 && parts[1] === 51 && parts[2] === 100) return true; 
+  if (parts[0] === 203 && parts[1] === 0 && parts[2] === 113) return true; 
   return false;
 }
 
@@ -81,7 +82,7 @@ const _sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function enqueuePending(item) {
   if (pendingDeliveries.length >= PENDING_QUEUE_MAX) {
-    console.error('[webhook] 待补发队列已满，丢弃:', item.eventType, item.url);
+    logger.error('webhook', '[webhook] 待补发队列已满，丢弃:', item.eventType, item.url);
     return false;
   }
   pendingDeliveries.push(item);
@@ -99,7 +100,7 @@ async function flushPendingDeliveries() {
       if (item.attempts < PENDING_ITEM_ATTEMPTS_MAX) {
         enqueuePending(item);
       } else {
-        console.error('[webhook] 待补发重发超限，彻底放弃:', item.eventType, item.url);
+        logger.error('webhook', '[webhook] 待补发重发超限，彻底放弃:', item.eventType, item.url);
       }
     }
   }
@@ -116,7 +117,7 @@ async function getWebhooks(eventType = null) {
     const [rows] = await pool.query(query, params);
     return rows;
   } catch (e) {
-    console.error('[webhook] 获取webhook失败:', e);
+    logger.error('webhook', '[webhook] 获取webhook失败:', e);
     return [];
   }
 }
@@ -132,7 +133,7 @@ async function createWebhook(url, events, secret = '') {
     );
     return result.insertId;
   } catch (e) {
-    console.error('[webhook] 创建webhook失败:', e);
+    logger.error('webhook', '[webhook] 创建webhook失败:', e);
     throw e;
   }
 }
@@ -170,7 +171,7 @@ async function updateWebhook(id, updates) {
     );
     return result.affectedRows > 0;
   } catch (e) {
-    console.error('[webhook] 更新webhook失败:', e);
+    logger.error('webhook', '[webhook] 更新webhook失败:', e);
     throw e;
   }
 }
@@ -181,7 +182,7 @@ async function deleteWebhook(id) {
     const [result] = await pool.query('DELETE FROM webhooks WHERE id = ?', [id]);
     return result.affectedRows > 0;
   } catch (e) {
-    console.error('[webhook] 删除webhook失败:', e);
+    logger.error('webhook', '[webhook] 删除webhook失败:', e);
     throw e;
   }
 }
@@ -206,7 +207,7 @@ async function sendWebhook(url, eventType, data, secret = '', opts = {}) {
     // P2-129: 发送前校验目标 URL——拒绝内网/环回/链路本地，阻断 SSRF + 数据外带
     const urlCheck = await validateWebhookUrl(url);
     if (!urlCheck.ok) {
-      console.error('[webhook] URL 校验拦截:', urlCheck.reason, url);
+      logger.error('webhook', '[webhook] URL 校验拦截:', urlCheck.reason, url);
       return { success: false, error: 'Webhook URL 被安全策略拦截: ' + urlCheck.reason };
     }
     const payload = {
@@ -232,7 +233,7 @@ async function sendWebhook(url, eventType, data, secret = '', opts = {}) {
           headers,
           timeout: 5000
         });
-        console.log('[webhook] 发送成功:', eventType, url);
+        logger.info('webhook', '[webhook] 发送成功:', eventType, url);
         return { success: true, status: response.status };
       } catch (e) {
         if (attempt < WEBHOOK_RETRY_MAX) {
@@ -242,15 +243,15 @@ async function sendWebhook(url, eventType, data, secret = '', opts = {}) {
         // 重试耗尽：写入待补发队列并升级告警日志（flushPendingDeliveries 重发时不再二次入队）
         if (!noPending) {
           const enqueued = enqueuePending({ url, eventType, data, secret, attempts: 0 });
-          console.error('[webhook] 发送失败（已达最大重试）:', eventType, url, e.message, enqueued ? '(已入待补发队列)' : '(待补发队列已满)');
+          logger.error('webhook', '[webhook] 发送失败（已达最大重试）:', eventType, url, e.message, enqueued ? '(已入待补发队列)' : '(待补发队列已满)');
         } else {
-          console.error('[webhook] 待补发重发失败:', eventType, url, e.message);
+          logger.error('webhook', '[webhook] 待补发重发失败:', eventType, url, e.message);
         }
         return { success: false, error: e.message };
       }
     }
   } catch (e) {
-    console.error('[webhook] 发送失败:', eventType, url, e.message);
+    logger.error('webhook', '[webhook] 发送失败:', eventType, url, e.message);
     return { success: false, error: e.message };
   }
 }
@@ -258,11 +259,11 @@ async function sendWebhook(url, eventType, data, secret = '', opts = {}) {
 async function trigger(eventType, data) {
   const webhooks = await getWebhooks(eventType);
   if (webhooks.length === 0) {
-    console.log('[webhook] 没有匹配的webhook:', eventType);
+    logger.info('webhook', '[webhook] 没有匹配的webhook:', eventType);
     return;
   }
 
-  console.log('[webhook] 触发事件:', eventType, '目标:', webhooks.length, '个');
+  logger.info('webhook', '[webhook] 触发事件:', eventType, '目标:', webhooks.length, '个');
 
   const results = await Promise.allSettled(
     webhooks.map(async (webhook) => {
@@ -274,7 +275,7 @@ async function trigger(eventType, data) {
   const failCount = results.length - successCount;
 
   if (failCount > 0) {
-    console.warn('[webhook] 部分发送失败:', failCount, '/', results.length);
+    logger.warn('webhook', '[webhook] 部分发送失败:', failCount, '/', results.length);
   }
 }
 

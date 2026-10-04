@@ -1,4 +1,5 @@
 const cache = require('./cache');
+const logger = require('./logger');
 
 const CACHE_TTL = {
   USER: 30 * 60,
@@ -296,13 +297,13 @@ async function setGroupRosterOnline(data) {
 
 async function warmup(getPool) {
   if (!cache.isEnabled()) {
-    console.log('[cache-service] Redis未启用，跳过缓存预热');
+    logger.info('cache-service', '[cache-service] Redis未启用，跳过缓存预热');
     return;
   }
 
   try {
     const pool = getPool();
-    console.log('[cache-service] 开始缓存预热...');
+    logger.info('cache-service', '[cache-service] 开始缓存预热...');
 
     const [users] = await pool.query(
       `SELECT id, login_id AS loginId, display_name AS displayName, role, avatar_type, custom_avatar_path, vrchat_avatar_url 
@@ -313,7 +314,7 @@ async function warmup(getPool) {
       for (const user of users) {
         await setUser(user.id, user);
       }
-      console.log(`[cache-service] 预热用户数据: ${users.length} 条`);
+      logger.info('cache-service', `[cache-service] 预热用户数据: ${users.length} 条`);
     }
 
     const [activities] = await pool.query(
@@ -324,7 +325,7 @@ async function warmup(getPool) {
       for (const activity of activities) {
         await setActivity(activity.id, activity);
       }
-      console.log(`[cache-service] 预热活动数据: ${activities.length} 条`);
+      logger.info('cache-service', `[cache-service] 预热活动数据: ${activities.length} 条`);
     }
 
     const [calendarActivities] = await pool.query(
@@ -333,7 +334,7 @@ async function warmup(getPool) {
     );
     if (calendarActivities.length > 0) {
       await setActivityCalendar(calendarActivities);
-      console.log(`[cache-service] 预热活动日历: ${calendarActivities.length} 条`);
+      logger.info('cache-service', `[cache-service] 预热活动日历: ${calendarActivities.length} 条`);
     }
 
     const [posts] = await pool.query(
@@ -345,7 +346,7 @@ async function warmup(getPool) {
       for (const post of posts) {
         await setPost(post.id, post);
       }
-      console.log(`[cache-service] 预热动态数据: ${posts.length} 条`);
+      logger.info('cache-service', `[cache-service] 预热动态数据: ${posts.length} 条`);
     }
 
     const [announcements] = await pool.query(
@@ -356,7 +357,7 @@ async function warmup(getPool) {
       for (const announcement of announcements) {
         await setAnnouncement(announcement.id, announcement);
       }
-      console.log(`[cache-service] 预热公告数据: ${announcements.length} 条`);
+      logger.info('cache-service', `[cache-service] 预热公告数据: ${announcements.length} 条`);
     }
 
     const [topLikes] = await pool.query(
@@ -369,7 +370,7 @@ async function warmup(getPool) {
     );
     if (topLikes.length > 0) {
       await setTopLikes(topLikes);
-      console.log(`[cache-service] 预热点赞排行榜: ${topLikes.length} 条`);
+      logger.info('cache-service', `[cache-service] 预热点赞排行榜: ${topLikes.length} 条`);
     }
 
     const [onlineRoster] = await pool.query(
@@ -378,7 +379,7 @@ async function warmup(getPool) {
     );
     if (onlineRoster.length > 0) {
       await setGroupRosterOnline(onlineRoster);
-      console.log(`[cache-service] 预热在线成员: ${onlineRoster.length} 条`);
+      logger.info('cache-service', `[cache-service] 预热在线成员: ${onlineRoster.length} 条`);
     }
 
     const [worlds] = await pool.query(
@@ -390,12 +391,12 @@ async function warmup(getPool) {
       for (const world of worlds) {
         await setWorld(world.world_id, world);
       }
-      console.log(`[cache-service] 预热VRC世界缓存: ${worlds.length} 条`);
+      logger.info('cache-service', `[cache-service] 预热VRC世界缓存: ${worlds.length} 条`);
     }
 
-    console.log('[cache-service] 缓存预热完成');
+    logger.info('cache-service', '[cache-service] 缓存预热完成');
   } catch (e) {
-    console.error('[cache-service] 缓存预热失败:', e);
+    logger.error('cache-service', '[cache-service] 缓存预热失败:', e);
   }
 }
 
@@ -405,7 +406,7 @@ async function del(key) {
 
 async function clearAll() {
   await cache.flushAll();
-  console.log('[cache-service] 所有缓存已清除');
+  logger.info('cache-service', '[cache-service] 所有缓存已清除');
 }
 
 async function getCacheStatus() {

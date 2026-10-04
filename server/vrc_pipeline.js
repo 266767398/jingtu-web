@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const logger = require('./logger');
 
 const PIPELINE_URL = 'wss://pipeline.vrchat.cloud';
 const RECONNECT_DELAY = 5000;
@@ -41,7 +42,7 @@ class VRCPipeline {
 
   connect() {
     if (!this.authToken) {
-      console.warn('[VRCPipeline] 缺少 authToken，无法连接');
+      logger.warn('vrc-pipeline', '[VRCPipeline] 缺少 authToken，无法连接');
       return;
     }
 
@@ -49,7 +50,7 @@ class VRCPipeline {
 
     // 官方 Pipeline 握手参数为 authToken（authcookie_xxx），对齐 VRCX 与官方文档。
     const url = `${PIPELINE_URL}/?authToken=${encodeURIComponent(this.authToken)}`;
-    console.log(`[VRCPipeline] 正在连接 VRChat Pipeline...`);
+    logger.info('vrc-pipeline', `[VRCPipeline] 正在连接 VRChat Pipeline...`);
 
     const socketId = ++this._socketId;
     this._activeSocketId = socketId;
@@ -67,7 +68,7 @@ class VRCPipeline {
 
     this._connectTimeout = setTimeout(() => {
       if (!isCurrentSocket()) return;
-      console.warn(`⚠️ [VRCPipeline] 连接握手超时，关闭重试`);
+      logger.warn('vrc-pipeline', `⚠️ [VRCPipeline] 连接握手超时，关闭重试`);
       try { ws.terminate(); } catch (e) {}
       this._scheduleReconnect();
     }, this._connectTimeoutMs);
@@ -79,7 +80,7 @@ class VRCPipeline {
       this.isConnected = true;
       this.reconnectAttempts = 0;
       this._lastPongAt = Date.now();
-      console.log(`✅ [VRCPipeline] 连接成功`);
+      logger.info('vrc-pipeline', `✅ [VRCPipeline] 连接成功`);
       this.emit('connected');
       this._startHeartbeat();
     });
@@ -90,7 +91,7 @@ class VRCPipeline {
         const msg = JSON.parse(data.toString());
         this.handleMessage(msg);
       } catch (e) {
-        console.warn(`⚠️ [VRCPipeline] 消息解析失败:`, e.message);
+        logger.warn('vrc-pipeline', `⚠️ [VRCPipeline] 消息解析失败:`, e.message);
       }
     });
 
@@ -115,9 +116,9 @@ class VRCPipeline {
       // 1006 = 无关闭帧的异常关闭。若此前收到过服务端 err 帧（会话被拒），
       // 此 1006 大概率为其闭环，直接把原因带上，避免"为什么循环"无从查起。
       if (code === 1006 && this._lastSessionError && this._lastSessionError.err) {
-        console.error(`🔌 [VRCPipeline] 连接异常关闭 (1006)：${this._lastSessionError.err}`);
+        logger.error('vrc-pipeline', `🔌 [VRCPipeline] 连接异常关闭 (1006)：${this._lastSessionError.err}`);
       } else {
-        console.log(`🔌 [VRCPipeline] 连接关闭 (${code}): ${reasonText || '无'}`);
+        logger.info('vrc-pipeline', `🔌 [VRCPipeline] 连接关闭 (${code}): ${reasonText || '无'}`);
       }
       this.emit('disconnected', { code, reason });
       this._scheduleReconnect();
@@ -125,7 +126,7 @@ class VRCPipeline {
 
     ws.on('error', (err) => {
       if (!isCurrentSocket()) return;
-      console.error(`❌ [VRCPipeline] 连接错误:`, err.message);
+      logger.error('vrc-pipeline', `❌ [VRCPipeline] 连接错误:`, err.message);
       this.emit('error', err);
       // 主动关闭：error 后底层 socket 可能已损坏，但 ws 库未必会再触发 close 事件
       // （如握手阶段被重置、部分网络栈的静默丢包）。不 terminate 的话 _scheduleReconnect
@@ -167,11 +168,11 @@ class VRCPipeline {
       try {
         this.ws.ping();
       } catch (e) {
-        console.warn(`⚠️ [VRCPipeline] ping 发送失败:`, e.message);
+        logger.warn('vrc-pipeline', `⚠️ [VRCPipeline] ping 发送失败:`, e.message);
         return;
       }
       this._pongTimeout = setTimeout(() => {
-        console.warn(`⚠️ [VRCPipeline] 心跳 pong 超时，断开重连`);
+        logger.warn('vrc-pipeline', `⚠️ [VRCPipeline] 心跳 pong 超时，断开重连`);
         if (this.ws) {
           try { this.ws.terminate(); } catch (e) {}
         }
@@ -187,7 +188,7 @@ class VRCPipeline {
     // 同一 authToken 每次握手都会收到 err 帧 → close(1006)，无限循环，
     // 只等上层自动重登拿到新 cookie（setAuthToken 解除暂停）或管理员介入。
     if (this._sessionRejected) {
-      console.warn('[VRCPipeline] 会话被拒已暂停重连，等待新 authToken（自动重登）或管理员处理...');
+      logger.warn('vrc-pipeline', '[VRCPipeline] 会话被拒已暂停重连，等待新 authToken（自动重登）或管理员处理...');
       return;
     }
     this.reconnectAttempts++;
@@ -195,7 +196,7 @@ class VRCPipeline {
       RECONNECT_DELAY * Math.pow(1.5, this.reconnectAttempts - 1),
       this._maxReconnectDelayMs
     );
-    console.log(`[VRCPipeline] ${Math.round(delay / 1000)} 秒后重连... (第 ${this.reconnectAttempts} 次)`);
+    logger.info('vrc-pipeline', `[VRCPipeline] ${Math.round(delay / 1000)} 秒后重连... (第 ${this.reconnectAttempts} 次)`);
     this._connectTimeout = setTimeout(() => this.connect(), delay);
   }
 
@@ -246,7 +247,7 @@ class VRCPipeline {
       default:
         if (!this._warnedUnknownTypes.has(msg.type)) {
           this._warnedUnknownTypes.add(msg.type);
-          console.log(`[VRCPipeline] 未处理消息类型（仅提示一次）: ${msg.type}`);
+          logger.info('vrc-pipeline', `[VRCPipeline] 未处理消息类型（仅提示一次）: ${msg.type}`);
         }
         this.emit('unknown', msg);
     }
@@ -272,7 +273,7 @@ class VRCPipeline {
     // 继续重连只会重复握手→被拒→1006 的循环；由上层监听 session-rejected 触发自动重登。
     this._sessionRejected = true;
     const ipHint = ip ? `（服务端记录出口 IP: ${ip}）` : '';
-    console.error(`❌ [VRCPipeline] 服务端拒绝会话: ${err}${ipHint}${maskedToken ? `（authToken ${maskedToken}）` : ''}`);
+    logger.error('vrc-pipeline', `❌ [VRCPipeline] 服务端拒绝会话: ${err}${ipHint}${maskedToken ? `（authToken ${maskedToken}）` : ''}`);
     this.emit('session-error', Object.assign({}, this._lastSessionError));
     this.emit('session-rejected', Object.assign({}, this._lastSessionError));
   }
@@ -310,7 +311,7 @@ class VRCPipeline {
         this.emit('friend_request', notification);
       }
     } catch (e) {
-      console.warn(`⚠️ [VRCPipeline] 通知解析失败:`, e.message);
+      logger.warn('vrc-pipeline', `⚠️ [VRCPipeline] 通知解析失败:`, e.message);
     }
   }
 
@@ -322,7 +323,7 @@ class VRCPipeline {
       }
       this.emit('response_notification', content);
     } catch (e) {
-      console.warn(`⚠️ [VRCPipeline] 响应通知解析失败:`, e.message);
+      logger.warn('vrc-pipeline', `⚠️ [VRCPipeline] 响应通知解析失败:`, e.message);
     }
   }
 
@@ -348,7 +349,7 @@ class VRCPipeline {
         try {
           handler(data);
         } catch (e) {
-          console.error(`⚠️ [VRCPipeline] 事件处理失败 (${event}):`, e.message);
+          logger.error('vrc-pipeline', `⚠️ [VRCPipeline] 事件处理失败 (${event}):`, e.message);
         }
       }
     }

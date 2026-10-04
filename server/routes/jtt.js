@@ -181,15 +181,16 @@ async function jttAuth(req, res, next) {
     if (nonceCache.has(nonceKey)) {
       return sendError(res, 401, ErrorCodes.JTT_SIGNATURE_INVALID, 'nonce 重复（防重放）');
     }
-    nonceCache.set(nonceKey, now);
-    if (nonceCache.size > JTT_NONCE_PRUNE_THRESHOLD) {
-      pruneNonceCache(now);
-    }
     // 3) RAW_BODY：全局 express.json 先于本中间件解析，用 rawBodyApprox 近似（无 body 签空串）
     const rawBody = rawBodyApprox(req);
     const message = buildSignatureString(req.method, signaturePath(req), timestamp, nonce, rawBody);
     if (!account.public_key || !verifyEd25519(account.public_key, signature, message)) {
       return sendError(res, 401, ErrorCodes.JTT_SIGNATURE_INVALID, '签名验证失败');
+    }
+    // 签名验证通过后才登记 nonce，防止无效签名污染防重放缓存 / 放大内存占用
+    nonceCache.set(nonceKey, now);
+    if (nonceCache.size > JTT_NONCE_PRUNE_THRESHOLD) {
+      pruneNonceCache(now);
     }
     req.jttAccount = {
       id: account.id,
@@ -401,10 +402,16 @@ router.delete('/accounts/:id', requireRole('super_admin'), async (req, res) => {
 router.post('/accounts/verify', jttAuth, async (req, res) => {
   try {
     const { accountId, fingerprint, clientPublicKey } = req.body || {};
+    // JTT-3：只允许校验当前签名身份自己的账号文件——以 jttAuth 验签通过的请求头 X-JTT-Account 为准，
+    // body.accountId 若指定且与之不一致则拒绝，防止越权查询其他账号数据
+    const authAccountId = req.jttAccount && req.jttAccount.accountId;
+    if (accountId && accountId !== authAccountId) {
+      return res.json({ valid: false, reason: 'account_mismatch' });
+    }
     // 独立查库以给出精确 reason（jttAuth 已保证签名有效、账号存在且未撤销未过期；
     // 此处仍按契约 §3.6 全分支防御，兼容后续中间件策略调整）
     const pool = getPool();
-    const [rows] = await pool.query('SELECT * FROM jtt_accounts WHERE account_id = ? LIMIT 1', [accountId]);
+    const [rows] = await pool.query('SELECT * FROM jtt_accounts WHERE account_id = ? LIMIT 1', [authAccountId]);
     if (!rows.length) {
       return res.json({ valid: false, reason: 'not_found' });
     }
@@ -681,6 +688,28 @@ router.post('/accounts/register', async (req, res) => {
       return sendError(res, 401, ErrorCodes.JTT_SIGNATURE_INVALID, '缺少 JTT 签名请求头');
     }
     const pool = getPool();
+    // ② 时间戳窗口校验（±300s，超窗 → 401 JTT_TIMESTAMP_STALE）+ nonce 防重放。
+    // 先于绑定码状态分支，确保未签名/无效签名请求无法探测绑定码或账号的存在/使用状态
+    const ts = parseInt(timestamp, 10);
+    if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > SIGNATURE_WINDOW_SEC) {
+      return sendError(res, 401, ErrorCodes.JTT_TIMESTAMP_STALE, '请求时间戳超窗');
+    }
+    const now = Date.now();
+    const nonceKey = accountId + ':register:' + nonce;
+    if (nonceCache.has(nonceKey)) {
+      return sendError(res, 401, ErrorCodes.JTT_SIGNATURE_INVALID, 'nonce 重复（防重放）');
+    }
+    // ③ TOFU 验签：账号尚未入表，用请求体 publicKey 验签（首次信任由绑定码带外保证）
+    const rawBody = rawBodyApprox(req);
+    const message = buildSignatureString(req.method, signaturePath(req), timestamp, nonce, rawBody);
+    if (!verifyEd25519(String(publicKey), String(signature), message)) {
+      return sendError(res, 401, ErrorCodes.JTT_SIGNATURE_INVALID, '签名验证失败（TOFU）');
+    }
+    // 验签通过后才登记 nonce 并触发缓存剪枝，防止无效签名放大内存占用
+    nonceCache.set(nonceKey, now);
+    if (nonceCache.size > JTT_NONCE_PRUNE_THRESHOLD) {
+      pruneNonceCache(now);
+    }
     // ① 绑定码校验（契约 §3.7 顺序：存在 → 未使用 → 未过期）
     const codeHash = crypto.createHash('sha256').update(String(bindCode), 'utf8').digest('hex');
     const [codeRows] = await pool.query('SELECT * FROM jtt_bind_codes WHERE code_hash = ? LIMIT 1', [codeHash]);
@@ -688,11 +717,16 @@ router.post('/accounts/register', async (req, res) => {
       return sendError(res, 400, ErrorCodes.JTT_BIND_CODE_INVALID, '绑定码无效（不存在）');
     }
     const codeRow = codeRows[0];
-    // 幂等优先：绑码已使用但该 accountId 已注册 → 返回首次成功结果（不重复落库）
+    // 幂等优先：绑码已使用但该 accountId 已注册 → 返回首次成功结果（不重复落库）。
+    // JTT-2：幂等分支同样须先通过时间戳/nonce/签名校验（上述②③已前置），
+    // 且要求请求公钥与已注册账号公钥一致，防止他人借已使用绑定码窥探账号数据
     if (codeRow.used_at) {
       const [existRows] = await pool.query('SELECT * FROM jtt_accounts WHERE account_id = ? LIMIT 1', [accountId]);
       if (existRows.length) {
         const ex = existRows[0];
+        if (ex.public_key && String(ex.public_key) !== String(publicKey)) {
+          return sendError(res, 401, ErrorCodes.JTT_SIGNATURE_INVALID, '请求公钥与已注册账号公钥不一致');
+        }
         return ok(res, {
           accountId: ex.account_id,
           userId: ex.user_id,
@@ -707,26 +741,6 @@ router.post('/accounts/register', async (req, res) => {
     }
     if (new Date(codeRow.expires_at).getTime() < Date.now()) {
       return sendError(res, 409, ErrorCodes.JTT_BIND_CODE_EXPIRED, '绑定码已过期');
-    }
-    // ② 时间戳窗口校验（±300s，超窗 → 401 JTT_TIMESTAMP_STALE）+ nonce 防重放
-    const ts = parseInt(timestamp, 10);
-    if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > SIGNATURE_WINDOW_SEC) {
-      return sendError(res, 401, ErrorCodes.JTT_TIMESTAMP_STALE, '请求时间戳超窗');
-    }
-    const now = Date.now();
-    const nonceKey = accountId + ':register:' + nonce;
-    if (nonceCache.has(nonceKey)) {
-      return sendError(res, 401, ErrorCodes.JTT_SIGNATURE_INVALID, 'nonce 重复（防重放）');
-    }
-    nonceCache.set(nonceKey, now);
-    if (nonceCache.size > JTT_NONCE_PRUNE_THRESHOLD) {
-      pruneNonceCache(now);
-    }
-    // ③ TOFU 验签：账号尚未入表，用请求体 publicKey 验签（首次信任由绑定码带外保证）
-    const rawBody = rawBodyApprox(req);
-    const message = buildSignatureString(req.method, signaturePath(req), timestamp, nonce, rawBody);
-    if (!verifyEd25519(String(publicKey), String(signature), message)) {
-      return sendError(res, 401, ErrorCodes.JTT_SIGNATURE_INVALID, '签名验证失败（TOFU）');
     }
     // ④ accountId 未注册检查 + 落库（事务：jtt_accounts 插入 + 绑定码标记已用）
     const fingerprint = fingerprintOf(publicKey);

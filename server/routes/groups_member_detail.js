@@ -10,6 +10,7 @@
  *   description: VRChat群组成员详情与资料缓存接口
  */
 const express = require('express');
+const logger = require('../logger');
 const { ok, getPool, handleError, sendError, ErrorCodes } = require('../utils');
 const { requireAuth } = require('../auth');
 const { vrchatGetUserPublicAvatars, vrchatGetUser, VRC_API_KEY } = require('../vrc');
@@ -179,8 +180,8 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   // ==================== VRChat 资料服务端缓存（详情秒开） ====================
   // 把阶段2 实时拉取的 VRChat 用户资料（简介/徽章/公开模型等）缓存到 group_member_vrc_cache。
   // 玩家点开详情先返回 DB 缓存、后台再刷新，避免每次都等 VRChat API（15~30s）。
-  const VRC_CACHE_TTL = 30 * 60 * 1000;     // 缓存 30 分钟过期
-  const VRC_CACHE_REFRESH = 5 * 60 * 1000;  // 缓存超过 5 分钟即后台静默刷新（stale-while-revalidate）
+  const VRC_CACHE_TTL = 30 * 60 * 1000;     
+  const VRC_CACHE_REFRESH = 5 * 60 * 1000;  
 
   function vrcCacheWrite(pool, vrchatId, data) {
     return pool.query(
@@ -298,7 +299,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         }));
       return { models, ok: true };
     } catch (modelErr) {
-      console.warn('[groups/vrchat] 拉取公开模型失败，已忽略:', modelErr && modelErr.message);
+      logger.warn('groups-member-detail', '[groups/vrchat] 拉取公开模型失败，已忽略:', modelErr && modelErr.message);
       return { models: [], ok: false };
     }
   }
@@ -372,7 +373,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
                 });
                 return vrcCacheWrite(pool, vrchatId, full);
               })
-              .catch(e => console.warn('[groups/vrchat] 后台补拉模型失败:', e && e.message))
+              .catch(e => logger.warn('groups-member-detail', '[groups/vrchat] 后台补拉模型失败:', e && e.message))
               .finally(() => vrcRefreshInFlight.delete(modelKey));
           });
         }

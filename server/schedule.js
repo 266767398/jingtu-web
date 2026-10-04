@@ -3,6 +3,7 @@ const dbMod = require('./db');
 const { getPool, safeError } = require('./utils');
 const { vrchatGetUser, vrchatResolveOnlineStatuses, vrcBacklog } = require('./vrc');
 const cacheService = require('./cache_service');
+const logger = require('./logger');
 const { scanAvatarModels } = require('./routes/collections');
 
 const jobs = [];
@@ -66,60 +67,60 @@ async function forceRosterBroadcast(groupId) {
       isFriend: !!m.is_friend
     }));
     _wsService.broadcastRosterUpdate({ groups, members: detail, forced: true });
-    console.log(`📡 [群组状态] 强制广播在线统计: 在线 ${groups[0].onlineCount}/${groups[0].totalCount}`);
+    logger.info('schedule', `📡 [群组状态] 强制广播在线统计: 在线 ${groups[0].onlineCount}/${groups[0].totalCount}`);
   } catch (e) {
-    console.error('❌ [群组状态] 强制广播失败:', e.message);
+    logger.error('schedule', '❌ [群组状态] 强制广播失败:', e.message);
   }
 }
 
 function startSchedule() {
   // 每天凌晨 2:00 — 清理超过 7 天的回收站图片
   jobs.push(schedule.scheduleJob('0 0 2 * * *', async () => {
-    console.log('🔄 [定时任务] 开始清理过期回收站图片...');
+    logger.info('schedule', '🔄 [定时任务] 开始清理过期回收站图片...');
     try {
       // P1-44: 删除逻辑收敛到相册模块统一出口（cleanupRecycleBin），
       // unlink 前统一 isWithinAlbum 校验，杜绝穿越路径入库后被越界删除。
       const albumMod = require('./routes/album');
       if (!albumMod || typeof albumMod.cleanupRecycleBin !== 'function') {
-        console.warn('⚠️ [定时任务] 相册模块未就绪，跳过本轮回收站清理');
+        logger.warn('schedule', '⚠️ [定时任务] 相册模块未就绪，跳过本轮回收站清理');
         return;
       }
       const result = await albumMod.cleanupRecycleBin();
-      console.log(`✅ [定时任务] 清理完成，删除 ${result.deleted} 张过期图片`);
+      logger.info('schedule', `✅ [定时任务] 清理完成，删除 ${result.deleted} 张过期图片`);
     } catch (e) {
-      console.error('❌ [定时任务] 回收站清理失败:', e.message);
+      logger.error('schedule', '❌ [定时任务] 回收站清理失败:', e.message);
     }
   }));
 
   // 每天凌晨 3:00 — 自动归档过期活动
   jobs.push(schedule.scheduleJob('0 0 3 * * *', async () => {
-    console.log('🔄 [定时任务] 归档过期活动...');
+    logger.info('schedule', '🔄 [定时任务] 归档过期活动...');
     try {
       const [result] = await dbMod.holder.pool.query(
         `UPDATE event SET is_archive = 1 WHERE event_time < NOW() AND is_archive = 0`
       );
-      console.log(`✅ [定时任务] 归档完成，共 ${result.affectedRows} 个活动`);
+      logger.info('schedule', `✅ [定时任务] 归档完成，共 ${result.affectedRows} 个活动`);
     } catch (e) {
-      console.error('❌ [定时任务] 活动归档失败:', e.message);
+      logger.error('schedule', '❌ [定时任务] 活动归档失败:', e.message);
     }
   }));
 
   // 每天凌晨 4:00 — 自动过期邀请
   jobs.push(schedule.scheduleJob('0 0 4 * * *', async () => {
-    console.log('🔄 [定时任务] 清理过期邀请...');
+    logger.info('schedule', '🔄 [定时任务] 清理过期邀请...');
     try {
       const [result] = await dbMod.holder.pool.query(
         `UPDATE group_invites SET status = 'expired', responded_at = NOW() WHERE status = 'pending' AND expires_at < NOW()`
       );
-      console.log(`✅ [定时任务] 邀请清理完成，共过期 ${result.affectedRows} 个邀请`);
+      logger.info('schedule', `✅ [定时任务] 邀请清理完成，共过期 ${result.affectedRows} 个邀请`);
     } catch (e) {
-      console.error('❌ [定时任务] 邀请清理失败:', e.message);
+      logger.error('schedule', '❌ [定时任务] 邀请清理失败:', e.message);
     }
   }));
 
   // 每天中午 12:00 — VRChat 系统账号 Token 验证提醒
   jobs.push(schedule.scheduleJob('0 0 12 * * *', () => {
-    console.log('🔔 [定时任务] VRChat 系统账号 Token 验证提醒 — 请确认群组数据拉取正常');
+    logger.info('schedule', '🔔 [定时任务] VRChat 系统账号 Token 验证提醒 — 请确认群组数据拉取正常');
   }));
 
   // 每分钟检查 — 活动开始前1小时提醒报名用户（带去重）
@@ -154,11 +155,11 @@ function startSchedule() {
           }
         }
         if (notifiedCount > 0) {
-          console.log(`🔔 [定时任务] 活动提醒: "${evt.title}" 已通知 ${notifiedCount} 位报名用户`);
+          logger.info('schedule', `🔔 [定时任务] 活动提醒: "${evt.title}" 已通知 ${notifiedCount} 位报名用户`);
         }
       }
     } catch (e) {
-      console.error('❌ [定时任务] 活动提醒失败:', e.message);
+      logger.error('schedule', '❌ [定时任务] 活动提醒失败:', e.message);
     }
   }));
 
@@ -206,11 +207,11 @@ function startSchedule() {
       try {
         const probe = await vrchatGetUser(probeMember.vrchat_id, vrcCookie);
         if (probe.status === 401) {
-          console.warn('⚠️ [定时任务] 系统 VRChat cookie 已过期(401)，本轮将仅应用群友共享状态');
+          logger.warn('schedule', '⚠️ [定时任务] 系统 VRChat cookie 已过期(401)，本轮将仅应用群友共享状态');
           systemCookieUsable = false;
         }
       } catch (e) {
-        console.warn('⚠️ [定时任务] 系统 VRChat 查询异常，本轮将仅应用群友共享状态', e.message);
+        logger.warn('schedule', '⚠️ [定时任务] 系统 VRChat 查询异常，本轮将仅应用群友共享状态', e.message);
         systemCookieUsable = false;
       }
 
@@ -231,12 +232,12 @@ function startSchedule() {
 
       // 状态稳定化窗口（秒）：只有候选状态持续达到该时长才正式翻转 is_online 并广播，
       // 过滤 VRChat 自身 status 抖动 / 退出重连瞬时反复造成的"状态窜动"。
-      const STABLE_WINDOW = 2 * 30; // 2 个刷新周期（60s）
+      const STABLE_WINDOW = 2 * 30; 
       // 可信度等级：3=群友共享(好友视角) 2=系统账号好友 1=非好友回退 0=未知
       const TRUST_SHARED = 3, TRUST_FRIEND = 2, TRUST_FALLBACK = 1;
 
-      const changedMembers = []; // 正式翻转、需广播的成员（供前端增量更新）
-      const batchWrites = [];      // 本批所有成员的新值，最后统一写回（避免逐条 UPDATE 的中间态碎片广播）
+      const changedMembers = []; 
+      const batchWrites = [];      
       let touched = 0;
 
       // 批量解析在线状态：优先用 /auth/user/friends（VRCX 同款数据源，好友状态最准确），
@@ -350,11 +351,11 @@ function startSchedule() {
           }
           // 仅当候选持续 ≥ STABLE_WINDOW 才正式翻转
           if (now - changedAt >= STABLE_WINDOW * 1000) {
-            finalOnline = isOnline; // 确认翻转
+            finalOnline = isOnline; 
             candidate = null;
             changedMembers.push({ vrchatId: m.vrchat_id, groupId: VRC_GROUP_ID, isOnline, status, statusDescription: info.statusDescription || '', worldName, isFriend });
           } else {
-            finalOnline = prevOnline; // 维持原状，等待确认窗口
+            finalOnline = prevOnline; 
           }
         } else {
           candidate = null;
@@ -421,7 +422,7 @@ function startSchedule() {
       // 逐个调用 vrchatGetUser 获取完整资料，补充写入 DB。
       // 每轮最多处理 TRUST_ENRICH_BATCH 个成员，避免触发 429 限流。
       try {
-        const TRUST_ENRICH_BATCH = 20; // 每轮最多补充查询的成员数
+        const TRUST_ENRICH_BATCH = 20; 
         // P2-56：只补「信任等级缺失」的成员，且用 trust_checked_at 去重——
         // 隐私墙成员（非好友）调用 /users/{id} 永远拿不到 trustLevel，
         // 若不标记会导致每轮都重复查询这同一批人，占满 20 个名额，
@@ -466,7 +467,7 @@ function startSchedule() {
               }
             } catch (e) {
               // 单个用户查询失败不阻断整体（429/网络抖动等），同样标记已尝试避免死循环占用名额
-              console.warn(`⚠️ [信任等级补充] ${row.vrchat_id}: ${e.message}`);
+              logger.warn('schedule', `⚠️ [信任等级补充] ${row.vrchat_id}: ${e.message}`);
               try {
                 await pool.query(
                   `UPDATE group_roster SET trust_checked_at=NOW() WHERE vrchat_id=?`,
@@ -477,10 +478,10 @@ function startSchedule() {
             // 请求间隔：避免 429（VRChat 认证接口约 40-60 次/分钟）
             await new Promise(r => setTimeout(r, 1200));
           }
-          if (enriched > 0) console.log(`✅ [信任等级补充] 本轮补充 ${enriched}/${missingTrust.length} 人，剩余待补充将在后续轮次逐步完成`);
+          if (enriched > 0) logger.info('schedule', `✅ [信任等级补充] 本轮补充 ${enriched}/${missingTrust.length} 人，剩余待补充将在后续轮次逐步完成`);
         }
       } catch (e2) {
-        console.warn('⚠️ [定时任务] 信任等级补充查询异常（非致命）:', e2.message);
+        logger.warn('schedule', '⚠️ [定时任务] 信任等级补充查询异常（非致命）:', e2.message);
       }
 
       // 每轮刷新后，仅广播"正式翻转"的成员 + 权威统计（前端增量更新，无需整页轮询）。
@@ -488,12 +489,12 @@ function startSchedule() {
       if (touched > 0 && _wsService) {
         const groups = await getGroupStatsSnapshot(pool);
         _wsService.broadcastRosterUpdate({ groups, members: changedMembers });
-        console.log(`🔄 [定时任务] 群组成员状态刷新: ${touched}/${toProcess.length} 人写回 [cursor=${onlineRefreshCursor}/${members.length}]，正式翻转 ${changedMembers.length} 人，已广播`);
+        logger.info('schedule', `🔄 [定时任务] 群组成员状态刷新: ${touched}/${toProcess.length} 人写回 [cursor=${onlineRefreshCursor}/${members.length}]，正式翻转 ${changedMembers.length} 人，已广播`);
       } else if (touched > 0) {
-        console.log(`🔄 [定时任务] 群组成员状态刷新: ${touched}/${toProcess.length} 人写回 [cursor=${onlineRefreshCursor}/${members.length}]`);
+        logger.info('schedule', `🔄 [定时任务] 群组成员状态刷新: ${touched}/${toProcess.length} 人写回 [cursor=${onlineRefreshCursor}/${members.length}]`);
       }
     } catch (e) {
-      console.error('❌ [定时任务] 群组成员状态刷新失败:', e.message);
+      logger.error('schedule', '❌ [定时任务] 群组成员状态刷新失败:', e.message);
     } finally {
       onlineRefreshInFlight = false;
     }
@@ -501,12 +502,12 @@ function startSchedule() {
 
   // 每天凌晨 1:00 — 缓存预热（预热首页、活动列表等高频接口缓存）
   jobs.push(schedule.scheduleJob('0 0 1 * * *', async () => {
-    console.log('🔄 [定时任务] 开始缓存预热...');
+    logger.info('schedule', '🔄 [定时任务] 开始缓存预热...');
     try {
       await cacheService.warmup(getPool);
-      console.log('✅ [定时任务] 缓存预热完成');
+      logger.info('schedule', '✅ [定时任务] 缓存预热完成');
     } catch (e) {
-      console.error('❌ [定时任务] 缓存预热失败:', e.message);
+      logger.error('schedule', '❌ [定时任务] 缓存预热失败:', e.message);
     }
   }));
 
@@ -520,7 +521,7 @@ function startSchedule() {
       );
       await cacheService.setGroupRosterOnline(onlineUsers);
     } catch (e) {
-      console.warn('⚠️ [定时任务] 在线用户缓存刷新失败:', e.message);
+      logger.warn('schedule', '⚠️ [定时任务] 在线用户缓存刷新失败:', e.message);
     }
   }));
 
@@ -601,7 +602,7 @@ function startSchedule() {
         }
       }
     } catch (e) {
-      console.warn('⚠️ [定时任务] 好友变更历史 diff 失败:', e.message);
+      logger.warn('schedule', '⚠️ [定时任务] 好友变更历史 diff 失败:', e.message);
     }
   }));
 
@@ -620,7 +621,7 @@ function startSchedule() {
       const [cur] = await pool.query(`SELECT * FROM world_visit_current`);
       const curMap = new Map(cur.map(r => [r.vrchat_id, r]));
 
-      const events = [];   // 世界发生变化且新世界非空 → 写访问事件
+      const events = [];   
       const currentUpserts = [];
       for (const r of rows) {
         const world = (r.world_name || '').trim();
@@ -662,7 +663,7 @@ function startSchedule() {
         }
       }
     } catch (e) {
-      console.warn('⚠️ [定时任务] 世界访问历史 diff 失败:', e.message);
+      logger.warn('schedule', '⚠️ [定时任务] 世界访问历史 diff 失败:', e.message);
     }
   }));
 
@@ -717,7 +718,7 @@ function startSchedule() {
         }
       }
     } catch (e) {
-      console.warn('⚠️ [定时任务] 在线活动会话采样失败:', e.message);
+      logger.warn('schedule', '⚠️ [定时任务] 在线活动会话采样失败:', e.message);
     }
   }));
 
@@ -736,7 +737,7 @@ function startSchedule() {
       const [cur] = await pool.query(`SELECT * FROM avatar_history_current`);
       const curMap = new Map(cur.map(r => [r.vrchat_id, r]));
 
-      const events = [];   // 头像发生变化且新头像非空 → 记一次使用
+      const events = [];   
       const currentUpserts = [];
       for (const r of rows) {
         const avatarId = (r.avatar_id || '').trim();
@@ -779,13 +780,13 @@ function startSchedule() {
         }
       }
     } catch (e) {
-      console.warn('⚠️ [定时任务] 头像使用历史 diff 失败:', e.message);
+      logger.warn('schedule', '⚠️ [定时任务] 头像使用历史 diff 失败:', e.message);
     }
   }));
 
 // 每天凌晨 5:00 — 检测失效的模型收藏并通知用户（统一扫描函数，来源 collections 路由）
   jobs.push(schedule.scheduleJob('0 0 5 * * *', async () => {
-    console.log('🔄 [定时任务] 开始检测失效的模型收藏...');
+    logger.info('schedule', '🔄 [定时任务] 开始检测失效的模型收藏...');
     try {
       const result = await scanAvatarModels(getPool(), {
         getVRCCookieFn: _getVRCCookie,
@@ -793,13 +794,13 @@ function startSchedule() {
         batchSize: 200,
         onlyUnchecked: true
       });
-      console.log(`✅ [定时任务] 模型收藏检测完成: 扫描 ${result.scanned} 个, 新失效 ${result.newlyInvalid} 个`);
+      logger.info('schedule', `✅ [定时任务] 模型收藏检测完成: 扫描 ${result.scanned} 个, 新失效 ${result.newlyInvalid} 个`);
     } catch (e) {
-      console.error('❌ [定时任务] 模型收藏检测失败:', e.message);
+      logger.error('schedule', '❌ [定时任务] 模型收藏检测失败:', e.message);
     }
   }));
 
-  console.log('⏰ 定时任务已启动（缓存预热: 每天 1:00 / 回收站清理: 每天 2:00 / 活动归档: 每天 3:00 / 邀请清理: 每天 4:00 / Token提醒: 每天 12:00 / 活动提醒: 每分钟 / 成员状态刷新: 每30秒 / 在线用户缓存: 每5分钟 / 模型收藏检测: 每天 5:00）');
+  logger.info('schedule', '⏰ 定时任务已启动（缓存预热: 每天 1:00 / 回收站清理: 每天 2:00 / 活动归档: 每天 3:00 / 邀请清理: 每天 4:00 / Token提醒: 每天 12:00 / 活动提醒: 每分钟 / 成员状态刷新: 每30秒 / 在线用户缓存: 每5分钟 / 模型收藏检测: 每天 5:00）');
 }
 
 function gracefulShutdown() {
@@ -807,7 +808,7 @@ function gracefulShutdown() {
     try { job.cancel(); } catch {}
   }
   jobs.length = 0;
-  console.log('  ✓ 定时任务已取消');
+  logger.info('schedule', '  ✓ 定时任务已取消');
 }
 
 module.exports = startSchedule;

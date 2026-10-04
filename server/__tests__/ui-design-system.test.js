@@ -336,13 +336,13 @@ describe('mobile "more" menu accessibility', () => {
   const uiJs = () => read('js', 'ui.js');
 
   test('menu entries are buttons so keyboard users can reach and activate them', () => {
-    // 菜单项原先是 <div onclick>，键盘完全无法聚焦
+    // 菜单项原先是 <div onclick>，键盘完全无法聚焦；现为 <button class="mobile-more-item">
     const src = uiJs();
-    const i = src.indexOf('mobile-tab-item');
+    const i = src.indexOf('mobile-more-item');
     expect(i).toBeGreaterThan(-1);
     const block = src.slice(Math.max(0, i - 600), i + 200);
     expect(block).toMatch(/createElement\(\s*'button'\s*\)/);
-    expect(block).toMatch(/className\s*=\s*'mobile-tab-item'/);
+    expect(block).toMatch(/className\s*=\s*'mobile-more-item'/);
   });
 
   test('the menu is announced as a dialog and its trigger reports expanded state', () => {

@@ -1,6 +1,8 @@
 const nodemailer = require('nodemailer');
 const fs = require('fs');
 const path = require('path');
+const logger = require('./logger');
+const { encryptCookie, decryptCookie } = require('./utils');
 
 let transporter = null;
 let isEnabled = false;
@@ -11,18 +13,38 @@ const MAX_RETRIES = 3;
 
 // P3-73: 队列上限 + 落盘持久化——突发群发不再无限堆内存；进程重启从磁盘恢复未发送邮件
 const MAIL_QUEUE_MAX = parseInt(process.env.MAIL_QUEUE_MAX, 10) || 1000;
-const QUEUE_INTERVAL_MS_FAST = parseInt(process.env.MAIL_QUEUE_INTERVAL_MS, 10) || 250; // 恢复期加快节奏
-const QUEUE_INTERVAL_MS_SLOW = 1000; // 失败后放慢，避免触发 SMTP 风控
+const QUEUE_INTERVAL_MS_FAST = parseInt(process.env.MAIL_QUEUE_INTERVAL_MS, 10) || 250; 
+const QUEUE_INTERVAL_MS_SLOW = 1000; 
 const PERSIST_FILE = process.env.MAIL_QUEUE_FILE || path.join(__dirname, '..', 'runtime', 'mail_queue.json');
 
 function _persistQueue() {
   if (process.env.NODE_ENV === 'test') return;
   try {
     fs.mkdirSync(path.dirname(PERSIST_FILE), { recursive: true });
-    fs.writeFileSync(PERSIST_FILE, JSON.stringify(mailQueue.slice(0, MAIL_QUEUE_MAX)));
+    // AUTH-6：落盘前对邮件正文（含 OTP/重置链接等敏感内容）加密，
+    // 本地读取者拿到 mail_queue.json 也无法直接提取重置码/令牌
+    const snapshot = mailQueue.slice(0, MAIL_QUEUE_MAX).map(item => ({
+      ...item,
+      html: _encryptBody(item.html),
+      text: _encryptBody(item.text)
+    }));
+    fs.writeFileSync(PERSIST_FILE, JSON.stringify(snapshot));
   } catch (e) {
-    console.error('[mailer] 邮件队列落盘失败:', e.message);
+    logger.error('mailer', '[mailer] 邮件队列落盘失败:', e.message);
   }
+}
+
+// ENCRYPT_KEY 缺失/长度不足时宁可置为占位符，也绝不落盘明文正文
+function _encryptBody(content) {
+  if (content == null || content === '') return null;
+  const enc = encryptCookie(String(content));
+  return enc || '[redacted]';
+}
+
+function _decryptBody(stored) {
+  if (stored == null || stored === '' || stored === '[redacted]') return null;
+  // decryptCookie 对无 enc: 前缀的旧版明文会原样返回，天然兼容历史 mail_queue.json
+  return decryptCookie(String(stored));
 }
 
 function _loadQueue() {
@@ -33,18 +55,26 @@ function _loadQueue() {
     if (!Array.isArray(raw)) return;
     for (const item of raw) {
       if (!item || !item.to || mailQueue.length >= MAIL_QUEUE_MAX) break;
+      const html = _decryptBody(item.html);
+      const text = _decryptBody(item.text);
+      // AUTH-6：正文解密失败（密钥变更/已被 redact）→ 丢弃该邮件并告警，
+      // 避免重启后把无正文或缺重置链接的残缺邮件发给用户
+      if ((item.html != null && item.html !== '') && html == null) {
+        logger.error('mailer', '[mailer] 队列恢复失败：邮件正文解密失败，已丢弃:', item.to);
+        continue;
+      }
       mailQueue.push({
         to: item.to,
         subject: item.subject || '',
-        html: item.html || null,
-        text: item.text || null,
+        html,
+        text,
         retries: item.retries || 0,
         delay: item.delay || 0,
         timestamp: item.timestamp || Date.now()
       });
     }
   } catch (e) {
-    console.error('[mailer] 邮件队列恢复失败:', e.message);
+    logger.error('mailer', '[mailer] 邮件队列恢复失败:', e.message);
   }
 }
 
@@ -60,6 +90,18 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+// AUTH-7：SMTP 头注入防护——subject/to 中剥离 CR/LF，防止 \r\n 构造伪造头
+function sanitizeMailHeader(value) {
+  return String(value == null ? '' : value).replace(/[\r\n]+/g, ' ').trim();
+}
+
+// AUTH-7：收件邮箱格式校验（单地址、无空白与 CRLF、符合基本格式）
+function isValidEmailAddress(value) {
+  const s = String(value == null ? '' : value).trim();
+  if (!s || s.length > 254 || /[\s\r\n,]/.test(s)) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
 function initMailer() {
   try {
     const smtpHost = process.env.SMTP_HOST;
@@ -72,7 +114,7 @@ function initMailer() {
     const smtpFrom = process.env.SMTP_FROM || smtpUser;
 
     if (!smtpHost || !smtpUser || !smtpPass) {
-      console.log('[mailer] SMTP未配置，跳过初始化');
+      logger.info('mailer', '[mailer] SMTP未配置，跳过初始化');
       return;
     }
 
@@ -87,16 +129,16 @@ function initMailer() {
     });
 
     isEnabled = true;
-    console.log('[mailer] 邮件服务初始化成功');
+    logger.info('mailer', '[mailer] 邮件服务初始化成功');
   } catch (e) {
-    console.error('[mailer] 邮件服务初始化失败:', e.message);
+    logger.error('mailer', '[mailer] 邮件服务初始化失败:', e.message);
     isEnabled = false;
   }
 }
 
 async function sendEmailDirect(to, subject, html, text) {
   if (!isEnabled || !transporter) {
-    console.warn('[mailer] 邮件服务未启用');
+    logger.warn('mailer', '[mailer] 邮件服务未启用');
     return { success: false, error: '邮件服务未配置' };
   }
 
@@ -104,15 +146,15 @@ async function sendEmailDirect(to, subject, html, text) {
     const from = process.env.SMTP_FROM || process.env.SMTP_USER;
     const info = await transporter.sendMail({
       from: `"境途同游" <${from}>`,
-      to: to,
-      subject: subject,
+      to: sanitizeMailHeader(to),
+      subject: sanitizeMailHeader(subject),
       text: text || (html ? html.replace(/<[^>]*>/g, '') : subject),
       html: html
     });
-    console.log('[mailer] 邮件发送成功:', info.messageId);
+    logger.info('mailer', '[mailer] 邮件发送成功:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (e) {
-    console.error('[mailer] 邮件发送失败:', e.message);
+    logger.error('mailer', '[mailer] 邮件发送失败:', e.message);
     return { success: false, error: e.message };
   }
 }
@@ -136,12 +178,12 @@ async function processQueue() {
             processQueue();
           }, item.delay);
         } else {
-          console.error(`[mailer] 邮件发送失败，已达最大重试次数: ${item.to}`);
+          logger.error('mailer', `[mailer] 邮件发送失败，已达最大重试次数: ${item.to}`);
         }
         failed = true;
       }
     } catch (e) {
-      console.error('[mailer] 队列处理异常:', e.message);
+      logger.error('mailer', '[mailer] 队列处理异常:', e.message);
       failed = true;
     }
     _persistQueue();
@@ -154,18 +196,23 @@ async function processQueue() {
 
 function sendEmail(to, subject, html, text) {
   if (!isEnabled) {
-    console.warn('[mailer] 邮件服务未启用，跳过发送');
+    logger.warn('mailer', '[mailer] 邮件服务未启用，跳过发送');
     return { success: false, error: '邮件服务未配置' };
+  }
+  // AUTH-7：入队前校验收件地址（格式 + 无 CRLF），防头注入与投递到畸形地址
+  if (!isValidEmailAddress(to)) {
+    logger.error('mailer', '[mailer] 收件地址非法，拒绝入队:', to);
+    return { success: false, error: '收件地址非法' };
   }
   // P3-73: 队列有上限——超限直接拒绝入队（宁可失败也不无限堆内存）
   if (mailQueue.length >= MAIL_QUEUE_MAX) {
-    console.error('[mailer] 邮件队列已满，拒绝入队:', to);
+    logger.error('mailer', '[mailer] 邮件队列已满，拒绝入队:', to);
     return { success: false, error: '邮件队列已满，请稍后重试' };
   }
 
   mailQueue.push({
-    to,
-    subject,
+    to: sanitizeMailHeader(to),
+    subject: sanitizeMailHeader(subject),
     html,
     text,
     retries: 0,
@@ -246,7 +293,7 @@ async function sendEventNotification(email, event) {
 async function sendSystemAlert(subject, message) {
   const adminEmail = process.env.ADMIN_EMAIL;
   if (!adminEmail) {
-    console.warn('[mailer] 未配置ADMIN_EMAIL，跳过系统告警');
+    logger.warn('mailer', '[mailer] 未配置ADMIN_EMAIL，跳过系统告警');
     return { success: false, error: '管理员邮箱未配置' };
   }
 
@@ -256,14 +303,14 @@ async function sendSystemAlert(subject, message) {
         <h1 style="margin: 0;">🚨 系统告警</h1>
       </div>
       <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px;">
-        <h2>${subject}</h2>
-        <p>${message}</p>
+        <h2>${escapeHtml(subject)}</h2>
+        <p>${escapeHtml(message)}</p>
         <p><strong>时间：</strong>${new Date().toLocaleString()}</p>
       </div>
       <p style="text-align: center; color: #999; font-size: 12px; margin-top: 20px;">境途同游 - 系统监控</p>
     </div>
   `;
-  return sendEmail(adminEmail, `[告警] ${subject}`, html);
+  return sendEmail(adminEmail, `[告警] ${sanitizeMailHeader(subject)}`, html);
 }
 
 function isMailerEnabled() {
@@ -286,10 +333,10 @@ async function sendTestEmail(config, to) {
       subject: '【境途同游】邮件测试',
       text: '邮件测试成功！'
     });
-    console.log('[mailer] 测试邮件发送成功:', info.messageId);
+    logger.info('mailer', '[mailer] 测试邮件发送成功:', info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (e) {
-    console.error('[mailer] 测试邮件发送失败:', e.message);
+    logger.error('mailer', '[mailer] 测试邮件发送失败:', e.message);
     return { success: false, error: e.message };
   }
 }

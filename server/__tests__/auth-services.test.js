@@ -255,21 +255,26 @@ describe('P2-148 auth_local_service 登录/锁定/注册', () => {
 
   test('密码错误递增 failed_login_attempts 并返回 401', async () => {
     mockQueryBySql([
-      [/SELECT \* FROM users WHERE/, [[{ id: 5, login_id: 'alice', display_name: 'Alice', password_hash: realHash, role: 'member', approved: 1, banned: 0, locked_until: null, failed_login_attempts: 1 }]]]
+      [/SELECT \* FROM users WHERE/, [[{ id: 5, login_id: 'alice', display_name: 'Alice', password_hash: realHash, role: 'member', approved: 1, banned: 0, locked_until: null, failed_login_attempts: 1 }]]],
+      // AUTH-1：原子递增后回读计数（新 SQL 形态）
+      [/SELECT failed_login_attempts FROM/, [[{ failed_login_attempts: 2 }]]]
     ]);
     const res = await request(createApp())
       .post('/api/auth/login')
       .send({ loginId: 'alice', password: 'WrongPass9' });
     expect(res.status).toBe(401);
     expect(res.body.error).toContain('登录失败');
-    const upd = mockPool.query.mock.calls.find(c => /failed_login_attempts = \? WHERE/.test(c[0]));
+    // AUTH-1：原子 SQL（failed_login_attempts = failed_login_attempts + 1），非「读快照再写回」
+    const upd = mockPool.query.mock.calls.find(c => /failed_login_attempts\s*=\s*failed_login_attempts\s*\+\s*1 WHERE/.test(c[0]));
     expect(upd).toBeTruthy();
-    expect(upd[1]).toEqual([2, 5]);
+    expect(upd[1]).toEqual([5]);
   });
 
   test('第 5 次失败锁定 423（locked_until +15MIN）', async () => {
     mockQueryBySql([
-      [/SELECT \* FROM users WHERE/, [[{ id: 5, login_id: 'alice', display_name: 'Alice', password_hash: realHash, role: 'member', approved: 1, banned: 0, locked_until: null, failed_login_attempts: 4 }]]]
+      [/SELECT \* FROM users WHERE/, [[{ id: 5, login_id: 'alice', display_name: 'Alice', password_hash: realHash, role: 'member', approved: 1, banned: 0, locked_until: null, failed_login_attempts: 4 }]]],
+      // AUTH-1：原子递增后回读计数 = 5 → 触发锁定
+      [/SELECT failed_login_attempts FROM/, [[{ failed_login_attempts: 5 }]]]
     ]);
     const res = await request(createApp())
       .post('/api/auth/login')
@@ -387,7 +392,8 @@ describe('P2-148 auth_local_service 登录/锁定/注册', () => {
 describe('P2-148 auth_reset_service 找回码生命周期', () => {
   function extractCodeFromMail() {
     const html = mockMailer.sendEmail.mock.calls[0][2];
-    const m = /(\d{6})/.exec(html);
+    // AUTH-3：OTP 已提升为 8 位数字
+    const m = /(\d{8})/.exec(html);
     return m[1];
   }
 
@@ -395,14 +401,15 @@ describe('P2-148 auth_reset_service 找回码生命周期', () => {
     mockQueryBySql([[/(banned = 0)/, [[]]]]);
     const miss = await request(createApp()).post('/api/auth/forgot-password').send({ email: 'nobody@x.com' });
     expect(miss.status).toBe(200);
-    expect(miss.body.token).toBeNull();
+    // AUTH-4：未知邮箱同样返回真实随机 token（响应完全对称），仅验证码不存在
+    expect(miss.body.token).toMatch(/^[0-9a-f]{64}$/);
 
     mockQueryBySql([[/(banned = 0)/, [[{ id: 9, display_name: 'D', login_id: 'd' }]]]]);
     const hit = await request(createApp()).post('/api/auth/forgot-password').send({ email: 'd@x.com' });
     expect(hit.status).toBe(200);
     expect(hit.body.token).toMatch(/^[0-9a-f]{64}$/);
     expect(mockMailer.sendEmail).toHaveBeenCalled();
-    expect(extractCodeFromMail()).toMatch(/^\d{6}$/);
+    expect(extractCodeFromMail()).toMatch(/^\d{8}$/);
   });
 
   test('forgot-password 缺 email 400', async () => {

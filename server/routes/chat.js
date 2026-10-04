@@ -121,6 +121,12 @@ router.post('/send', requireChatAuth, secureUpload(chatUpload.single('file')), a
     const trimmed = content ? content.trim().slice(0, 2000) : '';
     const [user] = await getPool().query(`SELECT id FROM users WHERE id = ? AND deleted_at IS NULL`, [rId]);
     if (user.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
+    // IDOR-6: 对方已拉黑我 → 拒绝发信（blocked 单向优先，见 friends.js 约定）
+    const [blocked] = await getPool().query(
+      `SELECT 1 FROM user_friends WHERE user_id = ? AND friend_id = ? AND status = 'blocked' LIMIT 1`,
+      [rId, uid]
+    );
+    if (blocked.length) return sendError(res, 403, ErrorCodes.FORBIDDEN, '对方已拉黑你，无法发送消息');
     
     let mediaUrl = null, mediaType = null, fileSize = null;
     if (req.file) {

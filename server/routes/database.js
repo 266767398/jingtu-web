@@ -9,7 +9,7 @@
 const express = require('express');
 const mysql = require('mysql2');
 const { getPool, safeError, logOper, handleError, sendError, fail, ErrorCodes, paginate } = require('../utils');
-const { requireAdminCompat } = require('../auth');
+const { requireAdminCompat, requireSuperAdmin } = require('../auth');
 const { DB_NAME } = require('../db');
 const logger = require('../logger');
 
@@ -242,7 +242,7 @@ router.get('/admin/db/table/:name', requireAdminCompat, async (req, res) => {
   } catch (e) { handleError(res, e, '[db/table-detail]'); }
 });
 
-router.post('/admin/db/optimize/:table', requireAdminCompat, async (req, res) => {
+router.post('/admin/db/optimize/:table', requireSuperAdmin, async (req, res) => {
   try {
     const tableName = req.params.table;
     // §46：白名单校验
@@ -266,7 +266,7 @@ router.post('/admin/db/optimize/:table', requireAdminCompat, async (req, res) =>
   } catch (e) { handleError(res, e, '[db/optimize]'); }
 });
 
-router.post('/admin/db/analyze/:table', requireAdminCompat, async (req, res) => {
+router.post('/admin/db/analyze/:table', requireSuperAdmin, async (req, res) => {
   try {
     const tableName = req.params.table;
     // §46：白名单校验
@@ -290,7 +290,7 @@ router.post('/admin/db/analyze/:table', requireAdminCompat, async (req, res) => 
   } catch (e) { handleError(res, e, '[db/analyze]'); }
 });
 
-router.post('/admin/db/check/:table', requireAdminCompat, async (req, res) => {
+router.post('/admin/db/check/:table', requireSuperAdmin, async (req, res) => {
   try {
     const tableName = req.params.table;
     // §46：白名单校验
@@ -314,7 +314,7 @@ router.post('/admin/db/check/:table', requireAdminCompat, async (req, res) => {
   } catch (e) { handleError(res, e, '[db/check]'); }
 });
 
-router.post('/admin/db/repair/:table', requireAdminCompat, async (req, res) => {
+router.post('/admin/db/repair/:table', requireSuperAdmin, async (req, res) => {
   try {
     const tableName = req.params.table;
     // §46：白名单校验
@@ -340,7 +340,7 @@ router.post('/admin/db/repair/:table', requireAdminCompat, async (req, res) => {
   } catch (e) { handleError(res, e, '[db/repair]'); }
 });
 
-router.post('/admin/db/kill/:pid', requireAdminCompat, async (req, res) => {
+router.post('/admin/db/kill/:pid', requireSuperAdmin, async (req, res) => {
   try {
     // MySQL 的 KILL 语句不支持占位符参数（prepared statement 限制），只能字符串拼接；
     // 因此在路由入口做严格纯数字校验，杜绝任何非数字输入进入拼接点。

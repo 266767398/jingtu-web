@@ -16,7 +16,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { ok, getPool, logOper, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, paginate, escapeLike } = require('../utils');
 const { extractVideoThumbnail, getVideoDuration } = require('../video_utils');
-const { requireAdminCompat, ROLE_LEVEL, getAvatarUrl } = require('../auth');
+const { requireAdminCompat, ROLE_LEVEL, getAvatarUrl, currentRole, hasRole } = require('../auth');
 const logger = require('../logger');
 
 /**
@@ -49,7 +49,9 @@ module.exports = function (authStateRef, notificationService) {
     if (eventId === undefined || eventId === null || eventId === '') return null;
     const id = parseInt(eventId, 10);
     if (!Number.isFinite(id) || id <= 0) return null;
-    const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+    // IDOR-2: 实时 DB 角色判断
+    const role = await currentRole(req);
+    const roleLevel = ROLE_LEVEL[role] || 0;
     const [[evt]] = await getPool().query(`SELECT id, create_user_id AS createUserId FROM event WHERE id=?`, [id]);
     if (!evt) return null;
     if (roleLevel < 3 && evt.createUserId !== uid) return 'forbidden';
@@ -256,7 +258,8 @@ module.exports = function (authStateRef, notificationService) {
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
     const { caption } = req.body;
     if (typeof caption === 'string' && caption.length > 50000) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '描述过长');
-    const isAdmin = req.session?.role && ['super_admin', 'admin'].includes(req.session.role);
+    // IDOR-2: 实时 DB 角色判断
+    const isAdmin = await hasRole(req, 'admin', 'super_admin');
     try {
       if (isAdmin) {
         await getPool().query(`UPDATE album_photo SET photo_desc=? WHERE id=?`, [caption || '', req.params.id]);
@@ -271,7 +274,8 @@ module.exports = function (authStateRef, notificationService) {
   router.delete('/photos/:id', async (req, res) => {
     const uid = getUserId(req);
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
-    const isAdminUser = req.session?.role && ['super_admin', 'admin'].includes(req.session.role);
+    // IDOR-2: 实时 DB 角色判断
+    const isAdminUser = await hasRole(req, 'admin', 'super_admin');
     try {
       if (isAdminUser) {
         await getPool().query(`UPDATE album_photo SET is_recycle=1, recycle_time=NOW() WHERE id=?`, [req.params.id]);
@@ -396,7 +400,9 @@ module.exports = function (authStateRef, notificationService) {
       if (typeof content !== 'string' || content.length > 2000) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '评论内容不能超过2000字');
       const [comments] = await getPool().query(`SELECT user_vrcid FROM album_comment WHERE id=? AND photo_id=?`, [commentId, photoId]);
       if (!comments.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '评论不存在');
-      const userRole = ROLE_LEVEL[req.session.role] || 0;
+      // IDOR-2: 实时 DB 角色判断
+      const role = await currentRole(req);
+      const userRole = ROLE_LEVEL[role] || 0;
       const currentLogin = req.session.loginId || uid;
       if (comments[0].user_vrcid !== currentLogin && userRole < ROLE_LEVEL.admin) {
         return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权编辑此评论');
@@ -411,7 +417,9 @@ module.exports = function (authStateRef, notificationService) {
     const uid = getUserId(req);
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
     try {
-      const userRole = ROLE_LEVEL[req.session.role] || 0;
+      // IDOR-2: 实时 DB 角色判断
+      const role = await currentRole(req);
+      const userRole = ROLE_LEVEL[role] || 0;
       if (userRole >= ROLE_LEVEL.admin) {
         await getPool().query(`DELETE FROM album_comment WHERE id=?`, [req.params.commentId]);
       } else {
@@ -439,7 +447,8 @@ module.exports = function (authStateRef, notificationService) {
     if (!Array.isArray(ids) || ids.length === 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请选择照片');
     if (ids.length > 50) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '单次最多操作 50 张照片');
     try {
-      const isAdminUser = req.session?.role && ['super_admin', 'admin'].includes(req.session.role);
+      // IDOR-2: 实时 DB 角色判断
+      const isAdminUser = await hasRole(req, 'admin', 'super_admin');
       const placeholders = ids.map(() => '?').join(',');
       const [photos] = await getPool().query(`SELECT id, upload_vrcid FROM album_photo WHERE id IN (${placeholders}) AND is_recycle = 0`, ids);
       const validIds = photos.filter(p => isAdminUser || p.upload_vrcid === uid).map(p => p.id);

@@ -8,6 +8,7 @@
  *   description: 权限组系统相关接口
  */
 const express = require('express');
+const logger = require('../logger');
 const router = express.Router();
 const { requireAuth, requireRole } = require('../auth');
 const { fail, ok, getPool, handleError, validateFields , sendError, ErrorCodes } = require('../utils');
@@ -271,7 +272,7 @@ router.post('/groups/:id/permissions/set', requireRole('super_admin'), async (re
 router.post('/groups/:id/permissions/batch', requireRole('super_admin'), async (req, res) => {
   try {
     const groupId = parseInt(req.params.id);
-    const { permissions } = req.body; // { key: value, ... }
+    const { permissions } = req.body; 
     if (!permissions || typeof permissions !== 'object') return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
     let count = 0;
     for (const [key, value] of Object.entries(permissions)) {
@@ -398,7 +399,7 @@ router.get('/my', requireAuth, async (req, res) => {
     for (const p of permRows) permMap[p.perm_key] = !!p.value;
     res.json({ permissions: permMap, groupIds });
   } catch (e) {
-    console.error('[permission-groups/my] 权限查询失败:', e.message);
+    logger.error('permission-groups', '[permission-groups/my] 权限查询失败:', e.message);
     return fail(res, 500, '权限查询失败，请稍后重试', { code: 'PERM_QUERY_FAILED' });
   }
 });

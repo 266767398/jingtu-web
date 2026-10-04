@@ -174,6 +174,15 @@ function safeUrl(path, params = {}) {
   return segs + (existingQs || '');
 }
 
+// ==================== URL scheme 安全校验 ====================
+// 危险 scheme（javascript:/data:/vbscript: 等）禁止进入 href，仅放行 http/https 或无 scheme 的链接
+function safeHref(url) {
+  if (typeof url !== 'string' || !url.trim()) return false;
+  const schemeMatch = url.trim().match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
+  if (!schemeMatch) return true; // 无 scheme：相对路径 / #锚点 / 协议相对链接
+  return /^(https?)$/i.test(schemeMatch[1]);
+}
+
 // ==================== API 请求封装 ====================
 // VRChat 上游相关的业务错误码。这些错误虽然用了 401/403 状态码，但含义是
 // "VRChat 那边的登录/权限有问题"，而不是"本站会话过期/权限不足"。

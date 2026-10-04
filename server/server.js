@@ -7,7 +7,10 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 // §兜底：若进程环境变量未注入（如 ServBay 以自身方式拉起 Node 而未 source .env），
 // 则直接从 .env 文件补充缺失的键，避免 root@localhost 无密码连接数据库。
+// H-3: 生产环境禁用兜底——.env 若被篡改/权限过宽，兜底会把它当作可信配置注入进程
+//（SESSION_SECRET/ENCRYPT_KEY/MYSQL_PASSWORD 等敏感键会被覆盖），构成配置投毒风险。
 (function backfillEnvFromFile() {
+  if (process.env.NODE_ENV === 'production') return;
   try {
     const fs = require('fs');
     const envPath = path.join(__dirname, '..', '.env');
@@ -124,9 +127,9 @@ for (const d of [PROFILE_PHOTOS_DIR, PROFILE_VIDEOS_DIR]) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
 // HTTP 服务器超时设置（防止空闲连接堆积）
-server.timeout = 120000;       // 请求超时 2 分钟
-server.keepAliveTimeout = 5000; // 空闲 Keep-Alive 5 秒
-server.headersTimeout = 60000;  // 请求头部超时 1 分钟
+server.timeout = 120000;       
+server.keepAliveTimeout = 5000; 
+server.headersTimeout = 60000;  
 
 const ROLE_CN_MAP = {
   'Group Owner': '群主', 'Owner': '群主', 'Admin': '管理员', 'Manager': '管理员',
@@ -162,9 +165,9 @@ if (Array.isArray(CORS_ORIGINS) && CORS_ORIGINS.length === 0) {
 }
 app.use(cors({
   origin(origin, cb) {
-    if (!origin) return cb(null, true); // 同源/无 Origin 放行
+    if (!origin) return cb(null, true); 
     if (Array.isArray(CORS_ORIGINS) && CORS_ORIGINS.includes(origin)) return cb(null, true);
-    return cb(null, false); // 拒绝未授权来源
+    return cb(null, false); 
   },
   credentials: true
 }));
@@ -284,8 +287,18 @@ app.use(express.static(path.join(ROOT_DIR, 'public'), {
 }));
 
 // 默认头像占位图（支持 ?name= 参数生成首字母/首汉字）
-app.get('/api/avatar/default', (req, res) => {
-  const name = (req.query.name || '').toString().trim();
+// M-1：自带限流（防 DoS/SVG 探测）+ name 长度与字符过滤（防注入）+ Content-Disposition（防当 HTML 解析）
+const avatarDefaultLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'RATE_LIMITED', msg: '请求过于频繁' }
+});
+app.get('/api/avatar/default', avatarDefaultLimiter, (req, res) => {
+  const rawName = (req.query.name || '').toString().trim();
+  // 长度 ≤16 且仅允许中文/字母/数字，从源头阻断 <script> 等注入字符
+  const name = rawName.slice(0, 16).replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, '');
   // 取首字母或首汉字：有中文取第一个字符，否则取第一个字母并大写
   let initial = '';
   if (name) {
@@ -299,6 +312,7 @@ app.get('/api/avatar/default', (req, res) => {
   const safeText = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" fill="${bg}" rx="32"/><text x="32" y="37" text-anchor="middle" fill="${fill}" font-size="${fontSize}" font-family="sans-serif" font-weight="600" dy=".05em">${safeText}</text></svg>`;
   res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+  res.setHeader('Content-Disposition', 'inline; filename=default.svg');
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.send(svg);
 });
@@ -352,7 +366,7 @@ app.use(session({
   store: sessionStore || undefined,
   resave: false,
   saveUninitialized: false,
-  rolling: true,               // 每次请求刷新 session 过期时间
+  rolling: true,               
   cookie: {
     // 'auto'：当请求经 HTTPS（req.secure，依赖上面的 trust proxy 解析 X-Forwarded-Proto）
     // 时自动给 Cookie 加 Secure；纯 HTTP 则不加。取代原先误把 MYSQL_HOST 当判据的逻辑。
@@ -388,12 +402,16 @@ app.use('/uploads', express.static(path.join(ROOT_DIR, 'uploads'), {
 // Session 验证中间件 — 确保用户未被封禁且仍存在
 // P2-122: banned 校验结果在 session 上短缓存 30s（bannedCheckedAt），避免每请求查库使 DB QPS 翻倍；
 // 30s 内新封禁用户最多延迟 30s 生效（安全起见 30s 后立即重查）。
+// M-3: 敏感操作（删除/撤销/改密/重置/上传等写路径）强制跳过缓存实时查库，
+// 封禁即刻生效，避免紧急封禁的 30s 窗口内继续造成数据外泄。
 const BANNED_CHECK_TTL = 30 * 1000;
+const SENSITIVE_BANNED_CHECK_RE = /\/delete|\/revoke|\/remove|\/change-password|\/reset-password|\/upload|\/ban|\/clear/i;
 app.use('/api', async (req, res, next) => {
   if (req.session?.userId) {
     const now = Date.now();
     const checkedAt = req.session.bannedCheckedAt || 0;
-    if (now - checkedAt > BANNED_CHECK_TTL) {
+    const needsFreshCheck = req.method === 'DELETE' || SENSITIVE_BANNED_CHECK_RE.test(req.path);
+    if (needsFreshCheck || now - checkedAt > BANNED_CHECK_TTL) {
       try {
         const pool = getPool();
         if (pool) {
@@ -406,7 +424,7 @@ app.use('/api', async (req, res, next) => {
         }
       } catch (e) {
         // 封禁状态校验依赖数据库；查询失败时按 fail-closed 拒绝，避免被封禁用户绕过校验。
-        console.error('[session] 封禁状态校验失败:', e.message);
+        logger.error('server', '[session] 封禁状态校验失败:', e.message);
         return fail(res, 503, '服务暂时不可用，请稍后重试', { code: 'SERVICE_UNAVAILABLE' });
       }
     }

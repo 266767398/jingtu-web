@@ -5,6 +5,7 @@
  */
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const logger = require('./logger');
 const { fail, getAvatarUrl } = require('./utils');
 const { getPool } = require('./db');
 
@@ -27,7 +28,7 @@ const ROLE_LABELS = {
 const AES_KEY = (() => {
   const envKey = process.env.ENCRYPT_KEY;
   if (!envKey || envKey.length !== 64) {
-    console.warn('⚠ WARNING: ENCRYPT_KEY 未设置，使用临时密钥（仅适用于 setup 初始化）');
+    logger.warn('auth', '⚠ WARNING: ENCRYPT_KEY 未设置，使用临时密钥（仅适用于 setup 初始化）');
     return require('crypto').randomBytes(32);
   }
   return Buffer.from(envKey, 'hex');
@@ -103,6 +104,20 @@ async function refreshRoleFromDb(session) {
   return null;
 }
 
+// 实时返回当前有效角色（先回查 DB 再回退 session），供业务内联判断使用
+async function currentRole(req) {
+  if (!req || !req.session || req.session.userId === undefined) return null;
+  const fresh = await refreshRoleFromDb(req.session);
+  return fresh || req.session.role || null;
+}
+
+// 实时判断用户是否具备任意给定角色（任一命中即 true），DB 优先
+async function hasRole(req, ...roles) {
+  const role = await currentRole(req);
+  if (!role) return false;
+  return roles.includes(role);
+}
+
 function requireRole(...roles) {
   return async (req, res, next) => {
     if (!req.session || req.session.userId === undefined) {
@@ -127,15 +142,14 @@ function getUserLevel(session) {
 }
 
 // 兼容旧版：检查是否有管理员权限（admin 及以上）
+// IDOR-1: 无条件回查数据库角色——即使 session 已带 admin/super_admin，
+// 也以 DB 最新角色为准，被降权的管理员在 session 到期前不得继续持有权限。
 async function requireAdminCompat(req, res, next) {
   if (!req.session || req.session.userId === undefined) {
     return fail(res, 401, '请先登录');
   }
-  let level = ROLE_LEVEL[req.session.role] || 0;
-  if (level < ROLE_LEVEL.admin) {
-    const freshRole = await refreshRoleFromDb(req.session);
-    if (freshRole) level = ROLE_LEVEL[freshRole] || 0;
-  }
+  const freshRole = await refreshRoleFromDb(req.session);
+  const level = ROLE_LEVEL[freshRole || req.session.role] || 0;
   if (level < ROLE_LEVEL.admin) {
     return fail(res, 403, '需要管理员权限');
   }
@@ -147,11 +161,8 @@ async function requireSuperAdmin(req, res, next) {
   if (!req.session || req.session.userId === undefined) {
     return fail(res, 401, '请先登录');
   }
-  let level = ROLE_LEVEL[req.session.role] || 0;
-  if (level < ROLE_LEVEL.super_admin) {
-    const freshRole = await refreshRoleFromDb(req.session);
-    if (freshRole) level = ROLE_LEVEL[freshRole] || 0;
-  }
+  const freshRole = await refreshRoleFromDb(req.session);
+  const level = ROLE_LEVEL[freshRole || req.session.role] || 0;
   if (level < ROLE_LEVEL.super_admin) {
     return fail(res, 403, '需要超级管理员权限');
   }
@@ -170,5 +181,7 @@ module.exports = {
   requireRole,
   requireAdminCompat,
   requireSuperAdmin,
+  currentRole,
+  hasRole,
   getAvatarUrl
 };

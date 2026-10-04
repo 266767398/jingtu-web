@@ -31,6 +31,8 @@ backups
 backup
 __pycache__
 *.pyc
+_removed-bats
+_jt_trash
 
 # 文档与辅助脚本（不影响运行）
 docs

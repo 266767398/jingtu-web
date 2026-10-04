@@ -60,6 +60,12 @@ tools/
 # AI 一次性辅助脚本（已从 server/ 迁出，非项目运行所需，不纳入版本控制）
 ai-scratch/
 
+# L-2：仓库卫生——Python 字节码缓存 / 已移除脚本的回收目录，避免误带入镜像
+__pycache__/
+*.pyc
+_removed-bats/
+_jt_trash/
+
 # 运行时日志与备份目录
 logs/
 backups/

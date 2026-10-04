@@ -22,7 +22,7 @@
  */
 const express = require('express');
 const { fail, ok,  getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes, paginate, escapeLike  } = require('../utils');;
-const { requireAuth, requireAdminCompat, getAvatarUrl, ROLE_LEVEL } = require('../auth');
+const { requireAuth, requireAdminCompat, getAvatarUrl, ROLE_LEVEL, currentRole } = require('../auth');
 const { vrchatGetGroupEvents } = require('../vrc');
 const cacheService = require('../cache_service');
 const webhook = require('../webhook');
@@ -92,10 +92,12 @@ function generateGoogleCalendarUrl(evt) {
 // P0-3 可见性执行：按当前会话身份生成 visibility 过滤 SQL 片段。
 // 匿名 => 仅 public；管理员及以上 => 全量；普通登录用户 => 非 private，或本人创建。
 // NULL 视同 public（DB DEFAULT 'public'，兼容历史行）。prefix 用于带表别名的查询。
-function visibilityFilter(req, prefix = '') {
+// IDOR-2: 角色实时回查 DB，避免 session 角色陈旧导致降权不生效。
+async function visibilityFilter(req, prefix = '') {
   const uid = req.session?.userId || 0;
   if (!uid) return { clause: `COALESCE(${prefix}visibility, 'public') = 'public'`, params: [] };
-  const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+  const role = await currentRole(req);
+  const roleLevel = ROLE_LEVEL[role] || 0;
   if (roleLevel >= ROLE_LEVEL.admin) return { clause: '1=1', params: [] };
   return { clause: `(COALESCE(${prefix}visibility, 'public') <> 'private' OR ${prefix}create_user_id = ?)`, params: [uid] };
 }
@@ -110,7 +112,8 @@ async function enforceEventVisibility(req, res) {
   if (rows.length === 0) return { ok: false, status: 404, message: '活动不存在' };
   const evt = rows[0];
   const vis = evt.visibility || 'public';
-  const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+  const role = await currentRole(req);
+  const roleLevel = ROLE_LEVEL[role] || 0;
   const isOwner = !!uid && evt.createUserId === uid;
   const isAdmin = roleLevel >= ROLE_LEVEL.admin;
   if (vis === 'members_only' && !uid) return { ok: false, status: 401, message: '请先登录后查看该活动' };
@@ -191,7 +194,7 @@ router.get('/', async (req, res) => {
       // VN-9 命令面板：按标题模糊搜索（无表别名，COUNT 与主查询共用 whereStr）
       if (q) { whereClauses.push('title LIKE ? ESCAPE \'!\''); params.push('%' + escapeLike(q) + '%'); }
       // P0-3：按身份过滤可见性（COUNT 与主查询共用 whereStr，列名无歧义）
-      const vis = visibilityFilter(req);
+      const vis = await visibilityFilter(req);
       whereClauses.push(vis.clause);
       params.push(...vis.params);
       const whereStr = whereClauses.join(' AND ');
@@ -219,7 +222,7 @@ router.get('/', async (req, res) => {
   // ==================== 生日派对 ====================
   router.get('/birthday-parties', async (req, res) => {
     try {
-      const vis = visibilityFilter(req);
+      const vis = await visibilityFilter(req);
       const [rows] = await getPool().query(
         `SELECT id, title, event_time AS eventTime, ends_at AS endsAt, description, create_admin AS createAdmin, create_user_id AS createUserId, event_type AS eventType FROM event WHERE event_type='birthday' AND ${vis.clause} ORDER BY event_time DESC LIMIT 20`,
         vis.params
@@ -231,7 +234,7 @@ router.get('/', async (req, res) => {
   // ==================== 活动日历导出（iCal格式） ====================
   router.get('/export/ical', async (req, res) => {
     try {
-      const vis = visibilityFilter(req);
+      const vis = await visibilityFilter(req);
       const [rows] = await getPool().query(
         `SELECT id, title, place, event_time AS eventTime, description, event_type AS eventType, ends_at AS endsAt, world_name AS worldName
          FROM event WHERE is_archive=0 AND ${vis.clause} ORDER BY event_time ASC LIMIT 50`,
@@ -248,7 +251,7 @@ router.get('/', async (req, res) => {
   router.get('/calendar', async (req, res) => {
     try {
       const { year, month } = req.query;
-      const vis = visibilityFilter(req);
+      const vis = await visibilityFilter(req);
       let sql = `SELECT id, title, event_time AS eventTime, ends_at AS endsAt, event_type AS eventType, visibility FROM event WHERE is_archive=0 AND ${vis.clause}`;
       const params = [...vis.params];
       if (year && month) {
@@ -266,7 +269,7 @@ router.get('/', async (req, res) => {
   // ==================== 有关联 World 的活动 ====================
   router.get('/with-worlds', async (req, res) => {
     try {
-      const vis = visibilityFilter(req);
+      const vis = await visibilityFilter(req);
       const [rows] = await getPool().query(
         `SELECT id, title, event_time AS eventTime, event_time AS time, ends_at AS endsAt, world_id AS worldId, world_name AS worldName, world_image_url AS worldImageUrl, visibility FROM event WHERE world_id IS NOT NULL AND ${vis.clause} ORDER BY event_time DESC LIMIT 50`,
         vis.params
@@ -295,7 +298,9 @@ router.get('/', async (req, res) => {
       // P0-3：详情页可见性执行——members_only 需登录；private（防御性）仅组织者/管理员
       const uid = req.session?.userId || 0;
       const vis = evt.visibility || 'public';
-      const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+      // IDOR-2: 实时 DB 角色判断
+      const role = await currentRole(req);
+      const roleLevel = ROLE_LEVEL[role] || 0;
       const isOwner = !!uid && evt.createUserId === uid;
       const isAdmin = roleLevel >= ROLE_LEVEL.admin;
       if (vis === 'members_only' && !uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录后查看该活动');
@@ -358,7 +363,9 @@ router.get('/', async (req, res) => {
   router.put('/:id', requireAuth, async (req, res) => {
     try {
       const uid = req.session?.userId;
-      const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+      // IDOR-2: 实时 DB 角色判断
+      const role = await currentRole(req);
+      const roleLevel = ROLE_LEVEL[role] || 0;
       const [[evt0]] = await getPool().query(`SELECT id, create_user_id AS createUserId FROM event WHERE id=?`, [req.params.id]);
       if (!evt0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '活动不存在');
       // 权限：管理员（roleLevel>=3）或活动创建者本人可编辑（与删除逻辑一致）
@@ -446,8 +453,9 @@ router.get('/', async (req, res) => {
 
   router.delete('/:id', requireAuth, async (req, res) => {
     const uid = req.session?.userId;
-    // 采用全站统一的权限判定：基于 ROLE_LEVEL[req.session.role]，避免 roleLevel 字段缺失/类型错误导致的越权或误拒（D2）
-    const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+    // IDOR-2: 实时 DB 角色判断（删除为管理动作）
+    const role = await currentRole(req);
+    const roleLevel = ROLE_LEVEL[role] || 0;
     let conn;
     try {
       conn = await getPool().getConnection();
@@ -470,7 +478,9 @@ router.get('/', async (req, res) => {
   // 避免「部分删除」的不一致）；全部通过才在一个事务内批量删除。
   router.post('/batch-delete', requireAuth, async (req, res) => {
     const uid = req.session?.userId;
-    const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+    // IDOR-2: 实时 DB 角色判断
+    const role = await currentRole(req);
+    const roleLevel = ROLE_LEVEL[role] || 0;
     let ids = req.body && req.body.ids;
     if (!Array.isArray(ids) || ids.length === 0) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请选择要删除的活动');
@@ -675,7 +685,9 @@ router.get('/', async (req, res) => {
       if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
       const [evRows] = await getPool().query(`SELECT create_user_id AS createUserId FROM event WHERE id = ?`, [req.params.id]);
       if (evRows.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '活动不存在');
-      const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+      // IDOR-2: 实时 DB 角色判断
+      const role = await currentRole(req);
+      const roleLevel = ROLE_LEVEL[role] || 0;
       if (evRows[0].createUserId !== uid && roleLevel < ROLE_LEVEL.admin) {
         return sendError(res, 403, ErrorCodes.FORBIDDEN, '仅组织者或管理员可查看报名名单');
       }
@@ -769,7 +781,9 @@ router.get('/', async (req, res) => {
       if (typeof content !== 'string' || content.length > 2000) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '评论内容不能超过2000字');
       const [comments] = await getPool().query(`SELECT user_id FROM event_comment WHERE id=? AND event_id=?`, [commentId, eventId]);
       if (!comments.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '评论不存在');
-      const userRole = ROLE_LEVEL[req.session.role] || 0;
+      // IDOR-2: 实时 DB 角色判断
+      const role = await currentRole(req);
+      const userRole = ROLE_LEVEL[role] || 0;
       if (comments[0].user_id !== uid && userRole < ROLE_LEVEL.admin) {
         return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权编辑此评论');
       }
@@ -783,7 +797,9 @@ router.get('/', async (req, res) => {
     const uid = req.session?.userId;
     if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
     try {
-      const userRole = ROLE_LEVEL[req.session.role] || 0;
+      // IDOR-2: 实时 DB 角色判断
+      const role = await currentRole(req);
+      const userRole = ROLE_LEVEL[role] || 0;
       if (userRole >= ROLE_LEVEL.admin) {
         await getPool().query(`DELETE FROM event_comment WHERE id=?`, [req.params.commentId]);
       } else {
@@ -816,7 +832,9 @@ router.get('/', async (req, res) => {
       // P0-3：跳转 URL 携带标题/简介/地点，按与详情页一致的可见性规则执行
       const uid = req.session?.userId || 0;
       const vis = rows[0].visibility || 'public';
-      const roleLevel = ROLE_LEVEL[req.session?.role] || 0;
+      // IDOR-2: 实时 DB 角色判断
+      const role = await currentRole(req);
+      const roleLevel = ROLE_LEVEL[role] || 0;
       if (vis === 'members_only' && !uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录后查看该活动');
       if (vis === 'private' && rows[0].createUserId !== uid && roleLevel < ROLE_LEVEL.admin) {
         return sendError(res, 403, ErrorCodes.FORBIDDEN, '仅组织者或管理员可查看该活动');

@@ -90,7 +90,7 @@ router.post('/init', async (req, res) => {
           'LOG_LEVEL=INFO'
         ].join('\n');
         fs.writeFileSync(ENV_PATH, envLines + '\n');
-        console.log('[auth/init] .env 不存在，已用当前运行配置自动补全');
+        logger.info('auth-local', '[auth/init] .env 不存在，已用当前运行配置自动补全');
       } catch (ensureErr) {
         return handleError(res, ensureErr, '[auth/init-ensureEnv]');
       }
@@ -283,7 +283,12 @@ const authPreviewLimiter = createCustomLimiter({
 
 router.get('/preview', authPreviewLimiter, async (req, res) => {
   try {
-    const raw = (req.query.loginId || '').toString().trim();
+    // M-2：仅登录用户可用——匿名请求统一返回 null，消除「按头像是否存在」的账户枚举 oracle；
+    // 前端对 null 已有默认头像兜底（auth.js previewLoginAvatar），不影响登录流程
+    if (!req.session || !req.session.userId) {
+      return res.json({ avatarUrl: null, vrchatAvatarUrl: null });
+    }
+    const raw = (req.query.loginId || '').toString().trim().slice(0, 64);
     if (!raw) return res.json({ avatarUrl: null, vrchatAvatarUrl: null });
     const key = raw.toLowerCase();
     const [rows] = await getPool().query(
@@ -294,7 +299,7 @@ router.get('/preview', authPreviewLimiter, async (req, res) => {
     // 账号不存在：返回默认（与「存在但无头像」不可区分，避免泄露枚举）
     if (rows.length === 0) return res.json({ avatarUrl: null, vrchatAvatarUrl: null });
     const u = rows[0];
-    const avatarUrl = getAvatarUrl(u); // custom 路径 / 代理后的 vrchat URL / null
+    const avatarUrl = getAvatarUrl(u); 
     const vrchatAvatarUrl = u.vrchat_avatar_url
       ? `/api/avatar/proxy?u=${encodeURIComponent(u.vrchat_avatar_url)}`
       : null;
@@ -350,16 +355,17 @@ router.post('/login', async (req, res) => {
     if (!user.password_hash) return fail(res, 401, '该账号未设置密码，请联系管理员或使用初始化流程重新设置', { code: 'NO_PASSWORD' });
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) {
-      const newAttempts = (user.failed_login_attempts || 0) + 1;
-      if (newAttempts >= 5) {
-        try {
-          await getPool().query(`UPDATE users SET failed_login_attempts = ?, locked_until = DATE_ADD(NOW(), INTERVAL 15 MINUTE) WHERE id = ?`, [newAttempts, user.id]);
-        } catch {}
-        logger.warn('auth', `[SEC] 账户 ${user.login_id} 已锁定（${newAttempts} 次失败）`);
-        return fail(res, 423, '登录失败次数过多，账户已被锁定15分钟', { code: 'ACCOUNT_LOCKED', lockMinutes: 15 });
-      }
+      // AUTH-1: 原子递增失败计数（failed_login_attempts = failed_login_attempts + 1），
+      // 杜绝并发请求读到同一快照导致计数器不累计、锁账户失效的竞态。
       try {
-        await getPool().query(`UPDATE users SET failed_login_attempts = ? WHERE id = ?`, [newAttempts, user.id]);
+        await getPool().query(`UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE id = ?`, [user.id]);
+        const [after] = await getPool().query(`SELECT failed_login_attempts FROM users WHERE id = ?`, [user.id]);
+        const newAttempts = (after && after.length && after[0].failed_login_attempts) || 1;
+        if (newAttempts >= 5) {
+          await getPool().query(`UPDATE users SET locked_until = DATE_ADD(NOW(), INTERVAL 15 MINUTE) WHERE id = ?`, [user.id]);
+          logger.warn('auth', `[SEC] 账户 ${user.login_id} 已锁定（${newAttempts} 次失败）`);
+          return fail(res, 423, '登录失败次数过多，账户已被锁定15分钟', { code: 'ACCOUNT_LOCKED', lockMinutes: 15 });
+        }
       } catch {}
       return fail(res, 401, '登录失败，请检查账号和密码', { code: 'LOGIN_FAILED' });
     }
@@ -456,10 +462,13 @@ router.post('/change-password', passwordResetLimiter, requireAuth, async (req, r
       }
     }
     if (users.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
-    if (users[0].password_hash) {
-      const valid = await verifyPassword(oldPassword, users[0].password_hash);
-      if (!valid) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '旧密码错误');
+    // AUTH-7：未设置密码（password_hash=NULL）时拒绝免旧密码设密——统一走邮箱重置流程，
+    // 防攻击者持无密码账号会话直接声明任意密码
+    if (!users[0].password_hash) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '该账号未设置密码，请通过邮箱重置密码后再修改');
     }
+    const valid = await verifyPassword(oldPassword, users[0].password_hash);
+    if (!valid) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '旧密码错误');
     const strength = validatePasswordStrength(newPassword);
     if (!strength.valid) return fail(res, 400, '新密码强度不足', { details: strength.errors });
     const newHash = await hashPassword(newPassword);

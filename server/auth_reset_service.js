@@ -10,6 +10,10 @@ const { hashPassword, validatePasswordStrength } = require('./auth');
 const logger = require('./logger');
 const mailer = require('./mailer');
 
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 // ==================== 密码找回（忘记密码） ====================
 const resetTokens = new Map();
 setInterval(() => {
@@ -47,15 +51,16 @@ function registerResetRoutes(router) {
       `SELECT id, display_name, login_id FROM users WHERE email = ? AND deleted_at IS NULL AND banned = 0`,
       [email]
     );
+    // AUTH-3/4: 无论账号是否存在都返回真实随机 token（不存在时该 token 无对应验证码，
+    // verify/reset 必失败），响应结构完全对称，杜绝「token:null vs 64hex」的存在性枚举 oracle。
+    const token = crypto.randomBytes(32).toString('hex');
     if (users.length === 0) {
-      // P2-125: 响应结构与存在路径完全对称（token: null / message 恒定文案），避免按是否含 token 字段枚举邮箱
-      return ok(res, { message: '如果该邮箱已注册，验证码已发送到您的邮箱', token: null });
+      return ok(res, { message: '如果该邮箱已注册，验证码已发送到您的邮箱', token });
     }
 
     const user = users[0];
-    // §30：使用 crypto.randomInt 替代 Math.random 生成密码学安全验证码
-    const code = crypto.randomInt(100000, 1000000).toString();
-    const token = crypto.randomBytes(32).toString('hex');
+    // AUTH-3: OTP 熵提升至 8 位数字（~26.6 bit，原 6 位仅 ~20 bit），配合 5 次尝试上限
+    const code = crypto.randomInt(10000000, 100000000).toString();
     const expireAt = Date.now() + 15 * 60 * 1000;
 
     resetTokens.set(token, { userId: user.id, code, expireAt, attempts: 0 });
@@ -67,7 +72,7 @@ function registerResetRoutes(router) {
           </div>
           <div style="border:1px solid #eee;border-top:none;padding:20px;">
             <h2 style="color:#333;margin:0 0 15px;">密码重置</h2>
-            <p style="color:#666;line-height:1.6;">您好 ${user.display_name}，</p>
+            <p style="color:#666;line-height:1.6;">您好 ${escapeHtml(user.display_name)}，</p>
             <p style="color:#666;line-height:1.6;">您的密码重置验证码是：</p>
             <div style="background:#f8f9fa;border-radius:8px;padding:20px;text-align:center;margin:20px 0;">
               <span style="font-size:36px;font-weight:bold;color:#667eea;letter-spacing:8px;">${code}</span>
@@ -127,6 +132,9 @@ function registerResetRoutes(router) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '验证码错误');
     }
     const state = result.state;
+    // AUTH-2: 校验通过后立即原子注销 token（先于任何异步 DB 操作），
+    // 两个并发 reset-password 同参请求只有一个能通过，杜绝双消耗/后写覆盖。
+    resetTokens.delete(token);
 
     const strength = validatePasswordStrength(newPassword);
     if (!strength.valid) {
@@ -139,8 +147,6 @@ function registerResetRoutes(router) {
     try {
       await getPool().query(`DELETE FROM sessions WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.userId')) = ?`, [String(state.userId)]);
     } catch (e) { logger.warn('auth', '[reset-password] 清理用户会话失败:', e.message); }
-
-    resetTokens.delete(token);
 
     await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '重置密码', ?)`,
       [state.userId, '通过邮箱验证重置密码']);

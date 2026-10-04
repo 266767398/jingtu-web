@@ -40,7 +40,12 @@ jest.mock('fs', () => {
 });
 jest.mock('../auth', () => ({
   requireAuth(req, res, next) { next(); },
-  requireAdminCompat(req, res, next) { next(); }
+  requireAdminCompat(req, res, next) { next(); },
+  currentRole: jest.fn(async (req) => (req.session && req.session.role) || null),
+  hasRole: jest.fn(async (req, ...roles) => {
+    const role = req.session && req.session.role;
+    return !!role && roles.includes(role);
+  })
 }));
 jest.mock('../utils', () => ({
   fail(res, status, message, extra) {

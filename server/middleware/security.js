@@ -4,6 +4,7 @@
  */
 const rateLimit = require('express-rate-limit');
 const fs = require('fs');
+const logger = require('../logger');
 const { onRateLimitTriggered, onSuspiciousRequest } = require('../security_alert');
 const { getLimits } = require('../settings');
 const { hybridStore } = require('./rate_limit_store');
@@ -49,7 +50,7 @@ function verifyFileSignature(filePath, mimeType) {
   }
 
   for (let i = 0; i < len; i++) {
-    if (expected[i] === null) continue; // 通配字节位置（如容器 atom size / RIFF 长度字段）
+    if (expected[i] === null) continue; 
     if (buf[i] !== expected[i]) {
       return false;
     }
@@ -228,7 +229,7 @@ function requestSizeLimiter(req, res, next) {
 function suspiciousRequestDetector(req, res, next) {
   const ua = (req.headers['user-agent'] || '').toLowerCase();
   if (!ua && req.method !== 'OPTIONS') {
-    console.log(`[SEC] No User-Agent from ${req.ip}: ${req.method} ${req.path}`);
+    logger.info('security', `[SEC] No User-Agent from ${req.ip}: ${req.method} ${req.path}`);
   }
   // 仅取路径部分（去掉 query），统一小写
   const urlPath = (req.url.split('?')[0] || '').toLowerCase();
@@ -237,13 +238,13 @@ function suspiciousRequestDetector(req, res, next) {
   const rootBlocked = ['wp-admin', 'wp-login', 'phpmyadmin', 'adminer', 'xmlrpc.php', 'actuator', 'shell', 'cmd', 'exec', 'system'];
   const firstSegment = urlPath.split('/').filter(Boolean)[0] || '';
   if (rootBlocked.includes(firstSegment)) {
-    console.log(`[SEC] Blocked suspicious request: ${req.method} ${req.url} from ${req.ip}`);
+    logger.info('security', `[SEC] Blocked suspicious request: ${req.method} ${req.url} from ${req.ip}`);
     onSuspiciousRequest(req.ip, `访问被阻止路径: /${firstSegment}`, req.path);
     return fail(res, 404, '资源不存在');
   }
   // 文件类探测（.env/.git）：应用不存在此类路由，无论嵌套都拦截
   if (urlPath.includes('/.env') || urlPath.includes('/.git')) {
-    console.log(`[SEC] Blocked suspicious request: ${req.method} ${req.url} from ${req.ip}`);
+    logger.info('security', `[SEC] Blocked suspicious request: ${req.method} ${req.url} from ${req.ip}`);
     onSuspiciousRequest(req.ip, '访问被阻止路径: 配置文件/目录探测', req.path);
     return fail(res, 404, '资源不存在');
   }

@@ -9,10 +9,12 @@
  * - applyConfig(body)：把一次配置更新合并进缓存（前端 PUT /admin/config 时调用）。
  * - refreshFromDb(pool)：进程启动后从 system_config 载入（server.js 在 initDatabase 后调用）。
  */
+const logger = require('./logger');
+
 const DEFAULTS = {
-  req_max_upload_mb: 550, // 上传类请求（含 /upload、/photos、/videos）的安全闸上限
-  req_max_body_mb: 20,    // 普通非上传请求体的上限
-  req_max_other_mb: 5,    // 非上传的 POST/PUT 小请求上限
+  req_max_upload_mb: 550, 
+  req_max_body_mb: 20,    
+  req_max_other_mb: 5,    
 };
 
 // 安全下限，防止管理员误配导致正常上传/接口被整体卡死
@@ -87,7 +89,7 @@ async function refreshFromDb(pool) {
     for (const r of rows) body[r.config_key] = r.config_value;
     applyConfig(body);
   } catch (e) {
-    console.error('[settings] 载入请求大小限制失败，继续使用默认值:', e.message);
+    logger.error('settings', '[settings] 载入请求大小限制失败，继续使用默认值:', e.message);
   }
 }
 

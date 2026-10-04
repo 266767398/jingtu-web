@@ -19,14 +19,15 @@ const http = require('http');
 const https = require('https');
 const dns = require('dns');
 const net = require('net');
+const logger = require('./logger');
 const { promisify } = require('util');
 
 const dnsLookup = promisify(dns.lookup);
 
 const DEFAULTS = {
-  media_provider_mirrors: '[]', // JSON: [{name, urlTemplate, referer?, origin?, enabled}]
-  media_provider_mirror_first: '0', // '1' = 镜像源排在官方 CDN 之前
-  media_provider_timeout_ms: 10000, // 单个源的单次回源超时
+  media_provider_mirrors: '[]', 
+  media_provider_mirror_first: '0', 
+  media_provider_timeout_ms: 10000, 
 };
 
 const FLOORS = { media_provider_timeout_ms: 3000 };
@@ -65,8 +66,8 @@ function sanitizeMirrors(raw) {
     const tpl = String(item.urlTemplate || '').trim();
     if (!/^https:\/\//i.test(tpl)) continue; // 必须 https，防明文/相对地址
     if (tpl.length > MAX_TEMPLATE_LEN) continue;
-    if (!tpl.includes('{url}')) continue; // 必须含占位符
-    if (/[\r\n\s]/.test(tpl)) continue; // 防空白符混淆注入
+    if (!tpl.includes('{url}')) continue; 
+    if (/[\r\n\s]/.test(tpl)) continue; 
     const entry = { name, urlTemplate: tpl };
     const referer = String(item.referer || '').trim();
     const origin = String(item.origin || '').trim();
@@ -106,7 +107,7 @@ async function refreshFromDb(pool) {
     for (const r of rows) body[r.config_key] = r.config_value;
     applyConfig(body);
   } catch (e) {
-    console.error('[media-providers] 载入媒体代理源池配置失败，继续使用默认值:', e.message);
+    logger.error('media', '[media-providers] 载入媒体代理源池配置失败，继续使用默认值:', e.message);
   }
 }
 
@@ -170,7 +171,7 @@ function _isPrivateIPv4(ip) {
   if (parts[0] === 169 && parts[1] === 254) return true;
   if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
   if (parts[0] === 192 && parts[1] === 168) return true;
-  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // CGNAT
+  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; 
   if (parts[0] === 192 && parts[1] === 0 && parts[2] === 0) return true;
   if (parts[0] === 198 && parts[1] === 18) return true;
   if (parts[0] === 198 && parts[1] === 51 && parts[2] === 100) return true;
@@ -181,8 +182,8 @@ function _isPrivateIPv4(ip) {
 function _isPrivateIPv6(ip) {
   const lower = String(ip).toLowerCase();
   if (lower === '::1') return true;
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // ULA fc00::/7
-  if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true; // fe80::/10 链路本地
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true; 
+  if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true; 
   return false;
 }
 
@@ -302,5 +303,5 @@ module.exports = {
   markSuccess,
   markFailure,
   isCoolingDown,
-  _assertPublicRedirectTarget, // P3-74 测试专用：重定向目标 SSRF 校验
+  _assertPublicRedirectTarget, 
 };

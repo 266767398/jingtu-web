@@ -248,7 +248,7 @@ function encryptCookie(plaintext) {
   try {
     const key = Buffer.from(process.env.ENCRYPT_KEY, 'hex');
     if (key.length !== 32) throw new Error('ENCRYPT_KEY 必须是 64 位十六进制（32 字节）');
-    const iv = crypto.randomBytes(12); // GCM 推荐 12 字节 IV
+    const iv = crypto.randomBytes(12); 
     const cipher = crypto.createCipheriv(CRYPTO_ALGO, key, iv);
     let encrypted = cipher.update(plaintext, 'utf8', 'binary');
     encrypted += cipher.final('binary');
@@ -257,7 +257,7 @@ function encryptCookie(plaintext) {
     const buf = Buffer.concat([iv, tag, Buffer.from(encrypted, 'binary')]);
     return CRYPT_PREFIX + buf.toString('base64');
   } catch (e) {
-    console.error('⚠️ VRChat Cookie 加密失败:', e.message);
+    logger.error('utils', '⚠️ VRChat Cookie 加密失败:', e.message);
     return null;
   }
 }
@@ -285,7 +285,7 @@ function decryptCookie(stored) {
     decrypted += decipher.final('utf8');
     return decrypted;
   } catch (e) {
-    console.error('⚠️ VRChat Cookie 解密失败:', e.message);
+    logger.error('utils', '⚠️ VRChat Cookie 解密失败:', e.message);
     return null;
   }
 }

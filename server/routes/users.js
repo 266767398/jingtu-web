@@ -15,7 +15,7 @@ const sharp = require('sharp');
 const {
   hashPassword, verifyPassword, validatePasswordStrength,
   encryptAES, decryptAES, requireAuth, requireRole,
-  requireAdminCompat, getAvatarUrl
+  requireAdminCompat, getAvatarUrl, currentRole, hasRole
 } = require('../auth');
 const { fail, ok,  getPool, safeError, validateFields, handleError, sendError, ErrorCodes, createErr, createFileFilter, secureUpload, paginate, logOper, escapeLike  } = require('../utils');;
 const { VRC_API, VRC_API_KEY } = require('../vrc');
@@ -357,6 +357,17 @@ router.get('/birthdays', requireAuth, async (req, res) => {
     const month = now.getMonth() + 1;
     const day = now.getDate();
 
+    // IDOR-5: 生日为个人隐私，非好友仅返回「月-日」（隐藏出生年份），好友/管理员可见完整生日
+    let friendSet = new Set();
+    try {
+      const [friends] = await getPool().query(
+        `SELECT user_id AS a, friend_id AS b FROM user_friends
+         WHERE status='accepted' AND ((user_id=? AND friend_id=?) OR (user_id=? AND friend_id=?))`,
+        [req.session.userId, req.session.userId, req.session.userId, req.session.userId]
+      );
+      friendSet = new Set(friends.flatMap(r => [String(r.a), String(r.b)]));
+    } catch (e) { logger.warn('users', '[birthdays] 读取好友关系失败:', e.message); }
+
     const [rows] = await getPool().query(
       `SELECT id, display_name AS displayName, birthday,
               COALESCE(custom_avatar_path, vrchat_avatar_url) AS avatarUrl
@@ -365,14 +376,26 @@ router.get('/birthdays', requireAuth, async (req, res) => {
        ORDER BY MONTH(birthday), DAY(birthday)`
     );
 
-    const todayBirthdays = rows.filter(r => {
+    // IDOR-5: 非好友隐藏出生年份（格式化 YYYY-MM-DD → MM-DD），避免暴露精确年龄
+    const mapped = rows.map(r => {
+      let birthday = r.birthday;
+      if (birthday && !friendSet.has(String(r.id))) {
+        const b = new Date(birthday);
+        birthday = `${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
+      }
+      return { id: r.id, displayName: r.displayName, birthday, avatarUrl: r.avatarUrl };
+    });
+
+    const todayBirthdays = mapped.filter(r => {
       if (!r.birthday) return false;
+      const parts = String(r.birthday).split('-');
+      if (parts.length === 2) return parseInt(parts[0], 10) === month && parseInt(parts[1], 10) === day;
       const b = new Date(r.birthday);
       return b.getMonth() + 1 === month && b.getDate() === day;
     });
 
-    res.json({ birthdays: rows, todayCount: todayBirthdays.length, todayBirthdays });
-  } catch (e) { handleError(res, e, '[users]'); }
+    res.json({ birthdays: mapped, todayCount: todayBirthdays.length, todayBirthdays });
+  } catch (e) { handleError(res, e, '[users/birthdays]'); }
 });
 
 /**
@@ -530,6 +553,8 @@ async function syncUserBaseGroup(userId, role) {
 router.put('/:id', requireRole('admin'), async (req, res) => {
   try {
     const { displayName, role, email } = req.body;
+    // IDOR-2: 实时 DB 角色判断
+    const adminRole = await currentRole(req);
     const updates = {};
     // P3-122：与 PUT /me/profile、admin 改名同一口径——display_name ≤50 且非空、禁控制字符
     if (displayName !== undefined && displayName !== null && String(displayName).trim() !== '') {
@@ -551,15 +576,16 @@ router.put('/:id', requireRole('admin'), async (req, res) => {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '无效的角色');
       }
       // 不能给自己降级
-      if (parseInt(req.params.id) === req.session.userId && role !== req.session.role) {
+      if (parseInt(req.params.id) === req.session.userId && role !== adminRole) {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '不能修改自己的角色');
       }
       // 普通 admin 不能提 super_admin
-      if (role === 'super_admin' && req.session.role !== 'super_admin') {
+      if (role === 'super_admin' && adminRole !== 'super_admin') {
         return sendError(res, 403, ErrorCodes.FORBIDDEN, '只有超级管理员可以提拔超级管理员');
       }
       // B-2/P2-14：仅当角色「实际变更」时才要求当前管理员二次密码确认，
       // 避免纯改 displayName/email 等非敏感字段也被拦截（破坏正常编辑）。
+      // IDOR-3: 邮箱为账户找回入口，改为「改他人邮箱」时同样要求管理员密码确认；
       const [curRoleRows] = await getPool().query(
         'SELECT role FROM users WHERE id = ? AND deleted_at IS NULL',
         [req.params.id]
@@ -568,17 +594,31 @@ router.put('/:id', requireRole('admin'), async (req, res) => {
       if (roleChanged) {
         const curRole = curRoleRows[0].role || 'member';
         // P1-52: 禁止非超管操作任何超管账号的角色（防止把唯一超管降级造成权限真空/接管）
-        if (curRole === 'super_admin' && req.session.role !== 'super_admin') {
+        if (curRole === 'super_admin' && adminRole !== 'super_admin') {
           return sendError(res, 403, ErrorCodes.FORBIDDEN, '只有超级管理员可以修改超级管理员的角色');
         }
         // P1-52: 普通 admin 不能修改其他管理员（admin/super_admin）的角色
-        if (req.session.role !== 'super_admin' && curRole !== 'member' && parseInt(req.params.id) !== req.session.userId) {
+        if (adminRole !== 'super_admin' && curRole !== 'member' && parseInt(req.params.id) !== req.session.userId) {
           return sendError(res, 403, ErrorCodes.FORBIDDEN, '普通管理员不能修改其他管理员的角色');
         }
         const selfOk = await verifySelfPassword(req.session.userId, req.body.confirmPassword);
         if (!selfOk) return sendError(res, 403, ErrorCodes.FORBIDDEN, '管理员密码验证失败，敏感操作已拒绝');
       }
       updates.role = role;
+    }
+
+    // IDOR-3: 修改他人邮箱（账户找回入口）必须管理员密码二次确认
+    if (updates.email !== undefined && parseInt(req.params.id) !== req.session.userId) {
+      const emailOk = await verifySelfPassword(req.session.userId, req.body.confirmPassword);
+      if (!emailOk) return sendError(res, 403, ErrorCodes.FORBIDDEN, '管理员密码验证失败，敏感操作已拒绝');
+    }
+    // IDOR-3: 非超管修改超管账号（无论字段）必须管理员密码二次确认
+    if (Object.keys(updates).length > 0 && adminRole !== 'super_admin' && parseInt(req.params.id) !== req.session.userId) {
+      const [tgt] = await getPool().query('SELECT role FROM users WHERE id = ? AND deleted_at IS NULL', [req.params.id]);
+      if (tgt.length && tgt[0].role === 'super_admin') {
+        const superOk = await verifySelfPassword(req.session.userId, req.body.confirmPassword);
+        if (!superOk) return sendError(res, 403, ErrorCodes.FORBIDDEN, '管理员密码验证失败，敏感操作已拒绝');
+      }
     }
 
     validateFields(updates, ['display_name', 'role', 'email']);
@@ -680,10 +720,12 @@ router.post('/:id/reset-password', requireRole('admin'), async (req, res) => {
     }
     // P1-51: 目标为 super_admin 时仅超管可重置；普通 admin 不能重置其他管理员的密码（防直接提权）
     const targetRole = target[0].role || 'member';
-    if (targetRole === 'super_admin' && req.session.role !== 'super_admin') {
+    // IDOR-2: 实时 DB 角色判断
+    const adminRole = await currentRole(req);
+    if (targetRole === 'super_admin' && adminRole !== 'super_admin') {
       return sendError(res, 403, ErrorCodes.FORBIDDEN, '只有超级管理员可以重置超级管理员的密码');
     }
-    if (req.session.role !== 'super_admin' && targetRole !== 'member') {
+    if (adminRole !== 'super_admin' && targetRole !== 'member') {
       return sendError(res, 403, ErrorCodes.FORBIDDEN, '普通管理员不能重置其他管理员的密码');
     }
 
@@ -787,7 +829,8 @@ router.get('/:userId/events', requireAuth, async (req, res) => {
     // P2-163: 按 visibility 过滤——private 活动仅本人（被查者=自己）或管理员可见；
     // 同时过滤 is_archive，避免遍历 userId 枚举他人私密活动报名列表
     const isSelf = req.session.userId === userId;
-    const isAdminView = req.session.role === 'super_admin' || req.session.role === 'admin';
+    // IDOR-2: 实时 DB 角色判断
+    const isAdminView = await hasRole(req, 'admin', 'super_admin');
     const [rows] = await getPool().query(
       `SELECT e.id, e.title, e.event_time AS eventTime, e.ends_at AS endsAt, e.place,
               e.description, e.event_type AS eventType, e.visibility,
@@ -812,17 +855,32 @@ router.get('/:userId/photos', requireAuth, async (req, res) => {
   try {
     const userId = parseInt(req.params.userId);
     if (!userId) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
+    // IDOR-4: 照片隐私执行——members_only 仅好友/本人可见，public 全员可见；
+    // 管理员不受限（惯例与相册页一致）。
+    let privacyClause = `ap.visibility = 'public'`;
+    const privacyParams = [];
+    const viewerIsSelf = req.session.userId === userId;
+    const viewerIsAdmin = await hasRole(req, 'admin', 'super_admin');
+    if (viewerIsSelf || viewerIsAdmin) {
+      privacyClause = `1=1`;
+    } else {
+      const [fr] = await getPool().query(
+        `SELECT 1 FROM user_friends WHERE user_id = ? AND friend_id = ? AND status = 'accepted' LIMIT 1`,
+        [req.session.userId, userId]
+      );
+      if (fr.length) privacyClause = `1=1`;
+    }
     const [rows] = await getPool().query(
       `SELECT ap.id, ap.photo_path AS url, ap.thumb_path AS thumbnail,
               ap.photo_desc AS caption, ap.create_time AS createdAt,
               ap.like_count AS likeCount
        FROM album_photo ap
-       WHERE ap.upload_vrcid = ? AND ap.is_recycle = 0
+       WHERE ap.upload_vrcid = ? AND ap.is_recycle = 0 AND ${privacyClause}
        ORDER BY ap.create_time DESC`,
-      [String(userId)]
+      [String(userId), ...privacyParams]
     );
     res.json({ photos: rows });
-  } catch (e) { handleError(res, e, '[users]'); }
+  } catch (e) { handleError(res, e, '[users/photos]'); }
 });
 
 

@@ -830,7 +830,8 @@ function renderVrcMemberCard(d, forId) {
   // 按用户要求：隐藏时不显示生硬的「未公开」，统一降级为「隐藏」。
   const trustText = d.trustLevelCn || d.trustLevel || __('auto_members_21');
   const badges = (d.badges || []).filter(Boolean);
-  const bioLinks = (d.bioLinks || []).filter(Boolean);
+  // FE-1：过滤危险 URL scheme（javascript:/data: 等），仅放行 http/https 或无 scheme 链接
+  const bioLinks = (d.bioLinks || []).filter(Boolean).filter(function (l) { return typeof safeHref === 'function' ? safeHref(l) : true; });
   const profileUrl = 'https://vrchat.com/home/user/' + escAttr(d.vrchatId || '');
   const joined = d.lastLogin ? new Date(d.lastLogin).toLocaleDateString('zh-CN') : '—';
   // 语言代码 → 中文名（借鉴 VRCX $languages）

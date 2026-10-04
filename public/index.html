@@ -78,7 +78,7 @@
         return 'zh';
       }
       // 解析期 document.write 外部脚本为阻塞式，保证在 i18n.js 之前就绪
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261001a"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261004a"><\/script>');
     })();
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
@@ -357,7 +357,7 @@
         <button id="initFinishBtn" class="login-btn mt-16">进入系统 →</button>
       </div>
     </div>
-    <div class="login-footer">境途同游 V7.00</div>
+    <div class="login-footer">境途同游 V8.2</div>
   </div>
 </div>
 
@@ -2372,7 +2372,7 @@
      移出解析阻塞路径，首屏可先完成首次绘制（P2-21） -->
 <script defer src="/js/core.js?v=20260924b"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
-<script defer src="/js/i18n.js?v=20261001a"></script>
+<script defer src="/js/i18n.js?v=20261004a"></script>
 <script defer src="/js/ui.js?v=20260930a"></script>
 <script defer src="/vendor/gsap/gsap.min.js?v=20260906a"></script>
 <script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20260906a"></script>
@@ -2383,7 +2383,7 @@
 <script defer src="/js/auth.js?v=20260924b"></script>
 <!-- 路由模块懒加载器：包裹 switchTab，按需 / 空闲预载（见 loader.js）。
      当前语言包由 <head> 内联引导按偏好注入，其余语言包在切换时按需加载。 -->
-<script defer src="/js/loader.js?v=20261003a"></script>
+<script defer src="/js/loader.js?v=20261004a"></script>
 <!-- 全局命令面板（VN-9，VRCNext SmartSearch 借鉴）：依赖 core.js 的 api/esc 等 -->
 <script defer src="/js/smartsearch.js?v=20260906a"></script>
 <!-- 引导启动：调用 initI18n / switchTab，必须在 loader.js 之后 -->

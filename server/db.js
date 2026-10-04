@@ -1,6 +1,7 @@
 const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
+const logger = require('./logger');
 const { Readable } = require('stream');
 
 const SQLITE_MODE = process.env.JINGTU_DB_ENGINE === 'sqlite';
@@ -785,7 +786,7 @@ function warnSqliteConflictTarget(tableName, n) {
   if (_dupWarned.has(tableName)) return;
   if (_dupWarned.size >= DUP_WARN_MAX) _dupWarned.clear();
   _dupWarned.add(tableName);
-  console.warn('[SQLite模式] 表 ' + tableName + ' 存在 ' + n + ' 个业务唯一约束候选冲突目标，ON CONFLICT 仅能指定其中之一，MySQL 的 ON DUPLICATE KEY 任意约束冲突语义无法完整迁移；已按首个候选处理，请确认其为目标约束');
+  logger.warn('db', '[SQLite模式] 表 ' + tableName + ' 存在 ' + n + ' 个业务唯一约束候选冲突目标，ON CONFLICT 仅能指定其中之一，MySQL 的 ON DUPLICATE KEY 任意约束冲突语义无法完整迁移；已按首个候选处理，请确认其为目标约束');
 }
 
 function getConflictTarget(tableName) {
@@ -840,7 +841,7 @@ function warnSqliteForUpdateStripped(originalSql) {
   if (_forUpdateWarned.has(fp)) return;
   if (_forUpdateWarned.size >= FOR_UPDATE_WARN_MAX) _forUpdateWarned.clear();
   _forUpdateWarned.add(fp);
-  console.warn('[SQLite模式] 语句包含 FOR UPDATE（行级锁），已静默移除，并发保护依赖 BEGIN IMMEDIATE 事务；若该语句不在事务内，并发语义可能与 MySQL 不一致: ' + fp);
+  logger.warn('db', '[SQLite模式] 语句包含 FOR UPDATE（行级锁），已静默移除，并发保护依赖 BEGIN IMMEDIATE 事务；若该语句不在事务内，并发语义可能与 MySQL 不一致: ' + fp);
 }
 
 // §P2-143: SQL 字符串/注释感知掩蔽器。
@@ -1467,7 +1468,7 @@ function createSQLitePool() {
 
 function initSQLitePatch() {
   getSQLiteDb();
-  console.log('📦 SQLite 模式已启用（' + sqliteFilePath + '）');
+  logger.info('db', '📦 SQLite 模式已启用（' + sqliteFilePath + '）');
   Object.assign(mysql, {
     createConnection: async (opts) => {
       if (opts && opts.timezone === '+08:00' && opts.charset === 'utf8mb4') {
@@ -1555,7 +1556,7 @@ createPoolWithoutDB();
 
 // ==================== 数据库心跳重连（MySQL 意外停止后自动恢复，仅 MySQL 模式） ====================
 if (!SQLITE_MODE) {
-  const DB_HEARTBEAT_INTERVAL = 15000; // 每 15 秒检查一次
+  const DB_HEARTBEAT_INTERVAL = 15000; 
   let _dbReconnecting = false;
 
   async function _dbHeartbeat() {
@@ -1564,30 +1565,30 @@ if (!SQLITE_MODE) {
     try {
       await holder.pool.query('SELECT 1 AS ping');
     } catch (e) {
-      console.warn('⚠️ 数据库心跳检测失败:', e.message);
+      logger.warn('db', '⚠️ 数据库心跳检测失败:', e.message);
       if (_dbReconnecting) return;
       _dbReconnecting = true;
-      console.log('🔄 尝试重建数据库连接池...');
+      logger.info('db', '🔄 尝试重建数据库连接池...');
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           recreatePool();
           // 验证新池是否可用
           await holder.pool.query('SELECT 1 AS ping');
-          console.log('✅ 数据库连接池重建成功（第' + attempt + '次）');
+          logger.info('db', '✅ 数据库连接池重建成功（第' + attempt + '次）');
           _dbReconnecting = false;
           return;
         } catch (e2) {
-          console.warn('⚠️ 数据库重建失败（第' + attempt + '次）:', e2.message);
-          await new Promise(r => setTimeout(r, 3000)); // 重试间隔
+          logger.warn('db', '⚠️ 数据库重建失败（第' + attempt + '次）:', e2.message);
+          await new Promise(r => setTimeout(r, 3000)); 
         }
       }
-      console.error('❌ 数据库连接池重建失败，将在 ' + (DB_HEARTBEAT_INTERVAL / 1000) + ' 秒后重试');
+      logger.error('db', '❌ 数据库连接池重建失败，将在 ' + (DB_HEARTBEAT_INTERVAL / 1000) + ' 秒后重试');
       _dbReconnecting = false;
     }
   }
 
-  setInterval(_dbHeartbeat, DB_HEARTBEAT_INTERVAL).unref(); // unref：HTTP 服务本身持有事件循环，心跳不应阻塞进程退出（Jest/工具脚本 require 本模块时不挂起）
-  console.log('⏰ 数据库心跳监测已启动（间隔 ' + (DB_HEARTBEAT_INTERVAL / 1000) + ' 秒）');
+  setInterval(_dbHeartbeat, DB_HEARTBEAT_INTERVAL).unref(); 
+  logger.info('db', '⏰ 数据库心跳监测已启动（间隔 ' + (DB_HEARTBEAT_INTERVAL / 1000) + ' 秒）');
 }
 
 // §P2-150: 方言翻译层纯函数导出（仅测试专用）——transformSQL 是 SQLite↔MySQL 兼容承重墙，
