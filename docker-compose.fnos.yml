@@ -6,6 +6,9 @@
 #   4. 等两个容器变 healthy（首次构建约 1~2 分钟）→ 浏览器打开网站 → 自动跳转
 #      「初始化管理员」页 → 只需填【账号 + 密码 + 显示名】→ 完成！
 #
+# 【自动拉取源码】app 的 build 指向 Gitee 仓库，构建时 Docker 会自动 clone 代码
+#   （要求：Gitee 仓库设为公开，否则匿名拉取 404）。GitHub 有同源备份。
+#
 # 无需配置的内容（系统自动处理）：
 #   ✅ 存储路径 —— 用 Docker 具名卷自动管理，无需填任何宿主机路径；
 #      数据位于 Docker 数据目录（飞牛「存储 → 位置」可查），容器重建不丢失。
@@ -51,7 +54,9 @@ services:
       - jingtu-net
 
   app:
-    build: .
+    # 自动从 Gitee 拉取源码构建（Gitee 需设为公开仓库；GitHub 备份同源码）
+    # 备份：https://github.com/266767398/jingtu-web.git
+    build: https://gitee.com/htmcwy_0/jingtu-web.git
     image: jingtu-web:latest
     container_name: jingtu-web
     restart: unless-stopped
