@@ -62,8 +62,14 @@ COPY .env.example /app/.env.example
 # SQLite 模式库文件）一并 chown 给 node——否则 USER node 后 mkdirSync/写入必 EACCES。
 # server/data 必须随卷持久化：容器重建/删除后激活码与 SQLite 数据不丢
 # （docker-compose.yml / docker-compose.standalone.yml 已挂载 data:/app/server/data）。
+# 预创建空的 /app/.env 并 chown 给 node：容器内环境变量仍是唯一配置来源
+# （/setup 向导、/api/auth/init 落盘的 .env 值不覆盖已注入的环境变量），但 .env
+# 存在且可写后，登录页「初始化管理员」/ 建站向导在容器内可正常完成超管创建与
+# 数据库建表，无需在 compose 里手填数据库信息；重走向导同样可写（仅作用于磁盘草稿）。
 RUN mkdir -p uploads backups logs server/data \
- && chown -R node:node uploads backups logs assets server/data
+ && touch /app/.env \
+ && chown -R node:node uploads backups logs assets server/data \
+ && chown node:node /app/.env
 VOLUME ["/app/uploads", "/app/backups", "/app/logs", "/app/server/data"]
 
 # 以非 root 用户运行

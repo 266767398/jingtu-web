@@ -15,6 +15,22 @@
 # - 公网部署（反代在后）请显式设 TRUST_PROXY=1（compose 默认 0 = 不信任代理，与 server.js
 #   安全默认一致）；若无反代直接暴露端口保持 0，否则登录限流/IP 黑名单可被伪造
 #   X-Forwarded-For 绕过。
+#
+# ---- 自定义存储位置（可选）----
+# STORAGE_ROOT=<宿主机目录>：所有持久数据改挂载到该宿主机目录下，默认 ./docker-data
+# （docker-compose.yml 所在目录），自动创建子目录：
+#   mysql/（MySQL 数据目录）uploads/ backups/ logs/ assets/ data/（激活码 + SQLite）
+# 示例（Linux）：STORAGE_ROOT=/opt/jingtu/data；Windows：STORAGE_ROOT=D:/docker/jingtu
+# ⚠️ Linux 权限：应用容器以 node 用户(uid 1000)运行，首次部署请执行
+#   sudo chown -R 1000:1000 $STORAGE_ROOT
+#   （MySQL 数据目录由镜像入口自动 chown 为 uid 999，无需手动处理；Docker Desktop
+#   即 Windows/macOS 下权限自动同步，无需上述操作）
+#
+# ---- 自定义端口（可选）----
+# APP_PORT=<宿主端口>            对外映射端口，默认 3456（例：APP_PORT=8080 → 127.0.0.1:8080:3456）
+# APP_BIND=<绑定地址>            默认 127.0.0.1；直连公网才设 0.0.0.0（并保持 TRUST_PROXY=0）
+# APP_CONTAINER_PORT=<容器内端口> 高级：改应用自身监听端口，默认 3456
+#   （改此项时 healthcheck 与 PORT 已同步参数化，无需再改 compose 其他位置）
 
 services:
   db:
@@ -34,7 +50,7 @@ services:
       # UTC 计，日报统计在 00:00-08:00（北京时间）之间会统计错日。
       - --default-time-zone=+08:00
     volumes:
-      - db_data:/var/lib/mysql
+      - "${STORAGE_ROOT:-./docker-data}/mysql:/var/lib/mysql"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${JINGTU_DB_ROOT_PASSWORD}"]
       interval: 10s
@@ -58,7 +74,7 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      PORT: 3456
+      PORT: ${APP_CONTAINER_PORT:-3456}
       # P3-25：默认 0（不信任代理）与 server.js 安全默认一致——端口直连公网时不至于
       # 被伪造 X-Forwarded-For 绕过限流/黑名单；经本机 Nginx/宝塔/Docker 反代的标准部署
       # 请显式设 TRUST_PROXY=1（或按实际跳数），否则 req.ip 坍缩为 127.0.0.1。
@@ -129,19 +145,19 @@ services:
       JINGTU_SQLITE_PATH: ${JINGTU_SQLITE_PATH:-}
     ports:
       # 默认只绑回环，经本机反代对外；确需直连公网暴露时设 APP_BIND=0.0.0.0
-      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3456}:3456"
+      # 左=宿主端口(APP_PORT 自定义)、右=容器内端口(APP_CONTAINER_PORT 自定义)
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3456}:${APP_CONTAINER_PORT:-3456}"
     volumes:
-      - uploads:/app/uploads
-      - backups:/app/backups
-      - logs:/app/logs
-      # P2-101：assets 具名卷持久化（用户相册落盘 + VRChat 头像代理缓存），
-      # 与上传/备份同模式——镜像内初始资产经首次挂载拷入卷，后续增删落卷不随容器销毁丢失
-      - assets:/app/assets
-      # server/data 持久化：激活码文件（activation-codes.json）与 SQLite 模式库文件
-      # 默认都在此目录，不挂载卷会在容器重建时丢失
-      - data:/app/server/data
+      # 持久数据全部绑定到宿主机目录（STORAGE_ROOT 可自定义，默认 ./docker-data）
+      - "${STORAGE_ROOT:-./docker-data}/uploads:/app/uploads"
+      - "${STORAGE_ROOT:-./docker-data}/backups:/app/backups"
+      - "${STORAGE_ROOT:-./docker-data}/logs:/app/logs"
+      # 用户相册落盘 + VRChat 头像代理缓存
+      - "${STORAGE_ROOT:-./docker-data}/assets:/app/assets"
+      # server/data：激活码文件（activation-codes.json）与 SQLite 模式库文件
+      - "${STORAGE_ROOT:-./docker-data}/data:/app/server/data"
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3456/api/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:${APP_CONTAINER_PORT:-3456}/api/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -152,16 +168,6 @@ services:
         max-file: "5"
     networks:
       - jingtu-net
-
-volumes:
-  db_data:
-  uploads:
-  backups:
-  logs:
-  assets:
-    # P2-101：相册/头像缓存持久化卷（对应 app 服务挂载 assets:/app/assets）
-    name: jingtu-assets
-  data:
 
 networks:
   jingtu-net:

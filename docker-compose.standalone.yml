@@ -13,6 +13,15 @@
 #   ② 端口默认只绑定 127.0.0.1（APP_BIND），公网访问请用服务器 Nginx / 宝塔反代 80/443
 #      并设 TRUST_PROXY=1；确需直连暴露再改为 0.0.0.0（保持 TRUST_PROXY=0）。
 #   ③ 升级代码：面板中重新执行「构建镜像」或命令行 docker compose build && up -d。
+#
+# ---- 自定义存储位置与端口（均在面板「环境变量」设置，无需改本文件）----
+#   STORAGE_ROOT=<宿主机目录>     持久数据挂载位置，默认 ./docker-data（项目目录下），
+#                                 自动建 mysql/ uploads/ backups/ logs/ assets/ data/ 子目录。
+#                                 Linux 首次部署请 sudo chown -R 1000:1000 $STORAGE_ROOT
+#                                 （Docker Desktop / Windows / macOS 免处理）。
+#   APP_PORT=<宿主端口>           对外端口，默认 3456（如 8080）。
+#   APP_BIND=<绑定地址>           默认 127.0.0.1；直连公网才改 0.0.0.0（保持 TRUST_PROXY=0）。
+#   APP_CONTAINER_PORT=<容器内端口> 高级：改应用自身监听端口，默认 3456。
 
 services:
   db:
@@ -30,7 +39,7 @@ services:
       # MySQL 服务端时区对齐应用（server/db.js 连接时区 +08:00）与 Asia/Shanghai 定时任务
       - --default-time-zone=+08:00
     volumes:
-      - db_data:/var/lib/mysql
+      - "${STORAGE_ROOT:-./docker-data}/mysql:/var/lib/mysql"
     healthcheck:
       # 读取容器内 MYSQL_ROOT_PASSWORD（兼容面板覆盖默认值的情况）
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p\"$$MYSQL_ROOT_PASSWORD\" | grep 'is alive'"]
@@ -55,7 +64,7 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: production
-      PORT: 3456
+      PORT: ${APP_CONTAINER_PORT:-3456}
       # 0 = 不信任代理头（安全默认）；经面板/本机 Nginx 反代时改为 1
       TRUST_PROXY: "${TRUST_PROXY:-0}"
       # 容器内通过服务名 db 访问数据库
@@ -76,18 +85,19 @@ services:
       # RECOVERY_TOKEN: /api/system/db-recover 恢复口令
       # JINGTU_DB_ENGINE: sqlite          （可选单机版，见 01-快速开始.md §1.4）
     ports:
-      # 默认只绑回环，经本机反代对外；确需直连暴露时改为 "3456:3456"
-      - "127.0.0.1:3456:3456"
+      # 默认只绑回环，经本机反代对外；确需直连暴露时设 APP_BIND=0.0.0.0
+      # 左=宿主端口(APP_PORT)、右=容器内端口(APP_CONTAINER_PORT)
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3456}:${APP_CONTAINER_PORT:-3456}"
     volumes:
-      - uploads:/app/uploads
-      - backups:/app/backups
-      - logs:/app/logs
-      - assets:/app/assets
+      # 持久数据全部绑定到宿主机目录（STORAGE_ROOT 可自定义，默认 ./docker-data）
+      - "${STORAGE_ROOT:-./docker-data}/uploads:/app/uploads"
+      - "${STORAGE_ROOT:-./docker-data}/backups:/app/backups"
+      - "${STORAGE_ROOT:-./docker-data}/logs:/app/logs"
+      - "${STORAGE_ROOT:-./docker-data}/assets:/app/assets"
       # server/data 持久化：激活码文件（activation-codes.json）与 SQLite 模式库文件
-      # 默认都在此目录，不挂载卷会在容器重建时丢失
-      - data:/app/server/data
+      - "${STORAGE_ROOT:-./docker-data}/data:/app/server/data"
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3456/api/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:${APP_CONTAINER_PORT:-3456}/api/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -98,15 +108,6 @@ services:
         max-file: "5"
     networks:
       - jingtu-net
-
-volumes:
-  db_data:
-  uploads:
-  backups:
-  logs:
-  assets:
-    name: jingtu-assets
-  data:
 
 networks:
   jingtu-net:

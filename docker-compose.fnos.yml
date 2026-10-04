@@ -1,0 +1,147 @@
+# ==================== 境途同游 Web — 飞牛 fnOS 单文件部署 ====================
+# 用法：
+#   1. 飞牛 → Docker → 项目（编排）→ 新建项目，名称填 jingtu-web
+#   2. 把本文件【整个内容】粘贴进 docker-compose 编辑框（或上传本文件）
+#   3. 替换下方 4 个密钥/密码占位符（可直接用会话里生成的随机值），点「保存并启动」
+#   4. 等两个容器变 healthy（首次构建约 1~2 分钟）→ 浏览器打开网站 → 自动跳转
+#      「初始化管理员」页 → 只需填【账号 + 密码 + 显示名】→ 完成！
+#
+# 无需配置的内容（系统自动处理）：
+#   ✅ 存储路径 —— 用 Docker 具名卷自动管理，无需填任何宿主机路径；
+#      数据位于 Docker 数据目录（飞牛「存储 → 位置」可查），容器重建不丢失。
+#   ✅ 数据库/建表 —— 入口脚本自动执行 db_init，无需手动建库。
+#   ✅ 超管账号 —— 在网站「初始化管理员」页创建（本镜像已预置可写的 .env）。
+#   ✅ 剩余业务配置 —— 登录后台后可在网页里配置（VRChat 账号绑定、公告、
+#      相册、激活码等）；基础信息类（站点名/SMTP 等）写在下方环境变量里。
+#
+# ⚠️ 必改项（不替换就启动 = 公开弱口令上线，任何人可登录你的数据库）：
+#   <DB_ROOT_PASSWORD>   MySQL root 密码 → 强随机
+#   <DB_PASSWORD>        应用数据库密码 → 强随机
+#   <SESSION_SECRET>      会话签名密钥 → 48 字节随机十六进制
+#   <ENCRYPT_KEY>         数据加密密钥 → 64 位十六进制
+# =============================================================================
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: jingtu-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "<DB_ROOT_PASSWORD>"
+      MYSQL_DATABASE: jingtu_group
+      MYSQL_USER: jingtu_user
+      MYSQL_PASSWORD: "<DB_PASSWORD>"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p<DB_ROOT_PASSWORD>"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    logging:
+      options:
+        max-size: "50m"
+        max-file: "5"
+    networks:
+      - jingtu-net
+
+  app:
+    build: .
+    image: jingtu-web:latest
+    container_name: jingtu-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3456
+      # 反代在后（飞牛自带反代 / Nginx），必须为 1：限流与黑名单才按真实客户端 IP 计数
+      TRUST_PROXY: "1"
+      # 容器内通过服务名 db 访问数据库
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: jingtu_group
+      MYSQL_USER: jingtu_user
+      MYSQL_PASSWORD: "<DB_PASSWORD>"
+      # 必填密钥（缺失则生产模式拒绝启动）
+      SESSION_SECRET: "<SESSION_SECRET>"
+      ENCRYPT_KEY: "<ENCRYPT_KEY>"
+      # 站点对外地址（邮件内链接、sitemap 使用），有域名就填
+      APP_URL: ""
+      # VRChat 群组接入（管理后台可再改）
+      GROUP_ID: grp_7a45b436-159c-4d9c-8303-e186ec25fc35
+      VRC_API_KEY: ""
+      VRC_GROUP_URL: ""
+      # ---- 以下可选，按需取消注释并填值 ----
+      # CORS_ORIGINS: "https://jingtu.example.com"
+      # KOOK_URL: ""
+      # OOPZ_URL: ""
+      # SMTP_HOST: ""
+      # SMTP_PORT: 587
+      # SMTP_USER: ""
+      # SMTP_PASS: ""
+      # SMTP_FROM: ""
+      # ADMIN_EMAIL: ""
+      # RECOVERY_TOKEN: ""
+      # LOG_LEVEL: INFO
+      # FILE_RETENTION_DAYS: 90
+      # NOTIFICATION_RETENTION_DAYS: 30
+      # BACKUP_RETENTION_DAYS: 7
+    ports:
+      # 只绑飞牛本机回环，公网流量一律走反代进来（最安全）
+      - "127.0.0.1:3456:3456"
+    volumes:
+      # Docker 具名卷自动管理存储位置，无需填宿主机路径
+      - uploads:/app/uploads
+      - backups:/app/backups
+      - logs:/app/logs
+      - assets:/app/assets
+      - data:/app/server/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3456/api/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    logging:
+      options:
+        max-size: "50m"
+        max-file: "5"
+    networks:
+      - jingtu-net
+
+volumes:
+  db_data:
+  uploads:
+  backups:
+  logs:
+  assets:
+    name: jingtu-assets
+  data:
+
+networks:
+  jingtu-net:
+    driver: bridge
+
+# =============================================================================
+# 反代配置（部署完成后在飞牛本机执行）：
+#
+#   A. 飞牛自带反代：源站填 http://127.0.0.1:3456，域名绑定你的域名即可；
+#      确认转发请求头含 X-Forwarded-For / X-Forwarded-Proto。
+#
+#   B. 用仓库现成 Nginx 模板（deploy/nginx/jingtu.conf，已含 WebSocket Upgrade
+#      联动、500MB 上传上限、登录/API 限流），只需替换两处占位符：
+#        __DOMAIN__ → 你的域名
+#        __PORT__   → 3456
+#
+# 验证：
+#   docker compose ps                         # 两个容器 running + healthy
+#   curl -fsS https://你的域名/api/health/ready   # 返回 ok
+# 常用：docker compose logs -f app；docker compose down（数据在卷中保留）
+# =============================================================================
