@@ -420,9 +420,12 @@ router.post('/setup/save', requireNotInstalled, requireSuperAdminForReconfigure,
     merged.LOG_LEVEL = cur.LOG_LEVEL || 'INFO';
 
     // .env 存在但缺必需键（损坏）：先备份原文件，再按首次安装重新生成（原配置保留供人工恢复）
+    // 备份为尽力而为：权限受限（如容器内 /app 只读）时跳过备份，不阻断首次安装
     if (envExists && !envValid()) {
       const ts = new Date().toISOString().replace(/[:.]/g, '-');
-      fs.copyFileSync(envPath, envPath + '.broken-' + ts);
+      try {
+        fs.copyFileSync(envPath, envPath + '.broken-' + ts);
+      } catch (_) { /* 备份失败不阻断保存 */ }
     }
 
     // 先验后写（P1-20）：数据库连接/建库校验通过后才落盘 .env，失败不留下半损坏配置

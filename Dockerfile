@@ -68,6 +68,7 @@ COPY .env.example /app/.env.example
 # 数据库建表，无需在 compose 里手填数据库信息；重走向导同样可写（仅作用于磁盘草稿）。
 RUN mkdir -p uploads backups logs server/data \
  && touch /app/.env \
+ && chown node:node /app \
  && chown -R node:node uploads backups logs assets server/data \
  && chown node:node /app/.env
 VOLUME ["/app/uploads", "/app/backups", "/app/logs", "/app/server/data"]
