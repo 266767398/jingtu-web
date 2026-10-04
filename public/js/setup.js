@@ -363,6 +363,7 @@ function collectStep(step) {
     config.adminUser = document.getElementById('adminUser').value.trim();
     config.adminDisplayName = document.getElementById('adminDisplayName').value.trim();
     config.adminPass = document.getElementById('adminPass').value;
+    config.adminPassConfirm = document.getElementById('adminPassConfirm').value;
     config.adminEmail = document.getElementById('adminEmail').value.trim();
   } else if (step === 4) {
     config.groupId = document.getElementById('groupId').value.trim();
