@@ -26,7 +26,8 @@
 
 services:
   db:
-    image: mysql:8.0
+    # 国内镜像源（DaoCloud）：绕开飞牛失效的内置加速器 docker.fnnas.com（401 Unauthorized）
+    image: docker.m.daocloud.io/library/mysql:8.0
     container_name: jingtu-db
     restart: unless-stopped
     environment:
@@ -56,7 +57,11 @@ services:
   app:
     # 自动从 Gitee 拉取源码构建（Gitee 需设为公开仓库；GitHub 备份同源码）
     # 备份：https://github.com/266767398/jingtu-web.git
-    build: https://gitee.com/htmcwy_0/jingtu-web.git
+    build:
+      context: https://gitee.com/htmcwy_0/jingtu-web.git
+      args:
+        # 国内镜像源（DaoCloud）：绕开飞牛失效的内置加速器 docker.fnnas.com（401 Unauthorized）
+        NODE_IMAGE: docker.m.daocloud.io/library/node:22-slim
     image: jingtu-web:latest
     container_name: jingtu-web
     restart: unless-stopped
