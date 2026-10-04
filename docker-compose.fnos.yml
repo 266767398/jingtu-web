@@ -43,10 +43,12 @@ services:
       - db_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p<DB_ROOT_PASSWORD>"]
+      # 飞牛 NAS 上 MySQL 首次初始化可能超过 2 分钟，放宽等待预算：
+      # start_period 90s + 36 × 10s ≈ 最长 7.5 分钟，避免初始化稍慢被误判 unhealthy
       interval: 10s
       timeout: 5s
-      retries: 12
-      start_period: 30s
+      retries: 36
+      start_period: 90s
     logging:
       options:
         max-size: "50m"
