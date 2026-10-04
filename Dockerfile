@@ -72,6 +72,12 @@ RUN mkdir -p uploads backups logs server/data \
  && chown node:node /app/.env
 VOLUME ["/app/uploads", "/app/backups", "/app/logs", "/app/server/data"]
 
+# 入口脚本：等待数据库就绪 → 执行 db_init → 启动服务。
+# 必须在 USER node 之前以 root 复制并加执行权限（/usr/local/bin 属 root，
+# 切换 node 用户后无权 chmod，否则构建报 "Operation not permitted"）。
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # 以非 root 用户运行
 USER node
 
@@ -83,7 +89,4 @@ EXPOSE 3456
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
   CMD curl -fsS "http://127.0.0.1:${PORT:-3456}/api/health/live" || exit 1
 
-# 入口：等待数据库就绪 → 执行 db_init → 启动服务
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENTRYPOINT ["docker-entrypoint.sh"]
