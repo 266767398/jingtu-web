@@ -344,7 +344,7 @@ router.post('/login', async (req, res) => {
     if (user.banned) return fail(res, 401, '账户已被封禁', { code: 'ACCOUNT_BANNED' });
 
     if (!user.approved || user.approved === 0) {
-      return fail(res, 401, '账户待审核，请联系管理员', { code: 'ACCOUNT_PENDING' });
+      return fail(res, 401, '账户待审核，请联系管理员', { code: ErrorCodes.ACCOUNT_PENDING });
     }
 
     if (user.locked_until && new Date(user.locked_until) > new Date()) {

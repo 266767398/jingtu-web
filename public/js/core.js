@@ -289,7 +289,10 @@ async function api(path, opt = {}) {
         let retryAfter = 30;
         try {
           const d = await res.clone().json();
+          // 优先展示后端真实文案：fail() 的 {error:'字符串'}、sendError 的 detail，
+          // 否则"2FA 验证码错误次数过多"这类 429 会被误显示成泛化的"限流"提示
           if (d.detail) msg = d.detail;
+          else if (d.error && typeof d.error === 'string') msg = d.error;
           if (d.retryAfter) retryAfter = Number(d.retryAfter) || 30;
         } catch {}
         toast(msg, 'info');
@@ -387,8 +390,9 @@ function errText(d) {
   return '';
 }
 // 如果 api() 已经处理过错误（toast + 抛出特定 Error），返回 true 让调用方跳过二次 toast
+// VRC_RATE_LIMITED：api() 429 分支已提示并抛 VRC_RATE_LIMITED，调用方不应再补一刀"网络错误"
 function isApiHandledError(err) {
-  return err.message === 'FORBIDDEN' || err.message === 'UNAUTHORIZED' || err.message === 'RATE_LIMITED' || err.message === 'SERVER_ERROR' || err.message === 'TIMEOUT';
+  return err.message === 'FORBIDDEN' || err.message === 'UNAUTHORIZED' || err.message === 'RATE_LIMITED' || err.message === 'VRC_RATE_LIMITED' || err.message === 'SERVER_ERROR' || err.message === 'TIMEOUT';
 }
 
 // ==================== XHR 文件上传（带进度条） ====================

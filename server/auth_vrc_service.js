@@ -183,7 +183,7 @@ router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
     }
 
     if (!boundUser.approved || boundUser.approved === 0) {
-      return fail(res, 401, '账户待审核，请联系管理员', { code: 'ACCOUNT_PENDING' });
+      return fail(res, 401, '账户待审核，请联系管理员', { code: ErrorCodes.ACCOUNT_PENDING });
     }
 
     // 不需要2FA →直接登录

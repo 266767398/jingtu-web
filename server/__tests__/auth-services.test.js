@@ -22,7 +22,8 @@ jest.mock('../utils', () => ({
     getAvatarUrl: jest.fn(() => null),
     ErrorCodes: {
       BAD_REQUEST: 'BAD_REQUEST', FORBIDDEN: 'FORBIDDEN', NOT_FOUND: 'NOT_FOUND',
-      CONFLICT: 'CONFLICT', INTERNAL_ERROR: 'INTERNAL_ERROR', UNAUTHORIZED: 'UNAUTHORIZED'
+      CONFLICT: 'CONFLICT', INTERNAL_ERROR: 'INTERNAL_ERROR', UNAUTHORIZED: 'UNAUTHORIZED',
+      ACCOUNT_PENDING: 'ACCOUNT_PENDING', VRC_AUTH_FAILED: 'VRC_AUTH_FAILED', VRC_UPSTREAM_ERROR: 'VRC_UPSTREAM_ERROR'
     },
     fail(res, status, message, extra) {
       return res.status(status).json(Object.assign({ success: false, error: message }, extra || {}));

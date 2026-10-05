@@ -405,7 +405,9 @@ async function sendVrcLoginCode() {
         const err = await res.json();
         if (err.needBind) {
           showVrcBindGuide(err);
-        } else {
+        } else if (!err.code || !VRC_BUSINESS_CODES.has(err.code)) {
+          // api() 的 401/403 拦截器已对 VRC_BUSINESS_CODES 内的业务码 toast 过，
+          // 这里再弹就是同一句话两遍；只有未被拦截覆盖的错误才由调用方兜底提示。
           toast(errText(err) || __('auth.vrc_login_failed'), 'error');
         }
       } catch { toast(__('auth.vrc_login_failed'), 'error'); }
@@ -486,8 +488,13 @@ async function doVrcLoginConfirm() {
         toast(errText(data) || __('auth.login_failed'), 'error');
       }
     } else {
-      try { const err = await res.json(); toast(errText(err) || __('auth.login_failed'), 'error'); }
-      catch { toast(__('auth.login_failed'), 'error'); }
+      try {
+        const err = await res.json();
+        // 同上：VRC_BUSINESS_CODES 已由 api() 拦截器 toast，避免验证码错误提示两遍
+        if (!err.code || !VRC_BUSINESS_CODES.has(err.code)) {
+          toast(errText(err) || __('auth.login_failed'), 'error');
+        }
+      } catch { toast(__('auth.login_failed'), 'error'); }
     }
   } catch (err) {
     if (!isApiHandledError(err)) {

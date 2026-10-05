@@ -225,7 +225,13 @@ async function vrchatRequest(method, endpoint, body = null, cookie = null, _retr
  * 现汇入同一闸门；排队超时按 429 形状返回（调用方统一读 data.error.message 提示稍后重试）。
  */
 async function vrchatBasicLogin(username, password) {
-  await vrchatRequest('GET', '/config');
+  // /config 预热只是探测 API 可达性（VRCX 登录前并不调用），失败不应连带登录失败。
+  // 此前这里直接 await，VRChat 抽风/限流排队超时会抛 VRC_RATE_TIMEOUT → 整个登录 500。
+  try {
+    await vrchatRequest('GET', '/config');
+  } catch (e) {
+    logger.warn('vrc', '[vrchatBasicLogin] /config 预热失败（忽略，继续登录）:', e.message);
+  }
   const encodedUsername = encodeURIComponent(username);
   const encodedPassword = encodeURIComponent(password);
   const basic = Buffer.from(`${encodedUsername}:${encodedPassword}`, 'utf8').toString('base64');
@@ -245,7 +251,15 @@ async function vrchatBasicLogin(username, password) {
         needs2fa: false
       };
     }
-    throw e;
+    // 网络层失败（超时/连接重置）：不要向上抛导致 500"服务器错误"，
+    // 转成带文案的 502 由调用方统一展示友好提示。
+    logger.warn('vrc', '[vrchatBasicLogin] 登录请求网络失败:', e.message);
+    return {
+      status: 502,
+      data: { error: { message: '连接 VRChat 服务器失败，请稍后重试' } },
+      cookie: '',
+      needs2fa: false
+    };
   }
   const data = await readJsonResponse(loginRes);
   const cookie = mergeCookieHeaders('', getSetCookieHeaders(loginRes.headers));

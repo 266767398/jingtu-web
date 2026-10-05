@@ -41,6 +41,8 @@ const ErrorCodes = {
   // "VRChat 那边没通过"，而不是"本站会话过期"；否则绑定/登录时密码输错
   // 就会被踢回登录页（core.js 401 分支见 VRC_BUSINESS_CODES）。
   VRC_AUTH_FAILED: 'VRC_AUTH_FAILED',
+  // 本地账号待审核：登录/绑定时不踢本站会话（前端 VRC_BUSINESS_CODES 放行）
+  ACCOUNT_PENDING: 'ACCOUNT_PENDING',
   // ==================== 社交模块（好友/关注/群聊/点赞） ====================
   ALREADY_FRIENDS: 'ALREADY_FRIENDS',
   FRIEND_REQUEST_EXISTS: 'FRIEND_REQUEST_EXISTS',
