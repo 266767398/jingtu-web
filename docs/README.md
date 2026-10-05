@@ -25,6 +25,10 @@
 
 > ⚠️ 一键版内置「体验默认密钥」，**正式使用前请修改** MySQL 密码 / `SESSION_SECRET` / `ENCRYPT_KEY`（见 [01-快速开始.md §1.3](01-快速开始.md#13-一键版安全提示必改项)）。
 
+### 飞牛 fnOS 部署
+
+飞牛「Docker → 项目」使用仓库根目录 [`docker-compose.fnos.yml`](../docker-compose.fnos.yml)（存储空间3 绑定挂载 + init 权限容器，详见 [DEPLOY.md §1.6](../DEPLOY.md#16-飞牛-fnos-单文件部署)）。
+
 ## 文档更新约定
 
 - 新增功能 / 修复 / 审计请在 [09-变更记录.md](09-变更记录.md) 追加条目，并同步更新受影响的功能文档。
