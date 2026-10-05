@@ -299,6 +299,13 @@ async function doRegister() {
 }
 
 // 登录页账号头像预览（§11.8.3）：输入 loginId 后实时预览「本地头像 + VRChat 头像」
+// 匿名未记住的账号后端按 M-2 防枚举返回 null，此处降级为「账号首字母」彩色占位头像，
+// 保证两个槽位永远有图（默认 SVG 路由支持 ?name= 生成首字母/首汉字，绝无裂图）。
+function loginAvatarPlaceholder(loginId) {
+  const c = String(loginId || '').replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, '').charAt(0);
+  return '/api/avatar/default?name=' + encodeURIComponent(c || '');
+}
+
 async function previewLoginAvatar(loginId) {
   const wrap = document.getElementById('loginAvatarPreview');
   const localImg = document.getElementById('loginLocalAvatar');
@@ -307,20 +314,18 @@ async function previewLoginAvatar(loginId) {
   const id = (loginId || '').trim();
   if (!id) {
     wrap.style.display = 'none';
-    localImg.src = '/api/avatar/default';
-    vrcImg.src = '/api/avatar/default';
     return;
   }
+  const placeholder = loginAvatarPlaceholder(id);
+  let data = null;
   try {
-    const data = await api('/api/auth/preview?loginId=' + encodeURIComponent(id));
-    if (!data) { wrap.style.display = 'none'; return; }
-    wrap.style.display = 'flex';
-    localImg.src = data.avatarUrl || '/api/avatar/default';
-    vrcImg.src = data.vrchatAvatarUrl || '/api/avatar/default';
+    data = await api('/api/auth/preview?loginId=' + encodeURIComponent(id));
   } catch (e) {
-    // 限流/网络错误静默处理，不干扰登录流程
-    wrap.style.display = 'none';
+    data = null; // 限流/网络错误静默降级为占位，不干扰登录流程
   }
+  wrap.style.display = 'flex';
+  localImg.src = (data && data.avatarUrl) || placeholder;
+  vrcImg.src = (data && data.vrchatAvatarUrl) || placeholder;
 }
 
 // V6.6: 登录后引导用户绑定 VRChat 账号

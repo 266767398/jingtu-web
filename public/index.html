@@ -2383,15 +2383,15 @@
      （theme/auth/main 及懒加载路由模块），保证它们顶层注册时 window.__freeze 已就绪 -->
 <script defer src="/js/freeze.js?v=20261005a"></script>
 <script defer src="/js/theme.js?v=20261005a"></script>
-<script defer src="/js/auth.js?v=20261005a"></script>
+<script defer src="/js/auth.js?v=20261005b"></script>
 <!-- 路由模块懒加载器：包裹 switchTab，按需 / 空闲预载（见 loader.js）。
      当前语言包由 <head> 内联引导按偏好注入，其余语言包在切换时按需加载。 -->
-<script defer src="/js/loader.js?v=20261005c"></script>
+<script defer src="/js/loader.js?v=20261005d"></script>
 <!-- 全局命令面板（VN-9，VRCNext SmartSearch 借鉴）：依赖 core.js 的 api/esc 等 -->
 <script defer src="/js/smartsearch.js?v=20260906a"></script>
 <!-- 引导启动：调用 initI18n / switchTab，必须在 loader.js 之后 -->
 <script defer src="/js/init.js?v=20260924b"></script>
-<script defer src="/js/main.js?v=20261005a"></script>
+<script defer src="/js/main.js?v=20261005b"></script>
 
 <!-- ===== Event Bindings (migrated from inline handlers) ===== -->
 <script>

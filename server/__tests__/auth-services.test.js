@@ -345,6 +345,53 @@ describe('P2-148 auth_local_service 登录/锁定/注册', () => {
     expect(mockPool.query).not.toHaveBeenCalled();
   });
 
+  test('GET /preview 匿名记住账号匹配 → 返回真实头像（白名单不破坏 §11.8.3）', async () => {
+    const utils = require('../utils');
+    utils.getAvatarUrl.mockReturnValueOnce('/uploads/avatar/alice.png');
+    mockQueryBySql([
+      [/SELECT id, avatar_type, custom_avatar_path, vrchat_avatar_url/, [[
+        { id: 5, avatar_type: 'custom', custom_avatar_path: '/uploads/avatar/alice.png', vrchat_avatar_url: 'https://assets.amlcdn.com/x/y.jpg' }
+      ]]]
+    ]);
+    const res = await request(createApp({ sessionFactory: () => ({}) }))
+      .get('/api/auth/preview?loginId=alice')
+      .set('Cookie', 'jingtu_remember_login=alice');
+    expect(res.status).toBe(200);
+    expect(res.body.avatarUrl).toBe('/uploads/avatar/alice.png');
+    expect(res.body.vrchatAvatarUrl).toBe('/api/avatar/proxy?u=' + encodeURIComponent('https://assets.amlcdn.com/x/y.jpg'));
+  });
+
+  test('GET /preview 匿名无/错记住账号 → 一律 null 且不查库（防枚举）', async () => {
+    const res = await request(createApp({ sessionFactory: () => ({}) }))
+      .get('/api/auth/preview?loginId=alice');
+    expect(res.status).toBe(200);
+    expect(res.body.avatarUrl).toBeNull();
+    expect(res.body.vrchatAvatarUrl).toBeNull();
+    // 关键：即使该账号在库中存在，匿名探针也拿不到真实头像（oracle 关闭）
+    expect(mockPool.query).not.toHaveBeenCalled();
+  });
+
+  test('POST /login remember=true 下发记住账号 HttpOnly Cookie', async () => {
+    mockQueryBySql([
+      [/SELECT \* FROM users WHERE/, [[{ id: 5, login_id: 'alice', display_name: 'Alice', password_hash: realHash, role: 'member', approved: 1, banned: 0, locked_until: null, failed_login_attempts: 0 }]]],
+      [/INSERT INTO sys_oper_log/, [{}]]
+    ]);
+    const res = await request(createApp())
+      .post('/api/auth/login')
+      .send({ loginId: 'alice', password: 'Abc12345', remember: true });
+    expect(res.status).toBe(200);
+    const setCookie = String(res.headers['set-cookie'] || []).toLowerCase();
+    expect(setCookie).toContain('jingtu_remember_login=alice');
+    expect(setCookie).toContain('httponly');
+  });
+
+  test('POST /logout 清除记住账号 Cookie', async () => {
+    const res = await request(createApp()).post('/api/auth/logout');
+    expect(res.status).toBe(200);
+    const setCookie = String(res.headers['set-cookie'] || []).toLowerCase();
+    expect(setCookie).toContain('jingtu_remember_login=');
+  });
+
   test('POST /register 激活码注册成功', async () => {
     mockActivation.validateAndConsume.mockImplementation(async (code, username, hook) => {
       await hook();

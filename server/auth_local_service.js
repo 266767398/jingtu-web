@@ -281,16 +281,34 @@ const authPreviewLimiter = createCustomLimiter({
   message: { error: '请求过于频繁，请稍后再试', retryAfter: 900 }
 });
 
+// 无 cookie-parser 依赖：读取 Cookie 头只需手动解析（写入用 express 的 res.cookie，
+// 与 express-session 的 cookie 处理互不干扰）。仅用于读取「记住的账号」这一非敏感标记。
+function readCookie(req, name) {
+  const raw = req.headers.cookie || '';
+  for (const part of raw.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq > 0 && part.slice(0, eq).trim() === name) {
+      try { return decodeURIComponent(part.slice(eq + 1).trim()); } catch (e) { return ''; }
+    }
+  }
+  return '';
+}
+
 router.get('/preview', authPreviewLimiter, async (req, res) => {
   try {
-    // M-2：仅登录用户可用——匿名请求统一返回 null，消除「按头像是否存在」的账户枚举 oracle；
-    // 前端对 null 已有默认头像兜底（auth.js previewLoginAvatar），不影响登录流程
-    if (!req.session || !req.session.userId) {
-      return res.json({ avatarUrl: null, vrchatAvatarUrl: null });
-    }
     const raw = (req.query.loginId || '').toString().trim().slice(0, 64);
     if (!raw) return res.json({ avatarUrl: null, vrchatAvatarUrl: null });
     const key = raw.toLowerCase();
+    // M-2 防账户枚举：匿名请求仅当 loginId 匹配本浏览器「记住的账号」
+    //（HttpOnly Cookie，登录勾选"记住我"时由服务端下发、前端 JS 读不到也无法伪造）
+    // 才返回真实头像；其余匿名请求一律 null，消除「按头像是否存在枚举账户」的 oracle。
+    // 已登录会话无需限制（本人视角不存在"探测他人"）。
+    if (!req.session || !req.session.userId) {
+      const remembered = readCookie(req, 'jingtu_remember_login');
+      if (!remembered || String(remembered).toLowerCase() !== key) {
+        return res.json({ avatarUrl: null, vrchatAvatarUrl: null });
+      }
+    }
     const [rows] = await getPool().query(
       `SELECT id, avatar_type, custom_avatar_path, vrchat_avatar_url
        FROM users WHERE (LOWER(login_id) = ? OR LOWER(display_name) = ?) AND deleted_at IS NULL`,
@@ -309,7 +327,7 @@ router.get('/preview', authPreviewLimiter, async (req, res) => {
 
 router.post('/login', async (req, res) => {
   try {
-    const { loginId, password } = req.body;
+    const { loginId, password, remember } = req.body;
     if (typeof loginId !== 'string' || typeof password !== 'string' || !loginId.trim() || !password) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入有效的登录ID和密码');
     }
@@ -378,6 +396,15 @@ router.post('/login', async (req, res) => {
       if (err) { handleError(res, err, 'auth'); return; }
       await buildSession(req, user);
       await req.session.save();
+      // 记住账号 HttpOnly Cookie：前端 JS 读不到、攻击者无法伪造，
+      // 供登录页 /auth/preview 识别「本浏览器记住的账号」以显示真实头像（防枚举前提下）。
+      // 未勾选"记住我"时清除旧值，避免历史记住信息残留。
+      const REM_COOKIE_OPTS = { path: '/', httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' };
+      if (remember === true) {
+        res.cookie('jingtu_remember_login', String(user.login_id).trim(), { ...REM_COOKIE_OPTS, maxAge: 180 * 24 * 3600 * 1000 });
+      } else {
+        res.clearCookie('jingtu_remember_login', REM_COOKIE_OPTS);
+      }
       try {
         await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '用户登录', ?)`, [user.login_id, `${user.display_name} 登录`]);
       } catch {}
@@ -414,6 +441,8 @@ router.post('/logout', async (req, res) => {
       if (err) { handleError(res, err, 'auth'); return; }
       // 必须指定相同→path/httpOnly/sameSite 参数才能正确清除 cookie
       res.clearCookie('connect.sid', { path: '/', httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
+      // 登出同时清除记住账号标记，登录页不再显示该账号真实头像
+      res.clearCookie('jingtu_remember_login', { path: '/', httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
       ok(res);
     });
   } else { ok(res); }

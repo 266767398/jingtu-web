@@ -550,6 +550,14 @@ function bindEvents() {
   // 登录框回车提交
   const loginIdEl = document.getElementById('loginId');
   if (loginIdEl) {
+    // §11.8.3：输入账号即实时预览「本地 + VRChat」头像（防抖 350ms，避免每键都打接口）
+    let _loginAvatarDebounce = null;
+    loginIdEl.addEventListener('input', () => {
+      clearTimeout(_loginAvatarDebounce);
+      _loginAvatarDebounce = setTimeout(() => {
+        if (typeof previewLoginAvatar === 'function') previewLoginAvatar(loginIdEl.value);
+      }, 350);
+    });
     // §11.8.3：点进密码框时按已填账号预览「本地 + VRChat」头像
     const loginPwdEl = document.getElementById('loginPassword');
     if (loginPwdEl) {

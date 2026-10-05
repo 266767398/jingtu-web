@@ -46,6 +46,14 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   // 全量同步同样改为「按用户」冷却：一人同步不再冻结其他用户的手动同步。
   // 全量同步仍需全局互斥锁（syncInFlight），但冷却窗口按用户隔离，避免误伤。
   const lastSyncByUser = new Map();
+  // 按用户冷却 Map 防泄漏：超量后清理早已过冷却期的条目（重启即清零，故只做有界清理）
+  function pruneCooldownMap(map, cooldownMs) {
+    if (map.size <= 1000) return;
+    const now = Date.now();
+    for (const [k, ts] of map) {
+      if (now - ts > cooldownMs * 2) map.delete(k);
+    }
+  }
 
   // ==================== 全面同步群组成员 ====================
   router.post('/group/members/sync', requireAuth, async (req, res) => {
@@ -88,6 +96,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     }
     syncInFlight = true;
     lastSyncByUser.set(syncUserKey, Date.now());
+    pruneCooldownMap(lastSyncByUser, SYNC_COOLDOWN_MS);
     try {
       const { cookie: vrcCookie, result: meRes } =
         await vrcWithFallback(req, (c) => vrchatGetCurrentUserResult(c), getVRCCookieFn, getUserVRCCookieFn);
@@ -270,6 +279,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     }
     lastRefreshByUser.set(refreshUserKey, nowMs);
+    pruneCooldownMap(lastRefreshByUser, REFRESH_COOLDOWN_MS);
     const pool = getPool();
     try {
       const [members] = await pool.query(`SELECT vrchat_id, vrchat_name, avatar_url FROM group_roster WHERE is_member=1`);
