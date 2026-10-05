@@ -112,6 +112,7 @@ function renderGroupMembers(members) {
   grid.innerHTML = members.map(m => {
     const isOnline = m.isOnline;
     const isFriend = !!m.isFriend;
+    const blacklisted = !!m.blacklisted;
     const status = memberStatusMeta(isOnline, isFriend, m.vrchatStatus, m.isInGame, m.statusDescription);
     // 头像与名片保持一致：优先展示用户自定义头像大图，避免当前佩戴的机器人/奇怪模型遮挡真实形象
     let avatarUrl = m.profilePicOverrideThumbnail || m.avatarUrl;
@@ -150,6 +151,7 @@ function renderGroupMembers(members) {
           <div class="gm-avatar-fallback" style="${avatar ? '' : 'display:flex'}">${displayName.charAt(0).toUpperCase()}</div>
         </div>
         ${!isFriend ? '<div class="gm-friend-badge" title="' + __('group.non_friend_tooltip') + '">👤</div>' : ''}
+        ${blacklisted ? '<div class="gm-bl-badge" title="' + __('group.blacklisted_tooltip') + '">🚫</div>' : ''}
       </div>
       <div class="gm-status-pill ${status.dotClass}" title="${esc(status.title || '')}">${esc(statusText)}</div>
       <span class="gm-name" title="${esc(displayName)}">${esc(displayName)}</span>

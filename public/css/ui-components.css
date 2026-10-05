@@ -2101,7 +2101,9 @@ select.form-input {
   position: relative;
   width: 100%;
   aspect-ratio: 16/9;
-  background: linear-gradient(135deg, #1a1a2e, #16213e);
+  /* 修：原 #1a1a2e 深色渐变硬编码，亮色主题下占位图标为深色文字叠深底近不可见。
+     改用双主题令牌 --media-thumb-grad，亮色浅底 + 深色图标自动跟随。 */
+  background: var(--media-thumb-grad, linear-gradient(135deg, #1a1a2e, #2a2a4e));
   overflow: hidden;
 }
 .live-thumb img {
@@ -2117,6 +2119,7 @@ select.form-input {
   height: 100%;
   font-size: 48px;
   opacity: .5;
+  color: var(--text3);
 }
 .live-badge {
   position: absolute;

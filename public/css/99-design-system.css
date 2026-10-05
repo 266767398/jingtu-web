@@ -208,15 +208,17 @@
 
 /* .btn-skip（setup 跳过按钮）此前依赖 setup.html 内联样式，
    抽到设计系统统一管理，避免内联样式与主题变量脱节。 */
+   /* 修：原 #6a6a80/#c4c4d4 为暗色值硬编码，亮色主题下浅灰字透明底近不可见，
+      改用双主题令牌 --text2/--text 自动跟随明暗。 */
 .btn-skip {
   background: transparent;
-  border-color: #2a2a3e;
-  color: #6a6a80;
+  border-color: var(--border);
+  color: var(--text2);
 }
 
 .btn-skip:hover:not(:disabled) {
-  border-color: #3a3a4e;
-  color: #c4c4d4;
+  border-color: var(--text3);
+  color: var(--text);
 }
 
 /* ==================== 表单控件 ==================== */

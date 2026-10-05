@@ -37,6 +37,8 @@ const files = {
   envConfigRoute: read('server', 'routes', 'config.js'),
   adminUsersRoute: read('server', 'routes', 'admin_users.js'),
   adminNameChangeRoute: read('server', 'routes', 'admin_name_change.js'),
+  adminVrcBlacklistRoute: read('server', 'routes', 'admin_vrc_blacklist.js'),
+  groupsMembersRoute: read('server', 'routes', 'groups_members.js'),
   usersRoute: read('server', 'routes', 'users.js'),
   moderationsRoute: read('server', 'routes', 'moderations.js'),
   setupRoute: read('server', 'routes', 'setup.js'),
@@ -53,7 +55,13 @@ const files = {
   indexHtml: read('public', 'index.html'),
   uiEnhanceCss: read('public', 'css', 'ui-enhance.css'),
   uiComponentsCss: read('public', 'css', 'ui-components.css'),
+  variablesCss: read('public', 'css', '01-variables.css'),
+  checkinExtraCss: read('public', 'css', 'checkin-extra.css'),
+  designSystemCss: read('public', 'css', '99-design-system.css'),
+  baiduModernCss: read('public', 'css', 'baidu-modern.css'),
+  profileCss: read('public', 'css', '07-profile.css'),
   groupJs: read('public', 'js', 'group.js'),
+  adminVrcJs: read('public', 'js', 'admin-vrc.js'),
   mapJs: read('public', 'js', 'map.js'),
   freezeJs: read('public', 'js', 'freeze.js'),
   themeJs: read('public', 'js', 'theme.js'),
@@ -658,7 +666,7 @@ describe('security regressions', () => {
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/theme.js?v=20261005a');
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/auth.js?v=20261005b');
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/main.js?v=20261005b');
-      expect(files.indexHtml).toMatch(/loader\.js\?v=20261005e/);
+      expect(files.indexHtml).toMatch(/loader\.js\?v=20261005f/);
     });
 
     test('main.js 冻结时暂停刷新轮询与断开 WebSocket，解冻恢复；轮询带冻结守卫', () => {
@@ -746,6 +754,108 @@ describe('security regressions', () => {
       expect(files.chatJs).toMatch(/delete room\.screenShareBy\[uid\];/);
       expect(files.chatJs).toMatch(/delete room\.screenAudioTracksByUid\[uid\];/);
       expect(files.chatJs).toMatch(/rtcGroupScreenAudioOut_' \+ uid/);
+    });
+  });
+
+  // ==== 主题：默认暗色 + 亮色文字可读性（2026-10-05） ====
+  // 需求：站点默认暗色；亮色主题下多处硬编码深色/透明渐变导致文字不可见。
+  // 修复：01-variables 增加 :root:not([data-theme]) 暗色兜底；各组件硬编码色令牌化。
+  describe('主题默认暗色与亮色可读性回归', () => {
+    test('html 无 data-theme（JS 未加载）时以暗色令牌兜底', () => {
+      expect(files.variablesCss).toMatch(/:root:not\(\[data-theme\]\)\s*\{/);
+      expect(files.variablesCss).toMatch(/--bg: #121218/);
+      expect(files.variablesCss).toMatch(/--text: #e4e4ed/);
+      // 兜底块必须位于 data-theme 暗/亮块之前（被其按特异性覆盖）
+      expectBefore(files.variablesCss, ':root:not([data-theme])', ':root[data-theme="dark"]');
+    });
+
+    test('签到组件：完成格改用成功色令牌、活动 Tab 用实色 accent（亮色不再白字叠白底）', () => {
+      expect(files.checkinExtraCss).toMatch(/\.weekly-cell\.done\s*\{[^}]*color: var\(--success-solid, #10b981\)/);
+      expect(files.checkinExtraCss).not.toMatch(/\.weekly-cell\.done\s*\{[^}]*color: #fff/);
+      expect(files.checkinExtraCss).toMatch(/\.ck-tab\.active\s*\{[^}]*background: var\(--accent, #7c5cfc\)/);
+    });
+
+    test('setup 跳过按钮与首页图标亮色可读（硬编码暗色值令牌化）', () => {
+      expect(files.designSystemCss).toMatch(/\.btn-skip[\s\S]*?color: var\(--text2\)/);
+      expect(files.designSystemCss).not.toMatch(/\.btn-skip[\s\S]*?color: #6a6a80/);
+      expect(files.baiduModernCss).toMatch(/\.home-feature-icon[\s\S]*?background: linear-gradient\(135deg, var\(--accent\), var\(--accent2\)\)/);
+      expect(files.baiduModernCss).toMatch(/\.home-welcome-avatar[\s\S]*?background: linear-gradient\(135deg, var\(--accent\), var\(--accent2\)\)/);
+    });
+
+    test('个人主页无封面亮色兜底紫渐变；直播占位用双主题令牌', () => {
+      expect(files.profileCss).toMatch(/\[data-theme="light"\] \.profile-cover-bg[\s\S]*?background-image: linear-gradient\(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%\)/);
+      expect(files.uiComponentsCss).toMatch(/\.live-thumb[\s\S]*?background: var\(--media-thumb-grad/);
+      expect(files.uiComponentsCss).toMatch(/\.live-thumb-placeholder[\s\S]*?color: var\(--text3\)/);
+    });
+  });
+
+  // ==== VRChat 黑名单（2026-10-05） ====
+  // 需求：超管在管理后台维护黑名单（用户名 / 用户URL / 做了什么 的详细信息）；
+  // 群组名册接口 LEFT JOIN 该表返回 blacklisted 标记，成员卡片展示 🚫 徽标。
+  describe('VRChat 黑名单回归', () => {
+    test('db_init.js 创建 vrc_blacklist 表：用户名/URL/原因/添加人字段齐备', () => {
+      expect(files.dbInit).toMatch(/CREATE TABLE IF NOT EXISTS vrc_blacklist/);
+      expect(files.dbInit).toMatch(/username VARCHAR\(255\) NOT NULL/);
+      expect(files.dbInit).toMatch(/url VARCHAR\(2048\) DEFAULT ''/);
+      expect(files.dbInit).toMatch(/reason TEXT/);
+      expect(files.dbInit).toMatch(/created_by INT NOT NULL/);
+      expect(files.dbInit).toMatch(/UNIQUE KEY uk_vrchat_id \(vrchat_id\)/);
+    });
+
+    test('黑名单增删查路由全部 requireSuperAdmin（仅超管可维护）', () => {
+      expect(files.adminRoute).toMatch(/require\('\.\/admin_vrc_blacklist'\)\(\)/);
+      expect(files.adminVrcBlacklistRoute).toMatch(/router\.get\('\/admin\/vrc-blacklist', requireSuperAdmin/);
+      expect(files.adminVrcBlacklistRoute).toMatch(/router\.post\('\/admin\/vrc-blacklist', requireSuperAdmin/);
+      expect(files.adminVrcBlacklistRoute).toMatch(/router\.delete\('\/admin\/vrc-blacklist\/:id', requireSuperAdmin/);
+      expect(files.adminVrcBlacklistRoute).toMatch(/请输入用户名/);
+      expect(files.adminVrcBlacklistRoute).toMatch(/该用户已在黑名单中/);
+      expect(files.adminVrcBlacklistRoute).toMatch(/添加VRChat黑名单/);
+      expect(files.adminVrcBlacklistRoute).toMatch(/移除VRChat黑名单/);
+    });
+
+    test('/group/members LEFT JOIN vrc_blacklist 返回 blacklisted 标记', () => {
+      expect(files.groupsMembersRoute).toMatch(/LEFT JOIN vrc_blacklist bl ON gr\.vrchat_id = bl\.vrchat_id/);
+      expect(files.groupsMembersRoute).toMatch(/IF\(bl\.vrchat_id IS NOT NULL, 1, 0\) AS blacklisted/);
+      expect(files.groupsMembersRoute).toMatch(/FROM group_roster gr/);
+    });
+
+    test('管理后台 VRC 面板渲染黑名单 UI（表单 + 列表区 + data-vrc-action 委托）', () => {
+      expect(files.indexHtml).toMatch(/adminVrcBlacklistSection/);
+      expect(files.indexHtml).toMatch(/id="blUsername"/);
+      expect(files.indexHtml).toMatch(/id="blUrl"/);
+      expect(files.indexHtml).toMatch(/id="blReason"/);
+      expect(files.indexHtml).toMatch(/data-vrc-action="blacklist-add"/);
+      expect(files.indexHtml).toMatch(/data-vrc-action="blacklist-load"/);
+    });
+
+    test('admin-vrc.js 提供黑名单加载/添加/移除处理（事件委托 case 齐全）', () => {
+      expect(files.adminVrcJs).toMatch(/case 'blacklist-add':/);
+      expect(files.adminVrcJs).toMatch(/case 'blacklist-load':/);
+      expect(files.adminVrcJs).toMatch(/case 'blacklist-remove':/);
+      expect(files.adminVrcJs).toMatch(/async function loadVrcBlacklist\(\)/);
+      expect(files.adminVrcJs).toMatch(/async function addVrcBlacklistItem\(\)/);
+      expect(files.adminVrcJs).toMatch(/async function removeVrcBlacklistItem\(id\)/);
+      expect(files.adminVrcJs).toMatch(/\/api\/admin\/vrc-blacklist/);
+    });
+
+    test('群成员卡片渲染 🚫 黑名单徽标；语言包补齐黑名单文案', () => {
+      expect(files.groupJs).toMatch(/const blacklisted = !!m\.blacklisted/);
+      expect(files.groupJs).toMatch(/gm-bl-badge/);
+      expect(files.groupJs).toMatch(/group\.blacklisted_tooltip/);
+      expect(files.zhLang).toMatch(/"admin_vrc\.bl_title"/);
+      expect(files.zhLang).toMatch(/"admin_vrc\.bl_add"/);
+      expect(files.zhLang).toMatch(/"admin_vrc\.bl_remove"/);
+      expect(files.zhLang).toMatch(/"admin_vrc\.bl_added"/);
+      expect(files.zhLang).toMatch(/"admin_vrc\.bl_remove_confirm"/);
+      expect(files.zhLang).toMatch(/"group\.blacklisted_tooltip"/);
+    });
+
+    test('黑名单样式与语言包缓存戳同步升级（i18n + loader）', () => {
+      expect(files.indexHtml).toMatch(/06-members\.css\?v=20261005c/);
+      expect(files.indexHtml).toMatch(/i18n\.js\?v=20261005a/);
+      // 语言包版本号与 HTML 引用一致，避免 Service Worker 命中旧缓存
+      const i18nSrc = read('public', 'js', 'i18n.js');
+      expect(i18nSrc).toMatch(/I18N_PACK_VERSION = '20261005a'/);
     });
   });
 });

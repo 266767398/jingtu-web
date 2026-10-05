@@ -212,6 +212,7 @@ module.exports = function (groupId, vrcCookieCfg) {
   // 路由总数（420）与各路径完全不变。
   router.use(require('./admin_users')());
   router.use(require('./admin_name_change')());
+  router.use(require('./admin_vrc_blacklist')());
 
   // ==================== 权限组排序 API ====================
   router.get('/admin/groups', requireAdminCompat, async (req, res) => {

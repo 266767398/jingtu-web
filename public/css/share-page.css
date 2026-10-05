@@ -13,7 +13,9 @@
 .sp-card {
   width: 100%;
   max-width: 640px;
-  background: var(--bg-elevated, #1a1d24);
+  /* 根因修复：--bg-elevated 全项目未定义，恒回退深色 → 亮色主题下深底深字不可读。
+     改用双主题令牌 --card，亮色白底+深字、暗色深底+浅字自动跟随。 */
+  background: var(--card, #1e1e2a);
   border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
   border-radius: 18px;
   overflow: hidden;

@@ -50,6 +50,15 @@ function handleVrcAction(e) {
         case 'clear-credentials':
           clearSystemVrcCredentials();
           break;
+        case 'blacklist-add':
+          addVrcBlacklistItem();
+          break;
+        case 'blacklist-load':
+          loadVrcBlacklist();
+          break;
+        case 'blacklist-remove':
+          removeVrcBlacklistItem(id);
+          break;
       }
     } else if (el.hasAttribute('data-action')) {
       const action = el.dataset.action;
@@ -103,6 +112,76 @@ async function syncVRChatEvents() {
       if (typeof loadEvents === 'function') loadEvents(currentEvtStatus);
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.sync_failed') + ': ' + err.message, 'error'); }
+}
+
+// ========== VRChat 黑名单（超管维护：用户名 / URL / 做了什么） ==========
+async function loadVrcBlacklist() {
+  if (!currentUser || currentUser.role !== 'super_admin') return;
+  const listEl = document.getElementById('vrcBlacklistList');
+  if (!listEl) return;
+  listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_loading') + '</p>';
+  try {
+    const res = await api('/api/admin/vrc-blacklist', { method: 'GET', timeout: 30000 });
+    if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(errText(err) || __('admin_vrc.load_failed')); }
+    const data = await res.json();
+    const items = data.items || [];
+    if (!items.length) { listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_empty') + '</p>'; return; }
+    listEl.innerHTML = items.map(it => `
+      <div class="vrc-blacklist-item">
+        <div class="vrc-blacklist-head">
+          <span class="vrc-blacklist-name">🚫 ${esc(it.username || '')}</span>
+          ${it.vrchatId ? `<span class="vrc-blacklist-id">${esc(it.vrchatId)}</span>` : ''}
+          <button class="btn btn-xs btn-outline ml-auto" data-vrc-action="blacklist-remove" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_remove')}">🗑️ ${__('admin_vrc.bl_remove')}</button>
+        </div>
+        ${it.url ? `<div class="vrc-blacklist-url">🔗 <a href="${escAttr(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.url)}</a></div>` : ''}
+        ${it.reason ? `<div class="vrc-blacklist-reason">${__('admin_vrc.bl_reason_label')}${esc(it.reason)}</div>` : ''}
+        <div class="vrc-blacklist-meta">${__('admin_vrc.bl_added_by')} ${esc(it.createdByName || '-')} · ${fmtDate(it.createdAt)}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    const msg = String((e && e.message) || __('admin_vrc.load_failed'));
+    listEl.innerHTML = '<p class="text-red text-13">' + (typeof esc === 'function' ? esc(msg) : msg) + '</p>';
+  }
+}
+
+async function addVrcBlacklistItem() {
+  if (!currentUser || currentUser.role !== 'super_admin') {
+    toast(__('admin_vrc.super_admin_only'), 'error');
+    return;
+  }
+  const username = document.getElementById('blUsername')?.value?.trim();
+  if (!username) { toast(__('admin_vrc.bl_need_username'), 'error'); return; }
+  try {
+    const res = await api('/api/admin/vrc-blacklist', {
+      method: 'POST',
+      body: {
+        username,
+        url: document.getElementById('blUrl')?.value?.trim() || '',
+        vrchatId: document.getElementById('blVrchatId')?.value?.trim() || '',
+        reason: document.getElementById('blReason')?.value?.trim() || ''
+      },
+      timeout: 30000
+    });
+    if (!res.ok) { const err = await res.json().catch(() => ({})); toast(errText(err) || __('admin_vrc.op_failed'), 'error'); return; }
+    toast(__('admin_vrc.bl_added'), 'success');
+    ['blUsername', 'blUrl', 'blVrchatId', 'blReason'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    loadVrcBlacklist();
+  } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.op_failed') + ': ' + err.message, 'error'); }
+}
+
+async function removeVrcBlacklistItem(id) {
+  if (!currentUser || currentUser.role !== 'super_admin') {
+    toast(__('admin_vrc.super_admin_only'), 'error');
+    return;
+  }
+  showConfirm(__('admin_vrc.bl_remove_confirm'), async () => {
+    try {
+      const res = await api('/api/admin/vrc-blacklist/' + id, { method: 'DELETE', timeout: 30000 });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); toast(errText(err) || __('admin_vrc.op_failed'), 'error'); return; }
+      toast(__('admin_vrc.bl_removed'), 'success');
+      loadVrcBlacklist();
+    } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.op_failed') + ': ' + err.message, 'error'); }
+  });
 }
 
 // ========== 改名审核 ==========

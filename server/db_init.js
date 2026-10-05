@@ -1259,6 +1259,20 @@ async function initDatabase() {
         INDEX idx_user(user_id),
         INDEX idx_expires(expires_at),
         INDEX idx_used(used_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // VRChat 黑名单（超管维护：用户名 / 用户URL / 做了什么 的详细信息；群组名册 LEFT JOIN 本表打标）
+      `CREATE TABLE IF NOT EXISTS vrc_blacklist (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        vrchat_id VARCHAR(100) NULL COMMENT 'VRChat用户ID(usr_前缀，NULL=未填写)',
+        username VARCHAR(255) NOT NULL COMMENT '用户名',
+        url VARCHAR(2048) DEFAULT '' COMMENT '用户主页URL',
+        reason TEXT COMMENT '做了什么/处置原因详细信息',
+        created_by INT NOT NULL COMMENT '添加人(users.id)',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_vrchat_id (vrchat_id),
+        INDEX idx_created_at (created_at),
+        INDEX idx_username (username)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
     ];
 

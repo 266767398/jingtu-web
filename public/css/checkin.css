@@ -160,7 +160,7 @@
 .reward-points {
   display: block;
   font-size: 0.75rem;
-  color: #fbbf24;
+  color: var(--amber, #fbbf24);
   margin: 5px 0;
 }
 

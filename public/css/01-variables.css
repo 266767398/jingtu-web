@@ -1,6 +1,65 @@
 /* 境途同游 — 01 Variables */
 /* 从 style.css 拆分而来 */
 
+/* ========== 默认暗色兜底 ==========
+   html 上 data-theme 缺失（JS 未加载/异常/页面直开）时，页面仍以暗色令牌呈现，
+   避免白底白字/无主题变量大面积不可读。data-theme 正常设置时被下方
+   :root[data-theme="dark"/"light"] 块按更高特异性覆盖。 */
+:root:not([data-theme]) {
+  --bg: #121218;
+  --bg-secondary: #1a1a24;
+  --card: #1e1e2a;
+  --card2: #262632;
+  --card-hover: #2a2a38;
+  --card-elevated: #242430;
+  --accent: #7c5cfc;
+  --accent2: #9d7cff;
+  --accent-light: rgba(124,92,252,.15);
+  --text: #e4e4ed;
+  --text2: #a0a0b0;
+  --text3: #6a6a7a;
+  --text-disabled: #505060;
+  --border: #2a2a3a;
+  --border-light: #323242;
+  --green: #6ee7b7;
+  --red: #f87171;
+  --orange: #fb923c;
+  --yellow: #fbbf24;
+  --sky: #7dd3fc;
+  --amber: #f59e0b;
+  --rose: #fca5a5;
+  --hover: rgba(124,92,252,.12);
+  --card-bg: #1e1e2a;
+  --gradient-end: #7c3aed;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 16px rgba(0,0,0,.35);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,.4);
+  --shadow-xl: 0 16px 48px rgba(0,0,0,.5);
+  --scrollbar-track: #1a1a24;
+  --scrollbar-thumb: #2a2a3a;
+  --scrollbar-thumb-hover: #3a3a4a;
+  --success: #6ee7b7;
+  --warning: #fbbf24;
+  --error: #f87171;
+  --info: #7dd3fc;
+  --notice-success-bg: #0d2e23;
+  --notice-success-border: #10b981;
+  --notice-success-text: #a7f3d0;
+  --notice-warning-bg: #2e230d;
+  --notice-warning-border: #f59e0b;
+  --notice-warning-text: #fbbf24;
+  --notice-danger-bg: #2e0d0d;
+  --notice-danger-border: #ef4444;
+  --notice-danger-text: #f87171;
+  --success-solid: #10b981;
+  --muted: #6a6a7a;
+  --trust: #7c5cfc;
+  --tc: #7c5cfc;
+  --hero-grad: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #102540 100%);
+  --hero-accent: #7c5cfc;
+  --media-thumb-grad: linear-gradient(135deg, #1a1a2e, #2a2a4e);
+}
+
 /* ========== CSS Variables ========== */
 :root[data-theme="dark"] {  
   --bg: #121218; 

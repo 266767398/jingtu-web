@@ -28,37 +28,41 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     try {
       const filter = req.query.filter || 'all';
       const search = (req.query.search || '').trim();
-      let sql = `SELECT vrchat_id AS vrchatId, vrchat_name AS vrchatName, display_name AS displayName, avatar_url AS avatarUrl,
-                profile_pic_override_thumbnail AS profilePicOverrideThumbnail,
-                is_member AS isMember, is_online AS isOnline, is_in_game AS isInGame, vrchat_status AS vrchatStatus,
-                status_description AS statusDescription,
-                location, world_name AS worldName, last_login AS lastLogin, last_seen AS lastSeen,
-                joined_at AS joinedAt, left_at AS leftAt, role_ids AS roleIds,
-                membership_status AS membershipStatus, is_friend AS isFriend, synced_at AS syncedAt,
-                trust_level AS trustLevel, trust_level_cn AS trustLevelCn
-                FROM group_roster WHERE is_member=1`;
-      if (filter === 'online') sql += ` AND is_online=1`;
-      else if (filter === 'offline') sql += ` AND is_online=0`;
-      else if (filter === 'nonfriend') sql += ` AND is_friend=0`;
+      // LEFT JOIN vrc_blacklist：成员是否在黑名单（超管后台维护），前端成员卡片据此打徽标
+      let sql = `SELECT gr.vrchat_id AS vrchatId, gr.vrchat_name AS vrchatName, gr.display_name AS displayName, gr.avatar_url AS avatarUrl,
+                gr.profile_pic_override_thumbnail AS profilePicOverrideThumbnail,
+                gr.is_member AS isMember, gr.is_online AS isOnline, gr.is_in_game AS isInGame, gr.vrchat_status AS vrchatStatus,
+                gr.status_description AS statusDescription,
+                gr.location, gr.world_name AS worldName, gr.last_login AS lastLogin, gr.last_seen AS lastSeen,
+                gr.joined_at AS joinedAt, gr.left_at AS leftAt, gr.role_ids AS roleIds,
+                gr.membership_status AS membershipStatus, gr.is_friend AS isFriend, gr.synced_at AS syncedAt,
+                gr.trust_level AS trustLevel, gr.trust_level_cn AS trustLevelCn,
+                IF(bl.vrchat_id IS NOT NULL, 1, 0) AS blacklisted
+                FROM group_roster gr
+                LEFT JOIN vrc_blacklist bl ON gr.vrchat_id = bl.vrchat_id
+                WHERE gr.is_member=1`;
+      if (filter === 'online') sql += ` AND gr.is_online=1`;
+      else if (filter === 'offline') sql += ` AND gr.is_online=0`;
+      else if (filter === 'nonfriend') sql += ` AND gr.is_friend=0`;
       // 网页端在线：VRChat 用户通过 vrchat.com 登录但未进入任何世界（location='web'），
       // 账号在线（is_online=1）但不在客户端游戏内（is_in_game=0）。
-      else if (filter === 'web') sql += ` AND is_online=1 AND is_in_game=0`;
+      else if (filter === 'web') sql += ` AND gr.is_online=1 AND gr.is_in_game=0`;
       // 游戏内在线：客户端在任意世界/Home 内（is_in_game=1）。
-      else if (filter === 'ingame') sql += ` AND is_in_game=1`;
+      else if (filter === 'ingame') sql += ` AND gr.is_in_game=1`;
 
       const params = [];
       if (search) {
         // 玩家搜索：匹配显示名 / VRChat 名称 / VRChat ID（大小写不敏感）
-        sql += ` AND (LOWER(display_name) LIKE ? ESCAPE '!' OR LOWER(vrchat_name) LIKE ? ESCAPE '!' OR LOWER(vrchat_id) LIKE ? ESCAPE '!')`;
+        sql += ` AND (LOWER(gr.display_name) LIKE ? ESCAPE '!' OR LOWER(gr.vrchat_name) LIKE ? ESCAPE '!' OR LOWER(gr.vrchat_id) LIKE ? ESCAPE '!')`;
         const like = `%${escapeLike(search.toLowerCase())}%`;
         params.push(like, like, like);
       }
 
-      if (filter === 'online') sql += ` ORDER BY last_seen DESC`;
-      else if (filter === 'offline') sql += ` ORDER BY last_login DESC`;
-      else if (filter === 'nonfriend') sql += ` ORDER BY is_online DESC, last_seen DESC`;
-      else if (filter === 'web') sql += ` ORDER BY last_seen DESC`;
-      else sql += ` ORDER BY is_online DESC, last_seen DESC`;
+      if (filter === 'online') sql += ` ORDER BY gr.last_seen DESC`;
+      else if (filter === 'offline') sql += ` ORDER BY gr.last_login DESC`;
+      else if (filter === 'nonfriend') sql += ` ORDER BY gr.is_online DESC, gr.last_seen DESC`;
+      else if (filter === 'web') sql += ` ORDER BY gr.last_seen DESC`;
+      else sql += ` ORDER BY gr.is_online DESC, gr.last_seen DESC`;
 
       const [rows] = await getPool().query(sql, params);
       for (const r of rows) {

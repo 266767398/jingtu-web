@@ -8,7 +8,10 @@
     users: function () { if (typeof loadUsersAdmin === 'function') loadUsersAdmin(1); },
     activation: function () { if (typeof loadActivationCodesPanel === 'function') loadActivationCodesPanel(); },
     admins: function () { if (typeof loadAdminMgrList === 'function') loadAdminMgrList(1); },
-    vrc: function () { if (typeof checkSystemVrcStatus === 'function') checkSystemVrcStatus(); },
+    vrc: function () {
+      if (typeof checkSystemVrcStatus === 'function') checkSystemVrcStatus();
+      if (typeof loadVrcBlacklist === 'function') loadVrcBlacklist();
+    },
     'group-images': function () { /* 群组图片为纯上传表单，无需拉取 */ },
     'name-review': function () { if (typeof updateNameReviewPreview === 'function') updateNameReviewPreview(); },
     moderation: function () {

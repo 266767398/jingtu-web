@@ -90,7 +90,7 @@
 .weekly-cell.done {
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.35) 0%, rgba(16, 185, 129, 0.15) 100%);
   border-color: #10b981;
-  color: #fff;
+  color: var(--success-solid, #10b981);
 }
 
 /* ---------- 连签排行榜 Tab ---------- */
@@ -118,7 +118,7 @@
 
 .ck-tab.active {
   color: #fff;
-  background: rgba(124, 92, 252, 0.25);
+  background: var(--accent, #7c5cfc);
   border-color: var(--accent, #7c5cfc);
 }
 

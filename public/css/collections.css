@@ -290,9 +290,9 @@
 .mc-tag-wrap { display: inline-flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
 .mc-desc { font-size: 13px; color: var(--text); }
 .mc-rate { margin-top: 8px; display: flex; align-items: center; gap: 4px; }
-.mc-star-btn { font-size: 22px; color: #cbd5e1; background: none; border: none; cursor: pointer; line-height: 1; transition: color .12s; }
-.mc-star-btn.on, .mc-star-btn:hover { color: #f59e0b; }
-.mc-star-btn:hover ~ .mc-star-btn { color: #cbd5e1; }
+.mc-star-btn { font-size: 22px; color: var(--text3); background: none; border: none; cursor: pointer; line-height: 1; transition: color .12s; }
+.mc-star-btn.on, .mc-star-btn:hover { color: var(--amber, #f59e0b); }
+.mc-star-btn:hover ~ .mc-star-btn { color: var(--text3); }
 
 @media (max-width: 600px) {
   .model-coll-list { grid-template-columns: 1fr; }

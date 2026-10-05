@@ -241,7 +241,9 @@ table.admin-table tbody tr:hover td {
   font-size: 20px;
   line-height: 1;
   border-radius: var(--radius-sm);
-  background: linear-gradient(135deg, var(--accent-light), var(--accent));
+  /* 修：原渐变左端 --accent-light 在亮色主题下近乎透明，白色图标叠白底不可见。
+     改用 --accent→--accent2 全段实色，两主题白字均可读。 */
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
   color: #fff;
   box-shadow: 0 2px 8px var(--accent-shadow, rgba(0, 0, 0, .15));
 }
@@ -350,7 +352,9 @@ table.admin-table tbody tr:hover td {
   justify-content: center;
   font-size: 22px;
   overflow: hidden;
-  background: linear-gradient(135deg, var(--accent-light), var(--accent));
+  /* 修：同 home-feature-icon——--accent-light 亮色下近透明，白色文字/头像叠白底不可见。
+     改用 --accent→--accent2 实色渐变。 */
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
   color: #fff;
 }
 .home-welcome-avatar img {
