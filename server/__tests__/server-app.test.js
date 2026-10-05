@@ -84,3 +84,50 @@ describe('P2-1 server.js 整机集成（app 级 supertest）', () => {
     expect(res.body).toEqual({ success: false, error: 'CSRF token 无效' });
   });
 });
+
+// S-1: CSP nonce 化回归——script-src 移除 unsafe-inline，HTML 内联脚本逐条打一次性 nonce
+describe('S-1 CSP nonce（script-src 无 unsafe-inline）', () => {
+  test('GET / 响应 CSP：script-src 含 nonce 且不含 unsafe-inline', async () => {
+    const res = await request(app).get('/');
+    expect(res.status).toBe(200);
+    const csp = res.headers['content-security-policy'] || '';
+    expect(csp).toContain("default-src 'self'");
+    // 仅检查 script-src 指令段（style-src 保留 unsafe-inline，全串会被它命中）
+    const scriptSrc = (csp.match(/script-src\s+([^;]+)/) || [, ''])[1];
+    expect(scriptSrc).toContain("'nonce-");
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
+    // style-src 保留 unsafe-inline（主题系统/内联样式兼容），仅 script 侧收紧
+    expect(csp).toMatch(/style-src 'self' 'unsafe-inline'/);
+  });
+
+  test('HTML 内联 <script> 全部带与 CSP 一致的 nonce，外链脚本不带 nonce', async () => {
+    const res = await request(app).get('/');
+    expect(res.status).toBe(200);
+    const csp = res.headers['content-security-policy'] || '';
+    const nonceMatch = csp.match(/'nonce-([^']+)'/);
+    expect(nonceMatch).toBeTruthy();
+    const nonce = nonceMatch[1];
+    const html = res.text;
+    // 外链脚本（src=）不得被打 nonce
+    expect(html).toMatch(/<script[^>]*\bsrc=/);
+    expect(html).not.toMatch(/<script[^>]*\bsrc=[^>]*\snonce=/i);
+    // 内联脚本（无 src）必须带 nonce
+    const inlineScripts = html.match(/<script(?![^>]*\bsrc=)[^>]*>/gi) || [];
+    expect(inlineScripts.length).toBeGreaterThanOrEqual(3);
+    for (const tag of inlineScripts) {
+      expect(tag).toContain(`nonce="${nonce}"`);
+    }
+    // 内联脚本标签均闭合（改写不会破坏标签结构）
+    expect(html).toMatch(/<\/script>/gi);
+  });
+
+  test('CSP nonce 每响应一次性（两次请求 nonce 不同）', async () => {
+    const r1 = await request(app).get('/');
+    const r2 = await request(app).get('/');
+    const n1 = (r1.headers['content-security-policy'] || '').match(/'nonce-([^']+)'/);
+    const n2 = (r2.headers['content-security-policy'] || '').match(/'nonce-([^']+)'/);
+    expect(n1 && n1[1]).toBeTruthy();
+    expect(n2 && n2[1]).toBeTruthy();
+    expect(n1[1]).not.toBe(n2[1]);
+  });
+});

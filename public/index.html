@@ -201,6 +201,20 @@
         <span class="login-btn-text">登录</span>
         <span class="login-btn-shimmer"></span>
       </button>
+      <!-- 两步验证（TOTP）输入：开启 2FA 的账号密码验证通过后显示 -->
+      <div class="d-none" id="login2faArea">
+        <div class="login-2fa-hint">🔐 <span data-i18n="login.2fa_hint">该账号已开启两步验证，请输入6位动态验证码</span></div>
+        <div class="login-input-group mt-16">
+          <input type="text" id="login2faCode" placeholder="6位动态验证码" class="login-input" autocomplete="one-time-code" inputmode="numeric" maxlength="6" required data-i18n-placeholder="login.2fa_placeholder" aria-label="两步验证码">
+          <label for="login2faCode" class="login-input-label" data-i18n="login.2fa_label">两步验证码</label>
+          <div class="login-input-underline"></div>
+        </div>
+        <button class="login-btn mt-16" id="login2faBtn">
+          <span class="login-btn-text" data-i18n="login.2fa_confirm">验证</span>
+          <span class="login-btn-shimmer"></span>
+        </button>
+        <button type="button" class="login-back-link mt-8" id="login2faBack" data-i18n="login.2fa_back">返回重新输入密码</button>
+      </div>
     </div>
     <!-- 注册 -->
     <div class="form-group d-none" id="loginRegisterFields">
@@ -1863,6 +1877,33 @@
       <button  id="changePasswordBtn" class="btn btn-accent btn-sm">修改密码</button>
     </div>
 
+    <div class="card p-16 mt-12" id="totpSettingsCard">
+      <h3 data-i18n="totp.title">🔐 两步验证 (TOTP)</h3>
+      <div id="totpStatus" class="text-13 text-muted2">检查中...</div>
+      <div class="d-none" id="totpSetupArea">
+        <p class="text-13 text-muted2 mt-8" data-i18n="totp.setup_hint">使用身份验证器 App（如 Google Authenticator / Microsoft Authenticator）扫描下方二维码，或手动输入密钥后，输入 6 位验证码完成绑定。</p>
+        <div class="mt-8">
+          <img id="totpQrImg" alt="TOTP 二维码" style="width:180px;height:180px;border-radius:8px;border:2px solid var(--border);background:#fff;">
+          <p class="text-12 text-muted2 mt-8">密钥：<code id="totpSecretText"></code></p>
+        </div>
+        <div class="d-flex items-center gap-8 mt-8">
+          <input type="text" id="totpConfirmCode" class="form-input" placeholder="6位验证码" maxlength="6" inputmode="numeric" autocomplete="off" data-i18n-placeholder="totp.confirm_placeholder" aria-label="两步验证码" style="max-width:180px;">
+          <button id="totpConfirmBtn" class="btn btn-accent btn-sm" data-i18n="totp.confirm_btn">确认并启用</button>
+        </div>
+        <button class="btn btn-outline btn-sm mt-8" id="totpSetupCancel" data-i18n="totp.cancel">取消</button>
+      </div>
+      <div class="d-none" id="totpDisableArea">
+        <p class="text-13 text-muted2 mt-8" data-i18n="totp.disable_hint">关闭两步验证需要输入当前密码进行确认。</p>
+        <div class="d-flex items-center gap-8 mt-8">
+          <input type="password" id="totpDisablePwd" class="form-input" placeholder="当前密码" autocomplete="current-password" data-i18n-placeholder="totp.current_pwd" aria-label="当前密码" style="max-width:180px;">
+          <button id="totpDisableBtn" class="btn btn-outline btn-sm" data-i18n="totp.disable_btn">关闭两步验证</button>
+        </div>
+      </div>
+      <div class="mt-8">
+        <button class="btn btn-accent btn-sm d-none" id="totpEnableBtn" data-i18n="totp.enable_btn">开启两步验证</button>
+      </div>
+    </div>
+
     <div class="card p-16 mt-12">
       <h3>🎨 主题与外观</h3>
       <div class="theme-row"><span>亮度方案</span><div class="theme-btns"><button class="theme-bright-btn active me-theme-btn" data-bright="dark" data-context="me">🌙 暗色</button><button class="theme-bright-btn me-theme-btn" data-bright="light" data-context="me">☀️ 亮色</button></div></div>
@@ -1994,6 +2035,13 @@
     <div id="vrc2faError" class="text-13 text-red d-none mb-4"></div>
     <input type="text" id="vrc2faCode" class="form-input" data-i18n-placeholder="modal.2fa_code_ph" placeholder="验证码" data-i18n-aria="modal.2fa_code_aria" aria-label="VRChat 两步验证码">
     <div class="form-actions mt-8"><button type="button" id="vrc2faCancelBtn" class="btn btn-outline" data-i18n="ui.cancel">取消</button><button  id="vrc2faSubmitBtn" class="btn btn-accent" data-i18n="modal.verify_btn">验证</button></div>
+  </div>
+</div>
+
+<!-- 登录历史（S-6） -->
+<div id="loginHistoryModal" class="modal">
+  <div class="modal-content modal-lg"><div class="modal-header"><h3 data-i18n="admin_users.login_history_title">📜 登录历史</h3><button class="modal-close" data-modal-close="loginHistoryModal" data-i18n-aria="ui.close" aria-label="关闭">✕</button></div>
+    <div id="loginHistoryList" class="text-13" style="max-height:60vh;overflow:auto;line-height:1.6"><p class="text-muted2" data-i18n="loading_ellipsis">正在加载...</p></div>
   </div>
 </div>
 
@@ -2448,6 +2496,8 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   bindClick('pwdToggle', function() { togglePwd('loginPassword', 'pwdToggle'); });
   bindClick('loginPwdBtn', function() { doPasswordLogin(); });
+  bindClick('login2faBtn', function() { doLogin2fa(); });
+  bindClick('login2faBack', function() { resetLogin2fa(); switchLoginMode('password'); });
   bindInput('loginId', debounce(function() { if (typeof previewLoginAvatar === 'function') previewLoginAvatar(this.value); }, 400));
 
   // Register area
@@ -2863,6 +2913,10 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
   bindClick('changePasswordBtn', function() { changePassword(); });
+  bindClick('totpEnableBtn', function() { enableTotp(); });
+  bindClick('totpConfirmBtn', function() { confirmTotp(); });
+  bindClick('totpSetupCancel', function() { cancelTotpSetup(); });
+  bindClick('totpDisableBtn', function() { disableTotp(); });
 
   // Me theme
   document.querySelectorAll('.me-theme-btn').forEach(function(btn) {

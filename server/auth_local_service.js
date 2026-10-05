@@ -10,10 +10,11 @@ const fs = require('fs');
 const path = require('path');
 const { fail, ok, getPool, handleError, sendError, ErrorCodes, getAvatarUrl } = require('./utils');
 const { passwordResetLimiter, registerLimiter, createCustomLimiter } = require('./middleware/rate_limit');
-const { hashPassword, verifyPassword, validatePasswordStrength, requireAuth } = require('./auth');
+const { hashPassword, verifyPassword, validatePasswordStrength, requireAuth, requireSuperAdmin } = require('./auth');
 const logger = require('./logger');
 const { buildSession, sessionUser } = require('./auth_session');
 const activationCodes = require('./activation_code_service');
+const totp = require('./totp');
 
 // 路由注册委托：routes/auth.js 原位调用，六个端点连中间件一并注册
 function registerLocalRoutes(router) {
@@ -294,6 +295,33 @@ function readCookie(req, name) {
   return '';
 }
 
+// 记住账号 HttpOnly Cookie 统一写入/清除：登录与两步验证两阶段共用
+//（未勾选"记住我"时清除旧值，避免历史记住信息残留）。
+function applyRememberCookie(res, user, remember) {
+  const REM_COOKIE_OPTS = { path: '/', httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' };
+  if (remember === true) {
+    res.cookie('jingtu_remember_login', String(user.login_id).trim(), { ...REM_COOKIE_OPTS, maxAge: 180 * 24 * 3600 * 1000 });
+  } else {
+    res.clearCookie('jingtu_remember_login', REM_COOKIE_OPTS);
+  }
+}
+
+// 登录历史审计（S-6）统一写入；记录失败不影响登录主流程
+async function insertLoginHistory(req, { userId, loginId, provider = 'local', success = 1, reason = '' }) {
+  try {
+    const cf = req.headers['x-forwarded-for'];
+    const ip = String(cf ? String(cf).split(',')[0].trim() : (req.socket && req.socket.remoteAddress) || '').slice(0, 64);
+    const ua = String(req.headers['user-agent'] || '').slice(0, 500);
+    await getPool().query(
+      `INSERT INTO login_history (user_id, login_id, provider, success, ip, user_agent, reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, loginId, provider, success ? 1 : 0, ip, ua, String(reason).slice(0, 100)]
+    );
+  } catch (e) {
+    logger.warn('auth-local', `[login_history] 写入失败: ${e.message}`);
+  }
+}
+
 router.get('/preview', authPreviewLimiter, async (req, res) => {
   try {
     const raw = (req.query.loginId || '').toString().trim().slice(0, 64);
@@ -398,6 +426,17 @@ router.post('/login', async (req, res) => {
       await getPool().query(`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?`, [user.id]);
     } catch {}
 
+    // S-6: 超管两步验证（TOTP）——密码已验证，若该账号已开启 TOTP，则进入第二步：
+    // 在 session 中标记"密码阶段已通过"，返回 need2fa 由前端转向验证码输入页。
+    if (user.totp_enabled) {
+      try { req.session.pending2faUserId = user.id; await req.session.save(); } catch {}
+      await insertLoginHistory(req, { userId: user.id, loginId: user.login_id, success: 0, reason: '等待两步验证' });
+      // 记住账号 HttpOnly Cookie：密码阶段本文档右侧注释同款逻辑，此处提前写入
+      // （否则开启 2FA 的账号即使勾选"记住我"也不会下发，登录页头像预览失效）。
+      applyRememberCookie(res, user, remember);
+      return fail(res, 200, '该账号已开启两步验证，请输入6位动态验证码', { need2fa: true, code: '2FA_REQUIRED', userId: user.id });
+    }
+
     req.session.regenerate(async (err) => {
       if (err) { handleError(res, err, 'auth'); return; }
       await buildSession(req, user);
@@ -405,12 +444,8 @@ router.post('/login', async (req, res) => {
       // 记住账号 HttpOnly Cookie：前端 JS 读不到、攻击者无法伪造，
       // 供登录页 /auth/preview 识别「本浏览器记住的账号」以显示真实头像（防枚举前提下）。
       // 未勾选"记住我"时清除旧值，避免历史记住信息残留。
-      const REM_COOKIE_OPTS = { path: '/', httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' };
-      if (remember === true) {
-        res.cookie('jingtu_remember_login', String(user.login_id).trim(), { ...REM_COOKIE_OPTS, maxAge: 180 * 24 * 3600 * 1000 });
-      } else {
-        res.clearCookie('jingtu_remember_login', REM_COOKIE_OPTS);
-      }
+      applyRememberCookie(res, user, remember);
+      await insertLoginHistory(req, { userId: user.id, loginId: user.login_id, success: 1, reason: '密码登录成功' });
       try {
         await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '用户登录', ?)`, [user.login_id, `${user.display_name} 登录`]);
       } catch {}
@@ -422,6 +457,132 @@ router.post('/login', async (req, res) => {
 });
 
 // (游客登录已移除- 2026-06-22)
+
+// ==================== 两步验证（TOTP 第二因素）====================
+// S-6：密码阶段通过后（/login 已设置 session.pending2faUserId）提交动态验证码完成登录。
+// 安全：① 独立限流（15 分钟 20 次）防验证码爆破；
+//       ② 必须持有"密码阶段已通过"的会话标记，直接调用本端点拿不到认证结果；
+//       ③ 失败复用 failed_login_attempts 计数，5 次即锁定 15 分钟（与密码登录一致）。
+const auth2faLimiter = createCustomLimiter({
+  name: 'auth-2fa',
+  max: 20,
+  message: { error: '验证码验证过于频繁，请稍后再试', retryAfter: 900 }
+});
+
+router.post('/2fa/verify', auth2faLimiter, async (req, res) => {
+  try {
+    const { userId, code } = req.body;
+    if (typeof userId !== 'number' && !/^\d+$/.test(String(userId))) {
+      return fail(res, 200, '请求参数不合法，请重新登录', { code: 'BAD_REQUEST' });
+    }
+    const uid = Number(userId);
+    // 未经过密码验证（/login 未设置标记）→ 拒绝，防绕过密码直接爆破验证码
+    if (!req.session || req.session.pending2faUserId !== uid) {
+      return fail(res, 200, '请先完成账号密码验证', { code: '2FA_STEP_REQUIRED' });
+    }
+    const trimmedCode = typeof code === 'string' ? code.trim() : '';
+    if (!/^\d{6}$/.test(trimmedCode)) {
+      return fail(res, 200, '请输入6位动态验证码', { code: '2FA_CODE_INVALID' });
+    }
+    const [rows] = await getPool().query(
+      `SELECT * FROM users WHERE id = ? AND deleted_at IS NULL`,
+      [uid]
+    );
+    if (rows.length === 0) return fail(res, 200, '登录失败，请重新登录', { code: 'LOGIN_FAILED' });
+    const user = rows[0];
+    if (!user.totp_enabled) return fail(res, 200, '该账号未开启两步验证', { code: '2FA_NOT_ENABLED' });
+    if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      const lockMinutes = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
+      return fail(res, 200, `账户已被锁定，请${lockMinutes}分钟后再试`, { code: 'ACCOUNT_LOCKED', lockMinutes });
+    }
+
+    if (!totp.verifyTotp(user.totp_secret, trimmedCode)) {
+      // 失败计数与锁定策略与密码登录一致（原子递增，杜绝并发竞态）
+      try {
+        await getPool().query(`UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE id = ?`, [user.id]);
+        const [after] = await getPool().query(`SELECT failed_login_attempts FROM users WHERE id = ?`, [user.id]);
+        const newAttempts = (after && after.length && after[0].failed_login_attempts) || 1;
+        if (newAttempts >= 5) {
+          await getPool().query(`UPDATE users SET locked_until = DATE_ADD(NOW(), INTERVAL 15 MINUTE) WHERE id = ?`, [user.id]);
+          await insertLoginHistory(req, { userId: user.id, loginId: user.login_id, success: 0, reason: '两步验证失败次数过多，账户锁定' });
+          logger.warn('auth', `[SEC] 账户 ${user.login_id} 两步验证失败 ${newAttempts} 次，已锁定`);
+          return fail(res, 200, '动态验证码错误次数过多，账户已被锁定15分钟', { code: 'ACCOUNT_LOCKED', lockMinutes: 15 });
+        }
+      } catch {}
+      await insertLoginHistory(req, { userId: user.id, loginId: user.login_id, success: 0, reason: '两步验证失败' });
+      return fail(res, 200, '动态验证码错误，请重试', { code: '2FA_CODE_WRONG' });
+    }
+
+    try {
+      await getPool().query(`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?`, [user.id]);
+    } catch {}
+
+    await insertLoginHistory(req, { userId: user.id, loginId: user.login_id, success: 1, reason: '两步验证通过' });
+    req.session.regenerate(async (err) => {
+      if (err) { handleError(res, err, 'auth'); return; }
+      await buildSession(req, user);
+      await req.session.save();
+      try {
+        await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '用户登录', ?)`, [user.login_id, `${user.display_name} 登录（两步验证）`]);
+      } catch {}
+      ok(res, { user: sessionUser(req.session) });
+    });
+  } catch (e) {
+    handleError(res, e, '[auth/2fa/verify]');
+  }
+});
+
+// ==================== TOTP 设置（仅超管，S-6）====================
+// 三步：status（查询开关状态）→ setup（生成新密钥）→ confirm（验证码确认后启用）；
+// disable 需当前密码复核，防劫持会话远程关闭 2FA。
+
+router.get('/totp/status', requireSuperAdmin, async (req, res) => {
+  try {
+    const [rows] = await getPool().query(`SELECT totp_enabled FROM users WHERE id = ?`, [req.session.userId]);
+    ok(res, { enabled: !!(rows.length && rows[0].totp_enabled) });
+  } catch (e) { handleError(res, e, '[auth/totp/status]'); }
+});
+
+router.post('/totp/setup', requireSuperAdmin, async (req, res) => {
+  try {
+    const secret = totp.generateSecret();
+    const uri = totp.otpauthUri(secret, String(req.session.loginId || req.session.userId), '境途同游');
+    await getPool().query(`UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE id = ?`, [secret, req.session.userId]);
+    ok(res, { secret, otpauthUri: uri });
+  } catch (e) { handleError(res, e, '[auth/totp/setup]'); }
+});
+
+router.post('/totp/confirm', requireSuperAdmin, async (req, res) => {
+  try {
+    const { code } = req.body;
+    const trimmedCode = typeof code === 'string' ? code.trim() : '';
+    if (!/^\d{6}$/.test(trimmedCode)) return fail(res, 400, '请输入6位动态验证码', { code: '2FA_CODE_INVALID' });
+    const [rows] = await getPool().query(`SELECT totp_secret FROM users WHERE id = ?`, [req.session.userId]);
+    if (rows.length === 0 || !rows[0].totp_secret) return fail(res, 400, '请先生成验证密钥', { code: 'TOTP_SETUP_FIRST' });
+    if (!totp.verifyTotp(rows[0].totp_secret, trimmedCode)) return fail(res, 400, '动态验证码错误，请重试', { code: '2FA_CODE_WRONG' });
+    await getPool().query(`UPDATE users SET totp_enabled = 1 WHERE id = ?`, [req.session.userId]);
+    try {
+      await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '安全设置', ?)`, [req.session.loginId, `${req.session.loginId} 开启两步验证`]);
+    } catch {}
+    ok(res, { message: '两步验证已开启' });
+  } catch (e) { handleError(res, e, '[auth/totp/confirm]'); }
+});
+
+router.post('/totp/disable', requireSuperAdmin, async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (typeof password !== 'string' || !password) return fail(res, 400, '请输入当前密码', { code: 'PASSWORD_REQUIRED' });
+    const [rows] = await getPool().query(`SELECT password_hash FROM users WHERE id = ? AND deleted_at IS NULL`, [req.session.userId]);
+    if (rows.length === 0 || !rows[0].password_hash) return fail(res, 400, '该账号未设置密码，无法验证', { code: 'NO_PASSWORD' });
+    const valid = await verifyPassword(password, rows[0].password_hash);
+    if (!valid) return fail(res, 400, '当前密码错误', { code: 'PASSWORD_WRONG' });
+    await getPool().query(`UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE id = ?`, [req.session.userId]);
+    try {
+      await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '安全设置', ?)`, [req.session.loginId, `${req.session.loginId} 关闭两步验证`]);
+    } catch {}
+    ok(res, { message: '两步验证已关闭' });
+  } catch (e) { handleError(res, e, '[auth/totp/disable]'); }
+});
 
 /**
  * @swagger

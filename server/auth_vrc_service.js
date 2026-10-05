@@ -22,6 +22,22 @@ const { buildSession, sessionUser } = require('./auth_session');
 // P3-70: 2FA 验证码每 token 失败次数上限——≥MAX 即删除登录会话并触发安全告警
 const MAX_2FA_ATTEMPTS = 5;
 
+// S-6: VRChat 登录审计写入 login_history（provider=vrc）；记录失败不影响登录主流程
+async function insertVrcLoginHistory(req, user, reason = 'VRChat登录') {
+  try {
+    const cf = req.headers['x-forwarded-for'];
+    const ip = String(cf ? String(cf).split(',')[0].trim() : (req.socket && req.socket.remoteAddress) || '').slice(0, 64);
+    const ua = String(req.headers['user-agent'] || '').slice(0, 500);
+    await getPool().query(
+      `INSERT INTO login_history (user_id, login_id, provider, success, ip, user_agent, reason)
+       VALUES (?, ?, 'vrc', 1, ?, ?, ?)`,
+      [user.id, user.login_id, ip, ua, String(reason).slice(0, 100)]
+    );
+  } catch (e) {
+    logger.warn('auth-vrc', `[login_history] 写入失败: ${e.message}`);
+  }
+}
+
 // ==================== VRChat 临时状态存储（绑定 + 登录）====================
 // bindTokens: token →{ cookie, vrcUser, userId, expireAt }
 // loginTokens: token →{ cookie, vrcUser, boundUser, expireAt }
@@ -148,6 +164,7 @@ router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
         await buildSession(req, boundUser, finalCookie);
         await req.session.save();
         await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, 'VRC登录', ?)`, [boundUser.login_id, `${boundUser.display_name} VRChat登录`]);
+        await insertVrcLoginHistory(req, boundUser, 'VRChat登录（已绑定快捷登录）');
         ok(res, { user: sessionUser(req.session), bindStatus: 'already_bound' });
       });
       return;
@@ -206,6 +223,7 @@ router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
         await buildSession(req, boundUser, cookie);
         await req.session.save();
         await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, 'VRC登录', ?)`, [boundUser.login_id, `${boundUser.display_name} VRChat登录`]);
+        await insertVrcLoginHistory(req, boundUser, 'VRChat登录（重新绑定后）');
         ok(res, { user: sessionUser(req.session), bindStatus: 'already_bound' });
       });
       return;
@@ -283,6 +301,7 @@ router.post('/vrchat-2fa', async (req, res) => {
       await buildSession(req, boundUser, finalCookie);
       await req.session.save();
       await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, 'VRC登录', ?)`, [boundUser.login_id, `${boundUser.display_name} VRChat登录`]);
+      await insertVrcLoginHistory(req, boundUser, 'VRChat 2FA登录');
       ok(res, { user: sessionUser(req.session) });
     });
   } catch (e) { handleError(res, e, '[auth/vrchat-2fa]'); }

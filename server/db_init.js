@@ -271,11 +271,28 @@ async function initDatabase() {
         preferences JSON COMMENT '偏好设置JSON',
         vrchat_token_enc VARCHAR(1000) COMMENT 'VRChat token AES加密（双轨登录用）',
         notification_settings JSON COMMENT '通知设置JSON（email/browser/sound）',
+        totp_secret VARCHAR(100) NULL COMMENT 'TOTP 2FA密钥（base32，超管可选开启）',
+        totp_enabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'TOTP 2FA是否启用（1=开启）',
         deleted_at DATETIME NULL COMMENT '软删除时间',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_role(role),
         INDEX idx_deleted(deleted_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // 登录历史表（S-6：超管/审计视角记录登录来源；成功登录与关键失败都落表）
+      `CREATE TABLE IF NOT EXISTS login_history (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        login_id VARCHAR(50) NOT NULL COMMENT '登录账号（冗余，账号软删后仍可追溯）',
+        provider VARCHAR(20) DEFAULT 'local' COMMENT '登录来源：local/vrc',
+        success TINYINT(1) DEFAULT 1 COMMENT '是否成功（1=成功，0=失败/被锁）',
+        ip VARCHAR(64) DEFAULT '' COMMENT '来源 IP（IPv4/IPv6）',
+        user_agent VARCHAR(500) DEFAULT '' COMMENT '设备 UA',
+        reason VARCHAR(100) DEFAULT '' COMMENT '备注（如：2FA 通过 / 2FA 失败 / 密码错误锁定）',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user_time(user_id, created_at),
+        INDEX idx_login_id(login_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
       // 群组成员名单（从 VRChat 同步）V6.5 — 增强在线状态追踪
@@ -1414,6 +1431,9 @@ async function initDatabase() {
       // last_platform: 最近一次登录设备（standaloneandroid / standalonewindows / web / ...）
       //   用 VARCHAR(32) 而非 ENUM，方便未来扩展（VRChat 偶发新增 platform 类型）
       `ALTER TABLE users ADD COLUMN last_platform VARCHAR(32) DEFAULT ''`,
+      // S-6: 超管可选 TOTP 2FA（RFC 6238）——旧库升级补齐；新库已含于 users 建表 DDL
+      `ALTER TABLE users ADD COLUMN totp_secret VARCHAR(100) NULL COMMENT 'TOTP 2FA密钥（base32）'`,
+      `ALTER TABLE users ADD COLUMN totp_enabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'TOTP 2FA是否启用'`,
     ];
     let migrationErrors = [];
     for (const sql of usersSecurityCols) {

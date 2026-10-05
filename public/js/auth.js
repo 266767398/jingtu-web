@@ -37,6 +37,11 @@ async function login(loginId, password, remember = false) {
       toast(__('auth.login_ok'), 'success'); 
       showApp(); 
       return true;
+    } else if (data.need2fa) {
+      // S-6: 账号已开启两步验证——密码已验证，进入验证码输入步骤
+      if (loginLoading) loginLoading.style.display = 'none';
+      showLogin2fa(data);
+      return false;
     } else { 
       if (loginLoading) loginLoading.style.display = 'none';
       toast(errText(data) || __('auth.login_failed'), 'error'); 
@@ -244,6 +249,8 @@ function switchLoginMode(mode) {
   }
   // 切换离开 VRChat 标签时重置验证码状态
   if (mode !== 'vrchat' && typeof resetVrcLoginState === 'function') resetVrcLoginState();
+  // 切换标签时清理 2FA 验证码状态（留在密码 tab 也不恢复旧验证码）
+  if (typeof resetLogin2fa === 'function') resetLogin2fa();
 }
 
 async function doPasswordLogin() {
@@ -258,6 +265,69 @@ async function doPasswordLogin() {
     } else {
       setTimeout(() => promptVrcBind(), 700);
     }
+  }
+}
+
+// ==================== 两步验证（TOTP）登录第二步 ====================
+// S-6: /login 密码验证通过且账号开启 2FA 时返回 need2fa + userId，
+// 前端切换到验证码输入区，提交 /auth/2fa/verify 完成会话建立。
+let _login2faUserId = null;
+
+function showLogin2fa(data) {
+  _login2faUserId = data.userId;
+  document.getElementById('loginPasswordFields')?.classList.add('d-none');
+  document.getElementById('login2faArea')?.classList.remove('d-none');
+  const codeInput = document.getElementById('login2faCode');
+  if (codeInput) { codeInput.value = ''; codeInput.focus(); }
+  toast(data.message || __('login.2fa_hint'), 'info');
+}
+
+function resetLogin2fa() {
+  _login2faUserId = null;
+  document.getElementById('login2faArea')?.classList.add('d-none');
+  document.getElementById('loginPasswordFields')?.classList.remove('d-none');
+  const codeInput = document.getElementById('login2faCode');
+  if (codeInput) codeInput.value = '';
+}
+
+async function doLogin2fa() {
+  const code = document.getElementById('login2faCode')?.value?.trim();
+  if (!code || code.length !== 6) { toast(__('login.2fa_enter_code'), 'error'); return; }
+  if (!_login2faUserId) { toast(__('auth.login_failed'), 'error'); resetLogin2fa(); return; }
+  const btn = document.getElementById('login2faBtn');
+  const btnText = btn?.querySelector('.login-btn-text');
+  if (btn) btn.disabled = true;
+  if (btnText) btnText.textContent = __('auth.logging_in');
+  try {
+    const res = await api('/api/auth/2fa/verify', {
+      method: 'POST',
+      body: { userId: _login2faUserId, code }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      currentUser = data.user;
+      try { await loadMe(); } catch (e) { /* 失败则保留 sessionUser 的基础字段 */ }
+      await ensureCsrf();
+      sessionStorage.removeItem('manual_logout');
+      if (data.user && data.user.vrchatId && data.user.vrchatName) {
+        localStorage.setItem('jingtu_vrc_bound', '1');
+      }
+      toast(__('auth.login_ok'), 'success');
+      showApp();
+      resetLogin2fa();
+      return true;
+    } else {
+      toast(errText(data) || __('login.2fa_wrong_code'), 'error');
+      // 会话标记丢失（2FA_STEP_REQUIRED）或锁定 → 退回密码步骤重来
+      if (data.code === '2FA_STEP_REQUIRED' || data.code === 'ACCOUNT_LOCKED') resetLogin2fa();
+      return false;
+    }
+  } catch (err) {
+    if (!isApiHandledError(err)) toast(__('auth.network_error') + ': ' + err.message, 'error');
+    return false;
+  } finally {
+    if (btn) btn.disabled = false;
+    if (btnText) btnText.textContent = __('login.2fa_confirm');
   }
 }
 

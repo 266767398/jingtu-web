@@ -194,6 +194,13 @@ setupPanelProxy(app, { ROOT_DIR, requireSuperAdmin });
 // ==================== 运维面板反向代理 END ====================
 
 // 安全响应头（CSP + X-Frame-Options + HSTS + X-Content-Type-Options）
+// S-1: script-src 移除 'unsafe-inline'，改为每响应一次性 nonce。
+// 实现要点：
+//   ① nonce 由本中间件按请求生成，注入 CSP 头并同步打进 HTML 内联 <script>；
+//      XSS 注入的无 nonce 内联脚本一律被拒；
+//   ② HTML 改写发生在明文流上——本中间件注册在 compression 之后，压缩层位于内层，
+//      下游写入的明文先被此处捕获，重写后交给 compression 压缩输出；
+//   ③ /ops 运维面板由面板进程渲染 HTML，内联脚本无法打 nonce，维持 unsafe-inline 兜底。
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -201,10 +208,10 @@ app.use((req, res, next) => {
   if (process.env.NODE_ENV === 'production') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
-  // Content-Security-Policy（已移除 unsafe-eval，保留 unsafe-inline 待后续 nonce 改造）
-  // Leaflet 已本地化至 /vendor/leaflet，unpkg 仅作为兜底；script-src 与 style-src
-  // 必须保持一致，否则脚本被拦而样式放行会导致地图静默失效。
-  res.setHeader('Content-Security-Policy',
+  const isOps = String(req.path || '').startsWith('/ops');
+  if (isOps) {
+    // 运维面板：内联脚本无法打 nonce，保留 unsafe-inline（Leaflet 兜底 unpkg 一并保留）
+    res.setHeader('Content-Security-Policy',
       "default-src 'self'; " +
       "script-src 'self' 'unsafe-inline' https://unpkg.com; " +
       "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; " +
@@ -214,6 +221,59 @@ app.use((req, res, next) => {
       "frame-ancestors 'none'; " +
       "base-uri 'self'"
     );
+    return next();
+  }
+  const nonce = require('crypto').randomBytes(16).toString('base64url');
+  res.locals.cspNonce = nonce;
+  // Content-Security-Policy（已移除 unsafe-eval 与 script-src 的 unsafe-inline）
+  // Leaflet 已本地化至 /vendor/leaflet，unpkg 仅作为兜底；style-src 保留 unsafe-inline
+  // 以兼容主题系统/内联样式，script 侧由 nonce 严格管控。
+  res.setHeader('Content-Security-Policy',
+    "default-src 'self'; " +
+    `script-src 'self' 'nonce-${nonce}' https://unpkg.com; ` +
+    "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; " +
+    "img-src 'self' data: blob: https:; " +
+    "font-src 'self' https://fonts.gstatic.com; " +
+    "connect-src 'self' ws: wss: https://api.vrchat.cloud; " +
+    "frame-ancestors 'none'; " +
+    "base-uri 'self'"
+  );
+  const write = res.write.bind(res);
+  const end = res.end.bind(res);
+  let body = null;
+  const isHtml = () => {
+    const ct = res.getHeader('content-type');
+    return typeof ct === 'string' && ct.toLowerCase().includes('text/html');
+  };
+  res.write = (chunk, enc, cb) => {
+    if (!res.headersSent && isHtml()) {
+      body = body || [];
+      body.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), enc || 'utf8'));
+      if (typeof cb === 'function') cb();
+      return true;
+    }
+    return write(chunk, enc, cb);
+  };
+  res.end = (chunk, enc, cb) => {
+    if (chunk && !res.headersSent && isHtml()) {
+      body = body || [];
+      body.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), enc || 'utf8'));
+    }
+    if (body && body.length) {
+      const html = Buffer.concat(body).toString('utf8');
+      // 仅给「无 src 属性」的内联 <script> 打 nonce（外链脚本走 'self'，无需 nonce）
+      const patched = html.replace(/<script(?![^>]*\s(?:src|nonce)=)[^>]*>/gi, (tag) => {
+        const clean = tag.replace(/\s*\/\s*>$/, '>');
+        return clean.replace(/>$/, ` nonce="${nonce}">`);
+      });
+      const out = Buffer.from(patched);
+      res.setHeader('Content-Length', out.length);
+      write(out);
+      return end();
+    }
+    if (chunk !== undefined) return end(chunk, enc, cb);
+    return end(enc, cb);
+  };
   next();
 });
 // DDoS 防护（只对 API 路由生效，避免限制静态资源）

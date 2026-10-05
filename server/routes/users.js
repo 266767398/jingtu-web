@@ -532,6 +532,22 @@ router.get('/:id', requireRole('admin'), async (req, res) => {
   }
 });
 
+// S-6: 用户登录历史（admin+）——供管理后台审计账号异常登录
+router.get('/:id/login-history', requireRole('admin'), async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    const [rows] = await getPool().query(
+      `SELECT provider, success, ip, user_agent, reason, created_at
+       FROM login_history WHERE user_id = ?
+       ORDER BY id DESC LIMIT ?`,
+      [req.params.id, limit]
+    );
+    res.json({ list: rows, total: rows.length });
+  } catch (e) {
+    handleError(res, e, '[users/login-history]');
+  }
+});
+
 // 角色 → 基础权限组同步：保证 user_group_membership 中的基础组(1/2/3)与角色一致，
 // 自定义组(非 1/2/3)不受影响。修复"改角色后权限组不跟随"的一致性问题。
 async function syncUserBaseGroup(userId, role) {

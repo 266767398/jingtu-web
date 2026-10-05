@@ -39,6 +39,9 @@ function initAdminUsersEventDelegates() {
         case 'delete':
           deleteUser(userId);
           break;
+        case 'login-history':
+          viewLoginHistory(userId);
+          break;
         case 'edit-admin':
           showEditAdmin(userId, userName, userRole, userEmail);
           break;
@@ -169,6 +172,7 @@ function renderUsersAdmin(users) {
       : `<button class="btn btn-sm" data-user-action="unban" data-user-id="${id_esc}">${__('admin.unban')}</button>`;
     const editBtn = `<button class="btn btn-sm" data-user-action="edit" data-user-id="${id_esc}" data-user-name="${name_attr}" data-user-role="${role_esc}">✏️ ${__('edit')}</button>`;
     const pwdBtn = `<button class="btn btn-sm" data-user-action="reset-pwd" data-user-id="${id_esc}">🔑 ${__('admin.reset_pwd')}</button>`;
+    const historyBtn = `<button class="btn btn-sm" data-user-action="login-history" data-user-id="${id_esc}">📜 ${__('admin_users.login_history')}</button>`;
     const delBtn = `<button class="btn btn-sm btn-danger" data-user-action="delete" data-user-id="${id_esc}">${__('delete')}</button>`;
     return `<div class="admin-user-card">
       <img src="${avatarSrc}" class="admin-user-avatar" alt="${name}" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(u.avatarUrl || '/api/avatar/default')}')">
@@ -179,7 +183,7 @@ function renderUsersAdmin(users) {
         <div class="admin-user-status">${__('admin_users.status')}: ${statusLabel}</div>
       </div>
       <div class="admin-user-actions">
-        ${approveBtn}${banBtn}${editBtn}${pwdBtn}${delBtn}
+        ${approveBtn}${banBtn}${editBtn}${pwdBtn}${historyBtn}${delBtn}
       </div>
     </div>`;
   }).join('');
@@ -219,6 +223,42 @@ async function deleteUser(userId) {
       if (res.ok) { toast(__('admin_users.deleted'), 'success'); refreshUserManagement(); }
     } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_users.op_failed') + ': ' + err.message, 'error'); }
   });
+}
+
+// S-6: 查看指定用户的登录历史（最近 20 条）
+async function viewLoginHistory(userId) {
+  const listEl = document.getElementById('loginHistoryList');
+  if (!listEl) { toast(__('admin_users.op_failed'), 'error'); return; }
+  showModal('loginHistoryModal');
+  listEl.innerHTML = '<p class="text-muted2">' + __('loading_ellipsis') + '</p>';
+  try {
+    const res = await api(`/api/users/${userId}/login-history?limit=20`, { method: 'GET' });
+    const data = await res.json();
+    if (!res.ok) {
+      listEl.innerHTML = `<p class="text-red">${esc(errText(data) || __('admin_users.op_failed'))}</p>`;
+      return;
+    }
+    const rows = Array.isArray(data.list) ? data.list : [];
+    if (rows.length === 0) {
+      listEl.innerHTML = '<p class="text-muted2">' + __('admin_users.no_login_history') + '</p>';
+      return;
+    }
+    listEl.innerHTML = rows.map((r) => {
+      const okTxt = r.success ? '✅ ' + __('admin_users.success') : '❌ ' + __('admin_users.fail');
+      const provider = r.provider === 'vrc' ? 'VRChat' : __('admin_users.provider_local');
+      const time = esc(String(r.created_at || '') + '');
+      const ip = esc(String(r.ip || '-') + '');
+      const reason = esc(String(r.reason || '') + '');
+      const ua = esc(String(r.user_agent || '') + '');
+      return `<div style="padding:8px 0;border-bottom:1px dashed var(--border)">
+        <div><strong>${time}</strong> <span class="text-muted2">${provider} · ${okTxt}</span></div>
+        <div class="text-muted2">IP: ${ip} · ${reason}</div>
+        <div class="text-muted2 text-12" style="word-break:break-all">${ua}</div>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    listEl.innerHTML = `<p class="text-red">${esc(__('admin_users.op_failed'))}: ${esc(err.message)}</p>`;
+  }
 }
 
 // ========== 创建用户弹窗 ==========

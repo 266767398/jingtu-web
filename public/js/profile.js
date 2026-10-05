@@ -43,6 +43,8 @@ async function showProfile() {
       document.getElementById('meMotto').value = currentUser.motto || '';
       // 渲染 VRChat 绑定状态
       renderVRChatBindStatus();
+      // S-6: 渲染两步验证（TOTP）设置状态（仅超管显示设置卡片）
+      renderTotpStatus();
       // 渲染头像显示设置（§11.8.8）
       renderAvatarPref();
       // 填充「账号信息」概览卡片（邮箱 / 注册时间 / 最后登录 / VRChat 名称 ID / 安全评分）
@@ -545,7 +547,110 @@ async function updateMyLocation() {
   }
 }
 
-// ==================== 密码修改 ====================
+// ==================== 两步验证（TOTP）设置（S-6，仅超管）====================
+let _totpSetupSecret = '';
+
+function renderTotpStatus() {
+  const card = document.getElementById('totpSettingsCard');
+  const enableBtn = document.getElementById('totpEnableBtn');
+  if (!card || !enableBtn) return;
+  // 非超管不显示设置卡片（登录验证对所有开启用户生效，设置入口仅超管）
+  if (!currentUser || currentUser.role !== 'super_admin') {
+    card.classList.add('d-none');
+    return;
+  }
+  card.classList.remove('d-none');
+  const statusEl = document.getElementById('totpStatus');
+  try {
+    api('/api/auth/totp/status', { method: 'GET' }).then(async (res) => {
+      const data = await res.json().catch(() => ({}));
+      const enabled = !!(res.ok && data.enabled);
+      if (enabled) {
+        statusEl.textContent = '✅ ' + __('totp.enabled_status');
+        enableBtn.classList.add('d-none');
+        document.getElementById('totpDisableArea').classList.remove('d-none');
+        document.getElementById('totpSetupArea').classList.add('d-none');
+      } else {
+        statusEl.textContent = __('totp.disabled_status');
+        enableBtn.classList.remove('d-none');
+        document.getElementById('totpDisableArea').classList.add('d-none');
+        document.getElementById('totpSetupArea').classList.add('d-none');
+      }
+    });
+  } catch {}
+}
+
+async function enableTotp() {
+  const statusEl = document.getElementById('totpStatus');
+  try {
+    const res = await api('/api/auth/totp/setup', { method: 'POST', body: {} });
+    const data = await res.json();
+    if (!res.ok || !data.otpauthUri) {
+      toast(errText(data) || __('totp.setup_failed'), 'error');
+      return;
+    }
+    _totpSetupSecret = data.secret || '';
+    document.getElementById('totpSecretText').textContent = _totpSetupSecret;
+    // 二维码沿用站点既有外部 QR 服务（events.js 签到同源策略），失败回退 Google Chart
+    const qrUrl = encodeURIComponent(data.otpauthUri);
+    const qrImg = document.getElementById('totpQrImg');
+    if (qrImg) {
+      qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${qrUrl}`;
+      qrImg.onerror = () => { qrImg.onerror = null; qrImg.src = `https://chart.apis.google.com/chart?cht=qr&chs=360x360&chl=${qrUrl}`; };
+    }
+    document.getElementById('totpStatus').textContent = __('totp.setup_step');
+    document.getElementById('totpSetupArea').classList.remove('d-none');
+    document.getElementById('totpEnableBtn').classList.add('d-none');
+    const codeInput = document.getElementById('totpConfirmCode');
+    if (codeInput) { codeInput.value = ''; codeInput.focus(); }
+  } catch (err) { if (!isApiHandledError(err)) toast(__('totp.setup_failed') + ': ' + err.message, 'error'); }
+}
+
+async function confirmTotp() {
+  const code = document.getElementById('totpConfirmCode')?.value?.trim();
+  if (!code || code.length !== 6) { toast(__('totp.enter_code'), 'error'); return; }
+  const btn = document.getElementById('totpConfirmBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api('/api/auth/totp/confirm', { method: 'POST', body: { code } });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      toast(__('totp.enabled_ok'), 'success');
+      _totpSetupSecret = '';
+      renderTotpStatus();
+    } else {
+      toast(errText(data) || __('totp.wrong_code'), 'error');
+    }
+  } catch (err) { if (!isApiHandledError(err)) toast(__('totp.setup_failed') + ': ' + err.message, 'error'); }
+  finally { if (btn) btn.disabled = false; }
+}
+
+function cancelTotpSetup() {
+  _totpSetupSecret = '';
+  document.getElementById('totpSetupArea').classList.add('d-none');
+  document.getElementById('totpStatus').textContent = __('totp.disabled_status');
+  document.getElementById('totpEnableBtn').classList.remove('d-none');
+}
+
+async function disableTotp() {
+  const password = document.getElementById('totpDisablePwd')?.value;
+  if (!password) { toast(__('totp.need_password'), 'error'); return; }
+  const btn = document.getElementById('totpDisableBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api('/api/auth/totp/disable', { method: 'POST', body: { password } });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      toast(__('totp.disabled_ok'), 'success');
+      document.getElementById('totpDisablePwd').value = '';
+      renderTotpStatus();
+    } else {
+      toast(errText(data) || __('totp.disable_failed'), 'error');
+    }
+  } catch (err) { if (!isApiHandledError(err)) toast(__('totp.disable_failed') + ': ' + err.message, 'error'); }
+  finally { if (btn) btn.disabled = false; }
+}
+
 async function changePassword() {
   const oldPwd = document.getElementById('meCurPwd')?.value;
   const newPwd = document.getElementById('meNewPwd')?.value;
