@@ -193,6 +193,8 @@ const VRC_BUSINESS_CODES = new Set([
   'VRC_NOT_LOGGED_IN',
   'VRC_COOKIE_EXPIRED',
   'VRC_UPSTREAM_ERROR',
+  'VRC_AUTH_FAILED',     // VRChat 用户名/密码/验证码校验失败：业务错误，不是本站会话过期
+  'ACCOUNT_PENDING',     // 账号待审核：不踢本站会话
   'VRC_2FA_REQUIRED',   // 401 但需两步验证：不踢本站会话，引导重登验证
   'VRC_RATE_LIMITED',   // 429 限流：静默退避，不视为本站故障
   'VRC_FETCH_FAILED',   // groups.js / model-collection-service 已使用，需登记以免被误判为会话失效

@@ -123,7 +123,7 @@ router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
         if (locked) {
           return fail(res, 429, '验证码错误次数过多，登录会话已失效，请重新登录', { code: '2FA_LOCKED', locked: true });
         }
-        return fail(res, 401, vResult.error, { remaining: MAX_2FA_ATTEMPTS - state.failCount });
+        return fail(res, 401, vResult.error, { code: ErrorCodes.VRC_AUTH_FAILED, remaining: MAX_2FA_ATTEMPTS - state.failCount });
       }
       loginTokens.delete(loginToken);
 
@@ -158,7 +158,7 @@ router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
 
     const login = await vrchatBasicLogin(username, password);
     if (login.status !== 200) {
-      return fail(res, 401, login.data?.error?.message || 'VRChat登录失败');
+      return fail(res, 401, login.data?.error?.message || 'VRChat登录失败', { code: ErrorCodes.VRC_AUTH_FAILED });
     }
     const vrcUser = login.data;
     let cookie = login.cookie;
@@ -172,7 +172,7 @@ router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
 
     // 未绑定 → 明确引导用户先注册本地账号再绑定
     if (boundUsers.length === 0) {
-      return fail(res, 401, '该VRChat账号未绑定本站账号，无法直接登录', { needBind: true, message: '该VRChat账号未绑定本站账号，请先完成本地账号注册/登录，然后在个人中心绑定VRChat账号后再使用VRChat登录。', vrchatUser: { id: vrcUser.id, displayName: vrcUser.displayName } });
+      return fail(res, 401, '该VRChat账号未绑定本站账号，无法直接登录', { code: ErrorCodes.VRC_AUTH_FAILED, needBind: true, message: '该VRChat账号未绑定本站账号，请先完成本地账号注册/登录，然后在个人中心绑定VRChat账号后再使用VRChat登录。', vrchatUser: { id: vrcUser.id, displayName: vrcUser.displayName } });
     }
     const boundUser = boundUsers[0];
 
@@ -262,7 +262,7 @@ router.post('/vrchat-2fa', async (req, res) => {
       if (locked) {
         return fail(res, 429, '验证码错误次数过多，登录会话已失效，请重新登录', { code: '2FA_LOCKED', locked: true });
       }
-      return fail(res, 401, vResult.error, { remaining: MAX_2FA_ATTEMPTS - state.failCount });
+      return fail(res, 401, vResult.error, { code: ErrorCodes.VRC_AUTH_FAILED, remaining: MAX_2FA_ATTEMPTS - state.failCount });
     }
     loginTokens.delete(loginToken);
 
@@ -314,7 +314,7 @@ router.post('/vrchat-bind-verify', passwordResetLimiter, requireAuth, async (req
       if (!username || !password) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入VRChat用户名和密码');
       const login = await vrchatBasicLogin(username, password);
       if (login.status !== 200) {
-        return fail(res, 401, login.data?.error?.message || 'VRChat 验证失败，请检查用户名和密码');
+        return fail(res, 401, login.data?.error?.message || 'VRChat 验证失败，请检查用户名和密码', { code: ErrorCodes.VRC_AUTH_FAILED });
       }
       vrcUser = login.data;
       cookie = login.cookie;
@@ -364,7 +364,7 @@ router.post('/vrchat-bind-verify', passwordResetLimiter, requireAuth, async (req
       const vResult = await verifyVrc2fa(code, method, cookie);
       if (!vResult.success) {
         if (bindToken) bindTokens.delete(bindToken);
-        return fail(res, 401, vResult.error);
+        return fail(res, 401, vResult.error, { code: ErrorCodes.VRC_AUTH_FAILED });
       }
       cookie = vResult.cookie;
       if (vResult.user) Object.assign(vrcUser, vResult.user);

@@ -522,6 +522,17 @@ function bindEvents() {
   }
 
   // 登录框回车提交
+  const loginIdEl = document.getElementById('loginId');
+  if (loginIdEl) {
+    // §11.8.3：点进密码框时按已填账号预览「本地 + VRChat」头像
+    const loginPwdEl = document.getElementById('loginPassword');
+    if (loginPwdEl) {
+      loginPwdEl.addEventListener('focus', () => {
+        const val = loginIdEl.value.trim();
+        if (val && typeof previewLoginAvatar === 'function') previewLoginAvatar(val);
+      });
+    }
+  }
   const loginPwd = document.getElementById('loginPassword');
   if (loginPwd) {
     loginPwd.addEventListener('keydown', (e) => {

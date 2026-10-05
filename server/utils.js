@@ -37,6 +37,10 @@ const ErrorCodes = {
   VRC_FETCH_FAILED: 'VRC_FETCH_FAILED',
   VRC_RATE_LIMITED: 'VRC_RATE_LIMITED',
   VRC_2FA_REQUIRED: 'VRC_2FA_REQUIRED',
+  // VRChat 用户名/密码/验证码校验失败（业务错误）：前端据此把 401 当作
+  // "VRChat 那边没通过"，而不是"本站会话过期"；否则绑定/登录时密码输错
+  // 就会被踢回登录页（core.js 401 分支见 VRC_BUSINESS_CODES）。
+  VRC_AUTH_FAILED: 'VRC_AUTH_FAILED',
   // ==================== 社交模块（好友/关注/群聊/点赞） ====================
   ALREADY_FRIENDS: 'ALREADY_FRIENDS',
   FRIEND_REQUEST_EXISTS: 'FRIEND_REQUEST_EXISTS',
