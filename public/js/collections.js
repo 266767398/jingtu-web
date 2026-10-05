@@ -634,7 +634,7 @@
       const results = Array.isArray(data.results) ? data.results : [];
       if (!results.length) {
         const errMsg = errText(data);
-        const err = errMsg ? ('：' + errMsg) : '';
+        const err = errMsg ? ('：' + esc(errMsg)) : '';
         box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('model_coll.search_empty', __('auto_collections_94')) + err + '</div>';
         return;
       }
@@ -655,7 +655,7 @@
         btn.addEventListener('click', (e) => { e.stopPropagation(); pickSearchModel(btn.getAttribute('data-id')); });
       });
     } catch (e) {
-      box.innerHTML = '<div class="coll-search-hint text-13 text-red">' + __('common.load_failed', __('auto_collections_96')) + '：' + (e.message || '') + '</div>';
+      box.innerHTML = '<div class="coll-search-hint text-13 text-red">' + __('common.load_failed', __('auto_collections_96')) + '：' + esc(e.message || '') + '</div>';
     }
   }
 
@@ -811,7 +811,7 @@
   function platformLabel(p) { return ({ standalonewindows: 'PC', android: 'Android', ios: 'iOS' })[p] || p; }
   function worldTypeLabel(w) { return ({ lobby: 'Lobby', game: 'Game', social: 'Social', roleplay: 'Roleplay', horror: 'Horror', club: 'Club', hangout: 'Hangout', arena: 'Arena' })[w] || w; }
   function sizeLabel(s) { return ({ small: '<10MB', mid: '10-30MB', large: '>30MB' })[s] || s; }
-  function statusText(s) { return ({ valid: '✅ ' + __('model_coll.status_valid', __('auto_collections_100')), invalid: '❌ ' + __('model_coll.status_invalid', __('auto_collections_101')), unknown: '❓ ' + __('model_coll.status_unknown', __('auto_collections_102')) })[s] || s; }
+  function statusText(s) { return ({ valid: '✅ ' + __('model_coll.status_valid'), invalid: '❌ ' + __('model_coll.status_invalid'), unknown: '❓ ' + __('model_coll.status_unknown') })[s] || s; }
 
   // ============ 事件绑定 ============
   function bindStatic() {

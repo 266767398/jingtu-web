@@ -70,6 +70,20 @@ describe('P2-149 signPayload / canonicalStringify', () => {
     expect(webhook.isBlockedWebhookAddress('8.8.8.8')).toBe(false);
     expect(webhook.isBlockedWebhookAddress('1.1.1.1')).toBe(false);
   });
+
+  test('isBlockedWebhookAddress IPv4-mapped IPv6 / 链路本地 / ULA（SSRF 绕过回归）', () => {
+    expect(webhook.isBlockedWebhookAddress('::ffff:127.0.0.1')).toBe(true);
+    expect(webhook.isBlockedWebhookAddress('::ffff:7f00:1')).toBe(true);
+    expect(webhook.isBlockedWebhookAddress('::ffff:ac10:1')).toBe(true);
+    expect(webhook.isBlockedWebhookAddress('::ffff:c0a8:101')).toBe(true);
+    expect(webhook.isBlockedWebhookAddress('::ffff:0a00:0001')).toBe(true);
+    expect(webhook.isBlockedWebhookAddress('fe80::1')).toBe(true);
+    expect(webhook.isBlockedWebhookAddress('fc00::123')).toBe(true);
+    expect(webhook.isBlockedWebhookAddress('fd12:3456::1')).toBe(true);
+    expect(webhook.isBlockedWebhookAddress('::1')).toBe(true);
+    expect(webhook.isBlockedWebhookAddress('::ffff:8.8.8.8')).toBe(false);
+    expect(webhook.isBlockedWebhookAddress('2606:4700:4700::1111')).toBe(false);
+  });
 });
 
 describe('P2-149 validateWebhookUrl（SSRF 防护）', () => {

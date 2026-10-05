@@ -33,11 +33,36 @@ const REDACT_KEYS = new Set([
   'client_secret', 'signing_key', 'encryption_key', 'auth_token'
 ]);
 
+// P4-XX：system_config 是 key-value 结构（config_key/config_value），REDACT_KEYS 按列名
+// 命中不到内嵌在 config_value 里的凭据。复用 admin.js maskConfigValue 同一口径
+// （rtc_turn_credential / media_provider_mirrors 等），避免备份导出明文外泄凭据。
+const CONFIG_MASK = '__MASKED__';
+const SENSITIVE_KEY_RE = /(PASSWORD|SECRET|KEY|TOKEN|CREDENTIAL)/i;
+const SENSITIVE_INLINE_RE = /(password|passwd|secret|token|api_?key|credential|client_secret)=([^\s&]*)/gi;
+function maskConfigValue(key, value) {
+  if (!value || typeof value !== 'string') return value;
+  if (SENSITIVE_KEY_RE.test(key)) return CONFIG_MASK;
+  // URL userinfo 内嵌凭据：scheme://user:pass@host
+  if (/^[a-zA-Z][\w+.-]*:\/\/[^/:\s]*:[^@\s]*@/i.test(value)) {
+    return value.replace(/^(.*:\/\/[^:/\s]*:)[^@\s]*@/, '$1' + CONFIG_MASK + '@');
+  }
+  // 内联 "key=secret" 片段
+  if (SENSITIVE_INLINE_RE.test(value)) {
+    return value.replace(SENSITIVE_INLINE_RE, '$1' + CONFIG_MASK);
+  }
+  return value;
+}
+
 function redactRow(row) {
   if (!row || typeof row !== 'object') return row;
   const out = {};
   for (const k of Object.keys(row)) {
-    out[k] = REDACT_KEYS.has(k.toLowerCase()) ? '***REDACTED***' : row[k];
+    // system_config 表的 key-value 行：按 config_key 语义脱敏 config_value
+    if (k === 'config_value' && row.config_key !== undefined) {
+      out[k] = maskConfigValue(row.config_key, row[k]);
+    } else {
+      out[k] = REDACT_KEYS.has(k.toLowerCase()) ? '***REDACTED***' : row[k];
+    }
   }
   return out;
 }

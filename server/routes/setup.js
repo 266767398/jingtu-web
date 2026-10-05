@@ -44,6 +44,22 @@ function testEmailLimited(ip) {
   return rec.count > TEST_EMAIL_MAX;
 }
 
+// P4-XX：/setup/test-db 与 /test-email 同属「未安装窗口期匿名可达」端点，但此前无专属限流，
+// 攻击者可以真值 oracle（能否连上 MySQL）爆破数据库凭据/扫描内网实例。对齐 test-email 做每来源 IP 限流。
+const TEST_DB_WINDOW_MS = 60 * 60 * 1000;
+const TEST_DB_MAX = 30;
+const testDbHits = new Map(); // ip -> { count, resetAt }
+function testDbLimited(ip) {
+  const now = Date.now();
+  const rec = testDbHits.get(ip);
+  if (!rec || now > rec.resetAt) {
+    testDbHits.set(ip, { count: 1, resetAt: now + TEST_DB_WINDOW_MS });
+    return false;
+  }
+  rec.count += 1;
+  return rec.count > TEST_DB_MAX;
+}
+
 function getEnvPath() {
   return path.join(__dirname, '..', '..', '.env');
 }
@@ -275,6 +291,22 @@ router.post('/setup/test-db', requireNotInstalled, requireSuperAdminForReconfigu
     if (!host || !port || !database || !user) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数不完整');
     }
+    if (typeof host !== 'string' || host.trim() === '' || host.length > 255 || /[\s;]/u.test(host)) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '数据库主机格式不正确');
+    }
+    if (typeof database !== 'string' || database.length > 64 || typeof user !== 'string' || user.length > 64) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '数据库名/用户名格式不正确');
+    }
+    if (port !== undefined && port !== null && port !== ''
+        && (!Number.isFinite(Number(port)) || Number(port) < 1 || Number(port) > 65535)) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '数据库端口无效');
+    }
+    const srcIp = (req.socket && req.socket.remoteAddress) || '';
+    // P4-XX：安装窗口期匿名可达的真值 oracle，做每来源 IP 限流 + 审计，防凭据爆破/内网扫描
+    if (testDbLimited(srcIp)) {
+      return sendError(res, 429, ErrorCodes.RATE_LIMITED, '尝试过于频繁，请稍后再试');
+    }
+    logger.warn(`[setup/test-db] 来源 ${srcIp} 尝试测试数据库连接 host=${host} port=${port} db=${database} user=${user}`);
     // 重走模式：密码留空时改用当前 .env 中的数据库密码
     const reconfigure = allowReconfigure(req) && fs.existsSync(getEnvPath());
     if (!password && reconfigure) {

@@ -158,7 +158,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   // 否则会把系统账号的模型改掉。
   // 因此这里用 getUserVRCCookieFn（仅取当前用户绑定 cookie、缺失即 401），
   // 而不是会回退系统账号的 getVRCCookieFn。
-  router.post('/vrc/avatar/set', async (req, res) => {
+  router.post('/vrc/avatar/set', requireAuth, async (req, res) => {
     const vrcCookie = (typeof getUserVRCCookieFn === 'function' ? getUserVRCCookieFn : getVRCCookieFn)(req);
     if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {

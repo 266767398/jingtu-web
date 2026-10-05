@@ -306,6 +306,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <script src="/js/i18n.js?v=20261005a"></script>
 <script>
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 let currentStep = 1;
 let migrateAbort = false;
 const config = {
@@ -493,16 +502,16 @@ async function autoDetect() {
     data.results.forEach(r => {
       html += `<div class="detect-result ${r.success ? 'success' : 'error'}">
         <div class="result-header">
-          <span class="result-host">${r.host}:${r.port}</span>
+          <span class="result-host">${esc(r.host)}:${esc(r.port)}</span>
           <span class="result-status ${r.success ? 'success' : 'error'}">${r.success ? __('migration.conn_ok') : __('migration.conn_fail')}</span>
         </div>
-        <div>${r.message}</div>
-        ${r.success && r.databases.length > 0 ? `<div class="result-dbs">${__('migration.found_databases')}${r.databases.join(', ')}</div>` : ''}
+        <div>${esc(r.message)}</div>
+        ${r.success && r.databases.length > 0 ? `<div class="result-dbs">${__('migration.found_databases')}${esc(r.databases.join(', '))}</div>` : ''}
       </div>`;
     });
     resultDiv.innerHTML = html;
   } else {
-    resultDiv.innerHTML = `<div class="detect-result error"><div class="result-status error">${__('migration.detect_failed')}</div><div>${data.error}</div></div>`;
+    resultDiv.innerHTML = `<div class="detect-result error"><div class="result-status error">${__('migration.detect_failed')}</div><div>${esc(data.error)}</div></div>`;
   }
 }
 
@@ -532,7 +541,7 @@ async function testSourceConnection() {
     resultDiv.innerHTML = __('migration.conn_success');
   } else {
     resultDiv.className = 'test-result error';
-    resultDiv.innerHTML = `✗ ${data.error}`;
+    resultDiv.innerHTML = `✗ ${esc(data.error)}`;
   }
 }
 
@@ -560,7 +569,7 @@ async function testTargetConnection() {
     resultDiv.innerHTML = __('migration.conn_success');
   } else {
     resultDiv.className = 'test-result error';
-    resultDiv.innerHTML = `✗ ${data.error}`;
+    resultDiv.innerHTML = `✗ ${esc(data.error)}`;
   }
 }
 
@@ -633,13 +642,13 @@ async function loadSourceTables() {
     let html = '';
     data.tables.forEach(table => {
       html += `<div class="table-item">
-        <input type="checkbox" value="${table}" checked>
-        <span class="table-name">${table}</span>
+        <input type="checkbox" value="${esc(table)}" checked>
+        <span class="table-name">${esc(table)}</span>
       </div>`;
     });
     tableList.innerHTML = html;
   } else {
-    tableList.innerHTML = `<div style="color:#f87171;text-align:center;padding:20px">${__('migration.load_failed')}${data.error}</div>`;
+    tableList.innerHTML = `<div style="color:#f87171;text-align:center;padding:20px">${__('migration.load_failed')}${esc(data.error)}</div>`;
   }
 }
 
@@ -728,11 +737,11 @@ async function scanConfigFiles() {
     data.files.forEach(file => {
       html += `<div class="file-item">
         <div>
-          <input type="checkbox" class="file-check" value="${file.path}" ${file.hasDbConfig ? 'checked' : ''}>
-          <span class="file-name">${file.path}</span>
+          <input type="checkbox" class="file-check" value="${esc(file.path)}" ${file.hasDbConfig ? 'checked' : ''}>
+          <span class="file-name">${esc(file.path)}</span>
           <span class="${file.hasDbConfig ? 'has-db' : 'no-db'}">(${file.hasDbConfig ? __('migration.has_db_config') : __('migration.no_db_config')})</span>
         </div>
-        <span style="color:#6a6a80;font-size:12px">${file.size} bytes</span>
+        <span style="color:#6a6a80;font-size:12px">${esc(file.size)} bytes</span>
       </div>`;
     });
     
@@ -744,7 +753,7 @@ async function scanConfigFiles() {
     
     scanFiles.innerHTML = html;
   } else {
-    scanFiles.innerHTML = `<div style="color:#f87171;text-align:center;padding:20px">${__('migration.scan_failed', {error: data.error})}</div>`;
+    scanFiles.innerHTML = `<div style="color:#f87171;text-align:center;padding:20px">${__('migration.scan_failed', {error: esc(data.error)})}</div>`;
   }
 }
 
@@ -784,7 +793,7 @@ async function replaceConfigFiles() {
     resultDiv.innerHTML = __('migration.update_done', {success: successCount, error: errorCount});
   } else {
     resultDiv.className = 'test-result error';
-    resultDiv.innerHTML = __('migration.update_failed', {error: data.error});
+    resultDiv.innerHTML = __('migration.update_failed', {error: esc(data.error)});
   }
 }
 

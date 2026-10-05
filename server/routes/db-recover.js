@@ -175,16 +175,17 @@ async function isDbDown() {
 }
 
 // ============ 健康检查（无鉴权）============
+// P4-XX: 该端点无鉴权，DB 报错原文可能含主机/用户/库名等内部拓扑信息，
+// 对外仅返回通用文案，具体错误细节只写服务端日志，避免辅助攻击者侦察。
 router.get('/db-status', async (req, res) => {
   const down = await isDbDown();
   if (down) {
-    let detail = '连接池未初始化';
     const pool = getPool();
     if (pool) {
       try { await pool.query('SELECT 1 AS ping'); }
-      catch (e) { detail = e.message; }
+      catch (e) { logger.error('db-recover', '[db-status] 数据库不可用详情:', e.message); }
     }
-    return res.json({ ok: false, error: detail });
+    return res.json({ ok: false, error: '数据库连接不可用' });
   }
   res.json({ ok: true });
 });

@@ -359,6 +359,12 @@ router.post('/login', async (req, res) => {
     // 同名且密码均不匹配时，取首条走下方统一「密码错误」提示（避免泄露重名）
     if (!user) user = users[0];
 
+    // P4-XX：主查询带 deleted_at IS NULL 守卫，但 ER_BAD_FIELD_ERROR 回退分支会移除该条件；
+    // 登录成功后独立复核软删标记，防止结构异常/混合 schema 下已软删账户重新登录建立会话。
+    if (user.deleted_at && !Number.isNaN(new Date(user.deleted_at).getTime())) {
+      return fail(res, 401, '登录失败，请检查账号和密码', { code: 'LOGIN_FAILED' });
+    }
+
     if (user.banned) return fail(res, 401, '账户已被封禁', { code: 'ACCOUNT_BANNED' });
 
     if (!user.approved || user.approved === 0) {

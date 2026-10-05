@@ -395,8 +395,8 @@ ${st.services.map(s=>`<tr><td><b>${esc(s.name)}</b></td><td class="mono">${s.por
 async function checkPort(){const done=busyBtn($('portCheckBtn'),'检测中…');try{const port=$('portCheckInput').value.trim()||'3456';const r=await api('/api/ports?port='+encodeURIComponent(port));const el=$('portResult');
 el.innerHTML=r.occupied?`<span style="color:#f87171">● 端口 ${r.port} 被占用</span> — PID ${r.pid}（${esc(r.proc?r.proc.name:'未知进程')}）`:`<span style="color:#4ade80">● 端口 ${r.port} 空闲</span>`;}catch(e){toast(e.message,'err');}finally{if(done)done();}}
 function killPort(){const done=busyBtn($('portKillBtn'));const port=$('portCheckInput').value.trim();if(!port){if(done)done();return toast('请输入端口','warn');}
-confirmModal('释放占用端口',`将强制终止占用 <b class="mono">端口 ${port}</b> 的进程。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.kill}</span>`,'btn-danger','释放端口',()=>{
-api('/api/ports/kill',{method:'POST',body:JSON.stringify({port,confirm:CONFIRMS.kill})}).then(r=>{toast(r.message);opLog(r.message,'ok');checkPort();if(done)done();}).catch(e=>{toast(e.message,'err');if(done)done();});});}
+confirmModal('释放占用端口',`将强制终止占用 <b class="mono">端口 ${port}</b> 的进程。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.kill}</span>`,'btn-danger','释放端口',(v)=>{
+api('/api/ports/kill',{method:'POST',body:JSON.stringify({port,confirm:v})}).then(r=>{toast(r.message);opLog(r.message,'ok');checkPort();if(done)done();}).catch(e=>{toast(e.message,'err');if(done)done();});},CONFIRMS.kill);}
 /* ===== 网站管理 ===== */
 const SITE={users:{page:1,size:20,kw:''}};
 function renderSite(){const p=$('page-site');
@@ -595,12 +595,12 @@ r.backups.map(b=>`<tr><td class="mono">${esc(b.name)}</td><td>${esc(b.type)}</td
 catch(e){el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
 function restoreBackup(name){const st=S.status;const running=st&&st.services?st.services.some(s=>s.name==='NodeServer'&&s.running):false;
 if(running){toast('NodeServer 正在运行，请先停止服务再恢复','warn');return;}
-confirmModal('从备份恢复数据',`将把 <span class="mono">${esc(name)}</span> 覆盖到 uploads 目录。恢复前会自动生成当前数据快照。\n<b style="color:#fbbf24">请确保 NodeServer 服务已停止。</b><br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.restore}</span>`,'btn-danger','开始恢复',()=>{
-api('/api/restore',{method:'POST',body:JSON.stringify({name,confirm:CONFIRMS.restore})}).then(r=>{toast('恢复任务已启动');watchTask(r.taskId);}).catch(e=>toast(e.message,'err'));});}
+confirmModal('从备份恢复数据',`将把 <span class="mono">${esc(name)}</span> 覆盖到 uploads 目录。恢复前会自动生成当前数据快照。\n<b style="color:#fbbf24">请确保 NodeServer 服务已停止。</b><br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.restore}</span>`,'btn-danger','开始恢复',(v)=>{
+api('/api/restore',{method:'POST',body:JSON.stringify({name,confirm:v})}).then(r=>{toast('恢复任务已启动');watchTask(r.taskId);}).catch(e=>toast(e.message,'err'));},CONFIRMS.restore);}
 function clearUserData(){const st=S.status;const running=st&&st.services?st.services.some(s=>s.name==='NodeServer'&&s.running):false;
 if(running){toast('NodeServer 正在运行，请先停止服务再操作','warn');return;}
-confirmModal('清除全部用户数据',`将删除 <b>uploads/</b> 下所有文件且<b>无法恢复</b>。请确认已备份。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.high}</span>`,'btn-danger','永久删除',()=>{
-api('/api/clear-data',{method:'POST',body:JSON.stringify({confirm:CONFIRMS.high})}).then(r=>{toast(r.message);opLog(r.message,'ok');loadBackupList();}).catch(e=>toast(e.message,'err'));});}
+confirmModal('清除全部用户数据',`将删除 <b>uploads/</b> 下所有文件且<b>无法恢复</b>。请确认已备份。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.high}</span>`,'btn-danger','永久删除',(v)=>{
+api('/api/clear-data',{method:'POST',body:JSON.stringify({confirm:v})}).then(r=>{toast(r.message);opLog(r.message,'ok');loadBackupList();}).catch(e=>toast(e.message,'err'));},CONFIRMS.high);}
 function exportConfigBackup(){const done=busyBtn(document.activeElement,'导出中…');api('/api/export-config',{method:'POST',body:'{}'}).then(r=>{toast(r.message);opLog(r.message,'ok');}).catch(e=>toast(e.message,'err')).finally(()=>{if(done)done();});}
 
 /* ===== 日志中心 ===== */
@@ -691,8 +691,8 @@ if(lan&&!pwd){if(done)done();return toast('开启局域网访问需重新输入�
 api('/api/settings',{method:'POST',body:JSON.stringify({lan,password:pwd})}).then(r=>{toast(r.message);$('lanDesc').textContent=lan?'⚠ 已允许局域网访问（重启面板后生效），请确保密码强度足够。':'已设为仅本机访问（重启面板后生效）。';$('lanPwd').value='';opLog(r.message,'ok');}).catch(e=>{$('lanChk').checked=!!(S.status&&S.status.lan);toast(e.message,'err');}).finally(()=>{if(done)done();});}
 function resetSuperAdmin(){const login=$('rsLogin').value.trim()||'super_admin';const pass=$('rsPass').value.trim();
 if(!pass)return toast('请填写临时密码','warn');
-confirmModal('重置超级管理员密码',`将重置 <span class="mono">${esc(login)}</span> 的密码为：<b class="mono">${esc(pass)}</b>\n此操作会影响网站登录。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.reset}</span>`,'btn-danger','确认重置',()=>{
-api('/api/reset-superadmin',{method:'POST',body:JSON.stringify({login,pass,confirm:CONFIRMS.reset})}).then(r=>{toast(r.message);opLog(r.message,'ok');$('rsPass').value='';}).catch(e=>toast(e.message,'err'));});}
+confirmModal('重置超级管理员密码',`将重置 <span class="mono">${esc(login)}</span> 的密码为：<b class="mono">${esc(pass)}</b>\n此操作会影响网站登录。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.reset}</span>`,'btn-danger','确认重置',(v)=>{
+api('/api/reset-superadmin',{method:'POST',body:JSON.stringify({login,pass,confirm:v})}).then(r=>{toast(r.message);opLog(r.message,'ok');$('rsPass').value='';}).catch(e=>toast(e.message,'err'));},CONFIRMS.reset);}
 
 /* ===== 审计日志 ===== */
 function renderAudit(){const p=$('page-audit');

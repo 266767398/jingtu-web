@@ -10,8 +10,35 @@ const dnsLookup = promisify(dns.lookup);
 const WEBHOOK_URL_ALLOW_PROTOCOLS = ['http:', 'https:'];
 
 // P2-129: SSRF 防护——仅允许公网 http/https 目标，拒绝环回/私网/链路本地/文档地址
+// IPv4-mapped IPv6（::ffff:a.b.c.d / ::ffff:aabb:ccdd）与 IPv4-compatible IPv6（::a.b.c.d）
+// 必须还原为 IPv4 后同规则判定，否则全部区间判断落空（parts[0]=NaN）被放行。
+function _v4GroupToParts(hex) {
+  const s = (hex || '0').padStart(4, '0');
+  return [parseInt(s.slice(0, 2), 16), parseInt(s.slice(2, 4), 16)];
+}
+function _extractEmbeddedIPv4(ip) {
+  const lower = ip.toLowerCase();
+  let m = lower.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (m) return m[1];
+  m = lower.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (m) return _v4GroupToParts(m[1]).concat(_v4GroupToParts(m[2])).join('.');
+  m = lower.match(/^::([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (m) return _v4GroupToParts(m[1]).concat(_v4GroupToParts(m[2])).join('.');
+  m = lower.match(/^::(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (m) return m[1];
+  return null;
+}
 function isBlockedWebhookAddress(ip) {
   if (!ip || net.isIP(ip) === 0) return true;
+  if (net.isIP(ip) === 6) {
+    const embedded = _extractEmbeddedIPv4(ip);
+    if (embedded) return isBlockedWebhookAddress(embedded);
+    const lower = ip.toLowerCase();
+    if (lower === '::' || lower === '::1') return true;
+    if (/^fe[89ab][0-9a-f]/i.test(lower)) return true; // fe80::/10 链路本地
+    if (/^f[cd][0-9a-f]/i.test(lower)) return true;    // fc00::/7 ULA
+    return false;
+  }
   if (ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0') return true;
   const parts = ip.split('.').map(Number);
   if (parts.length !== 4) return true;

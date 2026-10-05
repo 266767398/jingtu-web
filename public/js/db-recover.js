@@ -9,6 +9,14 @@
   const testResult = $('testResult');
   const RECOVERY_TOKEN_KEY = 'jt_recovery_token';
 
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
   function showResult(type, msg) {
     testResult.className = 'test-result ' + type;
     testResult.style.display = 'block';
@@ -109,7 +117,7 @@
         // 继续留在 localStorage 会让任何 XSS/共享电脑场景多一个可用凭证的窗口期。
         // 测试连接（testOnly）时保留，避免用户还没保存就把输入清空。
         try { localStorage.removeItem(RECOVERY_TOKEN_KEY); } catch (_) {}
-        const warn = data.warning ? '<br><span style="color:var(--warning)">' + data.warning + '</span>' : '';
+        const warn = data.warning ? '<br><span style="color:var(--warning)">' + esc(data.warning) + '</span>' : '';
         showResult('success', __('db_recover.saved_reconnect') + warn);
         setTimeout(() => { window.location.href = '/'; }, 1200);
       }
@@ -126,7 +134,7 @@
     }
     // 业务错误：后端会给出可读 message / error
     const msg = errText(data) || (__('db_recover.request_failed') + ' (HTTP ' + res.status + ')');
-    showResult('error', '✗ ' + msg);
+    showResult('error', '✗ ' + esc(msg));
     return false;
   }
 
@@ -134,7 +142,7 @@
     setLoading($('testBtn'), true);
     showResult('', '');
     try { await callRecover(true); }
-    catch (e) { showResult('error', '✗ ' + __('db_recover.network_error') + '：' + e.message); }
+    catch (e) { showResult('error', '✗ ' + esc(__('db_recover.network_error') + '：' + e.message)); }
     finally { setLoading($('testBtn'), false); }
   });
 
@@ -142,7 +150,7 @@
     setLoading($('saveBtn'), true);
     showResult('', '');
     try { await callRecover(false); }
-    catch (e) { showResult('error', '✗ ' + __('db_recover.network_error') + '：' + e.message); }
+    catch (e) { showResult('error', '✗ ' + esc(__('db_recover.network_error') + '：' + e.message)); }
     finally { setLoading($('saveBtn'), false); }
   });
 

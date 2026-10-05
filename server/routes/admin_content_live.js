@@ -163,9 +163,29 @@ module.exports = function createAdminContentLiveRouter() {
       if (!cfg) return fail(res, 400, 'invalid type');
       const ids = Array.isArray(req.body.ids) ? req.body.ids.map(function (x) { return parseInt(x); }).filter(function (x) { return x; }) : [];
       if (!ids.length) return fail(res, 400, 'empty ids');
-      await getPool().query(`DELETE FROM ${cfg.table} WHERE ${cfg.id} IN (?)`, [ids]);
-      await logOper(req.session.userId, '批量删除内容(' + req.body.type + ')', 'IDs: ' + ids.join(','));
-      ok(res, { deleted: ids.length });
+      let conn;
+      try {
+        // P4-XX: 与原批量直删不同，events 批量删除复用与单条删除一致的级联清理，
+        // 避免遗留孤儿报名/签到/评论/通知；整体包进事务，中途失败回滚。
+        conn = await getPool().getConnection();
+        await conn.beginTransaction();
+        if (req.body.type === 'events') {
+          await conn.query(`UPDATE album_photo SET is_recycle=1, recycle_time=NOW() WHERE event_id IN (?)`, [ids]);
+          await conn.query(`DELETE FROM event_checkin WHERE event_id IN (?)`, [ids]);
+          await conn.query(`DELETE FROM event_sign WHERE event_id IN (?)`, [ids]);
+          await conn.query(`DELETE FROM event_comment WHERE event_id IN (?)`, [ids]);
+          await conn.query(`DELETE FROM notifications WHERE target_type='event' AND target_id IN (?)`, [ids]);
+        }
+        await conn.query(`DELETE FROM ${cfg.table} WHERE ${cfg.id} IN (?)`, [ids]);
+        await conn.commit();
+        await logOper(req.session.userId, '批量删除内容(' + req.body.type + ')', 'IDs: ' + ids.join(','));
+        ok(res, { deleted: ids.length });
+      } catch (e) {
+        if (conn) { try { await conn.rollback(); } catch (_e) {} }
+        handleError(res, e, '[admin/content:batch]');
+      } finally {
+        if (conn) { try { conn.release(); } catch (_e) {} }
+      }
     } catch (e) { handleError(res, e, '[admin/content:batch]'); }
   });
 

@@ -1079,7 +1079,7 @@ async function showGroupSettings(groupId) {
       <div class="modal-content" style="max-width:500px">
         <h3 class="section-title">${__('chat.group_settings')}</h3>
         <div class="form-group"><label>${__('chat.group_name')}</label><strong>${esc(group.name)}</strong></div>
-        <div class="form-group"><label>${__('chat.group_creator')}</label><strong>${members.find(m => m.id === group.creatorId)?.displayName || __('unknown_user')}</strong></div>
+        <div class="form-group"><label>${__('chat.group_creator')}</label><strong>${esc(members.find(m => m.id === group.creatorId)?.displayName || __('unknown_user'))}</strong></div>
         <div class="form-group"><label>${__('chat.member_list')} (${members.length})</label>
           <div style="max-height:250px;overflow-y:auto">${members.map(m => {
             const isMemberAdmin = admins.some(a => a.id === m.id);
