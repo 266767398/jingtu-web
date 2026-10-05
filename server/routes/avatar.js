@@ -207,7 +207,9 @@ function sendBuffer(res, buf, contentType) {
 //       本接口用系统 VRChat 账号会话调用 GET /users/{id}（需鉴权）解析出真实头像文件 URL，
 //       随后 302 到 /proxy 复用 L1/L2 缓存 / CDN 令牌桶 / 多源 failover 链路，避免重复造轮子。
 // 并发与限流：内存缓存 10min（失败冷却 5min）+ 并发去重（同 ID 只查一次）+ 每 IP 60/min 限速，
-//       防止整群浏览时把 VRChat 用户 API 额度打爆。
+//       防止整群浏览时把 VRChat 用户 API 额度打爆。限速仅对「回源解析」计费——缓存命中
+//       在第 1 步直接返回、不消耗配额（/proxy 同款修复），否则整群头像即使已缓存也会被
+//       每 IP 上限卡成占位图。
 const _userAvatarCache = new Map();   // uid -> { url, ok, ts }
 const _userAvatarInflight = new Map();// uid -> Promise（并发去重）
 const USER_AVATAR_OK_TTL_MS = 10 * 60 * 1000;
@@ -261,13 +263,10 @@ module.exports = function (authStateRef) {
   router.get('/user', async (req, res) => {
     const uid = String(req.query.u || '');
     if (!VRC_UID_PATTERN.test(uid)) return fail(res, 400, 'bad user id');
-    const socketAddr = (req.socket && req.socket.remoteAddress) || '';
-    const isLoopbackPeer = socketAddr === '::1' || socketAddr === '127.0.0.1' || socketAddr === '::ffff:127.0.0.1';
-    const clientIp = (isLoopbackPeer && req.headers['x-forwarded-for'])
-      ? String(req.headers['x-forwarded-for']).split(',')[0].trim()
-      : socketAddr;
-    if (userAvatarRateLimited(clientIp)) return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
 
+    // 1) 内存缓存命中：直接返回，不消耗限速配额（/proxy 同款根因修复）。
+    //    旧逻辑在缓存命中之前就限速，缓存 IP 的 60/min 配额也被整群浏览瞬间耗尽，
+    //    第 61 个请求起全部降级为占位图（线上实测：同一 uid 连发 62 次，前 60 次 302、之后全占位）。
     const now = Date.now();
     const hit = _userAvatarCache.get(uid);
     if (hit && (hit.ok ? (now - hit.ts < USER_AVATAR_OK_TTL_MS) : (now - hit.ts < USER_AVATAR_FAIL_TTL_MS))) {
@@ -279,6 +278,17 @@ module.exports = function (authStateRef) {
       // 待系统账号登录后自然恢复，也避免把"未登录"误判为"该用户无头像"。
       return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
     }
+
+    // 2) 限速（仅对「回源解析」计费）：未命中缓存、真正要调 VRChat 用户 API 前才限速，
+    //    防止批量冷查打爆用户 API；已缓存头像的请求在第 1 步即返回，不消耗配额。
+    // P3-119：仅当直连对端为回环（即经本机 nginx 反代）时才信任 x-forwarded-for。
+    const socketAddr = (req.socket && req.socket.remoteAddress) || '';
+    const isLoopbackPeer = socketAddr === '::1' || socketAddr === '127.0.0.1' || socketAddr === '::ffff:127.0.0.1';
+    const clientIp = (isLoopbackPeer && req.headers['x-forwarded-for'])
+      ? String(req.headers['x-forwarded-for']).split(',')[0].trim()
+      : socketAddr;
+    if (userAvatarRateLimited(clientIp)) return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
+
     try {
       const url = await resolveUserAvatarUrl(authStateRef.cookie, uid);
       if (url) {

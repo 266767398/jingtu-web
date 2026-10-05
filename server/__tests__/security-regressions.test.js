@@ -607,6 +607,16 @@ describe('security regressions', () => {
       expect(files.avatarRoute).toMatch(/vrchatGetUser/);
     });
 
+    test('avatar.js /user 缓存命中先于限速：已缓存头像不消耗每 IP 60/min 配额', () => {
+      const userRoute = files.avatarRoute.split("router.get('/user'")[1] || '';
+      const cacheIdx = userRoute.indexOf('_userAvatarCache.get(uid)');
+      const rateIdx = userRoute.indexOf('userAvatarRateLimited(clientIp)');
+      expect(cacheIdx).toBeGreaterThan(-1);
+      expect(rateIdx).toBeGreaterThan(cacheIdx);
+      // 限速兜底与解析都在缓存命中分支之后（第 1 步命中即返回，不消耗配额）
+      expect(userRoute.indexOf('缓存命中')).toBeGreaterThan(-1);
+    });
+
     test('avatar 路由不再允许直连 api.vrchat.com/users/{id}/image 死链', () => {
       expect(files.groupJs).not.toMatch(/api\.vrchat\.com\/api\/1\/users\//);
     });
