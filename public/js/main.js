@@ -9,6 +9,10 @@ function scrollToTop() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// 定时刷新句柄提升到模块级：空闲冻结时可由 freeze.js 注册的回调统一暂停/恢复
+let refreshTimer = null;
+let _initialRefreshTimer = null;
+
 function playNotificationSound() {
   if (window.__notifPrefs && window.__notifPrefs.sound === false) return;
   try {
@@ -125,16 +129,16 @@ async function init() {
   // 启动定时刷新（P2-22：合帧节流 + 仅可见 Tab 刷新）
   // - 合帧：同一帧内的多次触发合并为一次（_refreshScheduled 防抖），并限制最小间隔避免抖动。
   // - 仅可见：只刷新当前 activeTab，后台 Tab 不再无意义轮询（切换 Tab 时 switchTab 会全量加载该 Tab）。
-  let refreshTimer = null;
+  // 句柄 refreshTimer/_initialRefreshTimer 为模块级变量，供空闲冻结回调暂停/恢复。
   // P2-3: 启动时的首次延迟刷新 setTimeout 原本未纳入管理，hidden 时只 clearInterval(refreshTimer)
   // 仍会被它触发一次 runRefresh，导致后台隐藏页发请求。单独跟踪并在 hidden 时一并清理。
-  let _initialRefreshTimer = null;
   let _refreshScheduled = false;
   let _lastRefreshAt = 0;
   const REFRESH_MIN_GAP = 3000; // 最小刷新间隔，避免频繁触发（如切前台 + 定时器叠加）
 
   function runRefresh() {
     if (!currentUser) return;
+    if (window.__freeze && window.__freeze.isFrozen()) return; // 空闲冻结期间不发起轮询
     const now = Date.now();
     if (now - _lastRefreshAt < REFRESH_MIN_GAP) return;
     _lastRefreshAt = now;
@@ -173,6 +177,28 @@ async function init() {
       }
     }
   });
+
+  // 空闲冻结/交互解冻（freeze.js）：冻结时暂停定时轮询并断开 WebSocket，
+  // 用户重新操作后立即恢复刷新调度并重连，从而在挂机时节约带宽与内存。
+  if (window.__freeze && typeof window.__freeze.register === 'function') {
+    window.__freeze.register({
+      onFreeze: function () {
+        if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+        if (_initialRefreshTimer) { clearTimeout(_initialRefreshTimer); _initialRefreshTimer = null; }
+        _refreshScheduled = false;
+        disconnectWebSocket();
+        // 冻结是本页主动断连而非会话失效，避免解冻重连时被误报成「会话认证失败」
+        wsEverOpened = true;
+      },
+      onUnfreeze: function () {
+        if (!refreshTimer) {
+          scheduleRefresh(); // 解冻立即合帧刷新一次，恢复最新数据
+          refreshTimer = setInterval(scheduleRefresh, 75000);
+        }
+        connectWebSocket();
+      }
+    });
+  }
 }
 
 // ==================== WebSocket 在线状态 ====================

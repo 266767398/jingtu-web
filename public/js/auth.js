@@ -682,6 +682,15 @@ function initLoginParticles() {
     window._particleAnimId = requestAnimationFrame(animate);
   }
   animate();
+
+  // 空闲冻结解冻后恢复动画循环的入口（见 freeze.js）：
+  // 仅当登录页粒子画布仍挂载且未隐藏时重启；已进入主页（stopLoginParticles 隐藏画布）则跳过。
+  window._resumeLoginParticles = function () {
+    if (window._particleAnimId) return;
+    const cvs = document.getElementById('loginParticles');
+    if (!cvs || cvs.style.display === 'none') return;
+    animate();
+  };
 }
 
 // 登录后停止粒子动画以节省性能
@@ -695,6 +704,21 @@ function stopLoginParticles() {
     canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
     canvas.style.display = 'none';
   }
+}
+
+// 空闲冻结：暂停登录页粒子动画（rAF），挂机时节省 GPU/CPU 开销；交互解冻后恢复（见 freeze.js）
+if (window.__freeze && typeof window.__freeze.register === 'function') {
+  window.__freeze.register({
+    onFreeze: function () {
+      if (window._particleAnimId) {
+        cancelAnimationFrame(window._particleAnimId);
+        window._particleAnimId = null;
+      }
+    },
+    onUnfreeze: function () {
+      if (typeof window._resumeLoginParticles === 'function') window._resumeLoginParticles();
+    }
+  });
 }
 
 // ==================== 忘记密码功能 ====================

@@ -54,7 +54,11 @@ const files = {
   uiEnhanceCss: read('public', 'css', 'ui-enhance.css'),
   uiComponentsCss: read('public', 'css', 'ui-components.css'),
   groupJs: read('public', 'js', 'group.js'),
-  mapJs: read('public', 'js', 'map.js')
+  mapJs: read('public', 'js', 'map.js'),
+  freezeJs: read('public', 'js', 'freeze.js'),
+  themeJs: read('public', 'js', 'theme.js'),
+  homeJs: read('public', 'js', 'home.js'),
+  chatJs: read('public', 'js', 'chat.js')
 };
 
 function sliceBetween(source, startNeedle, endNeedle) {
@@ -620,6 +624,59 @@ describe('security regressions', () => {
 
     test('server.js 挂载 avatar 路由时传入 authState（供 /api/avatar/user 使用系统会话）', () => {
       expect(files.server).toMatch(/require\('\.\/routes\/avatar'\)\(authState\)/);
+    });
+  });
+
+  // ==== 页面空闲冻结/解冻（2026-10-05） ====
+  // 需求：网站 2 分钟无操作进入「冻结」态，暂停后台轮询/WebSocket 心跳以节约带宽与内存；
+  // 用户任意交互立即解冻并恢复轮询与实时连接。freeze.js 为唯一空闲检测来源，
+  // 各业务模块（main/group/map/theme/home/chat/auth）注册回调统一被冻结/解冻。
+  describe('页面空闲冻结/交互解冻回归', () => {
+    test('freeze.js 暴露 window.__freeze（isFrozen/register）并采用捕获阶段监听', () => {
+      expect(files.freezeJs).toMatch(/window\.__freeze = \{/);
+      expect(files.freezeJs).toMatch(/isFrozen: function/);
+      expect(files.freezeJs).toMatch(/register: function \(entry\)/);
+      expect(files.freezeJs).toMatch(/capture: true, passive: true/);
+      expect(files.freezeJs).toMatch(/IDLE_MS = 2 \* 60 \* 1000/);
+      expect(files.freezeJs).toMatch(/site-frozen/);
+      expect(files.freezeJs).toMatch(/page:freeze/);
+      expect(files.freezeJs).toMatch(/page:unfreeze/);
+    });
+
+    test('index.html 中 freeze.js 先于 theme/auth/main 加载（注册回调时 __freeze 已就绪）', () => {
+      expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/theme.js?v=20261005a');
+      expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/auth.js?v=20261005a');
+      expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/main.js?v=20261005a');
+      expect(files.indexHtml).toMatch(/loader\.js\?v=20261005a/);
+    });
+
+    test('main.js 冻结时暂停刷新轮询与断开 WebSocket，解冻恢复；轮询带冻结守卫', () => {
+      expect(files.mainJs).toMatch(/let refreshTimer = null;/);
+      expect(files.mainJs).toMatch(/let _initialRefreshTimer = null;/);
+      expect(files.mainJs).toMatch(/window\.__freeze\.isFrozen\(\)\) return; \/\/ 空闲冻结期间不发起轮询/);
+      expect(files.mainJs).toMatch(/onFreeze: function \(\) \{[\s\S]*?disconnectWebSocket\(\);[\s\S]*?wsEverOpened = true;/);
+      expect(files.mainJs).toMatch(/onUnfreeze: function \(\) \{[\s\S]*?scheduleRefresh\(\);[\s\S]*?connectWebSocket\(\);/);
+    });
+
+    test('group.js 冻结停轮询，解冻仅在 vrc Tab 恢复', () => {
+      expect(files.groupJs).toMatch(/onFreeze: function \(\) \{ stopGroupPolling\(\); \}/);
+      expect(files.groupJs).toMatch(/activeTab === 'vrc' && typeof loadGroupStats === 'function'\) startGroupPolling\(\);/);
+    });
+
+    test('map.js 封装位置上报循环并注册冻结回调（清扫 + GPS 上报）', () => {
+      expect(files.mapJs).toMatch(/function startLocationReportLoop\(\)/);
+      expect(files.mapJs).toMatch(/function stopLocationReportLoop\(\)/);
+      expect(files.mapJs).toMatch(/onFreeze: function \(\) \{[\s\S]*?stopLocationReportLoop\(\);/);
+      expect(files.mapJs).toMatch(/onUnfreeze: function \(\) \{[\s\S]*?startLocationReportLoop\(\);/);
+    });
+
+    test('theme/home/chat/auth 均注册冻结回调（低频定时器与粒子 rAF 可暂停恢复）', () => {
+      expect(files.themeJs).toMatch(/window\.__freeze\.register\(\{[\s\S]*?_themeScheduleTimer[\s\S]*?config\.mode === 'auto'/);
+      expect(files.homeJs).toMatch(/let _greetingTimer = null;/);
+      expect(files.homeJs).toMatch(/window\.__freeze\.register\(\{[\s\S]*?_greetingTimer[\s\S]*?updateGreeting\(\);/);
+      expect(files.chatJs).toMatch(/window\.__freeze\.register\(\{[\s\S]*?stopGroupLocSweep\(\);[\s\S]*?startGroupLocSweep\(\);/);
+      expect(files.authJs).toMatch(/window\._resumeLoginParticles = function/);
+      expect(files.authJs).toMatch(/window\.__freeze\.register\(\{[\s\S]*?_particleAnimId[\s\S]*?_resumeLoginParticles/);
     });
   });
 });

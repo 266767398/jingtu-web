@@ -1021,6 +1021,17 @@ function stopGroupPolling() {
   if (_rosterRefreshTimer) { clearTimeout(_rosterRefreshTimer); _rosterRefreshTimer = null; }
 }
 
+// 空闲冻结：暂停/恢复 vrc Tab 的 30s 在线轮询（见 freeze.js）。
+// 解冻时仅当用户正停留在 vrc Tab 才恢复，避免在其它 Tab 下空转。
+if (window.__freeze && typeof window.__freeze.register === 'function') {
+  window.__freeze.register({
+    onFreeze: function () { stopGroupPolling(); },
+    onUnfreeze: function () {
+      if (activeTab === 'vrc' && typeof loadGroupStats === 'function') startGroupPolling();
+    }
+  });
+}
+
 // ==================== 初始化 ====================
 document.addEventListener('DOMContentLoaded', () => {
   setupGroupSearch();

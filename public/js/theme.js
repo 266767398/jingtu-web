@@ -71,6 +71,22 @@ function initTheme() {
   }
 }
 
+// 空闲冻结：暂停/恢复「按时间自动切换主题」的每分钟检查（见 freeze.js）
+if (window.__freeze && typeof window.__freeze.register === 'function') {
+  window.__freeze.register({
+    onFreeze: function () {
+      if (_themeScheduleTimer) { clearInterval(_themeScheduleTimer); _themeScheduleTimer = null; }
+    },
+    onUnfreeze: function () {
+      if (_themeScheduleTimer) return;
+      const config = loadThemeConfig();
+      if (config.mode === 'auto') {
+        _themeScheduleTimer = setInterval(() => applyTheme(loadThemeConfig()), 60000);
+      }
+    }
+  });
+}
+
 function setThemeMode(mode) {
   const config = loadThemeConfig();
   config.mode = mode;

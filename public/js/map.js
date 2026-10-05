@@ -568,16 +568,7 @@ async function startLocationTracking() {
     { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 }
   );
 
-  locationUpdateInterval = setInterval(() => {
-    if (locationTrackingActive && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => sendLocationViaWS(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
-        () => {},
-        { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
-      );
-    }
-  }, LOCATION_UPDATE_INTERVAL);
-
+  startLocationReportLoop();
   locationTrackingActive = true;
   updateLocationUI();
   // 立刻给出"正在定位"的反馈，成功提示留到真正拿到坐标时再弹，
@@ -590,10 +581,7 @@ function stopLocationTracking() {
     navigator.geolocation.clearWatch(locationWatchId);
     locationWatchId = null;
   }
-  if (locationUpdateInterval) {
-    clearInterval(locationUpdateInterval);
-    locationUpdateInterval = null;
-  }
+  stopLocationReportLoop();
   if (myLocationMarker) {
     mapInstance?.removeLayer(myLocationMarker);
     myLocationMarker = null;
@@ -605,6 +593,38 @@ function stopLocationTracking() {
   api('/api/users/me/location', { method: 'PUT', body: { visible: false } })
     .catch(() => { /* 前端已停止上报，失败不阻塞 UI */ });
   toast(__('map.tracking_off'), 'info');
+}
+
+// 位置上报循环启停封装：冻结/解冻与 stopLocationTracking 共用，
+// 避免冻结期间 GPS 周期采样空转（见 freeze.js）
+function startLocationReportLoop() {
+  if (locationUpdateInterval) return;
+  locationUpdateInterval = setInterval(() => {
+    if (locationTrackingActive && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => sendLocationViaWS(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy),
+        () => {},
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+      );
+    }
+  }, LOCATION_UPDATE_INTERVAL);
+}
+function stopLocationReportLoop() {
+  if (locationUpdateInterval) { clearInterval(locationUpdateInterval); locationUpdateInterval = null; }
+}
+
+// 空闲冻结：暂停残留标记清扫与位置上报循环，交互解冻后恢复（见 freeze.js）
+if (window.__freeze && typeof window.__freeze.register === 'function') {
+  window.__freeze.register({
+    onFreeze: function () {
+      if (staleSweepTimer) { clearInterval(staleSweepTimer); staleSweepTimer = null; }
+      stopLocationReportLoop();
+    },
+    onUnfreeze: function () {
+      if (mapInstance && typeof ensureStaleSweep === 'function') ensureStaleSweep();
+      if (locationTrackingActive) startLocationReportLoop();
+    }
+  });
 }
 
 function updateMyLocationMarker(lat, lng) {

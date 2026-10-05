@@ -513,10 +513,23 @@ async function loadHomeFeaturedPhotos() {
 }
 
 // 问候语实时跟随用户电脑时间：回到前台 / 每分钟刷新一次，避免长时间挂机跨时段后仍显示旧问候
+let _greetingTimer = null;
 (function setupGreetingLiveRefresh() {
   if (document.hidden === undefined) return;
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden) updateGreeting();
   });
-  setInterval(updateGreeting, 60000);
+  _greetingTimer = setInterval(updateGreeting, 60000);
+  // 空闲冻结：暂停/恢复问候刷新定时器（见 freeze.js）
+  if (window.__freeze && typeof window.__freeze.register === 'function') {
+    window.__freeze.register({
+      onFreeze: function () { if (_greetingTimer) { clearInterval(_greetingTimer); _greetingTimer = null; } },
+      onUnfreeze: function () {
+        if (!_greetingTimer) {
+          updateGreeting(); // 解冻立即刷新一次，跨时段问候即时生效
+          _greetingTimer = setInterval(updateGreeting, 60000);
+        }
+      }
+    });
+  }
 })();

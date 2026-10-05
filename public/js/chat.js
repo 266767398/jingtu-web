@@ -726,6 +726,14 @@ function stopGroupLocSweep() {
   if (glSweepTimer) { clearInterval(glSweepTimer); glSweepTimer = null; }
 }
 
+// 空闲冻结：暂停/恢复位置幽灵标记清扫定时器，挂机时减少空转（见 freeze.js）
+if (window.__freeze && typeof window.__freeze.register === 'function') {
+  window.__freeze.register({
+    onFreeze: function () { stopGroupLocSweep(); },
+    onUnfreeze: function () { startGroupLocSweep(); }
+  });
+}
+
 // 位置开关信令（开始/停止共享），走独立信令不进消息表、不计未读
 function sendGroupLocationToggle(groupId, sharing) {
   if (!wsClient || wsClient.readyState !== WebSocket.OPEN) return;
