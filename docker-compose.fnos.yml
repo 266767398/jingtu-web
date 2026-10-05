@@ -12,7 +12,8 @@
 #
 # 【存储位置】本项目所有数据已改为【绑定挂载】，统一存放在飞牛【存储空间3】：
 #   /vol3/docker/jingtu/ ...
-#   请在飞牛「文件管理」先创建 /vol3/docker/jingtu（或在存储空间3用 Docker 自动创建）。
+#   compose 自带 init 一次性容器：启动时自动创建目录并 chown 给 1000:1000
+#   （与 node:22-slim 的 node 用户 uid 一致），无需手动建目录。
 #   迁移注意：旧数据位于 /vol1/docker/volumes/jingtu_*（Docker 默认数据目录），
 #   全新部署默认不迁移旧数据；如需保留旧库数据请自行拷贝。
 #
@@ -30,6 +31,22 @@
 # =============================================================================
 
 services:
+  # 一次性初始化：以 root 创建 /vol3/docker/jingtu 各数据目录并 chown 给 1000:1000
+  # （node:22-slim 镜像中 node 用户的 uid/gid 均为 1000），确保 app 容器可写。
+  init:
+    image: docker.m.daocloud.io/library/busybox:1.36
+    container_name: jingtu-init
+    restart: "no"
+    user: "0:0"
+    command:
+      - sh
+      - -c
+      - mkdir -p /data/uploads /data/backups /data/logs /data/assets /data/data && chown -R 1000:1000 /data/uploads /data/backups /data/logs /data/assets /data/data && chmod 775 /data /data/uploads /data/backups /data/logs /data/assets /data/data && echo INIT_OK
+    volumes:
+      - /vol3/docker/jingtu:/data
+    networks:
+      - jingtu-net
+
   db:
     # 国内镜像源（DaoCloud）：绕开飞牛失效的内置加速器 docker.fnnas.com（401 Unauthorized）
     image: docker.m.daocloud.io/library/mysql:8.0
@@ -76,6 +93,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      init:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       PORT: 3456
