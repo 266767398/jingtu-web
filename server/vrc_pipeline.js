@@ -55,10 +55,12 @@ class VRCPipeline {
     const socketId = ++this._socketId;
     this._activeSocketId = socketId;
 
-    const userAgent = process.env.VRC_USER_AGENT || 'JingTuWeb/1.3.0';
+    const userAgent = process.env.VRC_USER_AGENT || 'JingTuWeb_1.3.0';
+    const clientId = process.env.VRC_CLIENT_ID || 'jingtuweb_1.3.0';
     const ws = new WebSocket(url, {
       headers: {
         'User-Agent': userAgent,
+        'X-Client-Identifier': clientId,
         'Origin': 'https://vrchat.com'
       }
     });

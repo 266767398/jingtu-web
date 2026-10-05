@@ -6,7 +6,11 @@ const logger = require('./logger');
 
 const VRC_API = 'https://api.vrchat.cloud/api/1';
 const VRC_API_KEY = process.env.VRC_API_KEY || '';
-const USER_AGENT = process.env.VRC_USER_AGENT || 'JingTuWeb/1.3.0';
+const USER_AGENT = process.env.VRC_USER_AGENT || 'JingTuWeb_1.3.0';
+// VRChat 官方要求所有 API 请求必须带 X-Client-Identifier（客户端标识），
+// User-Agent 须为「应用名_版本号」下划线格式；否则可能被当作异常第三方客户端
+// 一律回「Invalid Username/Email or Password」，哪怕账号密码是正确的。
+const VRC_CLIENT_ID = process.env.VRC_CLIENT_ID || 'jingtuweb_1.3.0';
 const VRC_FETCH_TIMEOUT = 30000; // VRChat API 请求超时 30 秒
 const TWO_FACTOR_ENDPOINTS = Object.freeze({
   totp: '/auth/twofactorauth/totp/verify',
@@ -183,7 +187,7 @@ function vrcBacklog() {
 async function vrchatRequest(method, endpoint, body = null, cookie = null, _retry = 0) {
   await vrcAcquire();
   const url = `${VRC_API}${endpoint}`;
-  const headers = { 'User-Agent': USER_AGENT, 'Content-Type': 'application/json' };
+  const headers = { 'User-Agent': USER_AGENT, 'X-Client-Identifier': VRC_CLIENT_ID, 'Content-Type': 'application/json' };
   if (cookie) headers['Cookie'] = cookie;
   const options = { method, headers };
   if (body) options.body = JSON.stringify(body);
@@ -230,7 +234,7 @@ async function vrchatBasicLogin(username, password) {
     await vrcAcquire();
     loginRes = await fetchWithTimeout(`${VRC_API}/auth/user`, {
       method: 'GET',
-      headers: { 'User-Agent': USER_AGENT, 'Authorization': `Basic ${basic}` }
+      headers: { 'User-Agent': USER_AGENT, 'X-Client-Identifier': VRC_CLIENT_ID, 'Authorization': `Basic ${basic}` }
     });
   } catch (e) {
     if (e && e.code === 'VRC_RATE_TIMEOUT') {

@@ -347,7 +347,7 @@ router.get('/search-models', async (req, res) => {
     const timer = setTimeout(() => ctrl.abort(), 12000);
     try {
       upstream = await fetch(`${VRCX_SEARCH_URL}?search=${encodeURIComponent(q)}&n=${n}`, {
-        headers: { 'User-Agent': USER_AGENT || 'JingTuWeb/1.3.0' }
+        headers: { 'User-Agent': USER_AGENT || 'JingTuWeb_1.3.0' }
       });
     } catch (e) {
       clearTimeout(timer);
