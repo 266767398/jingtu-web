@@ -1526,6 +1526,10 @@ function rtcStopStream(stream) {
   if (stream) stream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
 }
 
+// 麦克风采集统一开启回音消除/降噪/自动增益（防回音第一层防线）。
+// 仅 audio:true 时 Safari 等浏览器不保证启用 AEC，扬声器外放声会被再次采集形成回音环路。
+const RTC_AUDIO = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+
 function rtcClosePeer(pc) {
   if (!pc) return;
   try {
@@ -1567,7 +1571,7 @@ async function startPrivateCall(userId, callType) {
   if (!rtcIsUserOnline(userId)) { toast(__('rtc.offline'), 'error'); return; }
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callType === 'video' });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: RTC_AUDIO, video: callType === 'video' });
   } catch (e) {
     toast(__('rtc.media_error'), 'error');
     return;
@@ -1592,7 +1596,7 @@ function acceptPrivateCall() {
   (async () => {
     let stream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: inv.callType === 'video' });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: RTC_AUDIO, video: inv.callType === 'video' });
     } catch (e) {
       toast(__('rtc.media_error'), 'error');
       hangupPrivateCall();
@@ -1604,7 +1608,7 @@ function acceptPrivateCall() {
     rtcSend({ type: 'rtc:accept', targetId: inv.peerId });
     inv.pc = rtcBuildPeer({
       onIce: (pc, c) => rtcSend({ type: 'rtc:candidate', targetId: inv.peerId, candidate: c }),
-      onTrack: (pc, e) => rtcAttachRemoteStream(e.streams && e.streams[0]),
+      onTrack: (pc, e) => rtcAttachRemoteStream(pc, e),
       onState: () => { if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') hangupPrivateCall(true); },
       onDisconnected: () => rtcWarnBrokenCall()
     });
@@ -1654,8 +1658,19 @@ function rtcClearPrivate() {
   rtcPrivate = null;
 }
 
-function rtcAttachRemoteStream(stream) {
-  if (!stream) return;
+function rtcAttachRemoteStream(pc, e) {
+  if (!e || !e.track || !e.streams || !e.streams[0]) return;
+  const stream = e.streams[0];
+  const inv = rtcPrivate;
+  // 识别对端屏幕共享的"桌面音频轨"（音频轨 + 流 id 与 offer 声明的屏幕流一致）：
+  // 该轨默认静音——若本机扬声器外放后再被麦克风采集会形成回音环路（防回音核心）。
+  if (inv && e.track.kind === 'audio' && inv.screenStreamId && stream.id === inv.screenStreamId) {
+    inv.screenAudioTracks = inv.screenAudioTracks || [];
+    if (!inv.screenAudioTracks.includes(e.track)) inv.screenAudioTracks.push(e.track);
+    e.track.enabled = !!inv.screenAudioEnabled;
+    updateScreenAudioBtn();
+    return; // 桌面音频不参与远程视频显示与音量监测
+  }
   rtcRemoteStream = stream;
   const el = document.getElementById('rtcRemoteVideo');
   if (el) {
@@ -1699,6 +1714,7 @@ function renderPrivateCallOverlay() {
       <div class="rtc-call-actions">
         ${isVideo ? `<button id="rtcCamBtn" class="btn btn-xs btn-outline" onclick="rtcToggleCamera()">🎥 ${esc(__('rtc.toggle_camera'))}</button>` : ''}
         <button id="rtcScreenBtn" class="btn btn-xs btn-outline" onclick="rtcToggleScreenShare()">🖥 ${esc(__('rtc.share_screen'))}</button>
+        <button id="rtcScreenAudioBtn" class="btn btn-xs btn-outline rtc-hidden" onclick="rtcToggleScreenAudio()">🔇 ${esc(__('rtc.screen_audio'))}</button>
         <button id="rtcHangupBtn" class="btn btn-xs btn-danger" onclick="hangupPrivateCall()">📵 ${esc(__('rtc.hangup'))}</button>
       </div>
     </div>`;
@@ -1711,6 +1727,7 @@ function renderPrivateCallOverlay() {
   }
   rtcSetVolumeWatch('private:local', inv.localStream, (lv) => rtcSetLevel('rtcLocalLevel', lv));
   if (rtcRemoteStream) rtcSetVolumeWatch('private:remote', rtcRemoteStream, (lv) => rtcSetLevel('rtcRemoteLevel', lv));
+  updateScreenAudioBtn();
 }
 
 function hideRtcCallOverlay() {
@@ -1789,6 +1806,7 @@ async function rtcToggleScreenShare() {
   const vTrack = screenStream.getVideoTracks()[0];
   if (!vTrack) { rtcStopStream(screenStream); return; }
   const aTrack = screenStream.getAudioTracks()[0] || null;
+  if (aTrack) toast(__('rtc.screen_audio_tip'), 'info'); // 佩戴耳机可避免共享者本机回音
   vTrack.addEventListener('ended', () => { rtcStopScreenShare(); });
   inv.screenStream = screenStream;
   inv.screenSharing = true;
@@ -1806,7 +1824,8 @@ async function rtcToggleScreenShare() {
     if (aTrack) inv.screenAudioSender = pc.addTrack(aTrack, screenStream);
     await pc.createOffer();
     await pc.setLocalDescription();
-    rtcSend({ type: 'rtc:offer', targetId: inv.peerId, sdp: pc.localDescription });
+    // screenStreamId 供对端识别"桌面音频轨"：该轨默认静音防回音（对端外放后再被其麦克风采集会成环）
+    rtcSend({ type: 'rtc:offer', targetId: inv.peerId, sdp: pc.localDescription, screenShare: !!(aTrack), screenStreamId: aTrack ? screenStream.id : null });
   } catch (e) {}
 }
 
@@ -1842,8 +1861,28 @@ async function rtcStopScreenShare() {
     }
     await pc.createOffer();
     await pc.setLocalDescription();
-    rtcSend({ type: 'rtc:offer', targetId: inv.peerId, sdp: pc.localDescription });
+    // 停止共享：通知对端清除屏幕音频静音标记
+    rtcSend({ type: 'rtc:offer', targetId: inv.peerId, sdp: pc.localDescription, screenShare: false, screenStreamId: null });
   } catch (e) {}
+}
+
+// 私聊"共享声音"开关：控制是否外放对端的桌面音频（默认静音防回音）
+function rtcToggleScreenAudio() {
+  const inv = rtcPrivate;
+  if (!inv || !inv.screenStreamId) { toast(__('rtc.share_screen_first'), 'info'); return; }
+  inv.screenAudioEnabled = !inv.screenAudioEnabled;
+  (inv.screenAudioTracks || []).forEach(t => { try { t.enabled = inv.screenAudioEnabled; } catch (e) {} });
+  updateScreenAudioBtn();
+}
+function updateScreenAudioBtn() {
+  const btn = document.getElementById('rtcScreenAudioBtn');
+  if (!btn) return;
+  const inv = rtcPrivate;
+  const active = !!(inv && inv.screenStreamId);
+  const on = !!(inv && inv.screenStreamId && inv.screenAudioEnabled);
+  btn.classList.toggle('rtc-hidden', !active);
+  btn.classList.toggle('btn-danger', on);
+  btn.innerHTML = on ? `🔊 ${esc(__('rtc.screen_audio_on'))}` : `🔇 ${esc(__('rtc.screen_audio'))}`;
 }
 
 function rtcToggleCamera() {
@@ -1871,7 +1910,7 @@ async function joinGroupVoiceRoom(groupId) {
   if (rtcPrivate && rtcPrivate.status !== 'idle') { toast(__('rtc.busy'), 'error'); return; }
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: RTC_AUDIO, video: false });
   } catch (e) {
     toast(__('rtc.media_error'), 'error');
     return;
@@ -1917,7 +1956,7 @@ function rtcGroupCreatePeer(remoteUserId) {
   if (room.peerMap[uid]) return room.peerMap[uid];
   const pc = rtcBuildPeer({
     onIce: (pc, c) => rtcSend({ type: 'rtc:group:candidate', groupId: room.groupId, targetId: uid, candidate: c }),
-    onTrack: (pc, e) => rtcGroupAttachRemoteStream(uid, e.streams && e.streams[0]),
+    onTrack: (pc, e) => rtcGroupAttachRemoteStream(uid, pc, e),
     onState: () => {
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         rtcClosePeer(pc);
@@ -1938,8 +1977,19 @@ function rtcGroupCreatePeer(remoteUserId) {
   return pc;
 }
 
-function rtcGroupAttachRemoteStream(uid, stream) {
-  if (!stream) return;
+function rtcGroupAttachRemoteStream(uid, pc, e) {
+  if (!e || !e.track || !e.streams || !e.streams[0]) return;
+  const stream = e.streams[0];
+  const room = rtcGroupRoom;
+  // 识别对端屏幕共享的"桌面音频轨"：默认静音防回音（详见 rtcAttachRemoteStream 注释）
+  if (room && e.track.kind === 'audio' && room.screenStreamIds && room.screenStreamIds[uid] && stream.id === room.screenStreamIds[uid]) {
+    room.screenAudioTracksByUid = room.screenAudioTracksByUid || {};
+    room.screenAudioTracksByUid[uid] = room.screenAudioTracksByUid[uid] || [];
+    if (!room.screenAudioTracksByUid[uid].includes(e.track)) room.screenAudioTracksByUid[uid].push(e.track);
+    e.track.enabled = !!room.screenAudioEnabled;
+    updateGroupScreenAudioBtn();
+    return; // 桌面音频不参与成员 tile 画面与音量监测
+  }
   const tile = document.getElementById('rtcGroupTile_' + uid);
   const video = tile && tile.querySelector('video');
   if (video) {
@@ -1975,6 +2025,7 @@ function renderGroupVoiceBar() {
     <div class="rtc-group-actions">
       <span class="rtc-level-row rtc-group-mic" title="${esc(__('rtc.mic_level'))}"><i>⬆</i><span class="rtc-level-track"><span id="rtcGroupMicLevel" class="rtc-level-fill"></span></span></span>
       <button id="rtcGroupScreenBtn" class="btn btn-xs btn-outline" onclick="rtcToggleGroupScreenShare()">🖥 ${esc(__('rtc.share_screen'))}</button>
+      <button id="rtcGroupScreenAudioBtn" class="btn btn-xs btn-outline rtc-hidden" onclick="rtcToggleGroupScreenAudio()">🔇 ${esc(__('rtc.screen_audio'))}</button>
       <button class="btn btn-xs btn-danger" onclick="leaveGroupVoiceRoom(${room.groupId})">📵 ${esc(__('rtc.leave_room'))}</button>
     </div>`;
   const header = document.getElementById('chatDetailHeader');
@@ -1985,6 +2036,7 @@ function renderGroupVoiceBar() {
   updateGroupVoiceBtn();
   startGroupVoiceTimer();
   rtcSetVolumeWatch('group:local', room.localStream, (lv) => rtcSetLevel('rtcGroupMicLevel', lv));
+  updateGroupScreenAudioBtn();
 }
 
 // 群语音房通话计时（加入即开始，离开停止）
@@ -2057,6 +2109,7 @@ async function rtcToggleGroupScreenShare() {
   const vTrack = screenStream.getVideoTracks()[0];
   if (!vTrack) { rtcStopStream(screenStream); return; }
   const aTrack = screenStream.getAudioTracks()[0] || null;
+  if (aTrack) toast(__('rtc.screen_audio_tip'), 'info'); // 佩戴耳机可避免共享者本机回音
   vTrack.addEventListener('ended', () => { rtcStopGroupScreenShare(); });
   room.screenStream = screenStream;
   room.screenSharing = true;
@@ -2079,7 +2132,8 @@ async function rtcToggleGroupScreenShare() {
       // 每次都对每个对端重协商：新增音轨必须协商，replaceTrack 场景多发一次 offer 无副作用
       await pc.createOffer();
       await pc.setLocalDescription();
-      rtcSend({ type: 'rtc:group:offer', groupId: room.groupId, targetId: uid, sdp: pc.localDescription });
+      // screenStreamId 供对端识别"桌面音频轨"：该轨默认静音防回音（见 rtcToggleScreenShare 注释）
+      rtcSend({ type: 'rtc:group:offer', groupId: room.groupId, targetId: uid, sdp: pc.localDescription, screenShare: !!(aTrack), screenStreamId: aTrack ? screenStream.id : null });
     } catch (e) {}
   }
 }
@@ -2106,9 +2160,33 @@ async function rtcStopGroupScreenShare() {
       }
       await pc.createOffer();
       await pc.setLocalDescription();
-      rtcSend({ type: 'rtc:group:offer', groupId: room.groupId, targetId: uid, sdp: pc.localDescription });
+      // 停止共享：通知对端清除屏幕音频静音标记
+      rtcSend({ type: 'rtc:group:offer', groupId: room.groupId, targetId: uid, sdp: pc.localDescription, screenShare: false, screenStreamId: null });
     } catch (e) {}
   }
+}
+
+// 群语音房"共享声音"开关：控制是否外放各对端的桌面音频（默认静音防回音）
+function rtcToggleGroupScreenAudio() {
+  const room = rtcGroupRoom;
+  if (!room) return;
+  const anyScreen = Object.keys(room.screenStreamIds || {}).some(k => room.screenStreamIds[k]);
+  if (!anyScreen) { toast(__('rtc.share_screen_first'), 'info'); return; }
+  room.screenAudioEnabled = !room.screenAudioEnabled;
+  Object.keys(room.screenAudioTracksByUid || {}).forEach(uid => {
+    (room.screenAudioTracksByUid[uid] || []).forEach(t => { try { t.enabled = room.screenAudioEnabled; } catch (e) {} });
+  });
+  updateGroupScreenAudioBtn();
+}
+function updateGroupScreenAudioBtn() {
+  const btn = document.getElementById('rtcGroupScreenAudioBtn');
+  if (!btn) return;
+  const room = rtcGroupRoom;
+  const active = !!room && Object.keys(room.screenStreamIds || {}).some(k => room.screenStreamIds[k]);
+  const on = !!(room && room.screenAudioEnabled && active);
+  btn.classList.toggle('rtc-hidden', !active);
+  btn.classList.toggle('btn-danger', on);
+  btn.innerHTML = on ? `🔊 ${esc(__('rtc.screen_audio_on'))}` : `🔇 ${esc(__('rtc.screen_audio'))}`;
 }
 
 // ==================== 按住说话（PTT 语音消息） ====================
@@ -2119,7 +2197,7 @@ async function startPttRecording() {
   if (!chatActiveUserId && !chatActiveGroupId) return;
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: RTC_AUDIO, video: false });
   } catch (e) {
     toast(__('rtc.media_error'), 'error');
     return;
@@ -2277,7 +2355,7 @@ function handleRtcMessage(msg) {
     // 呼叫方创建 peer 并发出 offer
     inv.pc = rtcBuildPeer({
       onIce: (pc, c) => rtcSend({ type: 'rtc:candidate', targetId: inv.peerId, candidate: c }),
-      onTrack: (pc, e) => rtcAttachRemoteStream(e.streams && e.streams[0]),
+      onTrack: (pc, e) => rtcAttachRemoteStream(pc, e),
       onState: () => { if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') hangupPrivateCall(true); },
       onDisconnected: () => rtcWarnBrokenCall()
     });
@@ -2305,6 +2383,13 @@ function handleRtcMessage(msg) {
     const inv = rtcPrivate;
     if (!inv || inv.status !== 'active' || !inv.pc) return;
     if (!msg.sdp) return;
+    // 记录对端屏幕共享状态：供 onTrack 识别桌面音频轨并默认静音（防回音）
+    inv.screenShareActive = !!msg.screenShare;
+    inv.screenStreamId = msg.screenStreamId || null;
+    if (!inv.screenShareActive) {
+      inv.screenAudioEnabled = false;
+      inv.screenAudioTracks = [];
+    }
     const asyncWork = async () => {
       await inv.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
       const answer = await inv.pc.createAnswer();
@@ -2394,6 +2479,19 @@ function handleRtcMessage(msg) {
     const room = rtcGroupRoom;
     if (!room || room.groupId !== msg.groupId || !msg.sdp || msg.senderId === currentUser.id) return;
     const uid = msg.senderId;
+    // 记录该对端是否在屏幕共享：供 onTrack 识别桌面音频轨并默认静音（防回音）
+    room.screenShareBy = room.screenShareBy || {};
+    room.screenStreamIds = room.screenStreamIds || {};
+    room.screenShareBy[uid] = !!msg.screenShare;
+    room.screenStreamIds[uid] = msg.screenStreamId || null;
+    if (!room.screenShareBy[uid]) {
+      // 对端停止共享：复位其桌面音频轨静音
+      if (room.screenAudioTracksByUid && room.screenAudioTracksByUid[uid]) {
+        room.screenAudioTracksByUid[uid].forEach(t => { try { t.enabled = false; } catch (e) {} });
+      }
+      if (room.screenAudioTracksByUid) delete room.screenAudioTracksByUid[uid];
+      updateGroupScreenAudioBtn();
+    }
     rtcGroupCreatePeer(uid);
     const pc = room.peerMap[uid];
     if (!pc) return;

@@ -58,7 +58,8 @@ const files = {
   freezeJs: read('public', 'js', 'freeze.js'),
   themeJs: read('public', 'js', 'theme.js'),
   homeJs: read('public', 'js', 'home.js'),
-  chatJs: read('public', 'js', 'chat.js')
+  chatJs: read('public', 'js', 'chat.js'),
+  zhLang: read('public', 'js', 'languages', 'zh.js')
 };
 
 function sliceBetween(source, startNeedle, endNeedle) {
@@ -647,7 +648,7 @@ describe('security regressions', () => {
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/theme.js?v=20261005a');
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/auth.js?v=20261005a');
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/main.js?v=20261005a');
-      expect(files.indexHtml).toMatch(/loader\.js\?v=20261005a/);
+      expect(files.indexHtml).toMatch(/loader\.js\?v=20261005b/);
     });
 
     test('main.js 冻结时暂停刷新轮询与断开 WebSocket，解冻恢复；轮询带冻结守卫', () => {
@@ -677,6 +678,45 @@ describe('security regressions', () => {
       expect(files.chatJs).toMatch(/window\.__freeze\.register\(\{[\s\S]*?stopGroupLocSweep\(\);[\s\S]*?startGroupLocSweep\(\);/);
       expect(files.authJs).toMatch(/window\._resumeLoginParticles = function/);
       expect(files.authJs).toMatch(/window\.__freeze\.register\(\{[\s\S]*?_particleAnimId[\s\S]*?_resumeLoginParticles/);
+    });
+  });
+
+  // ==== 屏幕共享防回音（2026-10-05） ====
+  // 回音环路：对端外放桌面音频 → 本机麦克风再采集 → 回传环形。修复分两层：
+  // 麦克风采集统一开启 AEC；屏幕共享的桌面音频轨由信令标记识别、接收端默认静音，
+  // 提供"共享声音"开关按需开启。
+  describe('屏幕共享防回音回归', () => {
+    test('麦克风采集统一启用回音消除（RTC_AUDIO 常量，4 处 getUserMedia 全量替换）', () => {
+      expect(files.chatJs).toMatch(/const RTC_AUDIO = \{ echoCancellation: true, noiseSuppression: true, autoGainControl: true \};/);
+      const uses = files.chatJs.match(/getUserMedia\(\{ audio: RTC_AUDIO/g) || [];
+      expect(uses.length).toBeGreaterThanOrEqual(4);
+      expect(files.chatJs).not.toMatch(/getUserMedia\(\{ audio: true/);
+    });
+
+    test('屏幕共享发送端在 offer 信令携带 screenStreamId（私聊 + 群语音房）', () => {
+      expect(files.chatJs).toMatch(/screenShare: !!\(aTrack\), screenStreamId: aTrack \? screenStream\.id : null/);
+      expect(files.chatJs).toMatch(/screenShare: false, screenStreamId: null/);
+    });
+
+    test('接收端 onTrack 识别桌面音频轨并默认静音（track.enabled = false）/防回音核心', () => {
+      expect(files.chatJs).toMatch(/inv\.screenStreamId && stream\.id === inv\.screenStreamId/);
+      expect(files.chatJs).toMatch(/e\.track\.enabled = !!(inv\.screenAudioEnabled)/);
+      expect(files.chatJs).toMatch(/room\.screenStreamIds\[uid\] && stream\.id === room\.screenStreamIds\[uid\]/);
+      expect(files.chatJs).toMatch(/e\.track\.enabled = !!room\.screenAudioEnabled/);
+    });
+
+    test('提供"共享声音"开关（私聊 + 群）与未共享时的提示', () => {
+      expect(files.chatJs).toMatch(/rtcScreenAudioBtn/);
+      expect(files.chatJs).toMatch(/rtcGroupScreenAudioBtn/);
+      expect(files.chatJs).toMatch(/rtc\.share_screen_first/);
+      expect(files.chatJs).toMatch(/rtc\.screen_audio_tip/);
+    });
+
+    test('中文语言包补齐 4 个防回音文案 key', () => {
+      expect(files.zhLang).toMatch(/"rtc\.screen_audio"/);
+      expect(files.zhLang).toMatch(/"rtc\.screen_audio_on"/);
+      expect(files.zhLang).toMatch(/"rtc\.share_screen_first"/);
+      expect(files.zhLang).toMatch(/"rtc\.screen_audio_tip"/);
     });
   });
 });
