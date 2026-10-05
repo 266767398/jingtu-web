@@ -36,7 +36,9 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
       const { username, password } = req.body;
       if (!username || !password) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入VRChat账号和密码');
       const loginRes = await vrchatBasicLogin(username, password);
-      if (loginRes.status !== 200) return fail(res, 401, loginRes.data?.error?.message || '登录失败');
+      // 401 必须带 VRChat 业务码：否则前端 api() 401 拦截器看到 currentUser 已登录
+      // 会把"VRChat 账号密码没通过"误判成"本站会话过期"→ toast 登录状态已失效 + 强制登出超管
+      if (loginRes.status !== 200) return fail(res, 401, loginRes.data?.error?.message || '登录失败', { code: ErrorCodes.VRC_AUTH_FAILED });
       const vrcUser = loginRes.data;
       const needs2fa = loginRes.needs2fa;
       if (needs2fa) {
@@ -73,7 +75,9 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
         : code.trim();
       const twoFaRes = await vrchatVerifyTwoFactor(method, normalizedCode, cookie);
       if (twoFaRes.status !== 200 || twoFaRes.data?.verified !== true) {
-        return sendError(res, 401, ErrorCodes.UNAUTHORIZED, twoFaRes.data?.error?.message || '验证码错误');
+        // 验证码错误同样是 VRChat 业务失败（非本站会话过期）：必须带业务码，
+        // 否则前端会把超管踢出登录页（同上 /login 的 401 逻辑）
+        return fail(res, 401, twoFaRes.data?.error?.message || '验证码错误', { code: ErrorCodes.VRC_AUTH_FAILED });
       }
 
       const finalCookie = twoFaRes.cookie;

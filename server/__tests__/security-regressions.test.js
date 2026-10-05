@@ -108,6 +108,16 @@ describe('security regressions', () => {
     expect(files.server).toMatch(/app\.use\('\/api',\s*vrcSystemRouter\)/);
   });
 
+  // 系统 VRChat 登录/2FA 的 401 必须带 VRC_AUTH_FAILED 业务码：否则前端 api() 401 拦截器
+  // 在 currentUser 已登录（超管在场）时会把"VRChat 账号密码没通过"误判成"本站会话过期"，
+  // toast 登录状态已失效 + 1.5s 后强制登出。用户实测现象：后台登录系统 VRChat 账号 → 被踢回登录页。
+  test('system VRChat login/2FA 401 carry VRC_AUTH_FAILED code', () => {
+    const loginBlock = sliceBetween(files.vrcSystemRoute, "router.post('/login'", "router.post('/2fa'");
+    const twoFaBlock = sliceBetween(files.vrcSystemRoute, "router.post('/2fa'", "router.post('/logout'");
+    expect(loginBlock).toMatch(/fail\(res, 401, [\s\S]*code: ErrorCodes\.VRC_AUTH_FAILED/);
+    expect(twoFaBlock).toMatch(/fail\(res, 401, [\s\S]*code: ErrorCodes\.VRC_AUTH_FAILED/);
+  });
+
   // 管理、迁移、数据库等特权路由曾可能在 CSRF 中间件外；挂载顺序必须保证先校验 CSRF 再挂路由。
   // （CSRF 实现已抽至 middleware/csrf.js：server.js 只保留挂载点，豁免清单与会话绑定断言锚定到新模块。）
   test('keeps privileged routes inside CSRF protection', () => {

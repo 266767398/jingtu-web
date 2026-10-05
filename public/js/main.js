@@ -533,6 +533,17 @@ function bindEvents() {
       });
     }
   }
+  // 验证码输入加固：只保留数字与连字符（OTP 形如 1234-5678），限长 10 位。
+  // 防止浏览器/密码管理器自动填充、输入法候选把纯数字串拼乱（用户反馈偶发"数字倒序"）。
+  ['loginVrcCode', 'vrcBind2faCode', 'vrc2faCode', 'sysVrc2faCode'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', () => {
+        const clean = el.value.replace(/[^\d-]/g, '').slice(0, 10);
+        if (el.value !== clean) el.value = clean;
+      });
+    }
+  });
   const loginPwd = document.getElementById('loginPassword');
   if (loginPwd) {
     loginPwd.addEventListener('keydown', (e) => {
