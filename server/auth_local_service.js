@@ -141,7 +141,7 @@ router.post('/register', registerLimiter, async (req, res) => {
 
     // 建号前先查重名：失败早返回，避免白白消耗激活码
     const [dup] = await getPool().query(
-      `SELECT id FROM users WHERE LOWER(login_id) = ? AND (deleted_at IS NULL OR deleted_at = '')`,
+      `SELECT id FROM users WHERE LOWER(login_id) = ? AND deleted_at IS NULL`,
       [trimmedUsername.toLowerCase()]
     );
     if (dup.length > 0) return sendError(res, 400, ErrorCodes.CONFLICT, '该用户名已被使用');
@@ -152,7 +152,7 @@ router.post('/register', registerLimiter, async (req, res) => {
     try {
       consume = await activationCodes.validateAndConsume(trimmedCode, trimmedUsername, async () => {
         const [dupInLock] = await getPool().query(
-          `SELECT id FROM users WHERE LOWER(login_id) = ? AND (deleted_at IS NULL OR deleted_at = '')`,
+          `SELECT id FROM users WHERE LOWER(login_id) = ? AND deleted_at IS NULL`,
           [trimmedUsername.toLowerCase()]
         );
         if (dupInLock.length > 0) {
@@ -293,7 +293,7 @@ router.get('/preview', authPreviewLimiter, async (req, res) => {
     const key = raw.toLowerCase();
     const [rows] = await getPool().query(
       `SELECT id, avatar_type, custom_avatar_path, vrchat_avatar_url
-       FROM users WHERE (LOWER(login_id) = ? OR LOWER(display_name) = ?) AND (deleted_at IS NULL OR deleted_at = '')`,
+       FROM users WHERE (LOWER(login_id) = ? OR LOWER(display_name) = ?) AND deleted_at IS NULL`,
       [key, key]
     );
     // 账号不存在：返回默认（与「存在但无头像」不可区分，避免泄露枚举）
@@ -317,7 +317,7 @@ router.post('/login', async (req, res) => {
 
     let users;
     try {
-      [users] = await getPool().query(`SELECT * FROM users WHERE (LOWER(login_id) = ? OR LOWER(display_name) = ?) AND (deleted_at IS NULL OR deleted_at = '')`, [normalizedLoginId, normalizedLoginId]);
+      [users] = await getPool().query(`SELECT * FROM users WHERE (LOWER(login_id) = ? OR LOWER(display_name) = ?) AND deleted_at IS NULL`, [normalizedLoginId, normalizedLoginId]);
     } catch (e) {
       if (e.code === 'ER_BAD_FIELD_ERROR') {
         [users] = await getPool().query(`SELECT * FROM users WHERE LOWER(login_id) = ? OR LOWER(display_name) = ?`, [normalizedLoginId, normalizedLoginId]);

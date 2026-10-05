@@ -1,6 +1,7 @@
 # ==================== 境途同游 Web — 飞牛 fnOS 单文件部署 ====================
 # 用法：
-#   1. 飞牛 → Docker → 项目（编排）→ 新建项目，名称填 jingtu-web
+#   1. 飞牛 → Docker → 项目（编排）→ 新建项目，名称填 jingtu（必须与旧项目同名，
+#      或先删除旧项目后重建，容器名 jingtu-web / jingtu-db 会被新项目接管）
 #   2. 把本文件【整个内容】粘贴进 docker-compose 编辑框（或上传本文件）
 #   3. 替换下方 4 个密钥/密码占位符（可直接用会话里生成的随机值），点「保存并启动」
 #   4. 等两个容器变 healthy（首次构建约 1~2 分钟）→ 浏览器打开网站 → 自动跳转
@@ -9,9 +10,13 @@
 # 【自动拉取源码】app 的 build 指向 Gitee 仓库，构建时 Docker 会自动 clone 代码
 #   （要求：Gitee 仓库设为公开，否则匿名拉取 404）。GitHub 有同源备份。
 #
+# 【存储位置】本项目所有数据已改为【绑定挂载】，统一存放在飞牛【存储空间3】：
+#   /vol3/docker/jingtu/ ...
+#   请在飞牛「文件管理」先创建 /vol3/docker/jingtu（或在存储空间3用 Docker 自动创建）。
+#   迁移注意：旧数据位于 /vol1/docker/volumes/jingtu_*（Docker 默认数据目录），
+#   全新部署默认不迁移旧数据；如需保留旧库数据请自行拷贝。
+#
 # 无需配置的内容（系统自动处理）：
-#   ✅ 存储路径 —— 用 Docker 具名卷自动管理，无需填任何宿主机路径；
-#      数据位于 Docker 数据目录（飞牛「存储 → 位置」可查），容器重建不丢失。
 #   ✅ 数据库/建表 —— 入口脚本自动执行 db_init，无需手动建库。
 #   ✅ 超管账号 —— 在网站「初始化管理员」页创建（本镜像已预置可写的 .env）。
 #   ✅ 剩余业务配置 —— 登录后台后可在网页里配置（VRChat 账号绑定、公告、
@@ -40,7 +45,8 @@ services:
       - --collation-server=utf8mb4_unicode_ci
       - --default-time-zone=+08:00
     volumes:
-      - db_data:/var/lib/mysql
+      # 存储空间3（飞牛挂载点 /vol3）——数据库数据目录
+      - /vol3/docker/jingtu/db_data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p<DB_ROOT_PASSWORD>"]
       # 飞牛 NAS 上 MySQL 首次初始化可能超过 2 分钟，放宽等待预算：
@@ -109,12 +115,12 @@ services:
       # 只绑飞牛本机回环，公网流量一律走反代进来（最安全）
       - "127.0.0.1:3456:3456"
     volumes:
-      # Docker 具名卷自动管理存储位置，无需填宿主机路径
-      - uploads:/app/uploads
-      - backups:/app/backups
-      - logs:/app/logs
-      - assets:/app/assets
-      - data:/app/server/data
+      # 存储空间3（飞牛挂载点 /vol3）——应用数据目录
+      - /vol3/docker/jingtu/uploads:/app/uploads
+      - /vol3/docker/jingtu/backups:/app/backups
+      - /vol3/docker/jingtu/logs:/app/logs
+      - /vol3/docker/jingtu/assets:/app/assets
+      - /vol3/docker/jingtu/data:/app/server/data
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3456/api/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
@@ -127,15 +133,6 @@ services:
         max-file: "5"
     networks:
       - jingtu-net
-
-volumes:
-  db_data:
-  uploads:
-  backups:
-  logs:
-  assets:
-    name: jingtu-assets
-  data:
 
 networks:
   jingtu-net:
