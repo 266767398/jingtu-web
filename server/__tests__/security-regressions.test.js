@@ -52,7 +52,9 @@ const files = {
   postsJs: read('public', 'js', 'posts.js'),
   indexHtml: read('public', 'index.html'),
   uiEnhanceCss: read('public', 'css', 'ui-enhance.css'),
-  uiComponentsCss: read('public', 'css', 'ui-components.css')
+  uiComponentsCss: read('public', 'css', 'ui-components.css'),
+  groupJs: read('public', 'js', 'group.js'),
+  mapJs: read('public', 'js', 'map.js')
 };
 
 function sliceBetween(source, startNeedle, endNeedle) {
@@ -582,5 +584,42 @@ describe('security regressions', () => {
     expect(files.setupRoute).toMatch(/收发件邮箱格式不正确/);
     expect(files.setupRoute).toMatch(/邮件发送失败，请检查 SMTP 配置后在日志定位问题/);
     expect(files.setupRoute).not.toMatch(/邮件发送失败：' \+ \(result\.error/);
+  });
+
+  // ==== VRChat 头像链路修复（2026-10-05） ====
+  // 实测：api.vrchat.com/api/1/users/{id}/image 已是死链（307 后 api.vrchat.cloud 返回 404）；
+  // assets.amlcdn.com 在国内多数网络 TLS 层即被阻断（回源约 19s 超时）→ 群成员头像大面积不显示。
+  // 修复：后端新增 /api/avatar/user 按 ID 解析真实头像（系统账号 cookie + 缓存 + 限速 + 并发去重），
+  // 前端死链兜底改走该接口，amlcdn 历史缩略图 URL 不再直连。
+  describe('VRChat 头像可显示链路回归', () => {
+    test('avatar.js 提供 /api/avatar/user：校验 usr_ ID、302 到 /proxy 复用缓存链路', () => {
+      expect(files.avatarRoute).toMatch(/router\.get\('\/user'/);
+      expect(files.avatarRoute).toMatch(/VRC_UID_PATTERN = \/\^usr_\[0-9a-fA-F-\]\+\$\/;/);
+      expect(files.avatarRoute).toMatch(/res\.redirect\(302, '\/api\/avatar\/proxy\?u=' \+ encodeURIComponent/);
+      expect(files.avatarRoute).toMatch(/authStateRef\.cookie/);
+      expect(files.avatarRoute).toMatch(/USER_AVATAR_RATE_MIN/);
+      expect(files.avatarRoute).toMatch(/userAvatarRateLimited\(clientIp\)/);
+      expect(files.avatarRoute).toMatch(/vrchatGetUser/);
+    });
+
+    test('avatar 路由不再允许直连 api.vrchat.com/users/{id}/image 死链', () => {
+      expect(files.groupJs).not.toMatch(/api\.vrchat\.com\/api\/1\/users\//);
+    });
+
+    test('group.js 无头像兜底走 /api/avatar/user，amlcdn 历史缩略图跳过直连', () => {
+      expect(files.groupJs).toMatch(/vrcFallback = `\/api\/avatar\/user\?u=/);
+      expect(files.groupJs).toMatch(/assets\\\.amlcdn\\\.com/);
+      expect(files.groupJs).toMatch(/VRCX 风格：DB 无头像/);
+    });
+
+    test('map.js mapAvatarSrc 支持按 ID 兜底解析、amlcdn URL 改道', () => {
+      expect(files.mapJs).toMatch(/function mapAvatarSrc\(url, uid\)/);
+      expect(files.mapJs).toMatch(/assets\\\.amlcdn\\\.com/);
+      expect(files.mapJs).toMatch(/\/api\/avatar\/user\?u=/);
+    });
+
+    test('server.js 挂载 avatar 路由时传入 authState（供 /api/avatar/user 使用系统会话）', () => {
+      expect(files.server).toMatch(/require\('\.\/routes\/avatar'\)\(authState\)/);
+    });
   });
 });

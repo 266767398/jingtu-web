@@ -338,9 +338,15 @@ async function fetchRealtimeLocations() {
 
 // ==================== 标记管理 ====================
 
-// 地图玩家头像：与群组玩家列表同一套加载逻辑（proxyAvatar 代理改写 + 429/裂图 60s 冷却 + default 兜底）
-function mapAvatarSrc(url) {
-  if (!url || typeof url !== 'string') return '/api/avatar/default';
+// 地图玩家头像：与群组玩家列表同一套加载逻辑（proxyAvatar 代理改写 + 429/裂图 60s 冷却 + default 兜底）。
+// assets.amlcdn.com 缩略图在国内多数网络不可达（TLS 阻断），此时改走后端按 ID 解析头像接口。
+function mapAvatarSrc(url, uid) {
+  if (!url || typeof url !== 'string') {
+    return uid ? `/api/avatar/user?u=${encodeURIComponent(uid)}` : '/api/avatar/default';
+  }
+  if (/^https?:\/\/[^/]*assets\.amlcdn\.com\//i.test(url) && uid) {
+    return `/api/avatar/user?u=${encodeURIComponent(uid)}`;
+  }
   const proxied = proxyAvatar(url);
   return (window.__avatarFailCache && window.__avatarFailCache[proxied] > Date.now() - 60000)
     ? '/api/avatar/default'
@@ -376,7 +382,7 @@ function upsertLocationMarker(userData) {
   }
 
   const proxied = proxyAvatar(userData.avatarUrl || '');
-  const avatarSrc = escAttr(mapAvatarSrc(userData.avatarUrl));
+  const avatarSrc = escAttr(mapAvatarSrc(userData.avatarUrl, uid));
   const borderColor = isMe ? 'var(--accent)' : 'var(--info)';
   const size = isMe ? 40 : 32;
 
@@ -410,7 +416,7 @@ function upsertLocationMarker(userData) {
 function getMarkerPopup(u) {
   const isMe = currentUser && (String(u.id) === String(currentUser.id));
   const proxied = proxyAvatar(u.avatarUrl || '');
-  const avatarSrc = escAttr(mapAvatarSrc(u.avatarUrl));
+  const avatarSrc = escAttr(mapAvatarSrc(u.avatarUrl, u.id));
   const borderColor = isMe ? 'var(--accent)' : 'var(--info)';
   const timeStr = u.locationUpdatedAt
     ? new Date(u.locationUpdatedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
@@ -895,7 +901,7 @@ function _renderMapGrid(worlds) {
         `).join('')}</div>` : ''}
         <div class="world-grid-members">
           ${w.members.slice(0, 8).map(m => {
-            const wa = mapAvatarSrc(m.avatarUrl);
+            const wa = mapAvatarSrc(m.avatarUrl, m.vrchatId);
             return `
             <div class="world-mini-avatar" title="${esc(m.displayName)}" onclick="openVrcMemberCard('${escJsStr(m.vrchatId)}')" style="cursor:pointer">
               <img src="${escAttr(wa)}" alt="${esc(m.displayName)}" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escAttr(wa)}');this.style.display='none';this.nextElementSibling.style.display='flex'">

@@ -19,6 +19,7 @@ const crypto = require('crypto');
 const { fail, handleError } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 const mediaProviders = require('../media_providers');
+const { vrchatGetUser } = require('../vrc');
 
 const ALLOWED_HOSTS = [
   'api.vrchat.cloud',
@@ -26,6 +27,9 @@ const ALLOWED_HOSTS = [
   'assets.amlcdn.com',
   'assets.vrchat.com'
 ];
+
+// 与 server/vrc.js 一致的 VRChat ID 白名单（usr_ 前缀为主；本接口仅消费用户 ID）
+const VRC_UID_PATTERN = /^usr_[0-9a-fA-F-]+$/;
 
 // 默认占位头像（纯文本 SVG，绝不裂图）—— /default 与限速兜底共用
 const DEFAULT_AVATAR_SVG =
@@ -195,11 +199,99 @@ function sendBuffer(res, buf, contentType) {
   res.send(buf);
 }
 
-module.exports = function () {
+// ============ 按 VRChat 用户 ID 解析头像（/api/avatar/user） ============
+// 背景：群成员列表同步时，非好友成员拿不到 user 对象（VRChat 群成员 API 的 user 字段为 null），
+//       头像字段为空。此前前端兜底 api.vrchat.com/api/1/users/{id}/image 已是一条死链
+//       （VRChat 先 307 重定向到 api.vrchat.cloud 后返回 404，端点已弃用）；
+//       而剩余真实头像 URL 若落在 assets.amlcdn.com，在国内多数网络 TLS 层即被阻断，回源约 19s 超时。
+//       本接口用系统 VRChat 账号会话调用 GET /users/{id}（需鉴权）解析出真实头像文件 URL，
+//       随后 302 到 /proxy 复用 L1/L2 缓存 / CDN 令牌桶 / 多源 failover 链路，避免重复造轮子。
+// 并发与限流：内存缓存 10min（失败冷却 5min）+ 并发去重（同 ID 只查一次）+ 每 IP 60/min 限速，
+//       防止整群浏览时把 VRChat 用户 API 额度打爆。
+const _userAvatarCache = new Map();   // uid -> { url, ok, ts }
+const _userAvatarInflight = new Map();// uid -> Promise（并发去重）
+const USER_AVATAR_OK_TTL_MS = 10 * 60 * 1000;
+const USER_AVATAR_FAIL_TTL_MS = 5 * 60 * 1000;
+const USER_AVATAR_RATE_MIN = 60;
+const _userRateBuckets = new Map();
+function userAvatarRateLimited(ip) {
+  const now = Date.now();
+  let b = _userRateBuckets.get(ip);
+  if (!b || now - b.start > 60 * 1000) {
+    b = { start: now, count: 0 };
+    _userRateBuckets.set(ip, b);
+  }
+  b.count++;
+  if (b.count > USER_AVATAR_RATE_MIN) return true;
+  if (_userRateBuckets.size > 5000) {
+    for (const [k, v] of _userRateBuckets) {
+      if (now - v.start > 60 * 1000) _userRateBuckets.delete(k);
+    }
+  }
+  return false;
+}
+async function resolveUserAvatarUrl(cookie, uid) {
+  const inflight = _userAvatarInflight.get(uid);
+  if (inflight) return inflight;
+  const p = (async () => {
+    const userRes = await vrchatGetUser(uid, cookie);
+    if (!userRes || userRes.status !== 200) return '';
+    const d = userRes.data || {};
+    const url = d.profilePicOverrideThumbnail || d.currentAvatarThumbnailImageUrl || d.currentAvatarImageUrl || '';
+    if (!url) return '';
+    try {
+      const h = new URL(url).hostname;
+      if (ALLOWED_HOSTS.includes(h)) return url;
+    } catch (e) { /* 非法 URL 走失败缓存 */ }
+    return '';
+  })();
+  _userAvatarInflight.set(uid, p);
+  p.finally(() => _userAvatarInflight.delete(uid)).catch(() => {});
+  return p;
+}
+
+module.exports = function (authStateRef) {
   const router = express.Router();
 
   // 默认头像路由已移除（P2-15 路由冲突清理）：server.js 顶部的 app.get('/api/avatar/default')
   // 先注册生效，此处重复注册不可达；DEFAULT_AVATAR_SVG 仍被 /proxy 与 fallback 使用。
+
+  // 按 VRChat 用户 ID 解析真实头像并 302 到 /proxy（复用 L1/L2 缓存与源池 failover）。
+  // 前端在成员头像 URL 缺失/不可达（如 assets.amlcdn.com 被墙）时使用。
+  router.get('/user', async (req, res) => {
+    const uid = String(req.query.u || '');
+    if (!VRC_UID_PATTERN.test(uid)) return fail(res, 400, 'bad user id');
+    const socketAddr = (req.socket && req.socket.remoteAddress) || '';
+    const isLoopbackPeer = socketAddr === '::1' || socketAddr === '127.0.0.1' || socketAddr === '::ffff:127.0.0.1';
+    const clientIp = (isLoopbackPeer && req.headers['x-forwarded-for'])
+      ? String(req.headers['x-forwarded-for']).split(',')[0].trim()
+      : socketAddr;
+    if (userAvatarRateLimited(clientIp)) return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
+
+    const now = Date.now();
+    const hit = _userAvatarCache.get(uid);
+    if (hit && (hit.ok ? (now - hit.ts < USER_AVATAR_OK_TTL_MS) : (now - hit.ts < USER_AVATAR_FAIL_TTL_MS))) {
+      if (hit.ok) return res.redirect(302, '/api/avatar/proxy?u=' + encodeURIComponent(hit.url));
+      return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
+    }
+    if (!authStateRef || !authStateRef.loggedIn || !authStateRef.cookie) {
+      // 系统账号未登录时无法解析（/users/{id} 需鉴权），直接占位且不写失败缓存，
+      // 待系统账号登录后自然恢复，也避免把"未登录"误判为"该用户无头像"。
+      return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
+    }
+    try {
+      const url = await resolveUserAvatarUrl(authStateRef.cookie, uid);
+      if (url) {
+        _userAvatarCache.set(uid, { url, ok: true, ts: now });
+        return res.redirect(302, '/api/avatar/proxy?u=' + encodeURIComponent(url));
+      }
+      _userAvatarCache.set(uid, { url: '', ok: false, ts: now });
+      return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
+    } catch (e) {
+      _userAvatarCache.set(uid, { url: '', ok: false, ts: now });
+      return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
+    }
+  });
 
   // 代理 VRChat 头像：缓存到本地，源过期也不影响
   router.get('/proxy', async (req, res) => {

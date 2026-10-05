@@ -111,10 +111,13 @@ function renderGroupMembers(members) {
     const isFriend = !!m.isFriend;
     const status = memberStatusMeta(isOnline, isFriend, m.vrchatStatus, m.isInGame, m.statusDescription);
     // 头像与名片保持一致：优先展示用户自定义头像大图，避免当前佩戴的机器人/奇怪模型遮挡真实形象
-    const avatarUrl = m.profilePicOverrideThumbnail || m.avatarUrl;
-    // VRCX 风格：DB 无头像时，直接用 VRChat 公开头像端点（api.vrchat.com/api/1/users/{id}/image），
-    // 由浏览器并行加载（不走后端批量接口），加载速度与 VRCX 一致。
-    const vrcFallback = `https://api.vrchat.com/api/1/users/${encodeURIComponent(m.vrchatId || '')}/image`;
+    let avatarUrl = m.profilePicOverrideThumbnail || m.avatarUrl;
+    // assets.amlcdn.com 是 VRChat 老式缩略图 CDN，国内多数网络 TLS 层即被阻断（回源约 19s 超时）。
+    // 此类历史 URL 不再直连代理，统一改走后端按 ID 解析头像接口（系统账号经 api.vrchat.cloud 可达链路）。
+    if (/^https?:\/\/[^/]*assets\.amlcdn\.com\//i.test(avatarUrl || '')) avatarUrl = '';
+    // VRCX 风格：DB 无头像（群成员 API 对非好友不返回 user 对象）时，走后端
+    // /api/avatar/user 按 ID 解析真实头像（旧的 api.vrchat.com/users/{id}/image 兜底已 404，是死链）。
+    const vrcFallback = `/api/avatar/user?u=${encodeURIComponent(m.vrchatId || '')}`;
     const proxied = proxyAvatar(avatarUrl || vrcFallback);
     // 【P2-46 渐进加载】仅当该 URL 近期失败过（429/裂图冷却 60s）时才用 default 图标占位，
     // 否则首屏直接渲染真实头像 URL（浏览器并行加载数百张无压力）。

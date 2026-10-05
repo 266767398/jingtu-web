@@ -411,6 +411,7 @@
  "GET /api/share/:code",
  "GET /api/share/:code/html",
  "DELETE /api/share/:code",
+ "GET /api/avatar/user",
  "GET /api/avatar/proxy",
  "GET /api/avatar/providers",
  "GET /api/collections/folders",

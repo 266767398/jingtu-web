@@ -641,7 +641,7 @@ app.use('/api', require('./routes/export'));
 app.use('/api', require('./routes/analytics'));
 app.use('/api', require('./routes/webhooks'));
 app.use('/api/share', require('./routes/share')());
-app.use('/api/avatar', require('./routes/avatar')());
+app.use('/api/avatar', require('./routes/avatar')(authState));
 // 统一收藏系统 (V8.2)：合并模型收藏馆与收藏夹（含由孤儿 model-collections 模块迁移而来的 VRCX 匿名搜索）
 app.use('/api/collections', require('./routes/collections')(getVRCCookie));
 
