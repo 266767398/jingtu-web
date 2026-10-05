@@ -648,7 +648,7 @@ describe('security regressions', () => {
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/theme.js?v=20261005a');
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/auth.js?v=20261005a');
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/main.js?v=20261005a');
-      expect(files.indexHtml).toMatch(/loader\.js\?v=20261005b/);
+      expect(files.indexHtml).toMatch(/loader\.js\?v=20261005c/);
     });
 
     test('main.js 冻结时暂停刷新轮询与断开 WebSocket，解冻恢复；轮询带冻结守卫', () => {
@@ -717,6 +717,25 @@ describe('security regressions', () => {
       expect(files.zhLang).toMatch(/"rtc\.screen_audio_on"/);
       expect(files.zhLang).toMatch(/"rtc\.share_screen_first"/);
       expect(files.zhLang).toMatch(/"rtc\.screen_audio_tip"/);
+    });
+
+    test('桌面音频轨挂载输出 sink（无私聊/群路由则开关无声）：routeScreenAudioTrack/routeGroupScreenAudioTrack', () => {
+      expect(files.chatJs).toMatch(/function routeScreenAudioTrack\(elId, track\)/);
+      expect(files.chatJs).toMatch(/routeScreenAudioTrack\('rtcScreenAudioOut', e\.track\)/);
+      expect(files.chatJs).toMatch(/<audio id="rtcScreenAudioOut" autoplay playsinline class="rtc-hidden"><\/audio>/);
+      expect(files.chatJs).toMatch(/function routeGroupScreenAudioTrack\(uid, track\)/);
+      expect(files.chatJs).toMatch(/rtcGroupScreenAudioOut_' \+ uid/);
+      expect(files.chatJs).toMatch(/bar\.appendChild\(el\)/);
+    });
+
+    test('对端停止共享时私聊按钮立即复位；群成员离开清理屏幕共享残留', () => {
+      // 私聊复位分支（!inv.screenShareActive）必须同步更新按钮，否则按钮残留"共享中"
+      expect(files.chatJs).toMatch(/inv\.screenAudioEnabled = false;\s*inv\.screenAudioTracks = \[\];\s*updateScreenAudioBtn\(\);/);
+      // 群成员离开：删除 screenStreamIds/screenShareBy/screenAudioTracksByUid 并移除输出元素
+      expect(files.chatJs).toMatch(/delete room\.screenStreamIds\[uid\];/);
+      expect(files.chatJs).toMatch(/delete room\.screenShareBy\[uid\];/);
+      expect(files.chatJs).toMatch(/delete room\.screenAudioTracksByUid\[uid\];/);
+      expect(files.chatJs).toMatch(/rtcGroupScreenAudioOut_' \+ uid/);
     });
   });
 });

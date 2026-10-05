@@ -1658,6 +1658,18 @@ function rtcClearPrivate() {
   rtcPrivate = null;
 }
 
+// 桌面音频轨输出路由：未挂到任何 audio/video 元素的远程轨永远无声
+// （即便 track.enabled=true 也听不到），必须挂到音频元素上"共享声音"开关才有实际作用。
+function routeScreenAudioTrack(elId, track) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  let ms = el.srcObject;
+  if (!(ms instanceof MediaStream)) { ms = new MediaStream(); el.srcObject = ms; }
+  // 清理已结束的旧轨（停止共享后重新共享会追加新轨，避免流内轨无限堆积）
+  ms.getTracks().forEach(t => { if (t.readyState === 'ended') { try { ms.removeTrack(t); } catch (e) {} } });
+  if (!ms.getTracks().includes(track)) ms.addTrack(track);
+}
+
 function rtcAttachRemoteStream(pc, e) {
   if (!e || !e.track || !e.streams || !e.streams[0]) return;
   const stream = e.streams[0];
@@ -1667,6 +1679,7 @@ function rtcAttachRemoteStream(pc, e) {
   if (inv && e.track.kind === 'audio' && inv.screenStreamId && stream.id === inv.screenStreamId) {
     inv.screenAudioTracks = inv.screenAudioTracks || [];
     if (!inv.screenAudioTracks.includes(e.track)) inv.screenAudioTracks.push(e.track);
+    routeScreenAudioTrack('rtcScreenAudioOut', e.track); // 挂输出 sink，"共享声音"开关才可听
     e.track.enabled = !!inv.screenAudioEnabled;
     updateScreenAudioBtn();
     return; // 桌面音频不参与远程视频显示与音量监测
@@ -1717,6 +1730,7 @@ function renderPrivateCallOverlay() {
         <button id="rtcScreenAudioBtn" class="btn btn-xs btn-outline rtc-hidden" onclick="rtcToggleScreenAudio()">🔇 ${esc(__('rtc.screen_audio'))}</button>
         <button id="rtcHangupBtn" class="btn btn-xs btn-danger" onclick="hangupPrivateCall()">📵 ${esc(__('rtc.hangup'))}</button>
       </div>
+      <audio id="rtcScreenAudioOut" autoplay playsinline class="rtc-hidden"></audio>
     </div>`;
   panel.appendChild(div);
   const localVideo = document.getElementById('rtcLocalVideo');
@@ -1727,6 +1741,10 @@ function renderPrivateCallOverlay() {
   }
   rtcSetVolumeWatch('private:local', inv.localStream, (lv) => rtcSetLevel('rtcLocalLevel', lv));
   if (rtcRemoteStream) rtcSetVolumeWatch('private:remote', rtcRemoteStream, (lv) => rtcSetLevel('rtcRemoteLevel', lv));
+  // 浮层重建后 srcObject 随元素销毁丢失，需恢复桌面音频轨到输出元素
+  if (inv.screenAudioTracks && inv.screenAudioTracks.length) {
+    inv.screenAudioTracks.forEach(t => { try { routeScreenAudioTrack('rtcScreenAudioOut', t); } catch (e) {} });
+  }
   updateScreenAudioBtn();
 }
 
@@ -1977,6 +1995,25 @@ function rtcGroupCreatePeer(remoteUserId) {
   return pc;
 }
 
+// 群语音房：每位共享者对端一个独立桌面音频输出元素（随成员离开清理），
+// 未挂 sink 的远程轨即便 enabled=true 也无声，必须有输出路由"共享声音"开关才可听。
+function routeGroupScreenAudioTrack(uid, track) {
+  const bar = document.getElementById('groupVoiceBar');
+  if (!bar) return;
+  let el = document.getElementById('rtcGroupScreenAudioOut_' + uid);
+  if (!el) {
+    el = document.createElement('audio');
+    el.id = 'rtcGroupScreenAudioOut_' + uid;
+    el.autoplay = true;
+    el.setAttribute('playsinline', '');
+    bar.appendChild(el);
+  }
+  let ms = el.srcObject;
+  if (!(ms instanceof MediaStream)) { ms = new MediaStream(); el.srcObject = ms; }
+  ms.getTracks().forEach(t => { if (t.readyState === 'ended') { try { ms.removeTrack(t); } catch (e) {} } });
+  if (!ms.getTracks().includes(track)) ms.addTrack(track);
+}
+
 function rtcGroupAttachRemoteStream(uid, pc, e) {
   if (!e || !e.track || !e.streams || !e.streams[0]) return;
   const stream = e.streams[0];
@@ -1986,6 +2023,7 @@ function rtcGroupAttachRemoteStream(uid, pc, e) {
     room.screenAudioTracksByUid = room.screenAudioTracksByUid || {};
     room.screenAudioTracksByUid[uid] = room.screenAudioTracksByUid[uid] || [];
     if (!room.screenAudioTracksByUid[uid].includes(e.track)) room.screenAudioTracksByUid[uid].push(e.track);
+    routeGroupScreenAudioTrack(uid, e.track); // 挂输出 sink，"共享声音"开关才可听
     e.track.enabled = !!room.screenAudioEnabled;
     updateGroupScreenAudioBtn();
     return; // 桌面音频不参与成员 tile 画面与音量监测
@@ -2389,6 +2427,7 @@ function handleRtcMessage(msg) {
     if (!inv.screenShareActive) {
       inv.screenAudioEnabled = false;
       inv.screenAudioTracks = [];
+      updateScreenAudioBtn(); // 对端已停止共享：立即复位/隐藏"共享声音"按钮
     }
     const asyncWork = async () => {
       await inv.pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
@@ -2460,6 +2499,16 @@ function handleRtcMessage(msg) {
     rtcStopVolumeWatch('group:' + uid);
     rtcClosePeer(room.peerMap[uid]);
     delete room.peerMap[uid];
+    // 清理该成员的屏幕共享状态与桌面音频输出，避免成员离开后按钮残留"共享中"
+    if (room.screenStreamIds) delete room.screenStreamIds[uid];
+    if (room.screenShareBy) delete room.screenShareBy[uid];
+    if (room.screenAudioTracksByUid) delete room.screenAudioTracksByUid[uid];
+    const screenAudioEl = document.getElementById('rtcGroupScreenAudioOut_' + uid);
+    if (screenAudioEl) {
+      try { if (screenAudioEl.srcObject) screenAudioEl.srcObject.getTracks().forEach(t => t.stop()); } catch (e) {}
+      screenAudioEl.remove();
+    }
+    updateGroupScreenAudioBtn();
     renderGroupMemberList();
     appendGroupSystemLine(__('rtc.sys_leave'));
     return;
