@@ -146,20 +146,29 @@ describe('P2-6 错误侧已迁移文件静态守卫', () => {
 describe('toSqlDatetime 时间规范化（VRChat ISO8601 → MySQL DATETIME）', () => {
   // VRChat API 的 last_login/scheduledAt 是 UTC ISO8601 字符串（带 Z），
   // 直接写入 DATETIME 列会抛 "Incorrect datetime value"（presence/contribute 500 事故根因）。
-  test('VRChat 标准 ISO8601（带毫秒 + Z）截取为 YYYY-MM-DD HH:MM:SS', () => {
-    expect(utils.toSqlDatetime('2026-09-03T14:48:42.963Z')).toBe('2026-09-03 14:48:42');
+  // 带时区后缀的值入库前换算为北京时间（UTC+8），避免"最后在线/活动时间"差 8 小时。
+  test('VRChat 标准 ISO8601（带毫秒 + Z）换算为北京时间', () => {
+    expect(utils.toSqlDatetime('2026-09-03T14:48:42.963Z')).toBe('2026-09-03 22:48:42');
   });
 
-  test('无毫秒 ISO8601 原样转换', () => {
-    expect(utils.toSqlDatetime('2026-09-03T14:48:42Z')).toBe('2026-09-03 14:48:42');
+  test('UTC 清晨跨小时换算：06:48 UTC → 14:48 北京', () => {
+    expect(utils.toSqlDatetime('2026-09-03T06:48:42.963Z')).toBe('2026-09-03 14:48:42');
   });
 
-  test('空格分隔的 DATETIME 字符串保持不变', () => {
+  test('无毫秒 ISO8601 同样换算北京时间', () => {
+    expect(utils.toSqlDatetime('2026-09-03T14:48:42Z')).toBe('2026-09-03 22:48:42');
+  });
+
+  test('显式 +08:00 偏移（已是北京时间）不做二次偏移', () => {
+    expect(utils.toSqlDatetime('2026-09-03T14:48:42+08:00')).toBe('2026-09-03 14:48:42');
+  });
+
+  test('空格分隔的本地 DATETIME 字符串保持不变', () => {
     expect(utils.toSqlDatetime('2026-09-03 14:48:42')).toBe('2026-09-03 14:48:42');
   });
 
-  test('仅到分钟的 ISO 时间补 :00 秒段', () => {
-    expect(utils.toSqlDatetime('2026-09-03T14:48Z')).toBe('2026-09-03 14:48:00');
+  test('仅到分钟的 ISO 时间补 :00 秒段并换算', () => {
+    expect(utils.toSqlDatetime('2026-09-03T14:48Z')).toBe('2026-09-03 22:48:00');
   });
 
   test('Date 对象原样返回（mysql2 自行序列化）', () => {

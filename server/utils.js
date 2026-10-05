@@ -450,7 +450,9 @@ function escapeLike(s) {
 // "Incorrect datetime value ... for column 'xxx'"（见 groups_members_sync.js
 // presence/contribute 500 事故）。本函数统一收敛所有该来源的入库值：
 //   - Date 对象：原样返回（mysql2 会正确序列化为 'YYYY-MM-DD HH:MM:SS'）
-//   - 'YYYY-MM-DD[T ]HH:MM(:SS)?'：截取为 'YYYY-MM-DD HH:MM:SS'
+//   - 带时区后缀的 ISO8601（'…Z' / '…±hh:mm'）：VRChat 一律返回 UTC，入库前
+//     换算为北京时间（UTC+8，无夏令时），避免"最后在线/活动时间"差 8 小时
+//   - 无时区后缀（已是本地时间 / 常规 SQL 格式）：仅规范化分隔符与秒
 //   - 其它无法解析的值：返回 null（写 NULL 比写坏值安全，调用方需容忍空值）
 function toSqlDatetime(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -458,6 +460,14 @@ function toSqlDatetime(value) {
     return isNaN(value.getTime()) ? null : value;
   }
   const s = String(value).trim();
+  // 带时区后缀（Z / ±hh:mm / ±hhmm）→ 按 UTC 解析后再加 8 小时即为北京时间
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(s)) {
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return null;
+    const cn = new Date(d.getTime() + 8 * 3600 * 1000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${cn.getUTCFullYear()}-${p(cn.getUTCMonth() + 1)}-${p(cn.getUTCDate())} ${p(cn.getUTCHours())}:${p(cn.getUTCMinutes())}:${p(cn.getUTCSeconds())}`;
+  }
   const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(:\d{2})?/);
   if (m) return `${m[1]} ${m[2]}${m[3] || ':00'}`;
   return null;
