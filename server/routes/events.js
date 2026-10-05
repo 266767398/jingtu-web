@@ -21,7 +21,7 @@
  *   description: 活动管理相关接口
  */
 const express = require('express');
-const { fail, ok,  getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes, paginate, escapeLike  } = require('../utils');;
+const { fail, ok,  getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes, paginate, escapeLike, toSqlDatetime  } = require('../utils');;
 const { requireAuth, requireAdminCompat, getAvatarUrl, ROLE_LEVEL, currentRole } = require('../auth');
 const { vrchatGetGroupEvents } = require('../vrc');
 const cacheService = require('../cache_service');
@@ -580,7 +580,7 @@ router.get('/', async (req, res) => {
       for (const evt of events) {
         const [result] = await getPool().query(
           `INSERT IGNORE INTO event (title, event_time, description, event_type, vrchat_event_id, ends_at, source, visibility, create_admin, create_user_id) VALUES (?, ?, ?, 'activity', ?, NULL, 'vrchat', 'members_only', ?, 0)`,
-          [evt.name || evt.title || 'VRChat 活动', evt.scheduledAt || evt.startTime || new Date(), evt.description || '', String(evt.id), 'VRChat Sync']
+          [evt.name || evt.title || 'VRChat 活动', toSqlDatetime(evt.scheduledAt || evt.startTime || new Date()), evt.description || '', String(evt.id), 'VRChat Sync']
         );
         if (result.affectedRows > 0) added++;
       }

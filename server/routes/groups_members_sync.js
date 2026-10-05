@@ -10,7 +10,7 @@
  *   description: VRChat群组成员同步接口
  */
 const express = require('express');
-const { fail, ok, getPool, handleError, sendVrcError, ErrorCodes } = require('../utils');
+const { fail, ok, getPool, handleError, sendVrcError, ErrorCodes, toSqlDatetime } = require('../utils');
 const { requireAuth } = require('../auth');
 const {
   vrchatGetCurrentUserResult, vrchatGetGroupMembers,
@@ -434,7 +434,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
              ON DUPLICATE KEY UPDATE is_online=VALUES(is_online), vrchat_status=VALUES(vrchat_status),
                world_name=VALUES(world_name), location=VALUES(location), last_login=VALUES(last_login),
                source_vrchat_id=VALUES(source_vrchat_id), updated_at=NOW()`,
-            [vid, f.isOnline ? 1 : 0, f.status || 'offline', f.worldId || '', f.location || '', f.last_login || null, sourceVid]
+            [vid, f.isOnline ? 1 : 0, f.status || 'offline', f.worldId || '', f.location || '', toSqlDatetime(f.last_login), sourceVid]
           );
           shared++;
         }

@@ -315,7 +315,9 @@ async function api(path, opt = {}) {
         const detail = d.detail || safeErrMsg(d) || '';
         if (detail) msg = detail;
       } catch {}
-      toast(msg, 'error');
+      // opt.silent：后台副链路（如群友互助 presence 上报）失败不打扰用户，
+      // 但仍抛 SERVER_ERROR（isApiHandledError 可识别，调用方静默即可）
+      if (!opt.silent) toast(msg, 'error');
       throw new Error('SERVER_ERROR');
     }
     // CSRF token 单次消费，请求成功后清除并触发下次请求前重新获取

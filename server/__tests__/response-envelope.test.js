@@ -142,3 +142,36 @@ describe('P2-6 错误侧已迁移文件静态守卫', () => {
     expect(src).toMatch(/error:\s*\{\s*code,\s*message\s*\}/);
   });
 });
+
+describe('toSqlDatetime 时间规范化（VRChat ISO8601 → MySQL DATETIME）', () => {
+  // VRChat API 的 last_login/scheduledAt 是 UTC ISO8601 字符串（带 Z），
+  // 直接写入 DATETIME 列会抛 "Incorrect datetime value"（presence/contribute 500 事故根因）。
+  test('VRChat 标准 ISO8601（带毫秒 + Z）截取为 YYYY-MM-DD HH:MM:SS', () => {
+    expect(utils.toSqlDatetime('2026-09-03T14:48:42.963Z')).toBe('2026-09-03 14:48:42');
+  });
+
+  test('无毫秒 ISO8601 原样转换', () => {
+    expect(utils.toSqlDatetime('2026-09-03T14:48:42Z')).toBe('2026-09-03 14:48:42');
+  });
+
+  test('空格分隔的 DATETIME 字符串保持不变', () => {
+    expect(utils.toSqlDatetime('2026-09-03 14:48:42')).toBe('2026-09-03 14:48:42');
+  });
+
+  test('仅到分钟的 ISO 时间补 :00 秒段', () => {
+    expect(utils.toSqlDatetime('2026-09-03T14:48Z')).toBe('2026-09-03 14:48:00');
+  });
+
+  test('Date 对象原样返回（mysql2 自行序列化）', () => {
+    const d = new Date('2026-09-03T14:48:42.963Z');
+    expect(utils.toSqlDatetime(d)).toBe(d);
+  });
+
+  test('Invalid Date / 空值 / 杂串返回 null（写 NULL 比写坏值安全）', () => {
+    expect(utils.toSqlDatetime(null)).toBe(null);
+    expect(utils.toSqlDatetime(undefined)).toBe(null);
+    expect(utils.toSqlDatetime('')).toBe(null);
+    expect(utils.toSqlDatetime('not-a-date')).toBe(null);
+    expect(utils.toSqlDatetime(new Date('garbage'))).toBe(null);
+  });
+});

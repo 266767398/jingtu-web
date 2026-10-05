@@ -73,7 +73,9 @@ async function contributePresence() {
   if (now - _lastPresenceContribute < 5 * 60 * 1000) return;
   _lastPresenceContribute = now;
   try {
-    await api('/api/group/presence/contribute', { method: 'POST', timeout: 20000 });
+    // silent：presence 上报是后台副链路（仅已绑定 VRChat 的用户生效），
+    // 失败（如上游维护/接口 5xx）不应打断用户的主流程，也不弹全局"服务器内部错误"。
+    await api('/api/group/presence/contribute', { method: 'POST', timeout: 20000, silent: true });
   } catch (e) { /* 静默：仅在已绑定 VRChat 且在线时有效，失败不影响主流程 */ }
 }
 

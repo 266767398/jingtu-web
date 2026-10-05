@@ -444,4 +444,23 @@ function escapeLike(s) {
   return String(s).replace(/[%_!]/g, (m) => '!' + m);
 }
 
-module.exports = { getPool, IS_DEV, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, escapeLike, validateFields, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };
+// 将 VRChat API 返回的时间值规范化为 MySQL DATETIME 可接受的格式。
+// VRChat 的 last_login / scheduledAt / joinedAt 等字段是 UTC ISO8601 字符串
+//（如 "2026-09-03T14:48:42.963Z"），直接写入 DATETIME 列会在严格模式下抛
+// "Incorrect datetime value ... for column 'xxx'"（见 groups_members_sync.js
+// presence/contribute 500 事故）。本函数统一收敛所有该来源的入库值：
+//   - Date 对象：原样返回（mysql2 会正确序列化为 'YYYY-MM-DD HH:MM:SS'）
+//   - 'YYYY-MM-DD[T ]HH:MM(:SS)?'：截取为 'YYYY-MM-DD HH:MM:SS'
+//   - 其它无法解析的值：返回 null（写 NULL 比写坏值安全，调用方需容忍空值）
+function toSqlDatetime(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date) {
+    return isNaN(value.getTime()) ? null : value;
+  }
+  const s = String(value).trim();
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(:\d{2})?/);
+  if (m) return `${m[1]} ${m[2]}${m[3] || ':00'}`;
+  return null;
+}
+
+module.exports = { getPool, IS_DEV, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, escapeLike, toSqlDatetime, validateFields, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };
