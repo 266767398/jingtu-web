@@ -109,6 +109,11 @@ describe('security regressions', () => {
     expect(backupCoreSrc).toMatch(/path\.resolve\(process\.env\.BACKUP_DIR\)/);
     expect(files.backupsRoute).toMatch(/router\.get\('\/admin\/backups\/:filename\/download',\s*requireAdminCompat/);
     expect(files.backupsRoute).toMatch(/const filename = path\.basename\(req\.params\.filename\)/);
+    // P2-160（R1）：备份破坏性操作（删除/清理/创建/恢复）必须超管；仅列表/下载保留普通管理员
+    expect(files.backupsRoute).toMatch(/router\.delete\('\/admin\/backups\/:filename',\s*requireSuperAdmin/);
+    expect(files.backupsRoute).toMatch(/router\.post\('\/admin\/backups\/cleanup',\s*requireSuperAdmin/);
+    expect(files.backupsRoute).toMatch(/router\.post\('\/admin\/backups\/create',\s*requireSuperAdmin/);
+    expect(files.backupsRoute).toMatch(/router\.post\('\/admin\/backups\/restore\/:filename',\s*requireSuperAdmin/);
   });
 
   // 迁移接口和系统级 VRChat 控制可探测环境或改写全局登录态，必须只有管理员能访问。

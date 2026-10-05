@@ -12,6 +12,7 @@ const path = require('path');
 const fs = require('fs');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
+const logger = require('../logger');
 const { getPool, getAvatarUrl, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, paginate, escapeLike } = require('../utils');
 const { requireAuth } = require('../auth');
 const { hybridStore } = require('../middleware/rate_limit_store');
@@ -839,13 +840,18 @@ router.delete('/groups/:groupId/messages/:msgId', requireChatAuth, async (req, r
 
 
 // ==================== RTC 通话信令配置（供 WebRTC 建立连接） ====================
-// 返回 iceServers：TURN 在管理设置里配置（rtc_turn_urls / rtc_turn_username / rtc_turn_credential），
-// STUN 内置兜底，未配置 TURN 时依然能用 P2P/中继退化场景。
+// 返回 iceServers：TURN 在管理设置里配置（rtc_turn_urls / rtc_turn_username / rtc_turn_credential /
+// rtc_turn_secret），STUN 内置兜底，未配置 TURN 时依然能用 P2P/中继退化场景。
+// P2-160（R6）：凭据策略两级——
+//  1) 配置 rtc_turn_secret（coturn --use-auth-secret REST 认证密钥）时，按
+//     username=<expiry>:<userId> / credential=HMAC-SHA1(secret, username) 动态生成
+//     短时（1 天）临时凭据，不再下发长期静态 credential，泄露面收敛为单次有效窗口；
+//  2) 未配置时回退静态凭据并打警告（R6 前行为），提示管理员接入 REST 模式。
 router.get('/rtc/config', requireChatAuth, async (req, res) => {
   try {
     const [rows] = await getPool().query(
       `SELECT config_key AS configKey, config_value AS configValue
-       FROM system_config WHERE config_key IN ('rtc_turn_urls', 'rtc_turn_username', 'rtc_turn_credential')`
+       FROM system_config WHERE config_key IN ('rtc_turn_urls', 'rtc_turn_username', 'rtc_turn_credential', 'rtc_turn_secret')`
     );
     const cfg = {};
     rows.forEach(r => { cfg[r.configKey] = r.configValue; });
@@ -853,8 +859,20 @@ router.get('/rtc/config', requireChatAuth, async (req, res) => {
     const turnUrls = (cfg.rtc_turn_urls || '').split(',').map(s => s.trim()).filter(Boolean);
     if (turnUrls.length) {
       const turn = { urls: turnUrls };
-      if (cfg.rtc_turn_username) turn.username = cfg.rtc_turn_username;
-      if (cfg.rtc_turn_credential) turn.credential = cfg.rtc_turn_credential;
+      if (cfg.rtc_turn_secret && cfg.rtc_turn_secret.length >= 16) {
+        const TURN_REST_TTL_SEC = 24 * 60 * 60;
+        const expiry = Math.floor(Date.now() / 1000) + TURN_REST_TTL_SEC;
+        const username = `${expiry}:${req.session.userId}`;
+        turn.username = username;
+        turn.credential = crypto.createHmac('sha1', String(cfg.rtc_turn_secret)).update(username).digest('base64');
+        turn.rest = true;
+      } else {
+        if (cfg.rtc_turn_username) turn.username = cfg.rtc_turn_username;
+        if (cfg.rtc_turn_credential) turn.credential = cfg.rtc_turn_credential;
+        if (!cfg.rtc_turn_secret) {
+          logger.warn('chat', '[rtc/config] TURN 使用静态凭据下发——建议在系统设置配置 rtc_turn_secret 启用 coturn REST 临时凭据（--use-auth-secret）');
+        }
+      }
       iceServers.push(turn);
     }
     res.json({ iceServers, turnConfigured: turnUrls.length > 0 });

@@ -234,8 +234,10 @@ function suspiciousRequestDetector(req, res, next) {
   // 仅取路径部分（去掉 query），统一小写
   const urlPath = (req.url.split('?')[0] || '').toLowerCase();
   // 根路径段拦截：扫描器/利用探测几乎都打在根路径（/wp-admin、/phpmyadmin、/system…），
-  // 仅当命中“第一段”时才拦截，避免误伤应用自身嵌套路由（如 /api/admin/analytics/system）。
-  const rootBlocked = ['wp-admin', 'wp-login', 'phpmyadmin', 'adminer', 'xmlrpc.php', 'actuator', 'shell', 'cmd', 'exec', 'system'];
+  // 仅当命中"第一段"时才拦截，避免误伤应用自身嵌套路由（如 /api/admin/analytics/system）。
+  // M-5：镜像 .htaccess 的禁止目录（/server//node_modules//docs/），并补充 logs/runtime 等运行面，
+  // 使直连 3456/Nginx 反代场景下同样拒绝——不依赖 Apache 反代的 RedirectMatch。
+  const rootBlocked = ['wp-admin', 'wp-login', 'phpmyadmin', 'adminer', 'xmlrpc.php', 'actuator', 'shell', 'cmd', 'exec', 'system', 'server', 'node_modules', 'docs', 'logs', 'runtime'];
   const firstSegment = urlPath.split('/').filter(Boolean)[0] || '';
   if (rootBlocked.includes(firstSegment)) {
     logger.info('security', `[SEC] Blocked suspicious request: ${req.method} ${req.url} from ${req.ip}`);

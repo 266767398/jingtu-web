@@ -13,7 +13,8 @@ const mockRestoreBackup = jest.fn();
 const mockCleanup = jest.fn();
 
 jest.mock('../auth', () => ({
-  requireAdminCompat(req, res, next) { next(); }
+  requireAdminCompat(req, res, next) { next(); },
+  requireSuperAdmin(req, res, next) { next(); }
 }));
 
 jest.mock('../utils', () => ({

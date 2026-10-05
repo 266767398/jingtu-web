@@ -1,5 +1,6 @@
 const axios = require('axios');
 const net = require('net');
+const https = require('https');
 const dns = require('dns');
 const { promisify } = require('util');
 const { getPool } = require('./utils');
@@ -56,7 +57,10 @@ function isBlockedWebhookAddress(ip) {
 }
 
 // P2-129: 校验 webhook URL（协议 + 主机可解析为公网地址）。返回 { ok } 或 { ok:false, reason }
-async function validateWebhookUrl(url) {
+// P2-160（R2）：解析与校验合并为不可分割的一步，并把解析结果（address）返回给发送方复用——
+// 发送时直接以「校验过的 IP」直连（Host/SNI 保留原始域名），杜绝 DNS rebinding（TOCTOU）：
+// 攻击者把域名第一次解析为公网 IP 通过校验、发送前二次解析改为内网 IP 的绕过路径被关闭。
+async function _resolveAndValidateWebhookUrl(url) {
   let parsed;
   try {
     parsed = new URL(url);
@@ -66,15 +70,21 @@ async function validateWebhookUrl(url) {
   if (!WEBHOOK_URL_ALLOW_PROTOCOLS.includes(parsed.protocol)) {
     return { ok: false, reason: '仅支持 http/https 协议' };
   }
+  let address;
   try {
-    const { address } = await dnsLookup(parsed.hostname);
-    if (isBlockedWebhookAddress(address)) {
-      return { ok: false, reason: '不允许指向内网/环回/本机地址的 URL' };
-    }
+    ({ address } = await dnsLookup(parsed.hostname));
   } catch (e) {
     return { ok: false, reason: '域名解析失败' };
   }
-  return { ok: true };
+  if (isBlockedWebhookAddress(address)) {
+    return { ok: false, reason: '不允许指向内网/环回/本机地址的 URL' };
+  }
+  return { ok: true, parsed, address };
+}
+
+async function validateWebhookUrl(url) {
+  const r = await _resolveAndValidateWebhookUrl(url);
+  return { ok: r.ok, reason: r.reason };
 }
 
 const WEBHOOK_EVENTS = {
@@ -231,12 +241,19 @@ function signPayload(payload, secret) {
 async function sendWebhook(url, eventType, data, secret = '', opts = {}) {
   const { noPending = false } = opts || {};
   try {
-    // P2-129: 发送前校验目标 URL——拒绝内网/环回/链路本地，阻断 SSRF + 数据外带
-    const urlCheck = await validateWebhookUrl(url);
+    // P2-129/P2-160: 发送前校验目标 URL——拒绝内网/环回/链路本地，阻断 SSRF + 数据外带。
+    // _resolveAndValidateWebhookUrl 一次性完成「解析 + 校验」并返回解析结果；
+    // 发送将以该已验证的 IP 直连，不再二次解析（关闭 DNS rebinding）。
+    const urlCheck = await _resolveAndValidateWebhookUrl(url);
     if (!urlCheck.ok) {
       logger.error('webhook', '[webhook] URL 校验拦截:', urlCheck.reason, url);
       return { success: false, error: 'Webhook URL 被安全策略拦截: ' + urlCheck.reason };
     }
+    const { parsed, address } = urlCheck;
+    const ipHost = net.isIP(address) === 6 ? `[${address}]` : address;
+    const ipPort = parsed.port || (parsed.protocol === 'https:' ? 443 : 80);
+    const pinnedUrl = `${parsed.protocol}//${ipHost}:${ipPort}${parsed.pathname}${parsed.search}`;
+
     const payload = {
       event: eventType,
       timestamp: Date.now(),
@@ -246,20 +263,26 @@ async function sendWebhook(url, eventType, data, secret = '', opts = {}) {
     const headers = {
       'Content-Type': 'application/json',
       'X-JingTu-Event': eventType,
-      'X-JingTu-Timestamp': payload.timestamp.toString()
+      'X-JingTu-Timestamp': payload.timestamp.toString(),
+      // R2：直连 IP 时保留原始 Host 头，接收方（按域名做虚拟主机/白名单）不受影响
+      Host: parsed.host
     };
 
     if (secret) {
       headers['X-JingTu-Signature'] = signPayload(payload, secret);
     }
 
+    const axiosOpts = { headers, timeout: 5000 };
+    // R2：HTTPS 直连 IP 时，SNI 与证书校验主机名仍用原始域名（等同 curl --resolve），
+    // 既锁定连接目标又避免证书域名不匹配。
+    if (parsed.protocol === 'https:') {
+      axiosOpts.httpsAgent = new https.Agent({ servername: parsed.hostname });
+    }
+
     // P3-72: 指数退避重试（单次发送最多 WEBHOOK_RETRY_MAX 次重试），仍失败入待补发队列
     for (let attempt = 0; ; attempt++) {
       try {
-        const response = await axios.post(url, payload, {
-          headers,
-          timeout: 5000
-        });
+        const response = await axios.post(pinnedUrl, payload, axiosOpts);
         logger.info('webhook', '[webhook] 发送成功:', eventType, url);
         return { success: true, status: response.status };
       } catch (e) {

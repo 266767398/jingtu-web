@@ -145,6 +145,16 @@ describe('P2-149 sendWebhook 发送行为', () => {
     expect(opts.headers['X-JingTu-Signature']).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  test('发送直连已校验 IP 且保留 Host/SNI（DNS rebinding 回归 R2）', async () => {
+    axios.post.mockResolvedValue({ status: 200 });
+    const r = await webhook.sendWebhook('https://example.com/hook', 'post_created', { id: 1 }, 'sec');
+    expect(r.success).toBe(true);
+    const [sentUrl, , opts] = axios.post.mock.calls[0];
+    expect(sentUrl).toBe('https://8.8.8.8:443/hook');
+    expect(opts.headers.Host).toBe('example.com');
+    expect(opts.httpsAgent).toBeDefined();
+  });
+
   test('无 secret 时不注入签名头', async () => {
     axios.post.mockResolvedValue({ status: 200 });
     await webhook.sendWebhook('https://example.com/hook', 'user_login', {}, '');

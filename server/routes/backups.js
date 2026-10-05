@@ -14,7 +14,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { requireAdminCompat } = require('../auth');
+const { requireAdminCompat, requireSuperAdmin } = require('../auth');
 const { ok, handleError, sendError, ErrorCodes } = require('../utils');
 const {
   BACKUP_DIR: backupDir,
@@ -73,7 +73,9 @@ router.get('/admin/backups/:filename/download', requireAdminCompat, (req, res) =
   } catch (e) { handleError(res, e, '[backups/download]'); }
 });
 
-router.delete('/admin/backups/:filename', requireAdminCompat, (req, res) => {
+router.delete('/admin/backups/:filename', requireSuperAdmin, (req, res) => {
+  // P2-160（R1）：删除/清理/创建/恢复均提升为 requireSuperAdmin——备份含全库 PII 与
+  // 可回滚到任意状态的恢复能力，普通管理员（admin）不得触及破坏性操作；仅列表/下载保留 admin。
   try {
     // §47：用 path.basename 去除任何路径前缀，防止路径穿越
     const filename = path.basename(req.params.filename);
@@ -91,7 +93,7 @@ router.delete('/admin/backups/:filename', requireAdminCompat, (req, res) => {
   } catch (e) { handleError(res, e, '[backups/delete]'); }
 });
 
-router.post('/admin/backups/cleanup', requireAdminCompat, (req, res) => {
+router.post('/admin/backups/cleanup', requireSuperAdmin, (req, res) => {
   try {
     const { keepDays } = req.body;
     const days = parseInt(keepDays) || 30;
@@ -107,7 +109,7 @@ router.post('/admin/backups/cleanup', requireAdminCompat, (req, res) => {
   } catch (e) { handleError(res, e, '[backups/cleanup]'); }
 });
 
-router.post('/admin/backups/create', requireAdminCompat, async (req, res) => {
+router.post('/admin/backups/create', requireSuperAdmin, async (req, res) => {
   try {
     // P1-12：backup-core 内做 mysqldump 三重校验（退出码/体积/文件头），
     // 校验不通过自动丢弃残file并抛错，不再产生"看起来成功"的空备份
@@ -122,7 +124,7 @@ router.post('/admin/backups/create', requireAdminCompat, async (req, res) => {
   } catch (e) { handleError(res, e, '[backups/create]'); }
 });
 
-router.post('/admin/backups/restore/:filename', requireAdminCompat, async (req, res) => {
+router.post('/admin/backups/restore/:filename', requireSuperAdmin, async (req, res) => {
   try {
     // §47：用 path.basename 去除任何路径前缀，防止路径穿越
     const filename = path.basename(req.params.filename);

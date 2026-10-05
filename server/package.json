@@ -12,7 +12,8 @@
     "test:ci": "jest --coverage --ci --forceExit",
     "test:node": "node --test --test-force-exit test/*.test.js",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "audit": "npm audit --audit-level=high"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",

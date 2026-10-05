@@ -17,10 +17,10 @@ const logger = require('./logger');
 
 const PANEL_UPSTREAM = { host: '127.0.0.1', port: Number(process.env.PANEL_PORT || 3457) };
 // 生命周期参数均可通过环境变量调节（便于部署调参与测试）：
-//  PANEL_IDLE_MINUTES       空闲多少分钟后自动关闭面板（默认 20）
+//  PANEL_IDLE_MINUTES       空闲多少分钟后自动关闭面板（默认 10，M-4 收紧自 20）
 //  PANEL_IDLE_CHECK_SECONDS 空闲检查周期，秒（默认 60）
 //  PANEL_START_POLL_MS      等待面板健康时的探测轮询间隔，毫秒（默认 1000）
-const IDLE_MS = (Number(process.env.PANEL_IDLE_MINUTES) || 20) * 60 * 1000;
+const IDLE_MS = (Number(process.env.PANEL_IDLE_MINUTES) || 10) * 60 * 1000;
 const IDLE_CHECK_INTERVAL = (Number(process.env.PANEL_IDLE_CHECK_SECONDS) || 60) * 1000;
 const START_POLL_MS = Number(process.env.PANEL_START_POLL_MS) || 1000;
 const START_WAIT_MAX = 10000;          

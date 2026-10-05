@@ -811,8 +811,18 @@ if (require.main === module) {
     process.exit(1);
   });
   process.on('unhandledRejection', (reason) => {
-    logger.error('[rejection]', '未处理的 Promise 拒绝:', reason instanceof Error ? reason.message : reason);
-    if (reason instanceof Error) logger.error('[rejection]', reason.stack);
+    const err = reason instanceof Error ? reason : new Error(String(reason));
+    logger.error('[rejection]', '未处理的 Promise 拒绝:', err.message);
+    if (err.stack) logger.error('[rejection]', err.stack);
+    // M-6：区分致命与可恢复——连接/资源类错误（连接池损坏、DB 连接丢失、事务悬挂）
+    // 进程状态可能已损坏且无法自愈，退出由 PM2/容器/守护进程重启；其余业务性
+    // Promise 拒绝仅记录（避免一次瞬态错误误杀仍在服务的进程）。
+    const msg = err.message || '';
+    if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|PROTOCOL_CONNECTION_LOST|Pool is closed|Connection is closed|ER_CON_COUNT_ERROR/i.test(msg)) {
+      logger.error('[rejection]', '致命连接类错误，进程退出以触发自愈重启');
+      try { if (dbMod.holder.pool) dbMod.holder.pool.end(); } catch {}
+      process.exit(1);
+    }
   });
 }
 
