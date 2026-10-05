@@ -267,6 +267,26 @@ describe('长耗时接口的前端超时与按钮恢复', () => {
     expect(Number(m[1])).toBeGreaterThanOrEqual(60000);
   });
 
+  test('presence/contribute 前端超时必须给足（20s 在服务端串行拉好友页时会被 abort）', () => {
+    const i = groupJs.indexOf('async function contributePresence');
+    const body = groupJs.slice(i, groupJs.indexOf('\n}', i));
+    const m = body.match(/timeout:\s*(\d+)/);
+    expect(m).not.toBeNull();
+    expect(Number(m[1])).toBeGreaterThanOrEqual(60000);
+  });
+
+  test('presence/contribute 服务端收紧好友分页预算且客户端中断即止损', () => {
+    const s = srv('routes/groups_members_sync.js');
+    const i = s.indexOf("router.post('/group/presence/contribute'");
+    const body = s.slice(i, s.indexOf('\n  return router;', i));
+    // 分页上限必须收紧（≤5 页），避免最坏 2×20=40 页串行拉取拖爆 20s 客户端超时
+    expect(body).toMatch(/vrchatGetFriendsOnlineMap\(c,\s*\{\s*maxPages:\s*5\b/);
+    // 客户端中断（req.aborted / res.destroyed）时立即停止，不再消耗配额与 DB 写入
+    expect(body).toMatch(/req\.aborted\s*\|\|\s*res\.destroyed/);
+    expect(body).toMatch(/aborted\s*=\s*true/);
+    expect(body).toMatch(/result\.aborted/);
+  });
+
   test('同步按钮的恢复放在 finally，且重复点击会被挡住', () => {
     const i = groupJs.indexOf('async function syncGroupMembers');
     const body = groupJs.slice(i, groupJs.indexOf('\n}', i));

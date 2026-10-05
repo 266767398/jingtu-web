@@ -426,8 +426,12 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     const pool = getPool();
     try {
       const { cookie, result } = await vrcWithFallback(req, async (c) => {
-        // 取当前用户自己的好友在线列表（好友视角，状态最准确）
-        const friendMap = await vrchatGetFriendsOnlineMap(c, { maxPages: 20, delayMs: 0 });
+        // 取当前用户自己的好友在线列表（好友视角，状态最准确）。
+        // 分页预算收紧为 5 页（≤500 在线 + ≤500 离线好友）：贡献状态只服务于
+        // 本群成员（通常远小于此规模），不必拉全量好友——原 maxPages:20 最坏
+        // 2×20=40 页串行拉取，国内访问 api.vrchat.cloud 常超 20s 客户端超时
+        // 被 abort（net::ERR_ABORTED），服务端还白耗全局 40/min VRChat 配额。
+        const friendMap = await vrchatGetFriendsOnlineMap(c, { maxPages: 5, delayMs: 0 });
         if (!friendMap || friendMap.size === 0) return { shared: 0 };
         const [rows] = await pool.query(`SELECT vrchat_id FROM group_roster WHERE is_member=1`);
         const ids = rows.map(r => r.vrchat_id);
@@ -435,7 +439,15 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         const [u] = await pool.query(`SELECT vrchat_id FROM users WHERE id=?`, [req.session.userId]);
         const sourceVid = (u[0] && u[0].vrchat_id) ? u[0].vrchat_id : null;
         let shared = 0;
+        let aborted = false;
         for (const vid of ids) {
+          // 客户端已中断（前端超时 abort / 关页）：立即止损——不再消耗 VRChat 配额
+          // 与 DB 写入，让出令牌桶给 refresh/sync 等主链路（响应已无法送达，直接返回）
+          if (req.aborted || res.destroyed) {
+            aborted = true;
+            logger.warn('groups', 'presence/contribute 客户端已中断，提前停止贡献');
+            break;
+          }
           const f = friendMap.get(vid);
           if (!f) continue; // 只上报本群中"我的好友"
           await pool.query(
@@ -448,12 +460,14 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
           );
           shared++;
         }
-        return { shared };
+        return { shared, aborted };
       }, getVRCCookieFn, getUserVRCCookieFn);
       if (!cookie) {
         return fail(res, 401, 'VRChat 账号未绑定或已过期', { code: 'VRC_SYSTEM_OFFLINE' });
       }
       const shared = result && result.shared !== undefined ? result.shared : 0;
+      // 客户端已中断（超时 abort/关页）：响应无法送达，跳过写入直接结束
+      if (result && result.aborted) return;
       ok(res, { shared });
     } catch (e) {
       // P3-58：不再统一吞成 {shared:0, skipped:true}——区分「上游限流」「登录过期」

@@ -75,7 +75,10 @@ async function contributePresence() {
   try {
     // silent：presence 上报是后台副链路（仅已绑定 VRChat 的用户生效），
     // 失败（如上游维护/接口 5xx）不应打断用户的主流程，也不弹全局"服务器内部错误"。
-    await api('/api/group/presence/contribute', { method: 'POST', timeout: 20000, silent: true });
+    // timeout 60s：服务端需串行拉≤10 页好友列表（在线+离线各≤5 页），
+    // 且受全局 40/min 令牌桶约束可能排队；20s 太短会被 abort（net::ERR_ABORTED）
+    // 导致贡献永远静默失败——60s 在覆盖正常耗时与止损之间取平衡。
+    await api('/api/group/presence/contribute', { method: 'POST', timeout: 60000, silent: true });
   } catch (e) { /* 静默：仅在已绑定 VRChat 且在线时有效，失败不影响主流程 */ }
 }
 

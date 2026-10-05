@@ -648,7 +648,7 @@ describe('security regressions', () => {
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/theme.js?v=20261005a');
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/auth.js?v=20261005b');
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261005a', 'js/main.js?v=20261005b');
-      expect(files.indexHtml).toMatch(/loader\.js\?v=20261005d/);
+      expect(files.indexHtml).toMatch(/loader\.js\?v=20261005e/);
     });
 
     test('main.js 冻结时暂停刷新轮询与断开 WebSocket，解冻恢复；轮询带冻结守卫', () => {
