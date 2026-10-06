@@ -199,6 +199,16 @@ function sendBuffer(res, buf, contentType) {
   res.send(buf);
 }
 
+// 失败兜底统一返回 502 占位 SVG（而非 200）：让前端 <img> 能感知代理失败并触发 onerror，
+// 前端据此走「备选客户端直连」（见 public/js/ui.js __avatarFail 反解直连）。
+// no-store 防止浏览器缓存失败结果；502 语义 = 上游（VRChat CDN/镜像源）不可达。
+function sendPlaceholder(res) {
+  res.status(502);
+  res.set('Content-Type', 'image/svg+xml');
+  res.set('Cache-Control', 'no-store');
+  return res.send(DEFAULT_AVATAR_SVG);
+}
+
 // ============ 按 VRChat 用户 ID 解析头像（/api/avatar/user） ============
 // 背景：群成员列表同步时，非好友成员拿不到 user 对象（VRChat 群成员 API 的 user 字段为 null），
 //       头像字段为空。此前前端兜底 api.vrchat.com/api/1/users/{id}/image 已是一条死链
@@ -271,12 +281,12 @@ module.exports = function (authStateRef) {
     const hit = _userAvatarCache.get(uid);
     if (hit && (hit.ok ? (now - hit.ts < USER_AVATAR_OK_TTL_MS) : (now - hit.ts < USER_AVATAR_FAIL_TTL_MS))) {
       if (hit.ok) return res.redirect(302, '/api/avatar/proxy?u=' + encodeURIComponent(hit.url));
-      return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
+      return sendPlaceholder(res);
     }
     if (!authStateRef || !authStateRef.loggedIn || !authStateRef.cookie) {
       // 系统账号未登录时无法解析（/users/{id} 需鉴权），直接占位且不写失败缓存，
       // 待系统账号登录后自然恢复，也避免把"未登录"误判为"该用户无头像"。
-      return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
+      return sendPlaceholder(res);
     }
 
     // 2) 限速（仅对「回源解析」计费）：未命中缓存、真正要调 VRChat 用户 API 前才限速，
@@ -287,7 +297,7 @@ module.exports = function (authStateRef) {
     const clientIp = (isLoopbackPeer && req.headers['x-forwarded-for'])
       ? String(req.headers['x-forwarded-for']).split(',')[0].trim()
       : socketAddr;
-    if (userAvatarRateLimited(clientIp)) return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
+    if (userAvatarRateLimited(clientIp)) return sendPlaceholder(res);
 
     try {
       const url = await resolveUserAvatarUrl(authStateRef.cookie, uid);
@@ -296,10 +306,10 @@ module.exports = function (authStateRef) {
         return res.redirect(302, '/api/avatar/proxy?u=' + encodeURIComponent(url));
       }
       _userAvatarCache.set(uid, { url: '', ok: false, ts: now });
-      return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
+      return sendPlaceholder(res);
     } catch (e) {
       _userAvatarCache.set(uid, { url: '', ok: false, ts: now });
-      return sendBuffer(res, Buffer.from(DEFAULT_AVATAR_SVG), 'image/svg+xml');
+      return sendPlaceholder(res);
     }
   });
 
@@ -337,8 +347,9 @@ module.exports = function (authStateRef) {
       }
     } catch (e) { /* 缓存读失败则回源 */ }
 
-    // 3) 限速（仅对「回源」计费）：超限返回占位头像而非 429 JSON，
-    //    避免 <img> 裂图并刷满控制台；上游节流由 CDN 全局令牌桶兜底。
+    // 3) 限速（仅对「回源」计费）：超限返回 502 占位头像（而非 429 JSON 或 200 占位），
+    //    避免 <img> 裂图并刷满控制台，同时让前端能感知失败走客户端直连；
+    //    上游节流由 CDN 全局令牌桶兜底。
     // P3-119：仅当直连对端为回环（即经本机 nginx 反代）时才信任 x-forwarded-for，
     // 否则回退 socket 地址——客户端直接连时不采信可自造的 XFF，避免轮换桶绕过每 IP 限速。
     const socketAddr = (req.socket && req.socket.remoteAddress) || '';
@@ -346,11 +357,7 @@ module.exports = function (authStateRef) {
     const clientIp = (isLoopbackPeer && req.headers['x-forwarded-for'])
       ? String(req.headers['x-forwarded-for']).split(',')[0].trim()
       : socketAddr;
-    if (avatarRateLimited(clientIp)) {
-      res.set('Content-Type', 'image/svg+xml');
-      res.set('Cache-Control', 'no-store');
-      return res.send(DEFAULT_AVATAR_SVG);
-    }
+    if (avatarRateLimited(clientIp)) return sendPlaceholder(res);
 
     // 4) 回源：经 CDN 全局令牌桶限速 + 多源 failover（官方 CDN →/← 镜像池，熔断冷却跳过死源）
     try {
@@ -374,10 +381,9 @@ module.exports = function (authStateRef) {
           return sendBuffer(res, buf, ct);
         }
       } catch (e2) { /* ignore */ }
-      // 无缓存兜底：返回占位头像而非 502 JSON，避免 <img> 裂图
-      res.set('Content-Type', 'image/svg+xml');
-      res.set('Cache-Control', 'no-store');
-      return res.send(DEFAULT_AVATAR_SVG);
+      // 无缓存兜底：返回 502 占位头像（而非 200 占位），前端 <img> 感知失败后
+      // 走「备选客户端直连」重试（见 public/js/ui.js __avatarFail）
+      return sendPlaceholder(res);
     }
   });
 

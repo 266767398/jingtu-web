@@ -46,6 +46,7 @@ const files = {
   collectionsRoute: read('server', 'routes', 'collections.js'),
   profileRoute: read('server', 'routes', 'profile.js'),
   membersJs: read('public', 'js', 'members.js'),
+  uiJs: read('public', 'js', 'ui.js'),
   migrationPage: read('public', 'migration.html'),
   mainJs: read('public', 'js', 'main.js'),
   initJs: read('public', 'js', 'init.js'),
@@ -679,6 +680,55 @@ describe('security regressions', () => {
 
     test('server.js 挂载 avatar 路由时传入 authState（供 /api/avatar/user 使用系统会话）', () => {
       expect(files.server).toMatch(/require\('\.\/routes\/avatar'\)\(authState\)/);
+    });
+  });
+
+  // ==== 备选客户端直连（2026-10-06） ====
+  // 现象：代理失败返回 200 占位 SVG（no-store），<img> 的 onerror 永不触发 → 前端感知不到
+  // 代理失败，也就无法「客户端直连」备选；限速/回源超时/系统账号离线时头像静默变灰占位。
+  // 修复：失败路径统一改 502 占位（触发 onerror），ui.js __avatarFail 反解代理地址直连一次，
+  // 直连成功记入 __avatarDirectCache 供后续渲染直连优先（VRCX 同款）。
+  describe('备选客户端直连（代理失败→直连重试）', () => {
+    test('avatar.js 提供 sendPlaceholder：失败统一 502 + no-store 占位（不再 200）', () => {
+      expect(files.avatarRoute).toMatch(/function sendPlaceholder\(res\)/);
+      expect(files.avatarRoute).toMatch(/res\.status\(502\)/);
+      expect(files.avatarRoute).toMatch(/Cache-Control', 'no-store'/);
+    });
+
+    test('avatar.js /user 与 /proxy 全部失败兜底均走 sendPlaceholder', () => {
+      const hits = files.avatarRoute.match(/sendPlaceholder\(res\)/g) || [];
+      expect(hits.length).toBeGreaterThanOrEqual(6);
+      expect(files.avatarRoute).not.toMatch(/sendBuffer\(res, Buffer\.from\(DEFAULT_AVATAR_SVG\)/);
+    });
+
+    test('avatar.js 限速路径返回 502 占位（前端可感知失败触发 onerror）', () => {
+      expect(files.avatarRoute).toMatch(/if \(avatarRateLimited\(clientIp\)\) return sendPlaceholder\(res\);/);
+      expect(files.avatarRoute).toMatch(/if \(userAvatarRateLimited\(clientIp\)\) return sendPlaceholder\(res\);/);
+    });
+
+    test('ui.js 提供 avatarDirectOf 反解代理地址（仅 VRChat CDN 白名单主机）', () => {
+      expect(files.uiJs).toMatch(/function avatarDirectOf\(s\)/);
+      expect(files.uiJs).toContain('\\/api\\/avatar\\/proxy\\?u=([^&]+)');
+      expect(files.uiJs).toMatch(/VRC_CDN_HOST_RE\.test\(decoded\)/);
+      expect(files.uiJs).toMatch(/AVATAR_DIRECT_TTL_MS = 10 \* 60 \* 1000/);
+    });
+
+    test('ui.js __avatarFail：代理失败先客户端直连一次，onload 记直连记忆，onerror 落默认', () => {
+      expect(files.uiJs).toMatch(/img\.dataset\.avatarProxyKey = proxiedKey/);
+      expect(files.uiJs).toMatch(/img\.src = direct;/);
+      expect(files.uiJs).toMatch(/avatarDirectRemember\(proxiedKey, direct\)/);
+      expect(files.uiJs).toMatch(/img\.src = '\/api\/avatar\/default'/);
+    });
+
+    test('ui.js proxyAvatar：命中直连记忆时直接返回直连 URL（直连优先，VRCX 同款）', () => {
+      expect(files.uiJs).toMatch(/__avatarDirectCache\[proxied\]/);
+      expect(files.uiJs).toMatch(/hit\.u === url\) return url/);
+    });
+
+    test('ui.js 直连记忆有上限且失败时弃用（防内存膨胀 / 防死链持久化）', () => {
+      expect(files.uiJs).toMatch(/AVATAR_DIRECT_MAX = 300/);
+      expect(files.uiJs).toMatch(/function avatarDirectForget\(directUrl\)/);
+      expect(files.uiJs).toMatch(/delete window\.__avatarDirectCache\[img\.dataset\.avatarProxyKey\]/);
     });
   });
 
