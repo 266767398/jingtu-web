@@ -22,10 +22,13 @@ WORKDIR /app/server
 # P4：npm 源默认切 npmmirror（registry.npmjs.org 在国内 / 飞牛 NAS 拉包极慢）。
 # 构建时可用 --build-arg NPM_REGISTRY=https://registry.npmjs.org 换回官方源。
 # P4：用 npm install 而非 npm ci——lockfile 存在时同样按锁版本精确安装；
-# 对 Docker git 上下文偶发的「lockfile 未命中」更稳健（飞牛构建实测 npm ci 报 EUSAGE）。
+# 对 Docker git 上下文偶发的「lockfile 未命中」更稳健（此前飞牛构建报 EUSAGE/exit 254）。
 ARG NPM_REGISTRY=https://registry.npmmirror.com
+# 依赖清单必须在 npm install 之前到达，否则 /app/server 为空目录、
+# npm 报 ENOENT package.json 退出 254（飞牛构建实测根因，a88a03b 起保留此顺序）。
+COPY server/package*.json ./
 RUN npm install --omit=dev --no-audit --no-fund --registry=${NPM_REGISTRY}
-# 再拷贝源码（sharp 等包的 postinstall 已在 npm ci 阶段完成）
+# 再拷贝源码（sharp 等原生包的 postinstall 已在依赖安装阶段完成）
 COPY server/ ./
 
 # ---------- 阶段 2：运行 ----------
