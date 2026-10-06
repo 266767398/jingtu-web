@@ -424,7 +424,7 @@ router.get('/birthdays', requireAuth, async (req, res) => {
 router.get('/all/locations', requireAuth, async (req, res) => {
   try {
     const [rows] = await getPool().query(
-      `SELECT id, display_name, avatar_type, custom_avatar_path, vrchat_avatar_url,
+      `SELECT id, display_name, vrchat_id, avatar_type, custom_avatar_path, vrchat_avatar_url,
               location, lat, lng, location_updated_at
        FROM users
        WHERE location_visible = 1 AND lat IS NOT NULL AND lng IS NOT NULL AND deleted_at IS NULL`
@@ -435,6 +435,8 @@ router.get('/all/locations', requireAuth, async (req, res) => {
       // displayName 与全站命名保持一致；保留 name 兼容旧前端缓存
       displayName: u.display_name,
       name: u.display_name,
+      // vrchatId 供前端地图标记在 amlcdn/空头像时走 /api/avatar/user 按 VRChat ID 解析
+      vrchatId: u.vrchat_id || '',
       avatarUrl: getAvatarUrl(u),
       location: u.location,
       lat: parseFloat(u.lat),

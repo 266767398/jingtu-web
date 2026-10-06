@@ -4,7 +4,7 @@ const cookie = require('cookie');
 const signature = require('cookie-signature');
 const session = require('express-session');
 const { WebSocketServer } = require('ws');
-const { getPool } = require('./utils');
+const { getPool, proxyVrcAvatar } = require('./utils');
 const logger = require('./logger');
 
 // 加载 .env（ws_service 可能被独立引用，例如测试）
@@ -314,7 +314,7 @@ function setupWebSocket(server) {
             // WS-2: displayName/avatarUrl 必须以数据库为准——客户端声明的昵称/头像可被用来冒充他人。
             try {
               const [uvRows] = await getPool().query(
-                `SELECT online_visible, display_name, avatar_type, custom_avatar_path, vrchat_avatar_url
+                `SELECT online_visible, display_name, avatar_type, custom_avatar_path, vrchat_avatar_url, vrchat_id AS vrchatId
                  FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1`, [userId]);
               if (uvRows.length === 0) {
                 try { ws.close(1008, 'User not found'); } catch (e) {}
@@ -322,10 +322,13 @@ function setupWebSocket(server) {
               }
               const u = uvRows[0];
               const onlineVisible = u.online_visible !== 0;
-              const avatarUrl = u.custom_avatar_path || u.vrchat_avatar_url || '';
+              // WS 推送的头像必须走代理（/api/avatar/proxy），否则国内网络直连 VRChat CDN
+              // 被墙，前端在线名单/地图标记的头像只能落到默认占位
+              const avatarUrl = u.custom_avatar_path || proxyVrcAvatar(u.vrchat_avatar_url) || '';
               onlineUsers.set(userId, {
                 displayName: u.display_name || '',
                 avatarUrl,
+                vrchatId: u.vrchatId || '',
                 lastPing: Date.now(),
                 location: null,
                 onlineVisible
@@ -333,11 +336,12 @@ function setupWebSocket(server) {
             } catch (e) {
               logger && logger.warn('[ws]', '读取 online_visible 失败，按可见处理', { userId, err: (e && e.message) || '' });
               const [uvRows] = await getPool().query(
-                `SELECT display_name, custom_avatar_path, vrchat_avatar_url FROM users WHERE id = ? LIMIT 1`, [userId]);
+                `SELECT display_name, custom_avatar_path, vrchat_avatar_url, vrchat_id AS vrchatId FROM users WHERE id = ? LIMIT 1`, [userId]);
               const u = uvRows && uvRows[0] || {};
               onlineUsers.set(userId, {
                 displayName: u.display_name || '',
-                avatarUrl: u.custom_avatar_path || u.vrchat_avatar_url || '',
+                avatarUrl: u.custom_avatar_path || proxyVrcAvatar(u.vrchat_avatar_url) || '',
+                vrchatId: u.vrchatId || '',
                 lastPing: Date.now(),
                 location: null,
                 onlineVisible: true
@@ -570,6 +574,7 @@ async function handleLocationUpdate(userId, msg, ws) {
     userId,
     displayName: userInfo0?.displayName || '',
     avatarUrl: userInfo0?.avatarUrl || '',
+    vrchatId: userInfo0?.vrchatId || '',
     lat,
     lng,
     accuracy: msg.accuracy || null,
@@ -1030,6 +1035,7 @@ function broadcastOnlineUsers() {
       userId: id,
       displayName: info.displayName,
       avatarUrl: info.avatarUrl,
+      vrchatId: info.vrchatId || '',
       hasLocation: !!info.location
     }));
   

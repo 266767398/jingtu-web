@@ -390,13 +390,25 @@ function showOnlineUsers() {
     // userId 含 ' 即可逃逸字符串字面量注入任意代码 → XSS。改用 escJsStr 包裹单引号字符串，
     // 转义后即使被 HTML 实体解码也仍是合法 JS 字符串字面量，无法逃逸。
     const userId = `'${escJsStr(String(u.userId))}'`;
-    const avatarSrc = u.avatarUrl ? escAttr(u.avatarUrl) : '/api/avatar/default';
+    // 与成员页同一套头像链：WS 推来的 avatarUrl 已由服务端代理改写；
+    // amlcdn 历史缩略图（国内 TLS 阻断）或空值时改走 /api/avatar/user 按 VRChat ID 解析
+    const rawAv = u.avatarUrl || '';
+    const vrcUid = u.vrchatId || '';
+    let avatarSrc = '/api/avatar/default';
+    if (/^https?:\/\/[^/]*assets\.amlcdn\.com\//i.test(rawAv) && vrcUid) {
+      avatarSrc = '/api/avatar/user?u=' + encodeURIComponent(vrcUid);
+    } else if (rawAv) {
+      avatarSrc = rawAv;
+    } else if (vrcUid) {
+      avatarSrc = '/api/avatar/user?u=' + encodeURIComponent(vrcUid);
+    }
+    avatarSrc = escAttr(avatarSrc);
     const displayName = esc(u.displayName || __('main.unknown_user'));
     const isMe = u.userId === currentUser?.id;
     const clickHandler = !isMe ? `goToProfile(${userId})` : '';
     return `
     <div class="online-user-popup-item" style="${!isMe ? 'cursor:pointer' : ''}" onclick="${clickHandler ? `goToProfile(${userId})` : ''}">
-      <img src="${avatarSrc}" class="online-user-popup-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(u.avatarUrl || '/api/avatar/default')}')">
+      <img src="${avatarSrc}" class="online-user-popup-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(avatarSrc)}')">
       <span class="online-user-popup-name">${displayName}</span>
       ${isMe ? '<span class="text-muted2 text-11">' + __('main.me') + '</span>' : ''}
       <span class="online-user-popup-dot" title="${__('main.online')}" aria-label="${__('main.online')}"></span>

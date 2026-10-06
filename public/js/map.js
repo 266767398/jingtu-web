@@ -382,7 +382,8 @@ function upsertLocationMarker(userData) {
   }
 
   const proxied = proxyAvatar(userData.avatarUrl || '');
-  const avatarSrc = escAttr(mapAvatarSrc(userData.avatarUrl, uid));
+  // 地图标记的 /api/avatar/user 兜底必须用 VRChat ID（usr_ 前缀），站内数字 ID 会被 400 拒绝
+  const avatarSrc = escAttr(mapAvatarSrc(userData.avatarUrl, userData.vrchatId || ''));
   const borderColor = isMe ? 'var(--accent)' : 'var(--info)';
   const size = isMe ? 40 : 32;
 
@@ -416,7 +417,7 @@ function upsertLocationMarker(userData) {
 function getMarkerPopup(u) {
   const isMe = currentUser && (String(u.id) === String(currentUser.id));
   const proxied = proxyAvatar(u.avatarUrl || '');
-  const avatarSrc = escAttr(mapAvatarSrc(u.avatarUrl, u.id));
+  const avatarSrc = escAttr(mapAvatarSrc(u.avatarUrl, u.vrchatId || ''));
   const borderColor = isMe ? 'var(--accent)' : 'var(--info)';
   const timeStr = u.locationUpdatedAt
     ? new Date(u.locationUpdatedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
