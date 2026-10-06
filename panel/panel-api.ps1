@@ -18,8 +18,85 @@ $AuditLog   = Join-Path $LogsDir "panel-audit.log"
 $ConfigFile = Join-Path $ProjectRoot "panel-config.json"
 foreach ($d in @($BackupDir, $LogsDir)) { if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null } }
 
+# 探测 MySQL/Nginx 实际安装路径（复用 jingtu.ps1 Resolve-* 思路）——
+# 优先级：环境变量覆盖 → jingtu.config.json → phpStudy 常见安装位置递归查找。
+# panel-config.json 里的绝对路径换机/换 phpStudy 版本即失效，这里在可执行文件不存在时自动修正。
+$PhpStudyCandidates = @(
+    'D:\phpstudy_pro',
+    'C:\phpstudy_pro',
+    'E:\phpstudy_pro',
+    'D:\BtSoft',
+    'D:\phpStudy',
+    (Join-Path $env:USERPROFILE 'phpstudy_pro')
+)
+function Read-ToolPaths {
+    $cfg = @{ mysql = @{ bin = $null; conf = $null }; nginx = @{ bin = $null; conf = $null } }
+    $tool = Join-Path $ProjectRoot 'jingtu.config.json'
+    if (Test-Path $tool) {
+        try {
+            $raw = Get-Content -Raw -Encoding UTF8 $tool | ConvertFrom-Json
+            if ($raw.mysql.bin)  { $cfg.mysql.bin  = [string]$raw.mysql.bin }
+            if ($raw.mysql.conf) { $cfg.mysql.conf = [string]$raw.mysql.conf }
+            if ($raw.nginx.bin)  { $cfg.nginx.bin  = [string]$raw.nginx.bin }
+            if ($raw.nginx.conf) { $cfg.nginx.conf = [string]$raw.nginx.conf }
+        } catch {}
+    }
+    if ($env:JINGTU_MYSQL_BIN)  { $cfg.mysql.bin  = $env:JINGTU_MYSQL_BIN }
+    if ($env:JINGTU_MYSQL_CONF) { $cfg.mysql.conf = $env:JINGTU_MYSQL_CONF }
+    if ($env:JINGTU_NGINX_BIN)  { $cfg.nginx.bin  = $env:JINGTU_NGINX_BIN }
+    if ($env:JINGTU_NGINX_CONF) { $cfg.nginx.conf = $env:JINGTU_NGINX_CONF }
+    return $cfg
+}
+function Resolve-MySql {
+    $t = Read-ToolPaths
+    if ($t.mysql.bin -and (Test-Path $t.mysql.bin)) {
+        return [ordered]@{ exe = $t.mysql.bin; args = if ($t.mysql.conf) { "--defaults-file=$($t.mysql.conf)" } else { "" }; cwd = Split-Path $t.mysql.bin }
+    }
+    foreach ($base in $PhpStudyCandidates) {
+        if (-not (Test-Path $base)) { continue }
+        $bins = Get-ChildItem -Path $base -Recurse -Filter 'mysqld.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($bins) {
+            $bin = $bins.FullName
+            $ini = Get-ChildItem -Path (Split-Path $bin) -Filter 'my.ini' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $ini) { $ini = Get-ChildItem -Path (Split-Path (Split-Path $bin)) -Filter 'my.ini' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
+            return [ordered]@{ exe = $bin; args = if ($ini) { "--defaults-file=$($ini.FullName)" } else { "" }; cwd = Split-Path $bin }
+        }
+    }
+    return $null
+}
+function Resolve-Nginx {
+    $t = Read-ToolPaths
+    if ($t.nginx.bin -and (Test-Path $t.nginx.bin)) {
+        return [ordered]@{ exe = $t.nginx.bin; args = if ($t.nginx.conf) { "-c `"$($t.nginx.conf)`"" } else { "" }; cwd = Split-Path $t.nginx.bin }
+    }
+    foreach ($base in $PhpStudyCandidates) {
+        if (-not (Test-Path $base)) { continue }
+        $bins = Get-ChildItem -Path $base -Recurse -Filter 'nginx.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($bins) {
+            $bin = $bins.FullName
+            $dir = Split-Path $bin
+            $conf = Get-ChildItem -Path $dir -Filter 'nginx.conf' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $conf) { $conf = Get-ChildItem -Path (Split-Path $dir) -Filter 'nginx.conf' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
+            return [ordered]@{ exe = $bin; args = if ($conf) { "-c `"$($conf.FullName)`"" } else { "" }; cwd = $dir }
+        }
+    }
+    return $null
+}
+function Fix-ServicePaths($cfg) {
+    foreach ($svc in @($cfg.services)) {
+        if ($svc.name -eq 'MySQL' -and $svc.start.exe -and -not (Test-Path $svc.start.exe)) {
+            $r = Resolve-MySql
+            if ($r) { $svc.start.exe = $r.exe; if ($r.args) { $svc.start.args = $r.args }; $svc.start.cwd = $r.cwd }
+        } elseif ($svc.name -eq 'Nginx' -and $svc.start.exe -and -not (Test-Path $svc.start.exe)) {
+            $r = Resolve-Nginx
+            if ($r) { $svc.start.exe = $r.exe; if ($r.args) { $svc.start.args = $r.args }; $svc.start.cwd = $r.cwd }
+        }
+    }
+    return $cfg
+}
+
 function Load-Config {
-    if (Test-Path $ConfigFile) { try { return Get-Content -Raw -Encoding UTF8 $ConfigFile | ConvertFrom-Json } catch {} }
+    if (Test-Path $ConfigFile) { try { return Fix-ServicePaths (Get-Content -Raw -Encoding UTF8 $ConfigFile | ConvertFrom-Json) } catch {} }
     $cfg = [ordered]@{
         businessService = "NodeServer"; dataDir = "uploads"
         backupRetention = 10; configBackupRetention = 5; diskWarnGB = 1.0
@@ -31,7 +108,7 @@ function Load-Config {
             [ordered]@{ name = "NodeServer"; port = 3456; start = [ordered]@{ exe = "node"; args = "server.js"; cwd = "server" } }
         )
     }
-    return ($cfg | ConvertTo-Json -Depth 8 | ConvertFrom-Json)
+    return Fix-ServicePaths ($cfg | ConvertTo-Json -Depth 8 | ConvertFrom-Json)
 }
 $Config = Load-Config
 

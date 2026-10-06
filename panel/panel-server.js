@@ -108,18 +108,65 @@ function checkToken(token) {
 function doLogout(token) { sessions.delete(token); }
 
 /* ---------- 初始化向导：环境探测（只读） ---------- */
+// 探测 phpStudy 常见安装位置（复用 jingtu.ps1 Resolve-* 思路）——
+// panel-config.json 里的 MySQL/Nginx 绝对路径换机即失效，可执行文件不存在时自动补查。
+const PHP_STUDY_BASES = [
+  'D:\\phpstudy_pro', 'C:\\phpstudy_pro', 'E:\\phpstudy_pro',
+  'D:\\BtSoft', 'D:\\phpStudy', path.join(process.env.USERPROFILE || '', 'phpstudy_pro')
+];
+function resolveToolBin(kind) {
+  if (kind !== 'mysql' && kind !== 'nginx') return null;
+  const envVar = kind === 'mysql' ? process.env.JINGTU_MYSQL_BIN : process.env.JINGTU_NGINX_BIN;
+  if (envVar && fs.existsSync(envVar)) return envVar;
+  try {
+    const tool = JSON.parse(fs.readFileSync(path.join(ROOT, 'jingtu.config.json'), 'utf8').replace(/^\uFEFF/, ''));
+    const b = tool && tool[kind] && tool[kind].bin;
+    if (b && fs.existsSync(b)) return b;
+  } catch (e) {}
+  return null;
+}
+function probePhpStudy(exeFile, confRels) {
+  for (const base of PHP_STUDY_BASES) {
+    if (!fs.existsSync(base)) continue;
+    try {
+      const extDir = path.join(base, 'Extensions');
+      if (!fs.existsSync(extDir)) continue;
+      for (const sub of fs.readdirSync(extDir)) {
+        const bin = path.join(extDir, sub, 'bin', exeFile);
+        if (!fs.existsSync(bin)) continue;
+        let conf = null;
+        for (const rel of confRels) {
+          const p = path.join(extDir, sub, rel);
+          if (fs.existsSync(p)) { conf = p; break; }
+        }
+        return { exe: bin, conf, cwd: path.join(extDir, sub) };
+      }
+    } catch (e) {}
+  }
+  return null;
+}
 function envProbe() {
   const checks = [];
   let cfg = null;
   try { cfg = JSON.parse(fs.readFileSync(path.join(ROOT, 'panel-config.json'), 'utf8').replace(/^\uFEFF/, '')); } catch (e) { cfg = null; }
   const services = (cfg && Array.isArray(cfg.services)) ? cfg.services : [];
   for (const s of services) {
-    const exe = (s.start && s.start.exe) || '';
+    let exe = (s.start && s.start.exe) || '';
     let ok = false;
     if (exe === 'node') {
       try { ok = spawnSync('node', ['--version'], { timeout: 8000 }).status === 0; } catch (e) { ok = false; }
     } else if (exe) {
       ok = fs.existsSync(exe);
+      if (!ok) {
+        const toolBin = resolveToolBin(s.name === 'MySQL' ? 'mysql' : s.name === 'Nginx' ? 'nginx' : '');
+        if (toolBin) { exe = toolBin; ok = true; }
+        else {
+          const probe = s.name === 'MySQL'
+            ? probePhpStudy('mysqld.exe', ['my.ini'])
+            : s.name === 'Nginx' ? probePhpStudy('nginx.exe', ['conf\\nginx.conf', 'nginx.conf']) : null;
+          if (probe) { exe = probe.exe; ok = true; }
+        }
+      }
     }
     checks.push({ name: s.name, port: s.port, exe: exe || '', ok });
   }
@@ -349,6 +396,8 @@ let _bcrypt = null;
 try { _bcrypt = require(path.join(ROOT, 'server', 'node_modules', 'bcryptjs')); } catch (e) { _bcrypt = null; }
 let _actCodes = null;
 try { _actCodes = require(path.join(ROOT, 'server', 'activation_code_service')); } catch (e) { _actCodes = null; }
+let _userDataHelper = null;
+try { _userDataHelper = require(path.join(ROOT, 'server', 'routes', 'user-data-helper')); } catch (e) { _userDataHelper = null; }
 
 /* 面板操作审计：与 panel-api.ps1 的 Write-Audit 同格式，写入 logs/panel-audit.log */
 // P3-24①：日志按大小/日期轮转——panel-audit.log 原无限 append，长期运行单文件无界增长
@@ -432,147 +481,12 @@ function maskSecret(v) {
   return String(v).slice(0, 2) + '****' + String(v).slice(-2);
 }
 
-/* ---------- 按用户数据导出/导入（复用主站 F-4 数据结构） ---------- */
-function safeParseJson(v) {
-  if (v == null || v === '') return v;
-  if (typeof v === 'object') return v;
-  try { return JSON.parse(v); } catch (_) { return v; }
-}
-async function resolveUserIdByVrcId(vrcId) {
-  if (!vrcId) return 0;
-  const rows = await dbQuery('SELECT id FROM users WHERE vrchat_id = ? AND deleted_at IS NULL LIMIT 1', [vrcId]);
-  return rows.length ? rows[0].id : 0;
-}
-async function collectUserDataPanel(userId) {
-  const userRows = await dbQuery(
-    'SELECT id, login_id, display_name, vrchat_id, vrchat_name, email, avatar_type, custom_avatar_path, vrchat_avatar_url, birthday, location, lat, lng, location_visible, vrchat_status, vrchat_verified, vrchat_connected_at FROM users WHERE id = ? AND deleted_at IS NULL',
-    [userId]
-  );
-  if (!userRows.length) return null;
-  const u = userRows[0];
-  const tags = await dbQuery('SELECT tag_name, color, create_time FROM user_tags WHERE user_id = ? ORDER BY id ASC', [userId]);
-  const notes = await dbQuery(
-    'SELECT mn.note_text, mn.note_color, mn.note_tags, mn.update_time, us.vrchat_id AS target_vrcid FROM member_note mn LEFT JOIN users us ON us.id = mn.target_id WHERE mn.owner_id = ? ORDER BY mn.id ASC',
-    [userId]
-  );
-  const friends = await dbQuery(
-    `SELECT uf.friend_id, uf.status, uf.requested_by, uf.created_at, us.vrchat_id AS friend_vrchat_id, us.vrchat_name AS friend_vrchat_name, us.display_name AS friend_display_name
-     FROM user_friends uf LEFT JOIN users us ON us.id = uf.friend_id WHERE uf.user_id = ? ORDER BY uf.id ASC`,
-    [userId]
-  );
-  const follows = await dbQuery(
-    `SELECT f.following_id, f.created_at, us.vrchat_id AS following_vrchat_id, us.vrchat_name AS following_vrchat_name, us.display_name AS following_display_name
-     FROM user_follows f LEFT JOIN users us ON us.id = f.following_id WHERE f.follower_id = ? ORDER BY f.id ASC`,
-    [userId]
-  );
-  const worldFavs = await dbQuery('SELECT world_id, world_name, image_url, is_recommended, recommended_by, created_at FROM world_favorites WHERE user_id = ? ORDER BY id ASC', [userId]);
-  const avatarFavs = await dbQuery('SELECT avatar_id, avatar_name, image_url, is_recommended, recommended_by, created_at FROM avatar_favorites WHERE user_id = ? ORDER BY id ASC', [userId]);
-  const folders = await dbQuery('SELECT name, sort_order, created_at FROM collection_folders WHERE user_id = ? ORDER BY sort_order ASC, id ASC', [userId]);
-  const collections = await dbQuery(
-    `SELECT kind, target_id, name, author, author_id, thumbnail, description, world_type, platform, load_type, size_bytes, size_category, category, content_rating, tags, status, invalid_reason, last_checked_at, invalid_at, unity_version, asset_url, unity_package_url, booth_url, favorite_count, collector_count, rating_avg, rating_count, heat, visibility, show_author, is_recommended, recommended_by, folder_id, notes, created_at_vrc, created_at, updated_at
-     FROM collections WHERE user_id = ? ORDER BY id ASC`,
-    [userId]
-  );
-  const profile = await dbQuery('SELECT motto, bio, cover_image, location, website, social_links, privacy_settings FROM user_profile WHERE user_id = ?', [userId]);
-  return {
-    meta: {
-      exported_at: new Date().toISOString(),
-      version: 1,
-      user: { id: u.id, login_id: u.login_id, display_name: u.display_name, vrchat_id: u.vrchat_id, vrchat_name: u.vrchat_name, email: u.email, birthday: u.birthday, location: u.location, lat: u.lat, lng: u.lng }
-    },
-    tags: tags.map(t => ({ name: t.tag_name, color: t.color, createdAt: t.create_time })),
-    notes: notes.map(n => ({ targetVrcId: n.target_vrcid, text: n.note_text, color: n.note_color, tags: n.note_tags, updatedAt: n.update_time })),
-    friends: friends.map(f => ({ userId: f.friend_id, vrchatId: f.friend_vrchat_id, vrchatName: f.friend_vrchat_name, displayName: f.friend_display_name, status: f.status, requestedBy: f.requested_by, createdAt: f.created_at })),
-    follows: follows.map(f => ({ userId: f.following_id, vrchatId: f.following_vrchat_id, vrchatName: f.following_vrchat_name, displayName: f.following_display_name, createdAt: f.created_at })),
-    worldFavorites: worldFavs,
-    avatarFavorites: avatarFavs,
-    folders: folders,
-    collections: collections.map(c => ({ ...c, tags: safeParseJson(c.tags) })),
-    profile: profile.length ? { ...profile[0], socialLinks: safeParseJson(profile[0].social_links), privacySettings: safeParseJson(profile[0].privacy_settings) } : null
-  };
-}
-async function importUserDataPanel(userId, body) {
-  const userRows = await dbQuery('SELECT vrchat_id FROM users WHERE id = ? AND deleted_at IS NULL', [userId]);
-  if (!userRows.length) { const e = new Error('用户不存在'); e.statusCode = 404; throw e; }
-  const vrcId = userRows[0].vrchat_id || '';
-  const imported = { tags: 0, notes: 0, follows: 0, worldFavorites: 0, avatarFavorites: 0, folders: 0, collections: 0 };
-  if (Array.isArray(body.tags)) {
-    for (const t of body.tags) {
-      const name = String(t.name || '').trim().slice(0, 50);
-      const color = String(t.color || '').slice(0, 20);
-      if (!name) continue;
-      await dbQuery('INSERT INTO user_tags (user_id, tag_name, color) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE color = VALUES(color)', [userId, name, color]);
-      imported.tags++;
-    }
-  }
-  if (Array.isArray(body.notes) && vrcId) {
-    for (const n of body.notes) {
-      const target = String(n.targetVrcId || '').trim().slice(0, 100);
-      if (!target) continue;
-      const targetUserId = await resolveUserIdByVrcId(target);
-      if (!targetUserId) continue;
-      await dbQuery('INSERT INTO member_note (owner_id, target_id, note_text, note_color, note_tags) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE note_text = VALUES(note_text), note_color = VALUES(note_color), note_tags = VALUES(note_tags)',
-        [userId, targetUserId, n.text == null ? null : String(n.text).slice(0, 200), n.color == null ? null : String(n.color).slice(0, 16), n.tags == null ? null : String(n.tags).slice(0, 255)]);
-      imported.notes++;
-    }
-  }
-  if (Array.isArray(body.follows)) {
-    for (const f of body.follows) {
-      const followingId = parseInt(f.userId) || (f.vrchatId ? await resolveUserIdByVrcId(f.vrchatId) : 0);
-      if (!followingId || followingId === userId) continue;
-      await dbQuery('INSERT IGNORE INTO user_follows (follower_id, following_id) VALUES (?, ?)', [userId, followingId]);
-      imported.follows++;
-    }
-  }
-  if (Array.isArray(body.worldFavorites)) {
-    for (const w of body.worldFavorites) {
-      const wid = String(w.world_id || '').trim().slice(0, 100);
-      if (!wid) continue;
-      await dbQuery('INSERT INTO world_favorites (user_id, world_id, world_name, image_url) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE world_name = VALUES(world_name), image_url = VALUES(image_url)',
-        [userId, wid, String(w.world_name || '').slice(0, 255), String(w.image_url || '').slice(0, 500)]);
-      imported.worldFavorites++;
-    }
-  }
-  if (Array.isArray(body.avatarFavorites)) {
-    for (const a of body.avatarFavorites) {
-      const aid = String(a.avatar_id || '').trim().slice(0, 100);
-      if (!aid) continue;
-      await dbQuery('INSERT INTO avatar_favorites (user_id, avatar_id, avatar_name, image_url) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE avatar_name = VALUES(avatar_name), image_url = VALUES(image_url)',
-        [userId, aid, String(a.avatar_name || '').slice(0, 255), String(a.image_url || '').slice(0, 500)]);
-      imported.avatarFavorites++;
-    }
-  }
-  if (Array.isArray(body.folders)) {
-    for (const fd of body.folders) {
-      const name = String(fd.name || '').trim().slice(0, 100);
-      if (!name) continue;
-      await dbQuery('INSERT INTO collection_folders (user_id, name, sort_order) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE sort_order = VALUES(sort_order)', [userId, name, parseInt(fd.sort_order) || 0]);
-      imported.folders++;
-    }
-  }
-  if (Array.isArray(body.collections)) {
-    for (const c of body.collections) {
-      const kind = ['avatar_model', 'world', 'avatar_favorite'].includes(c.kind) ? c.kind : null;
-      const targetId = String(c.target_id || '').trim().slice(0, 100);
-      if (!kind || !targetId) continue;
-      const tagsJson = JSON.stringify(Array.isArray(c.tags) ? c.tags : []);
-      await dbQuery(
-        `INSERT INTO collections (user_id, kind, target_id, name, author, author_id, thumbnail, description, world_type, platform, load_type, size_bytes, size_category, category, content_rating, tags, status, invalid_reason, unity_version, asset_url, unity_package_url, booth_url, visibility, show_author, folder_id, notes, created_at_vrc)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE name = VALUES(name), author = VALUES(author), thumbnail = VALUES(thumbnail), description = VALUES(description), tags = VALUES(tags)`,
-        [userId, kind, targetId, String(c.name || '').slice(0, 255), String(c.author || '').slice(0, 255), String(c.author_id || '').slice(0, 64),
-          String(c.thumbnail || '').slice(0, 1024), c.description == null ? null : String(c.description).slice(0, 65535), String(c.world_type || '').slice(0, 32),
-          String(c.platform || '').slice(0, 32), String(c.load_type || '').slice(0, 32), parseInt(c.size_bytes) || 0, String(c.size_category || '').slice(0, 16),
-          c.category === 'functional' ? 'functional' : 'white', c.content_rating === '18+' ? '18+' : 'all', tagsJson,
-          ['unknown', 'valid', 'invalid'].includes(c.status) ? c.status : 'unknown', String(c.invalid_reason || '').slice(0, 255),
-          String(c.unity_version || '').slice(0, 64), String(c.asset_url || '').slice(0, 1024), String(c.unity_package_url || '').slice(0, 1024),
-          String(c.booth_url || '').slice(0, 1024), c.visibility === 'public' ? 'public' : 'private', c.show_author ? 1 : 0, parseInt(c.folder_id) || null,
-          c.notes == null ? null : String(c.notes).slice(0, 65535), c.created_at_vrc || null]);
-      imported.collections++;
-    }
-  }
-  return imported;
-}
+/* ---------- 按用户数据导出/导入 ----------
+ * 复用主站 server/routes/user-data-helper.js（users.js 自助导出/导入、admin.js 管理
+ * 备份还原同源），不再本地维护第二份实现——避免 SQL/字段口径漂移（曾因 member_note
+ * owner_vrcid→owner_id 迁移不同步造成面板导出/导入失败）。导出 collectUserData、
+ * 导入 importUserData（返回 { imported } 计数对象）见 _userDataHelper。
+ */
 
 /* ---------- 路由 ---------- */
 async function handleApi(req, res, token) {
@@ -1068,7 +982,8 @@ async function handleApi(req, res, token) {
     try {
       const id = parseInt(getQuery(req).get('id') || '', 10);
       if (!id) return sendErr(res, 400, '缺少用户 ID');
-      const data = await collectUserDataPanel(id);
+      if (!_userDataHelper) return sendErr(res, 500, '用户数据服务不可用');
+      const data = await _userDataHelper.collectUserData(id);
       if (!data) return sendErr(res, 404, '用户不存在');
       const json = JSON.stringify(data, null, 2);
       const filename = 'user_' + id + '_backup_' + new Date().toISOString().slice(0, 10) + '.json';
@@ -1087,7 +1002,8 @@ async function handleApi(req, res, token) {
       if (!id) return sendErr(res, 400, '缺少用户 ID');
       const data = body.data;
       if (!data || typeof data !== 'object') return sendErr(res, 400, '缺少备份数据');
-      const imported = await importUserDataPanel(id, data);
+      if (!_userDataHelper) return sendErr(res, 500, '用户数据服务不可用');
+      const { imported } = await _userDataHelper.importUserData(id, data);
       auditPanel('导入站内用户数据 #' + id);
       return sendJson(res, 200, { ok: true, success: true, imported });
     } catch (e) { auditPanel('导入站内用户数据失败 #' + id + '：' + e.message); return sendErr(res, e.statusCode || 500, '导入失败，详情见面板审计日志'); }
@@ -1096,10 +1012,11 @@ async function handleApi(req, res, token) {
     try {
       const ids = (Array.isArray(body.ids) ? body.ids : []).map(Number).filter(Boolean);
       if (!ids.length) return sendErr(res, 400, '缺少用户 ID 列表');
+      if (!_userDataHelper) return sendErr(res, 500, '用户数据服务不可用');
       const users = {};
       const skipped = [];
       for (const id of ids) {
-        const data = await collectUserDataPanel(id);
+        const data = await _userDataHelper.collectUserData(id);
         if (data) users[id] = data; else skipped.push(id);
       }
       const payload = { exported_at: new Date().toISOString(), version: 1, users, skipped };
@@ -1118,13 +1035,14 @@ async function handleApi(req, res, token) {
     try {
       const source = body.users || (body && !Array.isArray(body) && body.meta && body.user ? { [body.user.id]: body } : null);
       if (!source || typeof source !== 'object') return sendErr(res, 400, '缺少备份数据');
+      if (!_userDataHelper) return sendErr(res, 500, '用户数据服务不可用');
       const imported = [];
       const failed = {};
       for (const key of Object.keys(source)) {
         const id = parseInt(key, 10);
         if (!id) continue;
         try {
-          const counts = await importUserDataPanel(id, source[key]);
+          const { imported: counts } = await _userDataHelper.importUserData(id, source[key]);
           imported.push({ userId: id, imported: counts });
         } catch (err) { failed[id] = err.message; }
       }
