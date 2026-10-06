@@ -37,6 +37,8 @@ services:
     image: mysql:8.0
     container_name: jingtu-db
     restart: unless-stopped
+    # MySQL 8 关闭需冲刷 InnoDB 缓冲（大库可能超默认 10s）；给足宽限避免被 SIGKILL
+    stop_grace_period: 30s
     environment:
       MYSQL_ROOT_PASSWORD: ${JINGTU_DB_ROOT_PASSWORD:?请在 .env 中设置 JINGTU_DB_ROOT_PASSWORD（勿用占位默认）}
       MYSQL_DATABASE: ${JINGTU_DB_NAME:-jingtu_group}
@@ -69,6 +71,8 @@ services:
     image: jingtu-web:latest
     container_name: jingtu-web
     restart: unless-stopped
+    # 优雅关闭含 HTTP 排空(≤5s)+连接池/Redis 释放，默认 10s 可能被 SIGKILL(退出码137)
+    stop_grace_period: 30s
     depends_on:
       db:
         condition: service_healthy

@@ -67,7 +67,10 @@ const files = {
   themeJs: read('public', 'js', 'theme.js'),
   homeJs: read('public', 'js', 'home.js'),
   chatJs: read('public', 'js', 'chat.js'),
-  zhLang: read('public', 'js', 'languages', 'zh.js')
+  zhLang: read('public', 'js', 'languages', 'zh.js'),
+  db: read('server', 'db.js'),
+  compose: read('docker-compose.yml'),
+  composeFnos: read('docker-compose.fnos.yml')
 };
 
 function sliceBetween(source, startNeedle, endNeedle) {
@@ -676,6 +679,43 @@ describe('security regressions', () => {
 
     test('server.js 挂载 avatar 路由时传入 authState（供 /api/avatar/user 使用系统会话）', () => {
       expect(files.server).toMatch(/require\('\.\/routes\/avatar'\)\(authState\)/);
+    });
+  });
+
+  // ==== 数据库关闭/优雅关闭链路（2026-10-06） ====
+  // 现象：docker stop / 关库瞬间 MySQL 正常关库，但应用侧「任务打到已关的连接池」报
+  // ECONNREFUSED / Pool is closed + 部分 500，MySQL 还可能在默认 10s 宽限内未冲刷完
+  // InnoDB 被 SIGKILL（容器退出码 137）。修复：关闭顺序重排（先停任务再关池）、
+  // DB 心跳加关闭开关、HTTP 排空上限 5s、compose 增 stop_grace_period。
+  describe('数据库关闭/优雅关闭链路回归', () => {
+    test('server.js 优雅关闭：先停定时任务再关连接池（旧顺序会报 Pool is closed）', () => {
+      expect(files.server).toMatch(/dbMod\.setDbShuttingDown\(true\)/);
+      expect(files.server).toMatch(/_isShuttingDown = true;/);
+      expect(files.server).toMatch(/if \(_isShuttingDown\) return; \/\/ 关闭途中偶发异常不打断 exit\(0\)/);
+      expect(files.server).toMatch(/if \(_isShuttingDown\) \{[\s\S]*?关闭期间连接类错误，忽略等待优雅退出/);
+      expect(files.server).toMatch(/tasks\.stopTasks\(\)/);
+      expectBefore(files.server, 'startSchedule.gracefulShutdown()', 'await pool.end()');
+      expectBefore(files.server, 'tasks.stopTasks()', 'await pool.end()');
+    });
+
+    test('server.js 优雅关闭：排空在途 HTTP 请求（≤5s）再关连接池', () => {
+      expect(files.server).toMatch(/server\.close\(\(\) => \{ clearTimeout\(force\); resolve\(\); \}\)/);
+      expectBefore(files.server, 'server.close', 'await pool.end()');
+      expect(files.server).toMatch(/process\.exit\(0\)/);
+    });
+
+    test('db.js 心跳置位关闭开关后不再试探/重建连接池', () => {
+      expect(files.db).toMatch(/setDbShuttingDown\(v\)/);
+      expect(files.db).toMatch(/if \(_dbShuttingDown \|\| !holder\.pool\) return;/);
+      expect(files.db).toMatch(/function recreatePool\(\) \{[\s\S]*?if \(_dbShuttingDown\) return;/);
+      expect(files.db).toMatch(/setDbShuttingDown,/);
+    });
+
+    test('docker-compose 给 db/app 增加 stop_grace_period，避免关库被 SIGKILL', () => {
+      const hits = (files.compose.match(/stop_grace_period: 30s/g) || []).length;
+      const hitsFnos = (files.composeFnos.match(/stop_grace_period: 30s/g) || []).length;
+      expect(hits).toBeGreaterThanOrEqual(2);
+      expect(hitsFnos).toBeGreaterThanOrEqual(2);
     });
   });
 

@@ -793,18 +793,53 @@ notificationService.setWSReferences(null, wsService.userWsMap);
 securityAlert.setNotificationService(notificationService);
 
 // ==================== 优雅关闭（防止句柄泄漏） ====================
+// 关闭顺序设计（此前 pool.end() 先于取消定时任务 + server.close 不排空，关库瞬间
+// 会出现「任务打到已关的连接池 → ECONNREFUSED / Pool is closed 报错日志 + 部分 500」）：
+//   ① 置位 DB 关闭开关（心跳不再重建连接池） → ② 停 Cron 与 node-schedule 定时任务
+//   → ③ 停 CSRF 清理/WS → ④ 排空在途 HTTP 请求（最多等 5s，长连接/流式响应拖住则强放）
+//   → ⑤ 关 MySQL 连接池 → ⑥ 关 Redis → ⑦ 退出。
 async function gracefulShutdown(signal) {
   logger.info('[shutdown]', `收到 ${signal} 信号，开始优雅关闭...`);
 
-  server.close(() => {
-    logger.info('[shutdown]', 'HTTP 服务器已关闭');
-  });
+  // 置位关闭标志：关闭途中在途请求/残留异步抛出的连接类错误（ECONNREFUSED 等）
+  // 一律忽略，避免把干净的关闭变成 exit(1)（触发 docker 重启）。
+  _isShuttingDown = true;
+
+  if (typeof dbMod.setDbShuttingDown === 'function') {
+    dbMod.setDbShuttingDown(true);
+  }
+
+  if (typeof startSchedule.gracefulShutdown === 'function') {
+    startSchedule.gracefulShutdown();
+    logger.info('[shutdown]', '定时任务已取消');
+  }
+
+  try {
+    tasks.stopTasks();
+    logger.info('[shutdown]', 'Cron 任务已停止');
+  } catch (e) {
+    logger.warn('[shutdown]', '停止 Cron 任务异常:', e.message);
+  }
 
   clearInterval(csrfCleanupInterval);
   logger.info('[shutdown]', 'CSRF 清理定时器已清除');
 
   wsService.gracefulShutdown();
   logger.info('[shutdown]', 'WebSocket 服务器已关闭');
+
+  // 排空在途 HTTP 请求：server.close() 停止接收新连接并等待现有连接结束；
+  // 长连接/流式响应（SSE/下载）可能拖住回调，最多等 5s 后强制放行，
+  // 避免超过 Docker 默认 stop_grace_period 被 SIGKILL（表现为容器退出码 137）。
+  await new Promise((resolve) => {
+    const force = setTimeout(resolve, 5000);
+    try {
+      server.close(() => { clearTimeout(force); resolve(); });
+    } catch (e) {
+      clearTimeout(force);
+      resolve();
+    }
+  });
+  logger.info('[shutdown]', 'HTTP 服务器已排空并关闭');
 
   const pool = dbMod.holder.pool;
   if (pool) {
@@ -814,11 +849,6 @@ async function gracefulShutdown(signal) {
     } catch (e) {
       logger.error('[shutdown]', 'MySQL 关闭失败:', e.message);
     }
-  }
-
-  if (typeof startSchedule.gracefulShutdown === 'function') {
-    startSchedule.gracefulShutdown();
-    logger.info('[shutdown]', '定时任务已取消');
   }
 
   try {
@@ -835,6 +865,10 @@ async function gracefulShutdown(signal) {
 // ==================== 启动入口（P2-1 可测试化） ====================
 // require('./server')（supertest 集成测试）只拿到配置好的 app；
 // 端口监听、进程信号接管仅在 node server.js 直跑时注册，避免测试进程被占用/被信号退出。
+// 优雅关闭期间置位：不再把连接类错误判为「进程损坏」退出（否则 docker stop 时
+// 在途请求/残留异步抛 ECONNREFUSED 会把本来干净的关闭变成 exit(1) 触发重启）。
+let _isShuttingDown = false;
+
 if (require.main === module) {
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
@@ -842,6 +876,7 @@ if (require.main === module) {
   // 未捕获异常 — 记录详细堆栈后退出（不阻塞不清理，因为状态可能已损坏）
   process.on('uncaughtException', (err) => {
     logger.error('[uncaught]', '未捕获异常:', err.message, err.stack);
+    if (_isShuttingDown) return; // 关闭途中偶发异常不打断 exit(0)
     try { if (dbMod.holder.pool) dbMod.holder.pool.end(); } catch {}
     process.exit(1);
   });
@@ -854,6 +889,10 @@ if (require.main === module) {
     // Promise 拒绝仅记录（避免一次瞬态错误误杀仍在服务的进程）。
     const msg = err.message || '';
     if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|PROTOCOL_CONNECTION_LOST|Pool is closed|Connection is closed|ER_CON_COUNT_ERROR/i.test(msg)) {
+      if (_isShuttingDown) {
+        logger.error('[rejection]', '关闭期间连接类错误，忽略等待优雅退出');
+        return;
+      }
       logger.error('[rejection]', '致命连接类错误，进程退出以触发自愈重启');
       try { if (dbMod.holder.pool) dbMod.holder.pool.end(); } catch {}
       process.exit(1);

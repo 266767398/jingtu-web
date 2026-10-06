@@ -60,6 +60,13 @@ const DB_NAME = process.env.MYSQL_DATABASE || 'jingtu_group';
 // holder 模式：所有模块通过 holder.pool 访问，recreate 后自动生效
 const holder = { pool: null, dbName: DB_NAME };
 
+// 优雅关闭开关：置位后心跳不再重建连接池（防止 pool.end() 之后又 new 一个池、
+// 关库窗口内又把「已关的池」当新池用），由 server.js gracefulShutdown 在关闭开始前置位。
+let _dbShuttingDown = false;
+function setDbShuttingDown(v) {
+  _dbShuttingDown = !!v;
+}
+
 function stripQ(name) {
   return String(name).replace(/[`"']/g, '').trim();
 }
@@ -1505,6 +1512,7 @@ function createPoolWithoutDB() {
 }
 
 function recreatePool() {
+  if (_dbShuttingDown) return;
   // 先关闭旧池，释放所有连接句柄
   if (holder.pool && holder.pool.end) {
     holder.pool.end().catch(() => {});
@@ -1560,8 +1568,8 @@ if (!SQLITE_MODE) {
   let _dbReconnecting = false;
 
   async function _dbHeartbeat() {
-    // 尚未使用 DB 时跳过（login 阶段不需要）
-    if (!holder.pool) return;
+    // 尚未使用 DB 时跳过（login 阶段不需要）；优雅关闭期间不再试探/重建
+    if (_dbShuttingDown || !holder.pool) return;
     try {
       await holder.pool.query('SELECT 1 AS ping');
     } catch (e) {
@@ -1599,6 +1607,7 @@ module.exports = {
   DB_CONFIG,
   getPool,
   recreatePool,
+  setDbShuttingDown,
   applyDbConfig,
   transformSQL,
   scanSQL,
