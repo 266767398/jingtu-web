@@ -41,7 +41,6 @@ const multer = require('multer');
 const sharp = require('sharp');
 const { rateLimit } = require('express-rate-limit');
 const http = require('http');
-const { WebSocketServer } = require('ws');
 const compression = require('compression');
 const dbMod = require('./db');
 const wsService = require('./ws_service');
@@ -64,7 +63,6 @@ const { setupUploadsAuth, setupAssetsAlbumAuth } = require('./middleware/uploads
 const { uploadsStaticLimiter } = require('./middleware/rate_limit');
 const { setupCsrf } = require('./middleware/csrf');
 const cache = require('./cache');
-const cacheService = require('./cache_service');
 const mailer = require('./mailer');
 const tasks = require('./tasks');
 const setupVrcAuth = require('./vrc_auth');
@@ -120,7 +118,6 @@ if (!process.env.GROUP_ID) {
 const GROUP_ID = process.env.GROUP_ID || defaultGroupId;
 const ROOT_DIR = path.join(__dirname, '..');
 const ASSETS_DIR = path.join(ROOT_DIR, 'assets');
-const ALBUM_DIR = path.join(ASSETS_DIR, 'album');
 const PROFILE_PHOTOS_DIR = path.join(ROOT_DIR, 'uploads', 'profile', 'photos');
 const PROFILE_VIDEOS_DIR = path.join(ROOT_DIR, 'uploads', 'profile', 'videos');
 for (const d of [PROFILE_PHOTOS_DIR, PROFILE_VIDEOS_DIR]) {
@@ -130,28 +127,6 @@ for (const d of [PROFILE_PHOTOS_DIR, PROFILE_VIDEOS_DIR]) {
 server.timeout = 120000;       
 server.keepAliveTimeout = 5000; 
 server.headersTimeout = 60000;  
-
-const ROLE_CN_MAP = {
-  'Group Owner': '群主', 'Owner': '群主', 'Admin': '管理员', 'Manager': '管理员',
-  'Moderator': '协管', 'Mod': '协管', 'Member': '成员', 'Guest': '访客',
-  'Recruiter': '招募官', 'Event Host': '活动主持', 'Event Coordinator': '活动协调',
-  'Event Organizer': '活动组织者', 'Supporter': '支持者',
-  'Contributor': '贡献者', 'Developer': '开发者', 'Artist': '画师',
-  'Musician': '音乐人', 'Streamer': '主播', 'Tester': '测试员',
-  'Bot': '机器人', 'Everyone': '所有人', 'Citizen': '公民', 'Resident': '居民',
-};
-
-// ==================== 通知辅助函数（使用 notification-service） ====================
-async function createNotification(userId, type, title, message, relatedId, options = {}) {
-  const target = typeof relatedId === 'object' ? relatedId : { relatedId, ...options };
-  return notificationService.createNotification(userId, type, title, message, target);
-}
-
-// 通知所有成员（批量通知）
-async function notifyAllMembers(type, title, message, relatedId, options = {}) {
-  const target = typeof relatedId === 'object' ? relatedId : { relatedId, ...options };
-  return notificationService.notifyAllMembers(type, title, message, target);
-}
 
 // ==================== 中间件 ====================
 // 严格的 CORS 配置（生产环境应限定具体域名）

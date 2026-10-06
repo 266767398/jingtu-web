@@ -11,9 +11,9 @@
  */
 const express = require('express');
 const logger = require('../logger');
-const { ok, getPool, handleError, sendError, ErrorCodes } = require('../utils');
+const { getPool, handleError, sendError, ErrorCodes } = require('../utils');
 const { requireAuth } = require('../auth');
-const { vrchatGetUserPublicAvatars, vrchatGetUser, VRC_API_KEY } = require('../vrc');
+const { vrchatGetUserPublicAvatars, vrchatGetUser } = require('../vrc');
 const { parseVrcLocation, vrcWithFallback } = require('./groups_helpers');
 
 module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
@@ -38,8 +38,6 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
       const pool = getPool();
       const TRUST_RANK = { 'negative': 0, 'visitor': 1, 'new': 2, 'user': 3, 'known': 4, 'trusted': 5, 'vetted': 6, 'veteran': 7, 'legend': 8 };
-      const TRUST_CN = { 'negative': '恶劣玩家', 'visitor': '游客', 'new': '新用户', 'user': '用户', 'known': '常驻玩家', 'trusted': '信任', 'vetted': '审核', 'veteran': '资深玩家', 'legend': '资深玩家' };
-      const DEV_CN = { 'none': '普通用户', 'trusted': '可信开发者', 'internal': '内部人员', 'moderator': '管理员' };
 
       // --- DB 基础信息（并行）---
       const [rows] = await pool.query(

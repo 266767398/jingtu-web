@@ -17,7 +17,6 @@ const logger = require('../logger');
 const settings = require('../settings');
 const mediaProviders = require('../media_providers');
 const {
-  csvField,
   collectUserData,
   importUserData
 } = require('./user-data-helper');

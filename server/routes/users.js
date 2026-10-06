@@ -8,17 +8,12 @@
  */
 const express = require('express');
 const router = express.Router();
-const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
-const sharp = require('sharp');
 const {
   hashPassword, verifyPassword, validatePasswordStrength,
-  encryptAES, decryptAES, requireAuth, requireRole,
-  requireAdminCompat, getAvatarUrl, currentRole, hasRole
+  requireAuth, requireRole,
+  getAvatarUrl, currentRole, hasRole
 } = require('../auth');
-const { fail, ok,  getPool, safeError, validateFields, handleError, sendError, ErrorCodes, createErr, createFileFilter, secureUpload, paginate, logOper, escapeLike  } = require('../utils');;
-const { VRC_API, VRC_API_KEY } = require('../vrc');
+const { fail, ok, getPool, validateFields, handleError, sendError, ErrorCodes, paginate, logOper, escapeLike } = require('../utils');
 const logger = require('../logger');
 
 // B-2/P2-14：敏感操作（重置密码/改角色）要求当前管理员二次密码确认
@@ -691,7 +686,7 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '不能删除超级管理员');
     }
 
-    const [result] = await getPool().query(
+    await getPool().query(
       `UPDATE users SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL`,
       [req.params.id]
     );

@@ -14,7 +14,6 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const logger = require('../logger');
 const { getPool, getAvatarUrl, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, paginate, escapeLike } = require('../utils');
-const { requireAuth } = require('../auth');
 const { hybridStore } = require('../middleware/rate_limit_store');
 // §67: 引入 ws_service 以在成员变更后失效群成员缓存
 const wsService = require('../ws_service');
@@ -658,7 +657,7 @@ router.get('/search', requireChatAuth, async (req, res) => {
       if (keyword.length > 100) {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '搜索关键词不能超过100个字符');
       }
-      const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
+      const { pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
       const likeKeyword = `%${escapeLike(keyword)}%`;
       const results = { privateMessages: [], groupMessages: [], privateMessagesTotal: 0, groupMessagesTotal: 0 };
       if (scope === 'all' || scope === 'private') {

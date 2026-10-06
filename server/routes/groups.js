@@ -8,24 +8,12 @@
  *   description: VRChat群组相关接口
  */
 const express = require('express');
-const { fail, ok,  getPool, handleError , sendError, sendVrcError, ErrorCodes, logOper  } = require('../utils');;
-const { requireAuth, requireAdminCompat } = require('../auth');
+const { fail, ok, handleError, sendError, sendVrcError, ErrorCodes } = require('../utils');
+const { requireAuth } = require('../auth');
 const {
-  vrchatRequest, vrchatGetCurrentUser, vrchatGetCurrentUserResult, vrchatGetGroupMembers,
-  vrchatGetUser, vrchatResolveOnlineStatuses, vrchatGetFriendsOnlineMap, vrchatGetWorld, vrchatGetInstance, vrchatSearchWorlds,
-  vrchatSearchAvatars, vrchatGetAvatar, vrchatSetAvatar, vrchatGetUserPublicAvatars, VRC_API_KEY,
-  vrchatGetGroupAnnouncements, vrchatCreateGroupAnnouncement, vrchatDeleteGroupAnnouncement,
-  vrchatGetGroupGalleries, vrchatCreateGroupGallery, vrchatGetGroupGallery, vrchatUpdateGroupGallery, vrchatDeleteGroupGallery,
-  vrchatGetGroupRoles, vrchatCreateGroupRole, vrchatUpdateGroupRole, vrchatDeleteGroupRole,
-  vrchatAddGroupMemberRole, vrchatRemoveGroupMemberRole,
-  vrchatGetGroupAuditLogs, vrchatGetGroupEconomy, vrchatGetGroupBans, vrchatBanGroupMember, vrchatUnbanGroupMember,
-  vrchatFollowGroupCalendar, vrchatUnfollowGroupCalendar
+  vrchatRequest, vrchatGetWorld, vrchatSearchWorlds,
+  vrchatSearchAvatars, vrchatGetAvatar, vrchatSetAvatar, VRC_API_KEY
 } = require('../vrc');
-const logger = require('../logger');
-const schedule = require('../schedule');
-
-const VRC = require('../vrc');
-const VRC_API = VRC.VRC_API || 'https://api.vrchat.cloud/api/1';
 const { vrcWithFallback: vrcWithFallbackCore } = require('./groups_helpers');
 
 // ==================== 角色中文映射 ====================

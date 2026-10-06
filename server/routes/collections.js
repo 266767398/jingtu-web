@@ -4,12 +4,12 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../logger');
-const { ok,  getPool, handleError, createErr, proxyVrcAvatar, ErrorCodes, paginate, escapeLike  } = require('../utils');;
+const { ok, getPool, handleError, proxyVrcAvatar, ErrorCodes, paginate, escapeLike } = require('../utils');
 const { requireAuth, requireAdminCompat } = require('../auth');
 const {
   vrchatGetAvatar, vrchatGetUser, vrchatSetAvatar, vrchatCloneAvatar,
   vrchatListWorlds, vrchatGetPopularWorlds, vrchatGetFeaturedWorlds,
-  sanitizeVrcId, USER_AGENT
+  USER_AGENT
 } = require('../vrc');
 // F-17 世界详情缓存服务：收藏世界时优先走缓存，减少对 VRChat API 的重复回源
 const { getCachedWorld } = require('../world_cache');
@@ -515,7 +515,6 @@ router.get('/:id', requireAuth, async (req, res) => {
 
 // ============ 添加收藏 ============
 router.post('/', requireAuth, async (req, res) => {
-  let conn;
   try {
     const pool = getPool();
     const uid = req.session.userId;

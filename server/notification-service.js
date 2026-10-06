@@ -4,7 +4,7 @@
  * 修复：使用 target_type/target_id/post_id 替代单一 related_id，解决语义歧义
  * 新增：检查用户通知设置（browser/email/sound）
  */
-const { getPool, safeError } = require('./utils');
+const { getPool } = require('./utils');
 const mailer = require('./mailer');
 const wsService = require('./ws_service');
 const logger = require('./logger');

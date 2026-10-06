@@ -135,12 +135,6 @@ function requireRole(...roles) {
   };
 }
 
-// 获取当前用户的权限等级
-function getUserLevel(session) {
-  if (!session || session.userId === undefined) return 0;
-  return ROLE_LEVEL[session.role] || 2;
-}
-
 // 兼容旧版：检查是否有管理员权限（admin 及以上）
 // IDOR-1: 无条件回查数据库角色——即使 session 已带 admin/super_admin，
 // 也以 DB 最新角色为准，被降权的管理员在 session 到期前不得继续持有权限。

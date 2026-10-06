@@ -21,7 +21,7 @@
  *   description: 活动管理相关接口
  */
 const express = require('express');
-const { fail, ok,  getPool, safeError, logOper, validateFields, handleError , sendError, sendVrcError, ErrorCodes, paginate, escapeLike, toSqlDatetime  } = require('../utils');;
+const { fail, ok, getPool, logOper, validateFields, handleError, sendError, sendVrcError, ErrorCodes, paginate, escapeLike, toSqlDatetime } = require('../utils');
 const { requireAuth, requireAdminCompat, getAvatarUrl, ROLE_LEVEL, currentRole } = require('../auth');
 const { vrchatGetGroupEvents } = require('../vrc');
 const cacheService = require('../cache_service');

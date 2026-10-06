@@ -673,7 +673,7 @@ router.post('/bind-codes', requireRole('super_admin'), async (req, res) => {
 // 注册时账号尚不存在，故不挂 jttAuth：用请求体 publicKey 验签（首次信任由一次性绑定码带外保证）
 router.post('/accounts/register', async (req, res) => {
   try {
-    const { accountId, displayName, publicKey, bindCode } = req.body || {};
+    const { accountId, publicKey, bindCode } = req.body || {};
     const timestamp = req.headers['x-jtt-timestamp'];
     const nonce = req.headers['x-jtt-nonce'];
     const signature = req.headers['x-jtt-signature'];

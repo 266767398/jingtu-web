@@ -18,7 +18,7 @@ router.get('/health/detailed', requireAdminCompat, async (req, res) => {
 
   try {
     const pool = getPool();
-    const [rows] = await pool.query('SELECT 1 AS db_check');
+    await pool.query('SELECT 1 AS db_check');
     const dbLatency = Date.now() - startTime;
 
     res.json({

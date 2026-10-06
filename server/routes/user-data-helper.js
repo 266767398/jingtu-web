@@ -40,7 +40,6 @@ async function collectUserData(userId) {
   );
   if (!userRows.length) return null;
   const u = userRows[0];
-  const vrcId = u.vrchat_id || '';
 
   const [tags] = await pool.query('SELECT tag_name, color, create_time FROM user_tags WHERE user_id = ? ORDER BY id ASC', [userId]);
   const [notes] = await pool.query(

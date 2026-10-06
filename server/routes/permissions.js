@@ -16,7 +16,7 @@
 const express = require('express');
 const router = express.Router();
 const { fail, getPool, handleError, getAvatarUrl, sendError, ErrorCodes } = require('../utils');
-const { requireAuth, requireRole, ROLE_LEVEL, ROLE_LABELS, currentRole } = require('../auth');
+const { requireAuth, ROLE_LEVEL, ROLE_LABELS, currentRole } = require('../auth');
 const { ALL_PERMISSIONS, PERMISSION_LABELS } = require('./permission_groups');
 
 // VRChat 群组成员状态 → 中文（membership_status 取值）

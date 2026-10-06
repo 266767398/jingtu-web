@@ -52,8 +52,9 @@ module.exports = [
     rules: {
       // 存量代码现实：catch 块注释占位、回调 err 形参备用等，先降噪、保正确性规则
       'no-empty': ['error', { allowEmptyCatch: true }],
-      // 存量未用变量 86 处（大头在 routes/groups.js），先 warn 记账、CI 不拦，
-      // 清偿完毕后再升级回 error（棘轮策略，与 jest coverage 阈值同思路）。
+      // 存量未用变量已清偿至仅剩 1 处守卫哨兵：routes/groups.js 的 ok 引入系
+      // P2-6 成功包络静态守卫（response-envelope.test.js）强制要求，刻意保留；
+      // 该哨兵移交后即可升级回 error（棘轮策略，与 jest coverage 阈值同思路）。
       'no-unused-vars': ['warn', { args: 'none', caughtErrors: 'none' }]
     }
   }

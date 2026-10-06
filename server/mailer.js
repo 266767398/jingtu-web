@@ -111,7 +111,6 @@ function initMailer() {
     // 此处 SMTP_PASS 优先，SMTP_PASSWORD 作为历史配置的兼容回退
     const smtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD;
     const smtpSecure = process.env.SMTP_SECURE === 'true';
-    const smtpFrom = process.env.SMTP_FROM || smtpUser;
 
     if (!smtpHost || !smtpUser || !smtpPass) {
       logger.info('mailer', '[mailer] SMTP未配置，跳过初始化');

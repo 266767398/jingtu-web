@@ -15,7 +15,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { ok, getPool, logOper, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, paginate, escapeLike } = require('../utils');
-const { extractVideoThumbnail, getVideoDuration } = require('../video_utils');
+const { extractVideoThumbnail } = require('../video_utils');
 const { requireAdminCompat, ROLE_LEVEL, getAvatarUrl, currentRole, hasRole } = require('../auth');
 const logger = require('../logger');
 
@@ -202,7 +202,7 @@ module.exports = function (authStateRef, notificationService) {
      */
   router.get('/album/photos', async (req, res) => {
     try {
-      const { page, pageSize, offset } = paginate(req, { fixedSize: 40 });
+      const { pageSize, offset } = paginate(req, { fixedSize: 40 });
       const cateId = parseInt(req.query.cate) || 0;
       const albumId = parseInt(req.query.album) || 0;
       const sort = req.query.sort || 'newest';

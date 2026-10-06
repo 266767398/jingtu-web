@@ -1,6 +1,6 @@
 const schedule = require('node-schedule');
 const dbMod = require('./db');
-const { getPool, safeError } = require('./utils');
+const { getPool } = require('./utils');
 const { vrchatGetUser, vrchatResolveOnlineStatuses, vrcBacklog } = require('./vrc');
 const cacheService = require('./cache_service');
 const logger = require('./logger');

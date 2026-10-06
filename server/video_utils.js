@@ -193,9 +193,8 @@ async function getVideoDuration(videoInputPath) {
 
     const proc = spawn(ffprobePath, args, { stdio: ['ignore', 'pipe', 'pipe'], timeout: 8000 });
     let stdout = '';
-    let stderr = '';
     proc.stdout.on('data', (d) => { stdout += d.toString(); });
-    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.stderr.on('data', () => {});
 
     const timer = setTimeout(() => {
       proc.kill();

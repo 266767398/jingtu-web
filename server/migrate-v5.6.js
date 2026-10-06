@@ -4,8 +4,7 @@
  * 2. 新建 vrc_worlds_cache 表用于缓存 World 信息
  */
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
-const mysql = require('mysql2/promise');
-const { DB_NAME, DB_CONFIG, recreatePool, holder } = require('./db');
+const { recreatePool, holder } = require('./db');
 
 async function migrate() {
   console.log('🔄 [V5.6] 开始数据库迁移...');

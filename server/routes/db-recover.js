@@ -25,7 +25,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { getPool, applyDbConfig, DB_CONFIG } = require('../db');
-const { fail, ok, handleError, sendError, ErrorCodes } = require('../utils');
+const { fail, ok, sendError, ErrorCodes } = require('../utils');
 const logger = require('../logger');
 
 const router = express.Router();

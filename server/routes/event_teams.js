@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getPool, handleError, sendError, ErrorCodes, getAvatarUrl } = require('../utils');
-const { requireAuth, requireRole, ROLE_LEVEL } = require('../auth');
+const { requireAuth } = require('../auth');
 const notificationService = require('../notification-service');
 
 router.get('/:eventId', requireAuth, async (req, res) => {
