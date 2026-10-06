@@ -1,17 +1,17 @@
 // ==================== UI 更新 ====================
-// VRChat 头像代理：把带签名、会过期的 VRChat CDN 链接改写为后端代理地址，
-// 由后端缓存到本地，避免前端裂图 / 签名过期。非 VRChat 域名原样返回。
-//
-// 备选客户端直连（2026-10-06）：服务端代理失败（限速 / 回源超时 / 系统账号离线）时
-// 返回 502 占位而非 200，让 <img> 能感知失败触发 onerror；前端在 __avatarFail 里把
-// 代理地址反解回原始 CDN URL 做一次客户端直连（VRCX 同款直连链路）。直连成功记入
-// __avatarDirectCache，后续渲染直连优先，避免反复打代理；直连签名过期 / 失败会自动
-// 弃用并回到代理路径。
-const AVATAR_DIRECT_TTL_MS = 10 * 60 * 1000; // 直连记忆 TTL，与 VRChat CDN 签名生命周期相当
-const AVATAR_DIRECT_MAX = 300; // 直连记忆上限（超出清空，仅加速优化）
+// VRChat 头像加载策略（直连优先、代理兜底，2026-10-06）：
+//   · 客户端优先直连 VRChat CDN（VRCX 同款）：api.vrchat.cloud / api.vrchat.com /
+//     assets.vrchat.com 默认返回直连地址；assets.amlcdn.com 国内普遍被墙，保持代理优先。
+//   · 直连失败 → 一次代理兜底（/api/avatar/proxy 走服务端 L1/L2 缓存与多源回源）；
+//     代理成功记入 __avatarProxyCache，该 URL 15 分钟内代理优先，避免反复直连超时。
+//   · 代理失败（服务端返回 502 占位，见 server/routes/avatar.js sendPlaceholder）
+//     → 一次客户端直连；两条路都失败才落默认占位 + 60s 双 key 失败冷却。
+const AVATAR_PROXY_TTL_MS = 15 * 60 * 1000; // 代理优先记忆 TTL，与 CDN 签名生命周期相当
+const AVATAR_PROXY_MAX = 300; // 记忆上限（超出清空，仅加速优化）
 const AVATAR_PROXY_PREFIX = '/api/avatar/proxy?u=';
 const VRC_CDN_HOST_RE = /^(https?:\/\/)?(api\.vrchat\.(cloud|com)|assets\.(amlcdn|vrchat)\.com)\//i;
-window.__avatarDirectCache = window.__avatarDirectCache || {};
+const AMLCDN_RE = /^https?:\/\/[^/]*assets\.amlcdn\.com\//i;
+window.__avatarProxyCache = window.__avatarProxyCache || {};
 
 // 若字符串是代理地址（/api/avatar/proxy?u=<enc>）则反解出原始直连 URL，否则返回 ''。
 // 仅允许 VRChat CDN 白名单主机直连，避免把任意地址交给 <img>。
@@ -23,63 +23,69 @@ function avatarDirectOf(s) {
   try { decoded = decodeURIComponent(m[1]); } catch (e) { return ''; }
   return VRC_CDN_HOST_RE.test(decoded) ? decoded : '';
 }
-function avatarDirectRemember(proxiedKey, directUrl) {
-  if (!proxiedKey || !directUrl) return;
-  window.__avatarDirectCache = window.__avatarDirectCache || {};
-  window.__avatarDirectCache[proxiedKey] = { t: Date.now(), u: directUrl };
-  // 超出上限清空：直连记忆只是加速优化，丢失后自动重回「代理优先」流程，无副作用
-  const keys = Object.keys(window.__avatarDirectCache);
-  if (keys.length > AVATAR_DIRECT_MAX) window.__avatarDirectCache = {};
+function avatarProxyRemember(proxiedKey) {
+  if (!proxiedKey) return;
+  window.__avatarProxyCache = window.__avatarProxyCache || {};
+  window.__avatarProxyCache[proxiedKey] = Date.now();
+  const keys = Object.keys(window.__avatarProxyCache);
+  if (keys.length > AVATAR_PROXY_MAX) window.__avatarProxyCache = {};
 }
-function avatarDirectForget(directUrl) {
-  if (!directUrl || !window.__avatarDirectCache) return;
-  Object.keys(window.__avatarDirectCache).forEach((k) => {
-    const v = window.__avatarDirectCache[k];
-    if (v && v.u === directUrl) delete window.__avatarDirectCache[k];
-  });
+function avatarProxyPreferred(proxiedKey) {
+  return !!(window.__avatarProxyCache && window.__avatarProxyCache[proxiedKey] > Date.now() - AVATAR_PROXY_TTL_MS);
 }
 
 function proxyAvatar(url) {
   if (!url || typeof url !== 'string') return url;
-  // 已是代理地址（后端 getAvatarUrl / WS 广播已改写）：同样支持直连记忆命中
   if (url.indexOf(AVATAR_PROXY_PREFIX) !== -1) {
+    // 已是代理地址（后端 getAvatarUrl / WS 广播已改写）：默认反解回直连（直连优先）
     const direct = avatarDirectOf(url);
-    const hit = direct && window.__avatarDirectCache[url];
-    if (hit && hit.t > Date.now() - AVATAR_DIRECT_TTL_MS && hit.u === direct) return direct;
-    return url;
+    if (!direct) return url;
+    if (AMLCDN_RE.test(direct)) return url; // amlcdn 代理优先
+    return avatarProxyPreferred(url) ? url : direct;
   }
   if (!VRC_CDN_HOST_RE.test(url)) return url;
   const proxied = AVATAR_PROXY_PREFIX + encodeURIComponent(url);
-  // 直连记忆命中：该 URL 曾「代理失败 → 直连成功」（TTL 内），直接返回直连地址
-  const hit = window.__avatarDirectCache[proxied];
-  if (hit && hit.t > Date.now() - AVATAR_DIRECT_TTL_MS && hit.u === url) return url;
-  return proxied;
+  if (AMLCDN_RE.test(url)) return proxied; // amlcdn 代理优先
+  return avatarProxyPreferred(proxied) ? proxied : url; // 其余 CDN 直连优先
 }
 window.proxyAvatar = proxyAvatar;
 
 // 头像加载失败处理：
-//   1) 失败源若是代理地址 → 反解原始 URL 做一次「客户端直连」（备选直连，VRCX 同款）；
-//   2) 直连成功 → 记入直连记忆，后续渲染直连优先；直连失败 → 弃用该直连记忆；
-//   3) 最终回退默认头像 + 60s 失败冷却，避免 429 时浏览器反复重试打爆代理。
+//   1) 代理失败 → 反解原始 URL 做一次客户端直连（备选直连，VRCX 同款，无需记忆）；
+//   2) 直连失败 → 一次代理兜底，代理成功记入 __avatarProxyCache（该 URL 代理优先）；
+//   3) 两条路都失败 / 非 CDN 源 → 弃用记忆 + 默认占位 + 60s 双 key 失败冷却。
 window.__avatarFailCache = window.__avatarFailCache || {};
 window.__avatarFail = function (img, url) {
   const failUrl = (img && img.src) || url || '';
+  const retried = !!(img && img.dataset && img.dataset.avatarFailRetried === '1');
   const direct = avatarDirectOf(url) || avatarDirectOf(failUrl) || '';
-  if (direct && img && img.dataset) {
-    // 备选直连：代理失败 → 客户端直连一次；onload 记入直连记忆，onerror 再落兜底
-    const proxiedKey = AVATAR_PROXY_PREFIX + encodeURIComponent(direct);
-    img.dataset.avatarProxyKey = proxiedKey;
-    img.onerror = function () { window.__avatarFail && window.__avatarFail(this, direct); };
-    img.onload = function () { avatarDirectRemember(proxiedKey, direct); };
-    img.src = direct;
-    return;
+  const raw = url || failUrl;
+  if (!retried && img && img.dataset) {
+    if (direct) {
+      // 代理失败 → 客户端直连一次；onerror 传给 proxiedKey 由最后一步统一兜底
+      const proxiedKey = AVATAR_PROXY_PREFIX + encodeURIComponent(direct);
+      img.dataset.avatarFailRetried = '1';
+      img.dataset.avatarProxyKey = proxiedKey;
+      img.onerror = function () { window.__avatarFail && window.__avatarFail(this, proxiedKey); };
+      img.src = direct;
+      return;
+    }
+    if (VRC_CDN_HOST_RE.test(raw)) {
+      // 直连失败 → 代理兜底一次；代理成功记入代理优先记忆（避免反复直连超时）
+      const proxiedKey = AVATAR_PROXY_PREFIX + encodeURIComponent(raw);
+      img.dataset.avatarFailRetried = '1';
+      img.dataset.avatarProxyKey = proxiedKey;
+      img.onerror = function () { window.__avatarFail && window.__avatarFail(this, proxiedKey); };
+      img.onload = function () { avatarProxyRemember(proxiedKey); };
+      img.src = proxiedKey;
+      return;
+    }
   }
-  // 直连也失败 / 非代理源失败：弃用对应的直连记忆，标记该 URL 短期失败
+  // 3) 最终兜底：弃用代理优先记忆，标记该 URL 短期失败
   if (img && img.dataset && img.dataset.avatarProxyKey) {
     window.__avatarFailCache[img.dataset.avatarProxyKey] = Date.now();
-    delete window.__avatarDirectCache[img.dataset.avatarProxyKey];
+    delete window.__avatarProxyCache[img.dataset.avatarProxyKey];
   }
-  avatarDirectForget(direct || failUrl);
   window.__avatarFailCache[url] = Date.now();
   if (failUrl) window.__avatarFailCache[failUrl] = Date.now();
   if (img) { img.onerror = null; img.src = '/api/avatar/default'; }
@@ -96,8 +102,8 @@ function updateUserUI() {
   const avatar = document.getElementById('headerUserAvatar');
   const name = document.getElementById('headerUserName');
   if (avatar) {
-    avatar.src = avatarUrl || '/api/avatar/default';
-    avatar.onerror = function() { window.__avatarFail && window.__avatarFail(this, avatarUrl || '/api/avatar/default'); };
+    avatar.src = proxyAvatar(avatarUrl || '/api/avatar/default');
+    avatar.onerror = function() { window.__avatarFail && window.__avatarFail(this, avatar.src || avatarUrl || '/api/avatar/default'); };
   }
   if (name) name.textContent = currentUser.displayName || currentUser.loginId || __('unknown_user');
   // 角色标签跟随显示
@@ -113,8 +119,8 @@ function updateUserUI() {
   const profileLoginId = document.getElementById('meLoginId');
   const profileRole = document.getElementById('meRole');
   if (profileAvatar) {
-    profileAvatar.src = avatarUrl || '/api/avatar/default';
-    profileAvatar.onerror = function() { window.__avatarFail && window.__avatarFail(this, avatarUrl || '/api/avatar/default'); };
+    profileAvatar.src = proxyAvatar(avatarUrl || '/api/avatar/default');
+    profileAvatar.onerror = function() { window.__avatarFail && window.__avatarFail(this, profileAvatar.src || avatarUrl || '/api/avatar/default'); };
   }
   if (profileName) profileName.textContent = currentUser.displayName || '';
   if (profileLoginId && !profileLoginId.value) {

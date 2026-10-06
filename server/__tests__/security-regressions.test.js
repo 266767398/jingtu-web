@@ -683,12 +683,16 @@ describe('security regressions', () => {
     });
   });
 
-  // ==== 备选客户端直连（2026-10-06） ====
+  // ==== 直连优先、代理兜底（2026-10-06，二期：用户要求默认取向翻转） ====
   // 现象：代理失败返回 200 占位 SVG（no-store），<img> 的 onerror 永不触发 → 前端感知不到
-  // 代理失败，也就无法「客户端直连」备选；限速/回源超时/系统账号离线时头像静默变灰占位。
-  // 修复：失败路径统一改 502 占位（触发 onerror），ui.js __avatarFail 反解代理地址直连一次，
-  // 直连成功记入 __avatarDirectCache 供后续渲染直连优先（VRCX 同款）。
-  describe('备选客户端直连（代理失败→直连重试）', () => {
+  // 代理失败，也就无法备选；限速/回源超时/系统账号离线时头像静默变灰占位。
+  // 修复：
+  //  · 失败路径统一改 502 占位（触发 onerror）；
+  //  · ui.js 默认「客户端直连优先」（VRCX 同款），直连失败一次代理兜底；
+  //    代理成功记入 __avatarProxyCache（15min TTL），该 URL 转代理优先避免反复直连超时；
+  //  · 代理失败（502）再反解直连一次；两条路都失败才落默认占位 + 60s 双 key 冷却；
+  //  · assets.amlcdn.com 国内普遍被墙，保持代理优先（直连仅作失败兜底）。
+  describe('直连优先、代理兜底（备选链路）', () => {
     test('avatar.js 提供 sendPlaceholder：失败统一 502 + no-store 占位（不再 200）', () => {
       expect(files.avatarRoute).toMatch(/function sendPlaceholder\(res\)/);
       expect(files.avatarRoute).toMatch(/res\.status\(502\)/);
@@ -710,25 +714,40 @@ describe('security regressions', () => {
       expect(files.uiJs).toMatch(/function avatarDirectOf\(s\)/);
       expect(files.uiJs).toContain('\\/api\\/avatar\\/proxy\\?u=([^&]+)');
       expect(files.uiJs).toMatch(/VRC_CDN_HOST_RE\.test\(decoded\)/);
-      expect(files.uiJs).toMatch(/AVATAR_DIRECT_TTL_MS = 10 \* 60 \* 1000/);
     });
 
-    test('ui.js __avatarFail：代理失败先客户端直连一次，onload 记直连记忆，onerror 落默认', () => {
-      expect(files.uiJs).toMatch(/img\.dataset\.avatarProxyKey = proxiedKey/);
+    test('ui.js proxyAvatar 默认直连优先：非 amlcdn CDN 返回原始直连 URL', () => {
+      expect(files.uiJs).toMatch(/return avatarProxyPreferred\(proxied\) \? proxied : url; \/\/ 其余 CDN 直连优先/);
+      expect(files.uiJs).toMatch(/if \(AMLCDN_RE\.test\(url\)\) return proxied; \/\/ amlcdn 代理优先/);
+    });
+
+    test('ui.js proxyAvatar 已是代理地址时反解回直连（amlcdn 除外）', () => {
+      expect(files.uiJs).toMatch(/if \(AMLCDN_RE\.test\(direct\)\) return url; \/\/ amlcdn 代理优先/);
+      expect(files.uiJs).toMatch(/return avatarProxyPreferred\(url\) \? url : direct;/);
+    });
+
+    test('ui.js __avatarFail：直连失败一次代理兜底，代理成功记入代理优先记忆', () => {
+      expect(files.uiJs).toMatch(/img\.dataset\.avatarFailRetried = '1'/);
+      expect(files.uiJs).toMatch(/img\.onload = function \(\) \{ avatarProxyRemember\(proxiedKey\); \};/);
+      expect(files.uiJs).toMatch(/img\.src = proxiedKey;/);
+    });
+
+    test('ui.js __avatarFail：代理失败反解直连一次，再失败落默认 + 60s 双 key 冷却', () => {
       expect(files.uiJs).toMatch(/img\.src = direct;/);
-      expect(files.uiJs).toMatch(/avatarDirectRemember\(proxiedKey, direct\)/);
+      expect(files.uiJs).toMatch(/window\.__avatarFailCache\[img\.dataset\.avatarProxyKey\] = Date\.now\(\);/);
       expect(files.uiJs).toMatch(/img\.src = '\/api\/avatar\/default'/);
     });
 
-    test('ui.js proxyAvatar：命中直连记忆时直接返回直连 URL（直连优先，VRCX 同款）', () => {
-      expect(files.uiJs).toMatch(/__avatarDirectCache\[proxied\]/);
-      expect(files.uiJs).toMatch(/hit\.u === url\) return url/);
+    test('ui.js 代理优先记忆有 TTL / 上限且失败时弃用（防内存膨胀 / 防死链持久化）', () => {
+      expect(files.uiJs).toMatch(/AVATAR_PROXY_TTL_MS = 15 \* 60 \* 1000/);
+      expect(files.uiJs).toMatch(/AVATAR_PROXY_MAX = 300/);
+      expect(files.uiJs).toMatch(/function avatarProxyRemember\(proxiedKey\)/);
+      expect(files.uiJs).toMatch(/delete window\.__avatarProxyCache\[img\.dataset\.avatarProxyKey\]/);
     });
 
-    test('ui.js 直连记忆有上限且失败时弃用（防内存膨胀 / 防死链持久化）', () => {
-      expect(files.uiJs).toMatch(/AVATAR_DIRECT_MAX = 300/);
-      expect(files.uiJs).toMatch(/function avatarDirectForget\(directUrl\)/);
-      expect(files.uiJs).toMatch(/delete window\.__avatarDirectCache\[img\.dataset\.avatarProxyKey\]/);
+    test('ui.js 顶部导航栏与个人中心头像同样走 proxyAvatar（直连优先统一生效）', () => {
+      expect(files.uiJs).toMatch(/avatar\.src = proxyAvatar\(avatarUrl \|\| '\/api\/avatar\/default'\);/);
+      expect(files.uiJs).toMatch(/profileAvatar\.src = proxyAvatar\(avatarUrl \|\| '\/api\/avatar\/default'\);/);
     });
   });
 
