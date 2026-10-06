@@ -808,7 +808,7 @@ describe('security regressions', () => {
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261006c', 'js/theme.js?v=20261006c');
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261006c', 'js/auth.js?v=20261006c');
       expectBefore(files.indexHtml, 'js/freeze.js?v=20261006c', 'js/main.js?v=20261006c');
-      expect(files.indexHtml).toMatch(/loader\.js\?v=20261006d/);
+      expect(files.indexHtml).toMatch(/loader\.js\?v=20261006e/);
     });
 
     test('main.js 冻结时暂停刷新轮询与断开 WebSocket，解冻恢复；轮询带冻结守卫', () => {
@@ -993,7 +993,7 @@ describe('security regressions', () => {
     });
 
     test('黑名单样式与语言包缓存戳同步升级（i18n + loader）', () => {
-      expect(files.indexHtml).toMatch(/06-members\.css\?v=20261006d/);
+      expect(files.indexHtml).toMatch(/06-members\.css\?v=20261006e/);
       expect(files.indexHtml).toMatch(/i18n\.js\?v=20261006c/);
       // 语言包版本号与 HTML 引用一致，避免 Service Worker 命中旧缓存
       const i18nSrc = read('public', 'js', 'i18n.js');

@@ -311,8 +311,7 @@ function applyRosterUpdate(msg) {
         unknown: cached.filter(m => m.isOnline && m.isFriend === false).length,
         total: cached.length
       };
-      // eslint-disable-next-line no-console
-      console.log(__('auto_group_11'), fb);
+
     }
 
     if (onlineEl) onlineEl.textContent = useFallback ? fb.online : g.onlineCount;
@@ -434,8 +433,7 @@ function updateGroupStatsUI(stats) {
       web: cached.filter(m => m.isOnline && !m.isInGame).length,
       unknown: cached.filter(m => m.isOnline && m.isFriend === false).length
     };
-    // eslint-disable-next-line no-console
-    console.log(__('auto_group_14'), fallback, __('auto_group_15'), stats);
+
   }
 
   if (total) total.textContent = fallback ? fallback.total : (stats.totalMembers ?? cached.length ?? '-');
