@@ -10,9 +10,11 @@
 # ---------- 阶段 1：依赖安装 ----------
 # P2-96：基础镜像由 ARG 统一钉定、两阶段共用，升级只改一处。
 # Node 20 已于 2026-04 EOL，迁移到 node:22-slim（CI matrix 已覆盖 22 并验证）。
+# P4：默认走 DaoCloud 国内加速（docker.m.daocloud.io），飞牛 NAS 等国内机器
+# 不再依赖 Docker Hub 慢速通道；需要官方源时用 --build-arg NODE_IMAGE=node:22-slim。
 # 如需更强供应链保障，用 `docker buildx imagetools inspect node:22-slim`
 # 取当前 digest，再以 node:22-slim@sha256:<digest> 形式替换。
-ARG NODE_IMAGE=node:22-slim
+ARG NODE_IMAGE=docker.m.daocloud.io/library/node:22-slim
 FROM ${NODE_IMAGE} AS builder
 WORKDIR /app/server
 # 先拷贝依赖清单，利用层缓存；runtime 阶段直接复用这里的 node_modules，
