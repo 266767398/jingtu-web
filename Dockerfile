@@ -21,8 +21,10 @@ WORKDIR /app/server
 # devDependencies（测试/工具链）不进镜像，缩小体积与攻击面
 # P4：npm 源默认切 npmmirror（registry.npmjs.org 在国内 / 飞牛 NAS 拉包极慢）。
 # 构建时可用 --build-arg NPM_REGISTRY=https://registry.npmjs.org 换回官方源。
+# P4：用 npm install 而非 npm ci——lockfile 存在时同样按锁版本精确安装；
+# 对 Docker git 上下文偶发的「lockfile 未命中」更稳健（飞牛构建实测 npm ci 报 EUSAGE）。
 ARG NPM_REGISTRY=https://registry.npmmirror.com
-RUN npm ci --omit=dev --no-audit --no-fund --registry=${NPM_REGISTRY}
+RUN npm install --omit=dev --no-audit --no-fund --registry=${NPM_REGISTRY}
 # 再拷贝源码（sharp 等包的 postinstall 已在 npm ci 阶段完成）
 COPY server/ ./
 
