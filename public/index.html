@@ -33,7 +33,7 @@
      首屏默认落在 home Tab，members/collections/social/地图/“更多”菜单等样式多为
      第二屏或弹层，异步加载后由浏览器空闲补全，导航到对应 Tab 时已就绪（P2-21） -->
 <link rel="stylesheet" href="/css/06b-presence.css?v=20261006c" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="/css/06-members.css?v=20261006c" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/css/06-members.css?v=20261006d" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="/css/collections.css?v=20261006c" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="/css/10-social.css?v=20261006c" media="print" onload="this.media='all'">
 <link rel="stylesheet" href="/css/baidu-modern.css?v=20261006c" media="print" onload="this.media='all'">
@@ -43,7 +43,7 @@
 <!-- 无 JS 兜底：保证禁用 JS 时样式仍加载 -->
 <noscript>
   <link rel="stylesheet" href="/css/06b-presence.css?v=20261006c">
-  <link rel="stylesheet" href="/css/06-members.css?v=20261006c">
+  <link rel="stylesheet" href="/css/06-members.css?v=20261006d">
   <link rel="stylesheet" href="/css/collections.css?v=20261006c">
   <link rel="stylesheet" href="/css/10-social.css?v=20261006c">
   <link rel="stylesheet" href="/css/baidu-modern.css?v=20261006c">
@@ -646,6 +646,17 @@
 
   <!-- Tab: VRC（群组 + VRChat 世界 子选项） -->
   <div id="tab-vrc" class="tab-content d-none" role="tabpanel" aria-labelledby="tab-btn-vrc">
+    <div class="group-mgmt-bar admin-only" id="groupMgmtBar">
+      <span class="group-mgmt-label">⚙️ 群组管理</span>
+      <button type="button" class="group-mgmt-btn" data-target="groupChangesSection">👥 变动</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupAnnouncementsSection">📢 公告</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupGalleriesSection">🖼️ 相册</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupRolesSection">🎭 角色</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupAuditLogsSection">📋 审计</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupBansSection">🚫 黑名单</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupEconomySection">💰 经济</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupCalendarSection">📅 日历</button>
+    </div>
     <div class="map-legend">
       <span class="map-tab-btn active" data-view="group" role="button" tabindex="0" onclick="switchVrcView('group')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVrcView('group')">👥 <span data-i18n="nav.group">群组</span></span>
       <span class="map-tab-btn" data-view="worlds" role="button" tabindex="0" onclick="switchVrcView('worlds')" onkeydown="if(event.key==='Enter'||event.key===' ')switchVrcView('worlds')">🌐 <span data-i18n="map.worlds_view">VRChat 世界</span></span>
@@ -2449,7 +2460,7 @@
 <script defer src="/js/auth.js?v=20261006c"></script>
 <!-- 路由模块懒加载器：包裹 switchTab，按需 / 空闲预载（见 loader.js）。
      当前语言包由 <head> 内联引导按偏好注入，其余语言包在切换时按需加载。 -->
-<script defer src="/js/loader.js?v=20261006c"></script>
+<script defer src="/js/loader.js?v=20261006d"></script>
 <!-- 全局命令面板（VN-9，VRCNext SmartSearch 借鉴）：依赖 core.js 的 api/esc 等 -->
 <script defer src="/js/smartsearch.js?v=20261006c"></script>
 <!-- 引导启动：调用 initI18n / switchTab，必须在 loader.js 之后 -->

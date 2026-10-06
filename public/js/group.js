@@ -678,6 +678,22 @@ function setupGroupAdminPanels() {
   bindGroupAdminClick('groupBanBtn', banGroupMemberAction);
   bindGroupAdminClick('groupCalFollowBtn', () => groupCalendarAction('follow'));
   bindGroupAdminClick('groupCalUnfollowBtn', () => groupCalendarAction('unfollow'));
+  bindGroupMgmtBar();
+}
+
+function bindGroupMgmtBar() {
+  const bar = document.getElementById('groupMgmtBar');
+  if (!bar) return;
+  bar.querySelectorAll('.group-mgmt-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const panel = document.getElementById(btn.dataset.target);
+      if (!panel) return;
+      bar.querySelectorAll('.group-mgmt-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      panel.open = true;
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
 }
 
 // ---- 群公告 ----

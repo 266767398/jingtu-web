@@ -106,6 +106,28 @@
 .map-tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 2px 10px rgba(124,92,252,.4); }
 .map-tab-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+.group-mgmt-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--card2); border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.group-mgmt-label {
+  font-size: 13px; font-weight: 600; color: var(--text2);
+  margin-right: 4px; white-space: nowrap;
+}
+.group-mgmt-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  font-size: 13px; font-weight: 500; user-select: none;
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text2); transition: all .2s ease;
+}
+.group-mgmt-btn:hover { border-color: var(--accent); color: var(--text); background: var(--card3, rgba(124,92,252,.08)); }
+.group-mgmt-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.group-mgmt-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
 /* ===== 鍦板浘锛歏RChat 涓栫晫瑙嗗浘鍗＄墖 ===== */
 .world-grid-card {
   background: var(--card2); border: 1px solid var(--border);
