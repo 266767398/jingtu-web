@@ -17,8 +17,10 @@ FROM ${NODE_IMAGE} AS builder
 WORKDIR /app/server
 # 先拷贝依赖清单，利用层缓存；runtime 阶段直接复用这里的 node_modules，
 # devDependencies（测试/工具链）不进镜像，缩小体积与攻击面
-COPY server/package.json server/package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund
+# P4：npm 源默认切 npmmirror（registry.npmjs.org 在国内 / 飞牛 NAS 拉包极慢）。
+# 构建时可用 --build-arg NPM_REGISTRY=https://registry.npmjs.org 换回官方源。
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+RUN npm ci --omit=dev --no-audit --no-fund --registry=${NPM_REGISTRY}
 # 再拷贝源码（sharp 等包的 postinstall 已在 npm ci 阶段完成）
 COPY server/ ./
 
