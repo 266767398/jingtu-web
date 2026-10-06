@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # 境途同游 网页版运维后台 —— PowerShell 执行层（由 panel-server.js 调用，输出单行 JSON）
 param(
     [Parameter(Mandatory = $true)][string]$Action,
