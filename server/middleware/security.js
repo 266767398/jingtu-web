@@ -119,8 +119,10 @@ const ddosLimiter = rateLimit({
     // 头像代理/占位图为图片流量（走本地磁盘缓存 + routes/avatar.js 自有双重限速）。
     // 群组/好友一屏上百张头像会瞬间打满全局 600/min API 限流，被误判为 429（线上实锤）。
     // 图片请求不计入 DDoS 限流；防刷由 avatar.js 的 per-IP 1000/min + CDN 全局 200/min 令牌桶兜底。
+    // /avatar/user 同属头像图片流量：内部已按 ID 每 IP 60/min 自限速 + 10min 缓存优先，
+    // 成员页整屏缺头像时集中回退到该接口，若不豁免会先被全局 600/min 卡成占位图。
     // 注：app.use('/api', ...) 会裁剪 req.path，故此处为相对 /api 的路径。
-    if (req.path === '/avatar/proxy' || req.path === '/avatar/default') return true;
+    if (req.path === '/avatar/proxy' || req.path === '/avatar/default' || req.path === '/avatar/user') return true;
     return false;
   },
   handler: (req, res) => {

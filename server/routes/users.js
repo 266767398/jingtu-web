@@ -13,7 +13,7 @@ const {
   requireAuth, requireRole,
   getAvatarUrl, currentRole, hasRole
 } = require('../auth');
-const { fail, ok, getPool, validateFields, handleError, sendError, ErrorCodes, paginate, logOper, escapeLike } = require('../utils');
+const { fail, ok, getPool, validateFields, handleError, sendError, ErrorCodes, paginate, logOper, escapeLike, proxyVrcAvatar } = require('../utils');
 const logger = require('../logger');
 
 // B-2/P2-14：敏感操作（重置密码/改角色）要求当前管理员二次密码确认
@@ -105,7 +105,9 @@ router.get('/list', requireAuth, async (req, res) => {
               u.custom_avatar_path, u.vrchat_avatar_url,
               u.location, u.lat, u.lng, u.location_visible AS locationVisible,
               COALESCE(l.likeCount, 0) AS likeCount,
-              tr.trust_level AS trustLevel, tr.trust_level_cn AS trustLevelCn
+              tr.trust_level AS trustLevel, tr.trust_level_cn AS trustLevelCn,
+              ra.profile_pic_override_thumbnail AS roster_override_pic,
+              COALESCE(NULLIF(ra.profile_pic_override_thumbnail, ''), NULLIF(ra.avatar_url, ''), NULLIF(u.vrchat_avatar_url, ''), '') AS vrchat_avatar_url
        FROM users u
        LEFT JOIN (SELECT to_user_id, COUNT(*) AS likeCount FROM user_like GROUP BY to_user_id) l
          ON u.id = l.to_user_id
@@ -122,6 +124,15 @@ router.get('/list', requireAuth, async (req, res) => {
            AND FIELD(g.trust_level, ${TRUST_ORDER}) = m.maxrk
          GROUP BY g.vrchat_id
        ) tr ON tr.vrchat_id = u.vrchat_id
+       LEFT JOIN (
+         SELECT g.vrchat_id, g.avatar_url, g.profile_pic_override_thumbnail
+         FROM group_roster g
+         JOIN (
+           SELECT vrchat_id, MAX(synced_at) AS mx
+           FROM group_roster WHERE avatar_url IS NOT NULL AND avatar_url <> ''
+           GROUP BY vrchat_id
+         ) m ON m.vrchat_id = g.vrchat_id AND g.synced_at = m.mx
+       ) ra ON ra.vrchat_id = u.vrchat_id
        WHERE u.deleted_at IS NULL AND u.approved = 1 AND u.banned = 0
        ORDER BY FIELD(u.role, 'super_admin', 'admin', 'member'), u.id ASC
        LIMIT ? OFFSET ?`,
@@ -136,7 +147,10 @@ router.get('/list', requireAuth, async (req, res) => {
       vrchatName: u.vrchat_name,
       role: u.role,
       avatarType: u.avatar_type,
+      // users.vrchat_avatar_url 是绑定时刻的快照（VRChat 签名 URL 会过期 / amlcdn 被墙），
+      // 优先用 group_roster 最近一次同步的头像；前端再按 /api/avatar/user 兜底（见 members.js）。
       avatarUrl: getAvatarUrl(u),
+      profilePicOverrideThumbnail: proxyVrcAvatar(u.roster_override_pic || ''),
       location: u.locationVisible ? u.location : null,
       lat: u.locationVisible ? parseFloat(u.lat) : null,
       lng: u.locationVisible ? parseFloat(u.lng) : null,
@@ -775,8 +789,19 @@ router.get('/:id/card', requireAuth, async (req, res, next) => {
       `SELECT u.id, u.login_id, u.display_name, u.vrchat_id, u.vrchat_name,
               u.role, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url,
               u.birthday, u.location, u.location_visible, u.preferences,
-              u.created_at
+              u.created_at,
+              ra.profile_pic_override_thumbnail AS roster_override_pic,
+              COALESCE(NULLIF(ra.profile_pic_override_thumbnail, ''), NULLIF(ra.avatar_url, ''), NULLIF(u.vrchat_avatar_url, ''), '') AS vrchat_avatar_url
        FROM users u
+       LEFT JOIN (
+         SELECT g.vrchat_id, g.avatar_url, g.profile_pic_override_thumbnail
+         FROM group_roster g
+         JOIN (
+           SELECT vrchat_id, MAX(synced_at) AS mx
+           FROM group_roster WHERE avatar_url IS NOT NULL AND avatar_url <> ''
+           GROUP BY vrchat_id
+         ) m ON m.vrchat_id = g.vrchat_id AND g.synced_at = m.mx
+       ) ra ON ra.vrchat_id = u.vrchat_id
        WHERE u.id = ? AND u.deleted_at IS NULL`,
       [id]
     );
@@ -795,10 +820,12 @@ router.get('/:id/card', requireAuth, async (req, res, next) => {
       id: u.id,
       loginId: u.login_id,
       displayName: u.display_name,
+      vrchatId: u.vrchat_id,
       vrchatName: u.vrchat_name,
       role: u.role,
       roleLabel: u.role === 'super_admin' ? '超级管理员' : u.role === 'admin' ? '管理员' : u.role === 'member' ? '成员' : '访客',
       avatarUrl: getAvatarUrl(u),
+      profilePicOverrideThumbnail: proxyVrcAvatar(u.roster_override_pic || ''),
       birthday: u.birthday,
       // P2-163: location 脱敏口径与 /list 一致——location_visible 未开启时返回 null
       location: u.location_visible ? u.location : null,

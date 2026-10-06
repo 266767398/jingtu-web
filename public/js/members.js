@@ -89,6 +89,50 @@ function doFilterMembers(searchText) {
   }
 }
 
+// ==================== 站内成员头像加载链 ====================
+// 与群组列表/地图同一套思路（group.js / map.js）：后端 getAvatarUrl 已把 VRChat CDN URL
+// 代理改写为 /api/avatar/proxy?u=<原始URL>；原始 URL 是绑定/同步时的快照，签名过期或
+// assets.amlcdn.com（国内 TLS 阻断）时代理回源会失败 → 默认占位。这里统一补齐：
+//   1) 反解代理 URL 识别 amlcdn / 死链，直接改道；2) 空值/近期失败走 /api/avatar/user
+//     按 VRChat ID 实时解析（系统账号链路，302 回 /proxy 复用缓存）；
+//   3) 加载失败时经 /user 重试一次再落到默认占位。
+const MEMBER_AVATAR_PROXY_PREFIX = '/api/avatar/proxy?u=';
+function rawProxiedAvatar(url) {
+  if (url && typeof url === 'string' && url.indexOf(MEMBER_AVATAR_PROXY_PREFIX) === 0) {
+    try { return decodeURIComponent(url.slice(MEMBER_AVATAR_PROXY_PREFIX.length)) || ''; } catch (e) { return ''; }
+  }
+  return url || '';
+}
+function memberVrcFallback(m) {
+  const uid = m.vrchatId || m.vrchat_id || '';
+  return uid ? `/api/avatar/user?u=${encodeURIComponent(uid)}` : '';
+}
+function memberAvatarSrc(m) {
+  let url = m.profilePicOverrideThumbnail || m.avatarUrl || '';
+  if (/^https?:\/\/[^/]*assets\.amlcdn\.com\//i.test(rawProxiedAvatar(url))) url = '';
+  if (!url) return memberVrcFallback(m) || '/api/avatar/default';
+  const proxied = proxyAvatar(url);
+  if (window.__avatarFailCache && window.__avatarFailCache[proxied] > Date.now() - 60000) {
+    return memberVrcFallback(m) || '/api/avatar/default';
+  }
+  return proxied;
+}
+// 头像加载失败：有 VRChat ID 时先经 /api/avatar/user 重试一次（规避 DB 存储的过期签名/死链），
+// 再不行才落 __avatarFail（默认占位 + 60s 失败冷却，防 429 重试风暴）。
+function memberAvatarOnError(img) {
+  if (!img) return;
+  const fb = img.dataset.vrcFallback || '';
+  const failKey = img.dataset.avatarFailKey || img.src;
+  if (fb && img.dataset.retried !== '1') {
+    img.dataset.retried = '1';
+    img.onerror = null;
+    img.src = fb;
+    img.onerror = function () { window.__avatarFail && window.__avatarFail(this, failKey); };
+    return;
+  }
+  window.__avatarFail && window.__avatarFail(img, failKey);
+}
+
 function renderMembers(members) {
   // 新增：头像预览切换函数
   window.cycleAvatar = function(img) {
@@ -108,11 +152,17 @@ function renderMembers(members) {
     return;
   }
   const roleLabels = { 'super_admin': __('members.role_super_admin'), 'admin': __('members.role_admin'), 'member': __('members.role_member') };
-  container.innerHTML = members.map(m => `
+  container.innerHTML = members.map(m => {
+    const avSrc = memberAvatarSrc(m);
+    const vrcFallback = memberVrcFallback(m);
+    const overridePic = proxyAvatar(m.profilePicOverrideThumbnail || '');
+    const cycleSet = [avSrc, overridePic].filter(Boolean).join(';') || '/api/avatar/default';
+    return `
     <div class="member-card">
       <div class="member-card-click" onclick="goToProfile('${escJsStr(String(m.id))}')">
-        <img src="${escAttr(m.avatarUrl || '/api/avatar/default')}" class="member-avatar" alt="${escAttr(m.displayName || m.loginId)}" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(m.avatarUrl || '/api/avatar/default')}')"
-          data-avatars="${escAttr(m.avatarUrl || '/api/avatar/default')};${escAttr(m.profilePicOverrideThumbnail||'')};${escAttr(m.userIcon||'')}" onclick="cycleAvatar(this)" >
+        <img src="${escAttr(avSrc)}" class="member-avatar" alt="${escAttr(m.displayName || m.loginId)}" loading="lazy"
+          onerror="memberAvatarOnError(this)" data-vrc-fallback="${escAttr(vrcFallback)}"
+          data-avatar-fail-key="${escAttr(avSrc)}" data-avatars="${escAttr(cycleSet)}" onclick="cycleAvatar(this)" >
         <div class="member-info">
           <div class="member-name">${esc(m.displayName || m.loginId)}${(m.trustLevel || m.trustLevelCn) ? ` <span class="member-trust-badge" style="background:${trustColorOf(m.trustLevel) || '#9e9e9e'}">${esc(m.trustLevelCn || m.trustLevel)}</span>` : ''}</div>
           <div class="member-role">${roleLabels[m.role] || __("members.role_guest")}</div>
@@ -122,7 +172,8 @@ function renderMembers(members) {
       ${m.locationVisible ? `<div class="member-location">📍 ${esc(m.location || __('members.unknown_location'))}</div>` : ''}
       <button class="btn btn-sm btn-outline ml-auto" onclick="event.stopPropagation();showMemberDetail('${escJsStr(String(m.id))}')">${__('members.card')}</button>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 // ==================== 站内用户名片本地缓存（localStorage） ====================
@@ -171,7 +222,13 @@ function paintMemberCard(u) {
   const vrcNameEl = document.getElementById('ucVrcName');
   const joinedEl = document.getElementById('ucJoined');
   const bioEl = document.getElementById('ucBio');
-  if (img) img.src = u.avatarUrl || '/api/avatar/default';
+  if (img) {
+    img.dataset.vrcFallback = memberVrcFallback(u);
+    img.dataset.avatarFailKey = memberAvatarSrc(u);
+    img.dataset.retried = '0';
+    img.onerror = function () { memberAvatarOnError(img); };
+    img.src = memberAvatarSrc(u);
+  }
   if (nameEl) nameEl.textContent = u.displayName || u.loginId || __('unknown_user');
   const roleMap = { 'super_admin': __('members.role_super_admin'), 'admin': __('members.role_admin'), 'member': __('members.role_member') };
   if (roleEl) roleEl.textContent = roleMap[u.role] || u.role || '—';

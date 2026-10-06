@@ -646,6 +646,34 @@ describe('security regressions', () => {
       expect(files.mapJs).toMatch(/\/api\/avatar\/user\?u=/);
     });
 
+    // ==== 站内成员页头像链路（2026-10-06） ====
+    // 成员列表 /api/users/list 只用绑定时刻的 vrchat_avatar_url（签名 URL 会过期 / amlcdn 被墙），
+    // 是头像修复中唯一漏网的展示面。修复：后端优先取 group_roster 最近同步头像；
+    // 前端 members.js 空值/失败按 VRChat ID 走 /api/avatar/user，amlcdn 改道，失败先重试一次。
+    test('users.js /list 关联 group_roster 最近同步头像，绑定快照过期可自动回退', () => {
+      expect(files.usersRoute).toMatch(/profile_pic_override_thumbnail/);
+      expect(files.usersRoute).toMatch(/MAX\(synced_at\)/);
+      expect(files.usersRoute).toMatch(/ra ON ra\.vrchat_id = u\.vrchat_id/);
+    });
+
+    test('users.js /:id/card 返回 vrchatId 与 roster 头像（供成员名片弹窗按 ID 解析）', () => {
+      expect(files.usersRoute).toMatch(/router\.get\('\/:id\/card'/);
+      expect(files.usersRoute).toMatch(/vrchatId: u\.vrchat_id/);
+      expect(files.usersRoute).toMatch(/profilePicOverrideThumbnail: proxyVrcAvatar/);
+    });
+
+    test('members.js 成员头像链：空值/坏链按 VRChat ID 走 /api/avatar/user，amlcdn 改道，失败重试', () => {
+      expect(files.membersJs).toMatch(/function memberAvatarSrc\(m\)/);
+      expect(files.membersJs).toMatch(/function memberAvatarOnError\(img\)/);
+      expect(files.membersJs).toMatch(/\/api\/avatar\/user\?u=/);
+      expect(files.membersJs).toMatch(/assets\\\.amlcdn\\\.com/);
+      expect(files.membersJs).toMatch(/memberVrcFallback\(m\)/);
+    });
+
+    test('security.js DDoS 限流豁免 /avatar/user（内部每 IP 60/min 自限速 + 缓存优先）', () => {
+      expect(files.securityMiddleware).toMatch(/req\.path === '\/avatar\/user'/);
+    });
+
     test('server.js 挂载 avatar 路由时传入 authState（供 /api/avatar/user 使用系统会话）', () => {
       expect(files.server).toMatch(/require\('\.\/routes\/avatar'\)\(authState\)/);
     });
