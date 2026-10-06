@@ -89,7 +89,7 @@ async function doInit() {
   if (!loginId || loginId.length < 3) errors.push(__('init.err_login_id'));
   if (!displayName || displayName.length < 2) errors.push(__('init.err_display_name'));
   if (!password) errors.push(__('init.err_pwd_required'));
-  if (password && !validatePasswordStrength(password)) errors.push(__('init.err_pwd_strength'));
+  if (password && !validatePasswordStrength(password).valid) errors.push(__('init.err_pwd_strength'));
   if (password && password2 && password !== password2) errors.push(__('init.err_pwd_match'));
 
   const hints = {

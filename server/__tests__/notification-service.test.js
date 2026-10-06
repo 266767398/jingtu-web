@@ -109,6 +109,7 @@ describe('P3-96 createNotification / 群发', () => {
   test('notifyAllMembers 无用户时直接返回', async () => {
     mockPoolQuery = jest.fn().mockResolvedValue([[]]);
     await notificationService.notifyAllMembers('system', '公告', '内容');
+    expect(mockPoolQuery.mock.calls.some(c => c[0].includes('INSERT INTO notifications'))).toBe(false);
   });
 });
 

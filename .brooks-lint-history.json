@@ -1,0 +1,9 @@
+[
+  {
+    "date": "2026-10-06",
+    "mode": "full-sweep",
+    "score": 64,
+    "findings": { "critical": 7, "warning": 10, "suggestion": 8 },
+    "scope": "public/js、panel、根目录运维脚本、public/css、server 测试与架构四维度"
+  }
+]

@@ -1,8 +1,12 @@
 // ==================== 入口主模块 ====================
 
 function validatePasswordStrength(pwd) {
-  // 与后端 auth.js 及 setup.html 保持一致：长度 8+，同时包含大小写字母与数字，不强制要求符号
-  return pwd && pwd.length >= 8 && /[a-z]/.test(pwd) && /[A-Z]/.test(pwd) && /\d/.test(pwd);
+  // 与后端 auth.js 保持一致：返回 { valid, errors }，长度 8+，同时包含大小写字母与数字，不强制要求符号
+  const errors = [];
+  if (!pwd || pwd.length < 8 || !/[a-z]/.test(pwd) || !/[A-Z]/.test(pwd) || !/\d/.test(pwd)) {
+    errors.push(__('init.err_pwd_strength'));
+  }
+  return { valid: errors.length === 0, errors };
 }
 
 function scrollToTop() {

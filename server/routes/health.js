@@ -7,7 +7,7 @@
  *   description: 系统健康检查接口
  */
 const express = require('express');
-const { getPool } = require('../db');
+const { getPool } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 const os = require('os');
 

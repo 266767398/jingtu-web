@@ -80,6 +80,12 @@ if [ -z "$DB_PASS" ]; then
   err "数据库密码不能为空（DB_PASS）。"
   exit 1
 fi
+# P4-sweep：DB_PASS 仅允许可打印字符——拒绝反斜杠（MySQL 按转义序列解析，会造成
+# 实际存储密码与 .env 不一致）、换行/控制字符（可向 .env 注入额外键污染配置）。
+if printf '%s' "$DB_PASS" | grep -Eq '[\\\x00-\x1F]' || ! printf '%s' "$DB_PASS" | grep -Eq '^[[:print:]]+$'; then
+  err "数据库密码含非法字符（不允许反斜杠、换行与控制字符，建议字母+数字+符号）。"
+  exit 1
+fi
 MYSQL_ROOT_PASSWORD=$(prompt_secret MYSQL_ROOT_PASSWORD "MySQL root 密码（留空则跳过自动建库）")
 PORT=$(prompt PORT "站点端口（Node 监听）" "3456")
 REPO_URL=${REPO_URL:-""}
@@ -97,8 +103,9 @@ fi
 # P2-104/P3-21：DOMAIN 会被拼进 nginx heredoc（server_name）与 CERT_DIR 路径——
 # 无白名单时含 $( ) 被二次展开（命令注入）、含 ../ 造成证书目录穿越。
 # 域名仅允许字母、数字、-、.（可带端口号；留空=用服务器 IP）。
-if [ -n "$DOMAIN" ] && ! printf '%s' "$DOMAIN" | grep -Eq '^[A-Za-z0-9.-]+(:[0-9]+)?$'; then
-  err "网站域名非法（仅允许字母、数字、-、.，可选端口号）：$DOMAIN"
+# P4-sweep：显式拒绝 .. 与首尾 . / -，杜绝 "."、".."、"a..b" 等上溯/污染 CERT_DIR。
+if [ -n "$DOMAIN" ] && ! printf '%s' "$DOMAIN" | grep -Eq '^([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*(:[0-9]+)?$'; then
+  err "网站域名非法（仅允许标准域名/子域名，可选端口号）：$DOMAIN"
   exit 1
 fi
 # P2-104/P3-21：PORT 会被拼进 nginx heredoc 与 .env，仅允许 1-65535 的数字。

@@ -259,7 +259,7 @@ function doLogoutUI(){S.token=null;clearInterval(S.statTimer);$('app').style.dis
 function wizGo(step){for(let i=1;i<=3;i++){$('ws'+i).className='wiz-step'+(i===step?' on':(i<step?' done':''));$('wizPane'+i).style.display=i===step?'block':'none';}}
 function renderWizEnv(env){const el=$('wizEnv');if(!el)return;
 if(!env||!env.length){el.innerHTML='<div class="empty">未获取到环境信息，可直接下一步。</div>';return;}
-el.innerHTML='<table><tr><th>检查项</th><th>状态</th></tr>'+env.map(c=>`<tr><td>${esc(c.name)}${c.port?' <span class="muted">('+c.port+')</span>':''}<div class="muted" style="font-size:11px">${esc(c.exe||c.path||'')}</div></td><td>${c.ok?'<span style="color:#4ade80">✓ 就绪</span>':'<span style="color:#fbbf24">✗ 缺失</span>'}</td></tr>`).join('')+'</table>';}
+el.innerHTML='<table><tr><th>检查项</th><th>状态</th></tr>'+env.map(c=>`<tr><td>${esc(c.name)}${c.port?' <span class="muted">('+Number(c.port)+')</span>':''}<div class="muted" style="font-size:11px">${esc(c.exe||c.path||'')}</div></td><td>${c.ok?'<span style="color:#4ade80">✓ 就绪</span>':'<span style="color:#fbbf24">✗ 缺失</span>'}</td></tr>`).join('')+'</table>';}
 async function initPanel(){const p1=$('initPwd').value,p2=$('initPwd2').value;
 if(p1.length<8)return $('authErr').textContent='密码至少 8 位';if(p1!==p2)return $('authErr').textContent='两次密码不一致';
 const done=busyBtn($('initBtn'),'初始化中…');try{const r=await api('/api/init',{method:'POST',body:JSON.stringify({password:p1})});S.token=r.token;wizGo(3);}catch(e){$('authErr').textContent=e.message;}finally{if(done)done();}}
@@ -307,7 +307,7 @@ setChip('chipMysql','MySQL');setChip('chipNginx','Nginx');setChip('chipNode','No
 $('chipDisk').innerHTML=`<span class="dot ${st.diskGB!=null&&st.diskGB<=st.diskWarn?'warn':'ok'}"></span>磁盘 ${st.diskGB!=null?st.diskGB+' GB':'--'}`;}
 function svcCard(s){
 const st=s.proc?`<span class="mono">PID ${esc(s.pid)}</span> · ${esc(s.proc.name)} · CPU ${esc(s.proc.cpu)}% · 内存 ${fmtMem(s.proc.memMB)}`:'';
-return `<div class="${svcCls(s)}"><div class="svc-top"><span class="dot ${s.running?'ok':'err'}"></span><span class="name">${esc(s.name)}</span><span class="port">端口 ${s.port}</span></div>
+return `<div class="${svcCls(s)}"><div class="svc-top"><span class="dot ${s.running?'ok':'err'}"></span><span class="name">${esc(s.name)}</span><span class="port">端口 ${Number(s.port)}</span></div>
 <div class="svc-meta">${s.running?'<b style="color:#4ade80">运行中</b>':'<b style="color:#f87171">已停止</b>'}<br>${st||'未监听端口'}</div>
 <div class="svc-actions">
 <button class="btn btn-success btn-sm" data-svc="start" data-name="${esc(s.name)}">启动</button>
@@ -343,7 +343,7 @@ p.innerHTML=`
 <div class="card"><div class="card-title">${IC.svc} 服务状态</div><div class="grid">${svcAll}</div></div>
 <div class="card"><div class="card-title">${IC.dash} 一键启停</div>
 <div class="svc-quick">
-${st.services.map(s=>`<div class="sq-row"><span class="dot ${s.running?'ok':'err'}"></span><b>${esc(s.name)}</b><span class="sq-port">:${s.port}</span><span class="spacer"></span>
+${st.services.map(s=>`<div class="sq-row"><span class="dot ${s.running?'ok':'err'}"></span><b>${esc(s.name)}</b><span class="sq-port">:${Number(s.port)}</span><span class="spacer"></span>
 <button class="btn btn-success btn-sm" data-svc="start" data-name="${esc(s.name)}">启动</button>
 <button class="btn btn-danger btn-sm" data-svc="stop" data-name="${esc(s.name)}">停止</button>
 <button class="btn btn-ghost btn-sm" data-svc="restart" data-name="${esc(s.name)}">重启</button></div>`).join('')}
@@ -380,7 +380,7 @@ p.innerHTML=`
 <button class="btn btn-ghost" onclick="svcAction('restart','all')">全部重启</button>
 </div>
 <div class="card"><div class="table-wrap"><table><tr><th>服务</th><th>端口</th><th>状态</th><th>PID</th><th>进程</th><th>CPU / 内存</th><th>操作</th></tr>
-${st.services.map(s=>`<tr><td><b>${esc(s.name)}</b></td><td class="mono">${s.port}</td>
+${st.services.map(s=>`<tr><td><b>${esc(s.name)}</b></td><td class="mono">${Number(s.port)}</td>
 <td><span class="dot ${s.running?'ok':'err'}"></span> ${s.running?'<span style="color:#4ade80">运行中</span>':'<span style="color:#f87171">已停止</span>'}</td>
 <td class="mono">${s.pid||'-'}</td><td>${s.proc?esc(s.proc.name):'-'}</td><td>${s.proc?esc(s.proc.cpu)+'% / '+fmtMem(s.proc.memMB):'-'}</td>
 <td><button class="btn btn-success btn-sm" data-svc="start" data-name="${esc(s.name)}">启动</button> <button class="btn btn-ghost btn-sm" data-svc="stop" data-name="${esc(s.name)}">停止</button> <button class="btn btn-ghost btn-sm" data-svc="restart" data-name="${esc(s.name)}">重启</button></td></tr>`).join('')}
@@ -393,7 +393,7 @@ ${st.services.map(s=>`<tr><td><b>${esc(s.name)}</b></td><td class="mono">${s.por
 <div class="form-row"><button class="btn btn-ghost" onclick="openDesktop('dir')">项目根目录</button><button class="btn btn-ghost" onclick="openDesktop('logs')">日志目录</button><button class="btn btn-ghost" onclick="openDesktop('site')">打开网站</button></div></div>
 </div>`;}
 async function checkPort(){const done=busyBtn($('portCheckBtn'),'检测中…');try{const port=$('portCheckInput').value.trim()||'3456';const r=await api('/api/ports?port='+encodeURIComponent(port));const el=$('portResult');
-el.innerHTML=r.occupied?`<span style="color:#f87171">● 端口 ${r.port} 被占用</span> — PID ${r.pid}（${esc(r.proc?r.proc.name:'未知进程')}）`:`<span style="color:#4ade80">● 端口 ${r.port} 空闲</span>`;}catch(e){toast(e.message,'err');}finally{if(done)done();}}
+el.innerHTML=r.occupied?`<span style="color:#f87171">● 端口 ${Number(r.port)} 被占用</span> — PID ${r.pid}（${esc(r.proc?r.proc.name:'未知进程')}）`:`<span style="color:#4ade80">● 端口 ${Number(r.port)} 空闲</span>`;}catch(e){toast(e.message,'err');}finally{if(done)done();}}
 function killPort(){const done=busyBtn($('portKillBtn'));const port=$('portCheckInput').value.trim();if(!port){if(done)done();return toast('请输入端口','warn');}
 confirmModal('释放占用端口',`将强制终止占用 <b class="mono">端口 ${port}</b> 的进程。<br><br>请输入确认短语：<span class="mono-phrase">${CONFIRMS.kill}</span>`,'btn-danger','释放端口',(v)=>{
 api('/api/ports/kill',{method:'POST',body:JSON.stringify({port,confirm:v})}).then(r=>{toast(r.message);opLog(r.message,'ok');checkPort();if(done)done();}).catch(e=>{toast(e.message,'err');if(done)done();});},CONFIRMS.kill);}
@@ -536,7 +536,7 @@ async function loadPermUserGroups(){const id=parseInt($('permUserId').value,10);
 if(!id){box.innerHTML='选择用户后显示其权限组。';return;}
 try{const r=await api('/api/site/user/permgroups?id='+id);const d=r.data;
 const baseName={1:'超级管理员',2:'管理员',3:'成员'}[d.baseGroupId]||('#'+d.baseGroupId);
-box.innerHTML=`当前角色：<b>${({super_admin:'超级管理员',admin:'管理员',member:'成员'})[d.role]||d.role}</b> · 基础组：<b>${esc(baseName)}</b><br>`+
+box.innerHTML=`当前角色：<b>${({super_admin:'超级管理员',admin:'管理员',member:'成员'})[d.role]||esc(d.role)}</b> · 基础组：<b>${esc(baseName)}</b><br>`+
 d.groups.map(g=>{const isBase=[1,2,3].includes(g.id);
 return `<label style="display:inline-flex;align-items:center;gap:5px;margin:4px 8px 4px 0;cursor:${isBase?'not-allowed':'pointer'}"><input type="checkbox" data-gid="${g.id}" ${g.joined?'checked':''} ${isBase?'disabled':''}> ${esc(g.name)}${isBase?'（基础）':''}</label>`;}).join('');}
 catch(e){box.innerHTML=esc(e.message);}}
@@ -566,7 +566,7 @@ el.innerHTML='<table><tr><th>配置项</th><th>值</th></tr>'+rows.map(x=>`<tr><
 catch(e){el.innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
 /* ===== 任务轮询 ===== */
 function watchTask(id){const iv=setInterval(()=>{api('/api/task/'+id).then(r=>{const t=r.task;
-const node=document.querySelector('[data-task="'+id+'"]');if(node){node.textContent=t.status==='running'?'<span class="spin"></span> 执行中…':t.status==='done'?'✓ 完成':'✗ 失败';node.classList.toggle('err',t.status==='error');}
+const node=document.querySelector('[data-task="'+id+'"]');if(node){node.innerHTML=t.status==='running'?'<span class="spin"></span> 执行中…':t.status==='done'?'✓ 完成':'✗ 失败';node.classList.toggle('err',t.status==='error');}
 const lines=t.output||[];let last=TASK_CONSUMED.get(id)||0;if(lines.length<last)last=0;
 if(lines.length>last){lines.slice(last).forEach(l=>opLog('['+t.name+'] '+l));TASK_CONSUMED.set(id,lines.length);}
 if(t.status!=='running'){clearInterval(iv);TASK_CONSUMED.delete(id);if(ACTIVE_TASK===id)ACTIVE_TASK=null;if(node)node.disabled=false;

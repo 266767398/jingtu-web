@@ -57,6 +57,7 @@
   --tc: #7c5cfc;
   --hero-grad: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #102540 100%);
   --hero-accent: #7c5cfc;
+  --hero-text: #fff;
   --media-thumb-grad: linear-gradient(135deg, #1a1a2e, #2a2a4e);
 }
 
@@ -86,6 +87,7 @@
   --rose: #fca5a5;
   --hero-grad: linear-gradient(135deg, #1a1a2e 0%, #16213e 40%, #102540 100%);
   --hero-accent: #7c5cfc;
+  --hero-text: #fff;
   --hover: rgba(124,92,252,.12);
   --card-bg: #1e1e2a;
   --gradient-end: #7c3aed;
@@ -149,6 +151,7 @@
   --rose: #f43f5e;
   --hero-grad: linear-gradient(135deg, #667eea 0%, #764ba2 40%, #f093fb 100%);
   --hero-accent: #6d4cfc;
+  --hero-text: #1a1a2e;
   --hover: rgba(109,76,252,.08);
   --card-bg: #ffffff;
   --gradient-end: #7c3aed;

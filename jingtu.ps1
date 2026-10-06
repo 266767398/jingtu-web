@@ -310,6 +310,17 @@ function Resolve-MySqlService {
     return $null
 }
 
+# F8(P4-sweep)：Start-Process -ArgumentList 不会自动为含空格参数加引号，
+# 项目/phpStudy 位于带空格目录（如 C:\Program Files）时参数会被拆段。
+# 统一在此为含空白字符的参数包上双引号，避免启动失败与难以定位的日志错误。
+function Join-StartArg([object[]]$argsList) {
+    $quoted = foreach ($a in $argsList) {
+        $s = [string]$a
+        if ($s -match '[\s"]') { '"' + $s.Replace('"', '\"') + '"' } else { $s }
+    }
+    return $quoted
+}
+
 function Start-MySql {
     if ($null -ne (Test-Port $MysqlPort)) {
         Write-Line "[提示] MySQL 已在运行。" $Cfg.C_Warn
@@ -342,7 +353,7 @@ function Start-MySql {
     if ($info.Conf) { $launchArgs += @('--defaults-file=' + $info.Conf) }
     $outLog = Join-Path $LogDir 'mysqld.log'
     $errLog = Join-Path $LogDir 'mysqld.err'
-    Start-Process -FilePath $info.Bin -ArgumentList $launchArgs -WorkingDirectory (Split-Path $info.Bin) `
+    Start-Process -FilePath $info.Bin -ArgumentList (Join-StartArg $launchArgs) -WorkingDirectory (Split-Path $info.Bin) `
         -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog
     $wait = 0
     while ($null -eq (Test-Port $MysqlPort) -and $wait -lt $info.WaitSeconds) {
@@ -439,7 +450,7 @@ function Start-Nginx {
     $outLog = Join-Path $LogDir 'nginx.out'
     $errLog = Join-Path $LogDir 'nginx.err'
     Write-Line ('[信息] 启动 Nginx: ' + $rt.Bin + '  -p ' + $rt.Prefix + $(if ($rt.Conf) { '  -c ' + $rt.Conf } else { '' })) $Cfg.C_Dim
-    Start-Process -FilePath $rt.Bin -ArgumentList $launchArgs -WorkingDirectory $rt.Prefix -WindowStyle 'Hidden' -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+    Start-Process -FilePath $rt.Bin -ArgumentList (Join-StartArg $launchArgs) -WorkingDirectory $rt.Prefix -WindowStyle 'Hidden' -RedirectStandardOutput $outLog -RedirectStandardError $errLog
     $wait = 0
     while ($null -eq (Test-Port $NginxPort) -and $wait -lt 10) { Start-Sleep -Seconds 1; $wait++ }
     if ($null -ne (Test-Port $NginxPort)) { Write-Line "[成功] Nginx 已启动（端口 $NginxPort）" $Cfg.C_Ok; return $true }
@@ -541,7 +552,7 @@ function Start-Site {
     }
     Write-Line '正在启动网站...' $Cfg.C_Info
     $node = Get-NodePath
-    Start-Process -FilePath $node -ArgumentList @($SiteScript) -WorkingDirectory $SiteDir `
+    Start-Process -FilePath $node -ArgumentList (Join-StartArg @($SiteScript)) -WorkingDirectory $SiteDir `
         -WindowStyle Hidden -RedirectStandardOutput (Join-Path $LogDir 'site.log') `
         -RedirectStandardError  (Join-Path $LogDir 'site.err')
     $wait = 0
@@ -755,9 +766,9 @@ function Export-Site {
         if (Test-Path $srcFile) { Copy-Item -Path $srcFile -Destination (Join-Path $staging $f) -Force }
     }
 
-    # ---- 秘密红线终检：staging 内绝不允许出现 .env / panel-auth.json / 激活码文件 ----
+    # ---- 秘密红线终检：staging 内绝不允许出现 .env / panel-auth.json / 激活码文件 / 会话文件 ----
     $leaks = @(Get-ChildItem -LiteralPath $staging -Recurse -File -Force |
-        Where-Object { $_.Name -eq '.env' -or $_.Name -eq 'panel-auth.json' -or $_.Name -eq 'activation-codes.json' })
+        Where-Object { $_.Name -eq '.env' -or $_.Name -eq 'panel-auth.json' -or $_.Name -eq 'activation-codes.json' -or $_.Name -eq 'session.json' })
     if ($leaks.Count -gt 0) {
         foreach ($l in $leaks) { Write-Host ("[导出] 红线拦截：{0}" -f $l.FullName) -ForegroundColor Red }
         throw '压缩包内检测到密钥文件，导出中止'

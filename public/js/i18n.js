@@ -52,10 +52,11 @@ function __(key, replacements = {}) {
   let text = langDict[key];
   if (text === undefined) text = fallback[key];
   if (text === undefined) text = key;
-  // 替换占位符 {n}, {total} 等
+  // 替换占位符 {n}, {total} 等（v 中的 $ 需先转义，防止 String.replace 特殊展开 $&、$1 等）
   if (typeof text === 'string') {
     for (const [k, v] of Object.entries(replacements)) {
-      text = text.replace(new RegExp('\\{' + k + '\\}', 'g'), v);
+      const safeValue = String(v).replace(/\$/g, '$$$$');
+      text = text.replace(new RegExp('\\{' + k + '\\}', 'g'), safeValue);
     }
   }
   return text;

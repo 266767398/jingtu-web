@@ -450,9 +450,11 @@ async function collectUserDataPanel(userId) {
   );
   if (!userRows.length) return null;
   const u = userRows[0];
-  const vrcId = u.vrchat_id || '';
   const tags = await dbQuery('SELECT tag_name, color, create_time FROM user_tags WHERE user_id = ? ORDER BY id ASC', [userId]);
-  const notes = vrcId ? await dbQuery('SELECT target_vrcid, note_text, note_color, note_tags, update_time FROM member_note WHERE owner_vrcid = ? ORDER BY id ASC', [vrcId]) : [];
+  const notes = await dbQuery(
+    'SELECT mn.note_text, mn.note_color, mn.note_tags, mn.update_time, us.vrchat_id AS target_vrcid FROM member_note mn LEFT JOIN users us ON us.id = mn.target_id WHERE mn.owner_id = ? ORDER BY mn.id ASC',
+    [userId]
+  );
   const friends = await dbQuery(
     `SELECT uf.friend_id, uf.status, uf.requested_by, uf.created_at, us.vrchat_id AS friend_vrchat_id, us.vrchat_name AS friend_vrchat_name, us.display_name AS friend_display_name
      FROM user_friends uf LEFT JOIN users us ON us.id = uf.friend_id WHERE uf.user_id = ? ORDER BY uf.id ASC`,
@@ -507,8 +509,10 @@ async function importUserDataPanel(userId, body) {
     for (const n of body.notes) {
       const target = String(n.targetVrcId || '').trim().slice(0, 100);
       if (!target) continue;
-      await dbQuery('INSERT INTO member_note (owner_vrcid, target_vrcid, note_text, note_color, note_tags) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE note_text = VALUES(note_text), note_color = VALUES(note_color), note_tags = VALUES(note_tags)',
-        [vrcId, target, n.text == null ? null : String(n.text).slice(0, 200), n.color == null ? null : String(n.color).slice(0, 16), n.tags == null ? null : String(n.tags).slice(0, 255)]);
+      const targetUserId = await resolveUserIdByVrcId(target);
+      if (!targetUserId) continue;
+      await dbQuery('INSERT INTO member_note (owner_id, target_id, note_text, note_color, note_tags) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE note_text = VALUES(note_text), note_color = VALUES(note_color), note_tags = VALUES(note_tags)',
+        [userId, targetUserId, n.text == null ? null : String(n.text).slice(0, 200), n.color == null ? null : String(n.color).slice(0, 16), n.tags == null ? null : String(n.tags).slice(0, 255)]);
       imported.notes++;
     }
   }
@@ -679,8 +683,14 @@ async function handleApi(req, res, token) {
   }
   if (pathName === '/api/backup/download') {
     const name = String(getQuery(req).get('name') || '');
-    if (!/^[^\\/]+$/.test(name)) return sendErr(res, 400, '非法文件名');
-    const file = path.join(BACKUP_DIR, name);
+    // F1(P4-sweep)：仅允许单段文件名，杜绝 `..`、`.`、空串、路径分隔符穿越到项目根目录
+    if (!/^[0-9A-Za-z._-]+$/.test(name) || name === '.' || name === '..' || name.includes('..')) {
+      return sendErr(res, 400, '非法文件名');
+    }
+    const file = path.resolve(BACKUP_DIR, name);
+    if (file !== BACKUP_DIR && !file.startsWith(BACKUP_DIR + path.sep)) {
+      return sendErr(res, 400, '非法文件名');
+    }
     if (!fs.existsSync(file)) return sendErr(res, 404, '备份不存在');
     const stat = fs.statSync(file);
     let outFile = file;
@@ -903,7 +913,9 @@ async function handleApi(req, res, token) {
     const kw = String(q.get('kw') || '').trim();
     const offset = (page - 1) * size;
     try {
-      const like = '%' + kw + '%';
+      // F3(P4-sweep)：LIKE 参数中的 %/_/\ 需转义，避免用户输入符号被当作通配符（% 返回全表、_ 命中任意单字符）
+      const escKw = String(kw).replace(/[\\%_]/g, (m) => '\\' + m);
+      const like = '%' + escKw + '%';
       const where = kw
         ? 'WHERE deleted_at IS NULL AND (login_id LIKE ? OR display_name LIKE ?)'
         : 'WHERE deleted_at IS NULL';
@@ -1188,7 +1200,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' });
     fs.createReadStream(full).pipe(res);
   } catch (e) {
-    try { sendErr(res, 500, e.message || '服务器内部错误'); } catch (_) {}
+    // F2(P4-sweep)：兜底错误不回显原始异常（含 SQL 片段/绝对路径等敏感上下文），
+    // 详情仅写面板审计日志，客户端统一收固定文案。
+    try { auditPanel('未处理异常: ' + (e && e.stack ? e.stack : String(e))); } catch (_) {}
+    try { sendErr(res, 500, '服务器内部错误，详情见面板审计日志'); } catch (_) {}
   }
 });
 

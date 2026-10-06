@@ -1,4 +1,4 @@
 @echo off
 chcp 65001 >nul
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0export-site.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0export-site.ps1" %*
 pause

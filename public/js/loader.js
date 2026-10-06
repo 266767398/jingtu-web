@@ -36,9 +36,9 @@ var ROUTE_MODULES = [
   'members.js', 'home.js', 'group.js', 'announcements.js', 'events.js',
   'vrc.js', 'geo.js', 'map.js', 'chat.js', 'album.js',
   'admin-users.js', 'admin-perms.js', 'admin-vrc.js', 'admin-ui.js',
-  'admin-model-collections.js', 'posts.js', 'friends.js', 'follows.js',
+  'admin-model-collections.js', 'admin-activation.js', 'posts.js', 'friends.js', 'follows.js',
   'birthday.js', 'profile.js', 'profile-page.js',
-  'checkin.js', 'checkin-extra.js', 'achievements.js', 'collections.js'
+  'checkin.js', 'checkin-extra.js', 'achievements.js', 'collections.js', 'vrc_favorites.js'
 ];
 
 // 2026-08-31：被禁用的功能模块（占用网络多/暂不需要）
@@ -59,7 +59,7 @@ var TAB_MODULES = {
   album: ['album.js'],
   map: ['geo.js', 'map.js', 'vrc.js'],
   chat: ['chat.js'],
-  birthday: ['birthday.js'],
+  birthday: ['birthday.js', 'events.js'],
   posts: ['posts.js'],
   friends: ['friends.js'],
   follows: ['follows.js'],

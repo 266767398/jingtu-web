@@ -302,8 +302,8 @@ async function showEditPermGroupPerms(groupId, groupName) {
       const allKeys = data.allKeys || Object.keys(PERM_LABELS);
       container.innerHTML = '<div class="perm-grid">' + allKeys.map(key => `
         <label class="perm-toggle-item ${perms[key] ? 'enabled' : ''}">
-          <input type="checkbox" ${perms[key] ? 'checked' : ''} onchange="toggleGroupPerm(${groupId}, '${key}', this.checked)">
-          <span>${PERM_LABELS[key] || key}</span>
+          <input type="checkbox" ${perms[key] ? 'checked' : ''} onchange="toggleGroupPerm(${groupId}, '${escJsStr(key)}', this.checked)">
+          <span>${esc(PERM_LABELS[key] || key)}</span>
         </label>
       `).join('') + '</div>';
     }
