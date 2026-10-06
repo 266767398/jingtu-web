@@ -37,6 +37,7 @@
   };
 
   var _panelLoaded = {};
+  var _opsAvailabilityChecked = false;
 
   function showPanel(target) {
     var panels = document.querySelectorAll('#tab-admin .admin-panel');
@@ -74,9 +75,28 @@
     if (main) main.scrollTop = 0;
   }
 
+  // 运维面板可用性探测（用原生 fetch 而非 api()：/api/ops/status 仅超管可查，
+  // 普通管理员探测会得 403，走 api() 会弹「无权限」误打扰）
+  function checkOpsPanelAvailability() {
+    var btn = document.querySelector('#adminNav .admin-nav-item[data-external="/ops/"]');
+    if (!btn) return;
+    fetch('/api/ops/status', { method: 'GET', credentials: 'include', cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.available === false) btn.classList.add('d-none');
+      })
+      .catch(function () { /* 查询失败（如普通管理员无权限）保持现状 */ });
+  }
+
   function bindAdminNav() {
     var nav = document.getElementById('adminNav');
     if (!nav) return;
+    // 运维面板可用性探测：Docker/容器镜像不含 panel/（仅裸机/宝塔/Windows 本机部署），
+    // 探测到不可用就隐藏侧栏入口，避免点击后空等超时弹「启动失败」（仅查询一次）
+    if (!_opsAvailabilityChecked) {
+      _opsAvailabilityChecked = true;
+      checkOpsPanelAvailability();
+    }
     nav.addEventListener('click', function (e) {
       var btn = e.target.closest('.admin-nav-item');
       if (!btn) return;

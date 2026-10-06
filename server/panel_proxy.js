@@ -24,11 +24,33 @@ const IDLE_MS = (Number(process.env.PANEL_IDLE_MINUTES) || 10) * 60 * 1000;
 const IDLE_CHECK_INTERVAL = (Number(process.env.PANEL_IDLE_CHECK_SECONDS) || 60) * 1000;
 const START_POLL_MS = Number(process.env.PANEL_START_POLL_MS) || 1000;
 const START_WAIT_MAX = 10000;          
+// 运维面板不可用时的统一可读提示（Docker 容器镜像未打包 panel/，面板为 Windows 专属 PowerShell 工具链）
+const PANEL_UNAVAILABLE_MESSAGE =
+  '运维面板仅支持裸机/宝塔/Windows 本机部署；当前容器/服务器环境未包含 panel/ 目录（或已被 PANEL_ENABLED=0 显式禁用）。';
 
 let panelSpawnPending = false;  
 let panelChild = null;          
 let lastOpsActivity = 0;        
 let idleTimer = null;           
+
+/**
+ * 运维面板可用性判定：
+ *  - PANEL_ENABLED 显式覆盖：0/false/off/no → 强制不可用；1/true/on/yes → 强制可用；
+ *  - 未配置时自动探测：panel/panel-server.js 文件存在即可用。
+ * Docker 镜像刻意不打包 panel/（docs/07 已注明仅裸机/宝塔/Windows 本机部署），
+ * 自动探测直接判不可用——避免点击入口后 spawn 不存在文件、空等 10s 再弹「启动失败」。
+ * @param {string} rootDir
+ */
+function isPanelAvailable(rootDir) {
+  const flag = String(process.env.PANEL_ENABLED || '').trim().toLowerCase();
+  if (['0', 'false', 'off', 'no'].includes(flag)) return false;
+  if (['1', 'true', 'on', 'yes'].includes(flag)) return true;
+  try {
+    return fs.existsSync(path.join(rootDir, 'panel', 'panel-server.js'));
+  } catch (e) {
+    return false;
+  }
+}
 
 /* ---------- 探测与拉起 ---------- */
 
@@ -146,8 +168,12 @@ function stopIdleMonitor() {
  */
 function setupPanelLifecycle(app, deps) {
   const { ROOT_DIR, requireSuperAdmin } = deps;
-  startIdleMonitor();
+  const available = isPanelAvailable(ROOT_DIR);
+  if (available) startIdleMonitor();
   app.post('/api/ops/start', requireSuperAdmin, (req, res) => {
+    if (!available) {
+      return res.status(503).json({ ok: false, code: 'PANEL_UNAVAILABLE', message: PANEL_UNAVAILABLE_MESSAGE });
+    }
     ensurePanelStarted(ROOT_DIR, (err, running) => {
       if (err) return res.status(502).json({ ok: false, message: err.message });
       touchOpsActivity();
@@ -155,6 +181,16 @@ function setupPanelLifecycle(app, deps) {
     });
   });
   app.get('/api/ops/status', requireSuperAdmin, (req, res) => {
+    if (!available) {
+      return res.json({
+        ok: true,
+        available: false,
+        running: false,
+        idleMinutes: Math.round(IDLE_MS / 60000),
+        lastActivityAgoSec: -1,
+        message: PANEL_UNAVAILABLE_MESSAGE
+      });
+    }
     probePanel((ok) => {
       const idleMinutes = Math.round(IDLE_MS / 60000);
       res.json({
@@ -217,14 +253,18 @@ function proxyToPanel(req, res, isRetry) {
  * 仅凭一枚共享面板密码即可完成，因此普通管理员（admin）不得经公网入口触及。
  */
 function setupPanelProxy(app, deps) {
+  const available = isPanelAvailable(deps.ROOT_DIR);
   // 运维面板反向代理：先过主站超管鉴权，避免把仅监听 localhost 的管理面板
   // 经公网入口暴露给匿名用户或数据面管理员
   // P3-42: 挂载边界 `/ops/`——Express 只把 `/ops` 或 `/ops/*` 路由进代理，`/opsfoo` 这类畸形前缀不再进入
   app.use('/ops/', deps.requireSuperAdmin, (req, res) => {
+    if (!available) {
+      return res.status(503).json({ ok: false, code: 'PANEL_UNAVAILABLE', message: PANEL_UNAVAILABLE_MESSAGE });
+    }
     touchOpsActivity();
     trySpawnPanelServer(deps.ROOT_DIR);
     proxyToPanel(req, res, false);
   });
 }
 
-module.exports = { setupPanelProxy, setupPanelLifecycle, stopIdleMonitor };
+module.exports = { setupPanelProxy, setupPanelLifecycle, isPanelAvailable, stopIdleMonitor };

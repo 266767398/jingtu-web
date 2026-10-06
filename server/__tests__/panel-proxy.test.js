@@ -32,8 +32,15 @@ const app = {
 };
 
 beforeEach(() => {
+  // /tmp/root 下不存在 panel/panel-server.js，自动探测会判「不可用」；
+  // 本文件聚焦代理透传行为，统一强制可用（PANEL_ENABLED=1）
+  process.env.PANEL_ENABLED = '1';
   jest.clearAllMocks();
   http.request.mockClear();
+});
+
+afterEach(() => {
+  delete process.env.PANEL_ENABLED;
 });
 
 describe('P3-96 setupPanelProxy 挂载', () => {
@@ -174,6 +181,62 @@ describe('P3-96 proxyToPanel 透传与失败', () => {
     dispatch(entry, req, res);
     expect(() => proxyReq.emit('timeout')).not.toThrow();
     expect(proxyReq.destroy).toHaveBeenCalled();
+    jest.advanceTimersByTime(12000);
+    jest.useRealTimers();
+  });
+});
+
+describe('PANEL_UNAVAILABLE：不可用环境短路', () => {
+  function mountApp(rootDir) {
+    const uses = [];
+    const appMock = { use: jest.fn((path, guard, handler) => { uses.push({ path, guard, handler }); }) };
+    setupPanelProxy(appMock, { ROOT_DIR: rootDir, requireSuperAdmin: (req, res, next) => next() });
+    return uses[0];
+  }
+
+  function dispatch(entry, req, res) {
+    entry.guard(req, res, () => entry.handler(req, res));
+  }
+
+  function callHandler(envValue) {
+    if (envValue === undefined) delete process.env.PANEL_ENABLED;
+    else process.env.PANEL_ENABLED = envValue;
+    const entry = mountApp('/tmp/root'); // 无 panel/panel-server.js
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn(), headersSent: false };
+    const req = { method: 'GET', url: '/ops/api', headers: { host: 'example.com' }, pipe: jest.fn() };
+    dispatch(entry, req, res);
+    return res;
+  }
+
+  test('panel 缺失且未强制启用：/ops 返回 503 可读提示，不触发代理', () => {
+    const res = callHandler(undefined);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: false, code: 'PANEL_UNAVAILABLE', message: expect.stringContaining('仅支持裸机') }));
+    expect(proxyCalls()).toHaveLength(0);
+  });
+
+  test('PANEL_ENABLED=0 强制不可用：/ops 返回 503 不代理', () => {
+    const res = callHandler('0');
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'PANEL_UNAVAILABLE' }));
+    expect(proxyCalls()).toHaveLength(0);
+  });
+
+  test('PANEL_ENABLED=1 强制可用：面板缺失也走代理逻辑', () => {
+    jest.useFakeTimers();
+    const entry = mountApp('/tmp/root');
+    const proxyRes = fakeProxyRes(200);
+    const proxyReq = fakeProxyReq();
+    http.request.mockImplementation((opts, cb) => {
+      if (opts.path === '/api/bootstrap') return fakeProxyReq();
+      cb(proxyRes);
+      return proxyReq;
+    });
+    const res = { writeHead: jest.fn(), json: jest.fn(), headersSent: false, end: jest.fn(), status: jest.fn().mockReturnThis() };
+    const req = { method: 'GET', url: '/ops/api/list', headers: { host: 'example.com' }, pipe: jest.fn() };
+    dispatch(entry, req, res);
+    expect(res.writeHead).toHaveBeenCalledWith(200, proxyRes.headers);
+    expect(proxyRes.pipe).toHaveBeenCalledWith(res);
     jest.advanceTimersByTime(12000);
     jest.useRealTimers();
   });

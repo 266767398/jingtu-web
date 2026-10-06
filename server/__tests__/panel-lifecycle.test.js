@@ -20,7 +20,8 @@ const ROOT_DIR = path.resolve(__dirname, '..', '..');
 const originalEnv = {
   PANEL_IDLE_MINUTES: process.env.PANEL_IDLE_MINUTES,
   PANEL_IDLE_CHECK_SECONDS: process.env.PANEL_IDLE_CHECK_SECONDS,
-  PANEL_START_POLL_MS: process.env.PANEL_START_POLL_MS
+  PANEL_START_POLL_MS: process.env.PANEL_START_POLL_MS,
+  PANEL_ENABLED: process.env.PANEL_ENABLED
 };
 
 function fakeProbeReq() {
@@ -167,6 +168,34 @@ describe('空闲超时自动关闭', () => {
     if (process.platform === 'win32') {
       expect(childProcess.spawnSync).toHaveBeenCalledWith('taskkill', expect.arrayContaining(['/pid', '4321']), expect.anything());
     }
+    stopIdleMonitor();
+  });
+});
+
+describe('运维面板不可用环境（Docker/容器：PANEL_ENABLED=0）', () => {
+  test('/api/ops/start 返回 503 PANEL_UNAVAILABLE，不拉起面板', () => {
+    process.env.PANEL_ENABLED = '0';
+    const { setupPanelLifecycle, stopIdleMonitor } = freshModule();
+    const app = { post: jest.fn(), get: jest.fn() };
+    setupPanelLifecycle(app, { ROOT_DIR, requireSuperAdmin: (r, s, n) => n() });
+    const [, , handler] = app.post.mock.calls[0];
+    const res = { json: jest.fn(), status: jest.fn().mockReturnThis() };
+    handler({}, res);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: false, code: 'PANEL_UNAVAILABLE', message: expect.stringContaining('仅支持裸机') }));
+    expect(childProcess.spawn).not.toHaveBeenCalled();
+    stopIdleMonitor();
+  });
+
+  test('/api/ops/status 返回 available:false 供前端隐藏入口', () => {
+    process.env.PANEL_ENABLED = '0';
+    const { setupPanelLifecycle, stopIdleMonitor } = freshModule();
+    const app = { post: jest.fn(), get: jest.fn() };
+    setupPanelLifecycle(app, { ROOT_DIR, requireSuperAdmin: (r, s, n) => n() });
+    const [, , handler] = app.get.mock.calls[0];
+    const res = { json: jest.fn() };
+    handler({}, res);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: true, available: false, running: false }));
     stopIdleMonitor();
   });
 });

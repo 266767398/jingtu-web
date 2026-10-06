@@ -97,6 +97,9 @@ services:
       GROUP_ID: ${GROUP_ID:-}
       VRC_API_KEY: ${VRC_API_KEY:-}
       VRC_GROUP_URL: ${VRC_GROUP_URL:-}
+      # 运维面板（panel/）为 Windows 专属工具链，Docker 镜像不打包；
+      # 显式禁用入口后后台隐藏「运维面板」按钮，避免点击报「启动失败」
+      PANEL_ENABLED: "0"
       # P3-19：VRChat 数据源附加（可选），留空代码回退默认值（见 server/vrc.js:9、
       # server/routes/collections.js:326）
       VRC_USER_AGENT: ${VRC_USER_AGENT:-}

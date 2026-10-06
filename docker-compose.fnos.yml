@@ -119,6 +119,9 @@ services:
       GROUP_ID: grp_7a45b436-159c-4d9c-8303-e186ec25fc35
       VRC_API_KEY: ""
       VRC_GROUP_URL: ""
+      # 运维面板（panel/）为 Windows 专属工具链，容器镜像不打包；
+      # 显式禁用入口后后台隐藏「运维面板」按钮，避免点击报「启动失败」
+      PANEL_ENABLED: "0"
       # ---- 以下可选，按需取消注释并填值 ----
       # CORS_ORIGINS: "https://jingtu.example.com"
       # KOOK_URL: ""
