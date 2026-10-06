@@ -36,8 +36,12 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# 运行时共享库：sharp 预编译包自带 libvips，这里仅补充常见依赖与基础工具
-RUN apt-get update \
+# 运行时共享库：sharp 预编译包自带 libvips，这里仅补充常见依赖与基础工具。
+# P4：apt 源默认切阿里云镜像（deb.debian.org 在国内 / 飞牛 NAS 拉包极慢）。
+# 构建时可用 --build-arg APT_MIRROR=mirrors.tuna.tsinghua.edu.cn 一键换镜像。
+ARG APT_MIRROR=mirrors.aliyun.com
+RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+ && apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
