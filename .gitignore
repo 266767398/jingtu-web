@@ -23,6 +23,8 @@ node_modules/
 
 # 运行时数据
 server/session.json
+# V8.7：系统 VRChat 会话已迁至 server/data/session.json（挂载卷，Docker 可写）
+server/data/session.json
 server/data/activation-codes.json
 # SQLite 运行库（生产数据，永不入库）
 server/data/*.sqlite

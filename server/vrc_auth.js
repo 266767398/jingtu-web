@@ -22,7 +22,33 @@ const {
   vrchatGetCurrentUserResult
 } = require('./vrc');
 
-const SESSION_FILE = path.join(__dirname, 'session.json');
+// session.json 存储位置：
+//  - 默认落在 server/data/session.json —— Docker 镜像里该目录是挂载卷且 chown 给了 node
+//    用户（可写）；旧版写在 server/session.json（/app/server 属 root:root，容器内不可写，
+//    2FA/保存凭据时 writeFileSync 抛 EACCES，前端表现为「验证码填了没反应」）。
+//  - 允许用 VRC_SESSION_FILE 环境变量覆盖（可指向其它可写的持久化目录）。
+const SESSION_FILE = process.env.VRC_SESSION_FILE
+  ? path.resolve(process.env.VRC_SESSION_FILE)
+  : path.join(__dirname, 'data', 'session.json');
+// 旧版路径：仅作为升级迁移的读取来源，写入一律走 SESSION_FILE
+const LEGACY_SESSION_FILE = path.join(__dirname, 'session.json');
+
+// 原子写 session 文件：先确保目标目录存在（Docker 下 /app/server 不可写，
+// server/data 是挂载且 chown 过的可写卷），再 tmp + rename 原子落盘。
+function writeSessionFile(data) {
+  fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
+  const tmp = SESSION_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(tmp, SESSION_FILE);
+  try { fs.chmodSync(SESSION_FILE, 0o600); } catch (e) { /* Windows 无 POSIX 权限语义 */ }
+}
+
+// 读取 session 文件：优先新位置；旧位置（server/session.json）存在时作为迁移源
+function readSessionFile() {
+  if (fs.existsSync(SESSION_FILE)) return { raw: fs.readFileSync(SESSION_FILE, 'utf8'), fromLegacy: false };
+  if (fs.existsSync(LEGACY_SESSION_FILE)) return { raw: fs.readFileSync(LEGACY_SESSION_FILE, 'utf8'), fromLegacy: true };
+  return null;
+}
 
 // ==================== RFC 6238 TOTP（Node 内置 crypto 实现，无第三方依赖） ====================
 // 用于「系统账号会话被拒后自动重登」：管理员已配置 TOTP 密钥时，无需人工介入即可完成二次验证。
@@ -478,9 +504,14 @@ module.exports = function setupVrcAuth() {
   // 注意：原 server.js 版本此处对 authState 做变量重赋值；抽取后改用 Object.assign
   // 就地改写同一对象，保证下游工厂（vrc_system/album/notifications）引用不失效。
   try {
-    if (fs.existsSync(SESSION_FILE)) {
-      const raw = fs.readFileSync(SESSION_FILE, 'utf8');
-      const saved = JSON.parse(raw);
+    const sessionSource = readSessionFile();
+    if (sessionSource) {
+      const saved = JSON.parse(sessionSource.raw);
+      // 升级迁移：旧位置有数据而新位置还没有 → 原样落盘到新位置（内容不变，
+      // 仅换到挂载的可写目录，保证 Docker 下后续 saveAuthState 不再 EACCES）
+      if (sessionSource.fromLegacy && !fs.existsSync(SESSION_FILE)) {
+        try { writeSessionFile(saved); } catch (e) { logger.warn('[vrc-session]', '迁移旧版 session.json 到新位置失败:', e.message); }
+      }
       // F-29: 读取自动重登凭据（AES-256-GCM 加密，解密失败则忽略，等待管理员重新配置）
       if (saved && saved.credentials) {
         vrcCred.username = saved.credentials.username ? decryptCookie(saved.credentials.username) : null;
@@ -519,10 +550,7 @@ module.exports = function setupVrcAuth() {
             if (encrypted) {
               authState.cookie = saved.cookie; // 保留内存中的明文
               saved.cookie = encrypted;
-              const tmp = SESSION_FILE + '.tmp';
-              fs.writeFileSync(tmp, JSON.stringify(saved, null, 2), { encoding: 'utf8', mode: 0o600 });
-              fs.renameSync(tmp, SESSION_FILE);
-              try { fs.chmodSync(SESSION_FILE, 0o600); } catch (e) { /* Windows 无 POSIX 权限语义 */ }
+              writeSessionFile(saved);
             }
           }
         }
@@ -547,10 +575,7 @@ module.exports = function setupVrcAuth() {
         totpSecret: enc(vrcCred.totpSecret)
       }
     };
-    const tmp = SESSION_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(stateToSave, null, 2), { encoding: 'utf8', mode: 0o600 });
-    fs.renameSync(tmp, SESSION_FILE);
-    try { fs.chmodSync(SESSION_FILE, 0o600); } catch (e) { /* Windows 无 POSIX 权限语义 */ }
+    writeSessionFile(stateToSave);
     updatePipelineAuth();
   }
 

@@ -689,8 +689,15 @@ async function doSystemVrc2FA() {
         checkSystemVrcStatus();
       }
     } else {
+      // 透传后端真实失败原因（如验证码错误 / 2FA 次数过多 / 服务器内部错误），
+      // 而非一律显示"验证码错误"——否则 500 会被误读成"验证码填了没反应"。
+      let errData = null;
+      try { errData = await res.json(); } catch (e) { /* 非 JSON 错误体，走兜底文案 */ }
       const errEl2 = document.getElementById('systemVrc2faError');
-      if (errEl2) { errEl2.textContent = __('admin_vrc.wrong_code'); errEl2.classList.remove('d-none'); }
+      if (errEl2) {
+        errEl2.textContent = errText(errData) || __('admin_vrc.wrong_code');
+        errEl2.classList.remove('d-none');
+      }
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.fa_failed'), 'error'); }
 }
