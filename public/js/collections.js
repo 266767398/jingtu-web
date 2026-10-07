@@ -51,9 +51,9 @@
   };
 
   const KIND_LABEL = {
-    avatar_model: '🎭 ' + __('nav.modelcoll', __('auto_collections_1')),
-    world: '🌐 ' + __('nav.worlds', __('auto_collections_2')),
-    avatar_favorite: '🧑‍🦰 ' + __('nav.avatars', __('auto_collections_3'))
+    avatar_model: '🎭 ' + __('nav.modelcoll'),
+    world: '🌐 ' + __('nav.worlds'),
+    avatar_favorite: '🧑‍🦰 ' + __('nav.avatars')
   };
 
   function $(id) { return document.getElementById(id); }
@@ -104,7 +104,7 @@
       renderItems();
       renderLoadMore();
     } catch (e) {
-      if (list) renderEmpty(list, { icon: '⚠️', text: __('common.load_failed', __('auto_collections_4')) + (e.message ? '：' + e.message : '') });
+      if (list) renderEmpty(list, { icon: '⚠️', text: __('common.load_failed') + (e.message ? '：' + e.message : '') });
     } finally {
       state.loading = false;
     }
@@ -114,7 +114,7 @@
     const list = $('collList');
     if (!list) return;
     if (!state.items.length) {
-      renderEmpty(list, { icon: '📭', text: __('collections.empty', __('auto_collections_5')) });
+      renderEmpty(list, { icon: '📭', text: __('collections.empty') });
       return;
     }
     list.innerHTML = state.items.map(cardHtml).join('');
@@ -131,7 +131,7 @@
         it.size_category ? sizeLabel(it.size_category) : '',
         it.platform ? platformLabel(it.platform) : '',
         it.content_rating === '18+' ? '18+' : '',
-        it.category === 'functional' ? __('model_coll.functional', __('auto_collections_6')) : __('model_coll.white', __('auto_collections_7'))
+        it.category === 'functional' ? __('model_coll.functional') : __('model_coll.white')
       ].filter(Boolean).join(' · ');
       const tagHtml = tags.slice(0, 4).map(t => `<span class="coll-card-tag">${esc(t)}</span>`).join('');
       meta += tagHtml ? '<div class="coll-card-tags">' + tagHtml + '</div>' : '';
@@ -140,7 +140,7 @@
       if (it.content_rating === '18+') meta += ' · 18+';
     }
     const pubBadges = it.visibility === 'public'
-      ? `<span class="coll-badge public">🌐 ${__('collections.public', __('auto_collections_8'))}</span>` +
+      ? `<span class="coll-badge public">🌐 ${__('collections.public')}</span>` +
         ((state.scope === 'public' && it.show_author) ? `<span class="coll-badge pubby">👤 ${esc(it.owner_name || '')}</span>` : '')
       : '';
     const ratingHtml = it.kind === 'avatar_model'
@@ -150,23 +150,23 @@
     const actionBtns = [];
     if (isMine) {
       if (it.kind === 'avatar_model') {
-        actionBtns.push(`<button class="coll-card-btn" data-act="detail" data-id="${it.id}">📋 ${__('collections.detail', __('auto_collections_9'))}</button>`);
-        actionBtns.push(`<button class="coll-card-btn" data-act="check" data-id="${it.id}">🔄 ${__('model_coll.recheck', __('auto_collections_10'))}</button>`);
-        actionBtns.push(`<button class="coll-card-btn" data-act="setavatar" data-id="${it.id}">🎭 ${__('model_coll.copy', __('auto_collections_11'))}</button>`);
+        actionBtns.push(`<button class="coll-card-btn" data-act="detail" data-id="${it.id}">📋 ${__('collections.detail')}</button>`);
+        actionBtns.push(`<button class="coll-card-btn" data-act="check" data-id="${it.id}">🔄 ${__('model_coll.recheck')}</button>`);
+        actionBtns.push(`<button class="coll-card-btn" data-act="setavatar" data-id="${it.id}">🎭 ${__('model_coll.copy')}</button>`);
       } else {
-        actionBtns.push(`<button class="coll-card-btn" data-act="detail" data-id="${it.id}">📋 ${__('collections.detail', __('auto_collections_12'))}</button>`);
+        actionBtns.push(`<button class="coll-card-btn" data-act="detail" data-id="${it.id}">📋 ${__('collections.detail')}</button>`);
       }
-      actionBtns.push(`<button class="coll-card-btn danger" data-act="remove" data-id="${it.id}">🗑 ${__('common.delete', __('auto_collections_13'))}</button>`);
+      actionBtns.push(`<button class="coll-card-btn danger" data-act="remove" data-id="${it.id}">🗑 ${__('common.delete')}</button>`);
     } else {
-      actionBtns.push(`<button class="coll-card-btn" data-act="detail" data-id="${it.id}">📋 ${__('collections.detail', __('auto_collections_14'))}</button>`);
+      actionBtns.push(`<button class="coll-card-btn" data-act="detail" data-id="${it.id}">📋 ${__('collections.detail')}</button>`);
       if (it.kind === 'avatar_model') {
-        actionBtns.push(`<button class="coll-card-btn" data-act="setavatar" data-id="${it.id}">🎭 ${__('model_coll.copy', __('auto_collections_15'))}</button>`);
+        actionBtns.push(`<button class="coll-card-btn" data-act="setavatar" data-id="${it.id}">🎭 ${__('model_coll.copy')}</button>`);
       }
-      actionBtns.push(`<button class="coll-card-btn" data-act="copyid" data-id="${esc(it.target_id)}">📄 ${__('common.copy', __('auto_collections_16'))}</button>`);
+      actionBtns.push(`<button class="coll-card-btn" data-act="copyid" data-id="${esc(it.target_id)}">📄 ${__('common.copy')}</button>`);
     }
 
     return `<div class="coll-card status-${statusClass}" data-id="${it.id}">
-      <div class="coll-card-thumb" style="background-image:url('${esc(thumb)}')"></div>
+      <div class="coll-card-thumb${it.kind === 'world' ? ' coll-card-thumb--landscape' : ''}" style="background-image:url('${esc(thumb)}')"></div>
       <div class="coll-card-body">
         <div class="coll-card-title">${esc(it.name || it.target_id)}</div>
         <div class="coll-card-author">${esc(it.author || '')}</div>
@@ -200,15 +200,15 @@
     if (act === 'copyid') {
       try {
         await copyTextToClipboard(id);
-        toast(__('common.operation_success', __('auto_collections_17')));
+        toast(__('common.operation_success'));
       } catch (e) { toast(e.message, 'error'); }
       return;
     }
     if (act === 'remove') {
-      if (!confirm(__('collections.confirm_remove', __('auto_collections_18')))) return;
+      if (!confirm(__('collections.confirm_remove'))) return;
       try {
         await api('/api/collections/' + id, { method: 'DELETE' });
-        toast(__('collections.removed', __('auto_collections_19')));
+        toast(__('collections.removed'));
         await loadFolders();
         loadItems(true);
       } catch (e) { toast(e.message, 'error'); }
@@ -218,18 +218,18 @@
       const release = btnBusy(event.target);
       try {
         const d = await api('/api/collections/' + id + '/check', { method: 'POST' });
-        toast(d.status === 'valid' ? __('model_coll.valid', __('auto_collections_20')) : __('model_coll.invalid', __('auto_collections_21')) + (d.invalidReason || ''));
+        toast(d.status === 'valid' ? __('model_coll.valid') : __('model_coll.invalid') + (d.invalidReason || ''));
         loadItems(true);
       } catch (e) { toast(e.message, 'error'); }
       finally { release(); }
       return;
     }
     if (act === 'setavatar') {
-      if (!confirm(__('model_coll.confirm_copy', __('auto_collections_22')))) return;
+      if (!confirm(__('model_coll.confirm_copy'))) return;
       const release = btnBusy(event.target);
       try {
         await api('/api/collections/' + id + '/set-avatar', { method: 'POST' });
-        toast(__('model_coll.copied', __('auto_collections_23')));
+        toast(__('model_coll.copied'));
       } catch (e) { toast(e.message, 'error'); }
       finally { release(); }
       return;
@@ -241,13 +241,13 @@
     const wrap = $('collLoadMore');
     if (!wrap) return;
     if (state.page < state.totalPages) {
-      wrap.innerHTML = `<button id="collLoadMoreBtn" class="btn btn-outline">${__('ui.load_more', __('auto_collections_24'))} (${state.page}/${state.totalPages})</button>`;
+      wrap.innerHTML = `<button id="collLoadMoreBtn" class="btn btn-outline">${__('ui.load_more')} (${state.page}/${state.totalPages})</button>`;
       $('collLoadMoreBtn').addEventListener('click', () => {
         state.page++;
         appendPage();
       });
     } else {
-      wrap.innerHTML = state.total ? `<div class="text-center text-gray text-13 py-4">— ${__('collections.end', __('auto_collections_25'))} —</div>` : '';
+      wrap.innerHTML = state.total ? `<div class="text-center text-gray text-13 py-4">— ${__('collections.end')} —</div>` : '';
     }
   }
 
@@ -297,17 +297,17 @@
   function renderFolders() {
     const ul = $('collFolderList');
     if (!ul) return;
-    if (state.scope === 'public') { ul.innerHTML = '<li class="coll-folder public-hint">🌐 ' + __('collections.discover', __('auto_collections_26')) + '</li>'; return; }
-    const base = `<li class="coll-folder ${state.folder === 'all' ? 'active' : ''}" data-folder="all"><span>${__('collections.all', __('auto_collections_27'))}</span><span class="coll-folder-count" id="collCountAll">0</span></li>
-      <li class="coll-folder ${state.folder === 'none' ? 'active' : ''}" data-folder="none"><span>${__('collections.ungrouped', __('auto_collections_28'))}</span><span class="coll-folder-count" id="collCountNone">0</span></li>`;
-    const items = state.folders.map(f => `<li class="coll-folder ${String(state.folder) === String(f.id) ? 'active' : ''}" data-folder="${f.id}"><span class="coll-folder-name">${esc(f.name)}</span><span class="coll-folder-count">${f.item_count || 0}</span><span class="coll-folder-del" data-del="${f.id}" title=__('auto_collections_29')>×</span></li>`).join('');
+    if (state.scope === 'public') { ul.innerHTML = '<li class="coll-folder public-hint">🌐 ' + __('collections.discover') + '</li>'; return; }
+    const base = `<li class="coll-folder ${state.folder === 'all' ? 'active' : ''}" data-folder="all"><span>${__('collections.all')}</span><span class="coll-folder-count" id="collCountAll">0</span></li>
+      <li class="coll-folder ${state.folder === 'none' ? 'active' : ''}" data-folder="none"><span>${__('collections.ungrouped')}</span><span class="coll-folder-count" id="collCountNone">0</span></li>`;
+    const items = state.folders.map(f => `<li class="coll-folder ${String(state.folder) === String(f.id) ? 'active' : ''}" data-folder="${f.id}"><span class="coll-folder-name">${esc(f.name)}</span><span class="coll-folder-count">${f.item_count || 0}</span><span class="coll-folder-del" data-del="${f.id}" title="${escAttr(__('auto_collections_29'))}">×</span></li>`).join('');
     ul.innerHTML = base + items;
     qsa('.coll-folder', ul).forEach(li => {
       li.addEventListener('click', (e) => {
         if (e.target.getAttribute('data-del')) {
           e.stopPropagation();
           const fid = e.target.getAttribute('data-del');
-          if (confirm(__('collections.confirm_del_folder', __('auto_collections_30')))) deleteFolder(fid);
+          if (confirm(__('collections.confirm_del_folder'))) deleteFolder(fid);
           return;
         }
         state.folder = li.getAttribute('data-folder');
@@ -320,7 +320,7 @@
   async function deleteFolder(fid) {
     try {
       await api('/api/collections/folders/' + fid, { method: 'DELETE' });
-      toast(__('collections.folder_deleted', __('auto_collections_31')));
+      toast(__('collections.folder_deleted'));
       await loadFolders();
       if (String(state.folder) === String(fid)) state.folder = 'all';
       loadItems(true);
@@ -329,12 +329,12 @@
 
   async function addFolder() {
     const name = ($('collFolderName').value || '').trim();
-    if (!name) { showErr('collFolderError', __('collections.folder_name_required', __('auto_collections_32'))); return; }
+    if (!name) { showErr('collFolderError', __('collections.folder_name_required')); return; }
     try {
       await api('/api/collections/folders', { method: 'POST', body: JSON.stringify({ name }) });
       $('collFolderName').value = '';
       closeModal('collFolderModal');
-      toast(__('collections.folder_added', __('auto_collections_33')));
+      toast(__('collections.folder_added'));
       await loadFolders();
     } catch (e) { showErr('collFolderError', e.message); }
   }
@@ -367,7 +367,7 @@
       // 优先走详情端点（含 public_duplicate 标记），失败回退到列表查找
       try { const d = await api('/api/collections/' + id); item = d.item || null; } catch (e) { /* 忽略，走回退 */ }
       if (!item) item = await fetchItem(id);
-      if (!item) { toast(__('collections.not_found', __('auto_collections_34')), 'error'); return; }
+      if (!item) { toast(__('collections.not_found'), 'error'); return; }
       // F-17: 世界收藏详情预取私有标签（仅本人视角展示/编辑）
       if (item.kind === 'world' && state.scope !== 'public') {
         try {
@@ -405,7 +405,7 @@
     if (it.kind === 'avatar_model') {
       rows.push([__('auto_collections_38'), it.platform ? platformLabel(it.platform) : '-']);
       rows.push([__('auto_collections_39'), it.size_category ? sizeLabel(it.size_category) : '-']);
-      rows.push([__('auto_collections_40'), it.category === 'functional' ? __('model_coll.functional', __('auto_collections_41')) : __('model_coll.white', __('auto_collections_42'))]);
+      rows.push([__('auto_collections_40'), it.category === 'functional' ? __('model_coll.functional') : __('model_coll.white')]);
       rows.push([__('auto_collections_43'), it.content_rating === '18+' ? '18+' : __('auto_collections_44')]);
       rows.push([__('auto_collections_45'), String(it.heat || 0)]);
       rows.push([__('auto_collections_46'), String(it.favorite_count || 0)]);
@@ -422,8 +422,8 @@
     if (isMineDetail) {
       if (it.kind === 'avatar_model') {
         actions = `<div class="coll-detail-actions mt-8">
-          <button class="btn btn-accent" id="collDetailSetAvatar">🎭 ${__('model_coll.copy', __('auto_collections_50'))}</button>
-          <button class="btn btn-outline" id="collDetailCheck">🔄 ${__('model_coll.recheck', __('auto_collections_51'))}</button>
+          <button class="btn btn-accent" id="collDetailSetAvatar">🎭 ${__('model_coll.copy')}</button>
+          <button class="btn btn-outline" id="collDetailCheck">🔄 ${__('model_coll.recheck')}</button>
           ${pub.html}
         </div>`;
       } else {
@@ -432,32 +432,32 @@
     } else {
       if (it.kind === 'avatar_model') {
         actions = `<div class="coll-detail-actions mt-8">
-          <button class="btn btn-accent" id="collDetailSetAvatar">🎭 ${__('model_coll.copy', __('auto_collections_52'))}</button>
-          <button class="btn btn-outline" id="collDetailCopyId">📄 ${__('common.copy', __('auto_collections_53'))}</button>
+          <button class="btn btn-accent" id="collDetailSetAvatar">🎭 ${__('model_coll.copy')}</button>
+          <button class="btn btn-outline" id="collDetailCopyId">📄 ${__('common.copy')}</button>
         </div>`;
       } else {
         actions = `<div class="coll-detail-actions mt-8">
-          <button class="btn btn-outline" id="collDetailCopyId">📄 ${__('common.copy', __('auto_collections_54'))}</button>
+          <button class="btn btn-outline" id="collDetailCopyId">📄 ${__('common.copy')}</button>
         </div>`;
       }
     }
     const pubHintHtml = pub.hint ? `<div class="coll-detail-hint text-13 text-muted2 mt-4">⚠️ ${pub.hint}</div>` : '';
     const pubInfoHtml = (state.scope === 'public')
-      ? `<div class="coll-detail-pubinfo mt-8">${it.show_author ? ('🌟 ' + __('collections.pub_by', __('auto_collections_55')) + ' <b>' + esc(it.owner_name || __('collections.anon', __('auto_collections_56'))) + '</b> ' + __('collections.pub_by_suffix', __('auto_collections_57'))) : '🕶️ ' + __('collections.pub_anon', __('auto_collections_58'))}</div>`
+      ? `<div class="coll-detail-pubinfo mt-8">${it.show_author ? ('🌟 ' + __('collections.pub_by') + ' <b>' + esc(it.owner_name || __('collections.anon')) + '</b> ' + __('collections.pub_by_suffix')) : '🕶️ ' + __('collections.pub_anon')}</div>`
       : '';
-    const folderSel = isMineDetail ? `<div class="mt-8"><label>${__('collections.folder', __('auto_collections_59'))}</label>
+    const folderSel = isMineDetail ? `<div class="mt-8"><label>${__('collections.folder')}</label>
       <select id="collDetailFolder" class="search-box">${folderOptions(it.folder_id)}</select></div>` : '';
-    const notesEl = isMineDetail ? `<div class="mt-8"><label>${__('collections.notes', __('auto_collections_60'))}</label>
+    const notesEl = isMineDetail ? `<div class="mt-8"><label>${__('collections.notes')}</label>
       <textarea id="collDetailNotes" class="search-box" rows="2">${esc(it.notes || '')}</textarea>
-      <button class="btn btn-outline mt-4" id="collDetailSaveNotes">${__('common.save', __('auto_collections_61'))}</button></div>` : '';
+      <button class="btn btn-outline mt-4" id="collDetailSaveNotes">${__('common.save')}</button></div>` : '';
     // F-17: 世界收藏私有标签编辑区（仅本人视角；公开视角沿用世界原始 tags 展示）
     const worldTagEditHtml = (isMineDetail && it.kind === 'world') ? `
       <div class="coll-detail-tag-edit mt-8">
-        <label>${__('world_tags.label', '我的标签')}</label>
-        <input id="collDetailWorldTags" class="search-box" type="text" maxlength="255" placeholder="${__('world_tags.placeholder', '用逗号分隔，最多 8 个，如：常驻, 社交')}" value="${esc((it.worldTags || []).join(', '))}">
+        <label>${__('world_tags.label')}</label>
+        <input id="collDetailWorldTags" class="search-box" type="text" maxlength="255" placeholder="${__('world_tags.placeholder')}" value="${esc((it.worldTags || []).join(', '))}">
         <div class="flex-row gap-8 mt-4">
-          <button class="btn btn-outline" id="collDetailWorldTagSave">${__('common.save', __('auto_collections_61'))}</button>
-          <button class="btn btn-outline" id="collDetailWorldTagClear">${__('common.delete', '删除')}</button>
+          <button class="btn btn-outline" id="collDetailWorldTagSave">${__('common.save')}</button>
+          <button class="btn btn-outline" id="collDetailWorldTagClear">${__('common.delete')}</button>
         </div>
       </div>` : '';
 
@@ -467,7 +467,7 @@
         <div class="coll-detail-info flex-1">
           <table class="coll-detail-table">${rows.map(r => `<tr><th>${esc(r[0])}</th><td>${r[1]}</td></tr>`).join('')}</table>
           ${tagHtml}
-          <div class="mt-8"><label>${__('collections.description', __('auto_collections_62'))}</label><div class="coll-detail-desc">${esc(it.description || '-')}</div></div>
+          <div class="mt-8"><label>${__('collections.description')}</label><div class="coll-detail-desc">${esc(it.description || '-')}</div></div>
           ${pubInfoHtml}
           ${folderSel}
           ${notesEl}
@@ -479,12 +479,12 @@
     // 绑定详情内操作
     const setBtn = $('collDetailSetAvatar');
     if (setBtn) setBtn.addEventListener('click', async () => {
-      if (!confirm(__('model_coll.confirm_copy', __('auto_collections_63')))) return;
-      try { await api('/api/collections/' + it.id + '/set-avatar', { method: 'POST' }); toast(__('model_coll.copied', __('auto_collections_64'))); } catch (e) { toast(e.message, 'error'); }
+      if (!confirm(__('model_coll.confirm_copy'))) return;
+      try { await api('/api/collections/' + it.id + '/set-avatar', { method: 'POST' }); toast(__('model_coll.copied')); } catch (e) { toast(e.message, 'error'); }
     });
     const checkBtn = $('collDetailCheck');
     if (checkBtn) checkBtn.addEventListener('click', async () => {
-      try { const r = await api('/api/collections/' + it.id + '/check', { method: 'POST' }); toast(r.status === 'valid' ? __('model_coll.valid', __('auto_collections_65')) : __('model_coll.invalid', __('auto_collections_66'))); openDetail(it.id); } catch (e) { toast(e.message, 'error'); }
+      try { const r = await api('/api/collections/' + it.id + '/check', { method: 'POST' }); toast(r.status === 'valid' ? __('model_coll.valid') : __('model_coll.invalid')); openDetail(it.id); } catch (e) { toast(e.message, 'error'); }
     });
     const pubBtn = $('collDetailPublic');
     if (pubBtn) pubBtn.addEventListener('click', async () => {
@@ -495,23 +495,23 @@
         const sa = $('collDetailShowAuthor');
         body.show_author = !!(sa && sa.checked);
       }
-      try { await api('/api/collections/' + it.id, { method: 'PUT', body: JSON.stringify(body) }); toast(vis === 'public' ? __('collections.now_public', __('auto_collections_67')) : __('collections.now_private', __('auto_collections_68'))); openDetail(it.id); loadItems(false); } catch (e) { toast(e.message, 'error'); }
+      try { await api('/api/collections/' + it.id, { method: 'PUT', body: JSON.stringify(body) }); toast(vis === 'public' ? __('collections.now_public') : __('collections.now_private')); openDetail(it.id); loadItems(false); } catch (e) { toast(e.message, 'error'); }
     });
     const saToggle = $('collDetailShowAuthor');
     if (saToggle) saToggle.addEventListener('change', async () => {
-      try { await api('/api/collections/' + it.id, { method: 'PUT', body: JSON.stringify({ show_author: saToggle.checked }) }); toast(saToggle.checked ? __('collections.signed_on', __('auto_collections_69')) : __('collections.anon_on', __('auto_collections_70'))); openDetail(it.id); } catch (e) { toast(e.message, 'error'); }
+      try { await api('/api/collections/' + it.id, { method: 'PUT', body: JSON.stringify({ show_author: saToggle.checked }) }); toast(saToggle.checked ? __('collections.signed_on') : __('collections.anon_on')); openDetail(it.id); } catch (e) { toast(e.message, 'error'); }
     });
     const copyIdBtn = $('collDetailCopyId');
     if (copyIdBtn) copyIdBtn.addEventListener('click', async () => {
-      try { await copyTextToClipboard(it.target_id); toast(__('common.operation_success', __('auto_collections_71'))); } catch (e) { toast(e.message, 'error'); }
+      try { await copyTextToClipboard(it.target_id); toast(__('common.operation_success')); } catch (e) { toast(e.message, 'error'); }
     });
     const folderSelEl = $('collDetailFolder');
     if (folderSelEl) folderSelEl.addEventListener('change', async () => {
-      try { await api('/api/collections/' + it.id, { method: 'PUT', body: JSON.stringify({ folder_id: folderSelEl.value || null }) }); toast(__('collections.saved', __('auto_collections_72'))); await loadFolders(); } catch (e) { toast(e.message, 'error'); }
+      try { await api('/api/collections/' + it.id, { method: 'PUT', body: JSON.stringify({ folder_id: folderSelEl.value || null }) }); toast(__('collections.saved')); await loadFolders(); } catch (e) { toast(e.message, 'error'); }
     });
     const saveNotes = $('collDetailSaveNotes');
     if (saveNotes) saveNotes.addEventListener('click', async () => {
-      try { await api('/api/collections/' + it.id, { method: 'PUT', body: JSON.stringify({ notes: $('collDetailNotes').value }) }); toast(__('collections.saved', __('auto_collections_73'))); } catch (e) { toast(e.message, 'error'); }
+      try { await api('/api/collections/' + it.id, { method: 'PUT', body: JSON.stringify({ notes: $('collDetailNotes').value }) }); toast(__('collections.saved')); } catch (e) { toast(e.message, 'error'); }
     });
     // F-17: 世界收藏私有标签保存/清空
     const wtSave = $('collDetailWorldTagSave');
@@ -520,16 +520,16 @@
       const tags = (input.value || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 8);
       try {
         await api('/api/world-tags/' + encodeURIComponent(it.target_id), { method: 'POST', body: JSON.stringify({ tags }) });
-        toast(__('world_tags.saved', '标签已保存'), 'success');
+        toast(__('world_tags.saved'), 'success');
         it.worldTags = tags;
       } catch (e) { toast(e.message, 'error'); }
     });
     const wtClear = $('collDetailWorldTagClear');
     if (wtClear) wtClear.addEventListener('click', async () => {
-      if (!confirm(__('world_tags.confirm_clear', '确定清空该世界的全部标签吗？'))) return;
+      if (!confirm(__('world_tags.confirm_clear'))) return;
       try {
         await api('/api/world-tags/' + encodeURIComponent(it.target_id), { method: 'DELETE' });
-        toast(__('world_tags.cleared', '标签已清空'), 'success');
+        toast(__('world_tags.cleared'), 'success');
         const input = $('collDetailWorldTags');
         if (input) input.value = '';
         it.worldTags = [];
@@ -548,30 +548,30 @@
     if (isPublic) {
       const saChk = it.show_author ? 'checked' : '';
       const byLine = it.show_author
-        ? `<span class="coll-pub-by">🌟 ${__('collections.pub_by', __('auto_collections_78'))} ${esc(authorName)} ${__('collections.pub_by_suffix', __('auto_collections_79'))}</span>`
-        : `<span class="coll-pub-by muted">🕶️ ${__('collections.pub_anon', __('auto_collections_80'))}</span>`;
+        ? `<span class="coll-pub-by">🌟 ${__('collections.pub_by')} ${esc(authorName)} ${__('collections.pub_by_suffix')}</span>`
+        : `<span class="coll-pub-by muted">🕶️ ${__('collections.pub_anon')}</span>`;
       return {
-        html: `<button class="btn btn-accent is-public-on" id="collDetailPublic" title=__('auto_collections_81')>🌐 ${__('collections.public_on_click_private')}</button>
-               <label class="coll-pub-author-toggle"><input type="checkbox" id="collDetailShowAuthor" ${saChk}/> ${__('collections.show_my_name', __('auto_collections_82'))}</label>
+        html: `<button class="btn btn-accent is-public-on" id="collDetailPublic" title="${escAttr(__('auto_collections_81'))}">🌐 ${__('collections.public_on_click_private')}</button>
+               <label class="coll-pub-author-toggle"><input type="checkbox" id="collDetailShowAuthor" ${saChk}/> ${__('collections.show_my_name')}</label>
                ${byLine}`,
         hint: ''
       };
     }
     if (blocked) {
       return {
-        html: `<button class="btn btn-outline" id="collDetailPublic" disabled title=__('auto_collections_83')>🌐 ${__('collections.public_share_has_copy')}</button>`,
+        html: `<button class="btn btn-outline" id="collDetailPublic" disabled title="${escAttr(__('auto_collections_83'))}">🌐 ${__('collections.public_share_has_copy')}</button>`,
         hint: __('auto_collections_84')
       };
     }
     return {
-      html: `<label class="coll-pub-author-toggle"><input type="checkbox" id="collDetailShowAuthor" checked/> ${__('collections.sign_public', __('auto_collections_85'))}</label>
-             <button class="btn btn-outline" id="collDetailPublic" title=__('auto_collections_86')>🌐 公开分享</button>`,
+      html: `<label class="coll-pub-author-toggle"><input type="checkbox" id="collDetailShowAuthor" checked/> ${__('collections.sign_public')}</label>
+             <button class="btn btn-outline" id="collDetailPublic" title="${escAttr(__('auto_collections_86'))}">🌐 ${__('collections.public_share_btn')}</button>`,
       hint: ''
     };
   }
 
   function folderOptions(selectedId) {
-    let html = '<option value="">' + __('collections.ungrouped', __('auto_collections_87')) + '</option>';
+    let html = '<option value="">' + __('collections.ungrouped') + '</option>';
     state.folders.forEach(f => {
       html += `<option value="${f.id}" ${String(f.id) === String(selectedId) ? 'selected' : ''}>${esc(f.name)}</option>`;
     });
@@ -580,11 +580,11 @@
 
   // ============ 添加收藏 ============
   async function openAdd() {
-    if (!isLoggedIn()) { toast(__('collections.login_required', __('auto_collections_88')), 'error'); return; }
+    if (!isLoggedIn()) { toast(__('collections.login_required'), 'error'); return; }
     await loadFolders();
     // 预填分组下拉
     const sel = $('collAddFolder');
-    sel.innerHTML = '<option value="">' + __('collections.ungrouped', __('auto_collections_89')) + '</option>' + state.folders.map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join('');
+    sel.innerHTML = '<option value="">' + __('collections.ungrouped') + '</option>' + state.folders.map(f => `<option value="${f.id}">${esc(f.name)}</option>`).join('');
     $('collAddKind').value = state.kind;
     $('collAddTarget').value = '';
     const smInput = $('collSearchModels'); if (smInput) smInput.value = '';
@@ -600,7 +600,7 @@
     hideErr('collAddError');
     const kind = $('collAddKind').value;
     const target_id = $('collAddTarget').value.trim();
-    if (!target_id) { showErr('collAddError', __('collections.id_required', __('auto_collections_90'))); return; }
+    if (!target_id) { showErr('collAddError', __('collections.id_required')); return; }
     const body = {
       kind, target_id,
       folder_id: $('collAddFolder').value || null,
@@ -611,7 +611,7 @@
     try {
       await api('/api/collections', { method: 'POST', body: JSON.stringify(body) });
       closeModal('collAddModal');
-      toast(__('collections.added', __('auto_collections_91')));
+      toast(__('collections.added'));
       state.kind = kind;
       await loadFolders();
       loadItems(true);
@@ -625,8 +625,8 @@
     const box = $('collSearchModelsResults');
     if (!input || !box) return;
     const q = input.value.trim();
-    if (!q) { box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('collections.search_enter', __('auto_collections_92')) + '</div>'; return; }
-    box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('common.loading', __('auto_collections_93')) + '</div>';
+    if (!q) { box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('collections.search_enter') + '</div>'; return; }
+    box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('common.loading') + '</div>';
     try {
       // P3-1: 改用全局 api()，统一获得超时、no-store 缓存控制与错误兜底；与模块内其他请求一致
       const res = await api('/api/collections/search-models?q=' + encodeURIComponent(q) + '&n=12');
@@ -635,7 +635,7 @@
       if (!results.length) {
         const errMsg = errText(data);
         const err = errMsg ? ('：' + esc(errMsg)) : '';
-        box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('model_coll.search_empty', __('auto_collections_94')) + err + '</div>';
+        box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('model_coll.search_empty') + err + '</div>';
         return;
       }
       box.innerHTML = results.map(r => `
@@ -646,7 +646,7 @@
             <div class="coll-search-author">${esc(r.authorName || '')}</div>
             <div class="coll-search-id">${esc(r.id)}</div>
           </div>
-          <button type="button" class="coll-search-pick btn btn-outline btn-sm" data-id="${esc(r.id)}">${__('common.select', __('auto_collections_95'))}</button>
+          <button type="button" class="coll-search-pick btn btn-outline btn-sm" data-id="${esc(r.id)}">${__('common.select')}</button>
         </div>`).join('');
       qsa('.coll-search-result', box).forEach(el => {
         el.addEventListener('click', (e) => { if (e.target.closest('.coll-search-pick')) return; pickSearchModel(el.getAttribute('data-id')); });
@@ -655,14 +655,14 @@
         btn.addEventListener('click', (e) => { e.stopPropagation(); pickSearchModel(btn.getAttribute('data-id')); });
       });
     } catch (e) {
-      box.innerHTML = '<div class="coll-search-hint text-13 text-red">' + __('common.load_failed', __('auto_collections_96')) + '：' + esc(e.message || '') + '</div>';
+      box.innerHTML = '<div class="coll-search-hint text-13 text-red">' + __('common.load_failed') + '：' + esc(e.message || '') + '</div>';
     }
   }
 
   function pickSearchModel(id) {
     const target = $('collAddTarget');
     if (target) { target.value = id; target.focus(); }
-    toast(__('model_coll.id_filled', __('auto_collections_97')));
+    toast(__('model_coll.id_filled'));
   }
 
   // ============ 世界搜索 / 热门世界排行 ============
@@ -682,7 +682,7 @@
     const err = $('collWorldDiscoverError');
     if (!box) return;
     if (err) hideErr('collWorldDiscoverError');
-    box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('common.loading', __('auto_collections_93')) + '</div>';
+    box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('common.loading') + '</div>';
     try {
       let data;
       if (worldDiscoverState.q) {
@@ -701,7 +701,7 @@
       }
     } catch (e) {
       box.innerHTML = '';
-      if (err) { err.textContent = __('world_discover.load_failed', '加载失败') + '：' + (e.message || ''); err.classList.remove('d-none'); }
+      if (err) { err.textContent = __('world_discover.load_failed') + '：' + (e.message || ''); err.classList.remove('d-none'); }
     }
   }
 
@@ -709,7 +709,7 @@
     const box = $('collWorldDiscoverResults');
     if (!box) return;
     if (!worlds.length) {
-      box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('world_discover.search_empty', '未找到匹配的世界') + '</div>';
+      box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('world_discover.search_empty') + '</div>';
       return;
     }
     box.innerHTML = worlds.map(w => worldCardHtml(w)).join('');
@@ -718,13 +718,13 @@
 
   function worldCardHtml(w) {
     const thumb = w.thumbnailImageUrl || w.imageUrl || (window.__defaultAvatar || '');
-    const release = w.releaseStatus === 'private' ? __('world_discover.release_private', '私有')
-      : (w.releaseStatus === 'all' ? __('world_discover.release_all', '全部')
-        : __('world_discover.release_public', '公开'));
+    const release = w.releaseStatus === 'private' ? __('world_discover.release_private')
+      : (w.releaseStatus === 'all' ? __('world_discover.release_all')
+        : __('world_discover.release_public'));
     const tags = Array.isArray(w.tags) ? w.tags.slice(0, 4).map(t => `<span class="coll-card-tag">${esc(t)}</span>`).join('') : '';
     return `
       <div class="coll-card" data-wid="${esc(w.id)}">
-        <div class="coll-card-thumb" style="background-image:url('${esc(thumb)}')"></div>
+        <div class="coll-card-thumb coll-card-thumb--landscape" style="background-image:url('${esc(thumb)}')"></div>
         <div class="coll-card-body">
           <div class="coll-card-title">${esc(w.name || w.id)}</div>
           <div class="coll-card-sub">${esc(w.authorName || '')}</div>
@@ -747,7 +747,7 @@
         if (target) { target.value = wid; }
         closeModal('collWorldDiscoverModal');
         openAdd();
-        toast(__('model_coll.id_filled', __('auto_collections_97')));
+        toast(__('model_coll.id_filled'));
       });
     });
   }
@@ -779,9 +779,9 @@
   async function scanMine() {
     if (!isLoggedIn()) return;
     try {
-      toast(__('collections.scanning', __('auto_collections_98')));
+      toast(__('collections.scanning'));
       const d = await api('/api/collections/scan', { method: 'POST' });
-      toast(__('collections.scan_done', __('auto_collections_99')) + `：${d.checked} / ${d.newInvalid}`);
+      toast(__('collections.scan_done') + `：${d.checked} / ${d.newInvalid}`);
       loadItems(true);
     } catch (e) { toast(e.message, 'error'); }
   }

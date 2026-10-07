@@ -14,7 +14,7 @@ const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
 const { requireAuth } = require('../auth');
-const { ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload  } = require('../utils');;
+const { ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, normalizeSelfTags  } = require('../utils');;
 const logger = require('../logger');
 const { extractVideoThumbnail, getVideoDuration } = require('../video_utils');
 
@@ -320,6 +320,18 @@ router.get('/:userId', async (req, res) => {
     // location 优先取 users 主表（隐私：非好友/游客按隐私设置隐藏）
     profile.location = (user.location && (canSeeSensitive || user.location_visible)) ? user.location : '';
 
+    // 自定义标签：仅当本人查看，或用户开启「显示标签」时返回（隐私墙）
+    let selfTags = [];
+    let tagsVisible = false;
+    if (prefs && typeof prefs === 'object') {
+      tagsVisible = !!prefs.tags_visible;
+      if (Array.isArray(prefs.self_tags)) {
+        selfTags = prefs.self_tags.filter(t => typeof t === 'string').slice(0, 8);
+      }
+    }
+    profile.selfTags = (isSelf || tagsVisible) ? selfTags : [];
+    profile.tagsVisible = tagsVisible;
+
     // 查询相册（隐私控制）
     let albumsSql = `SELECT id, user_id AS userId, name, description, cover_photo AS coverPhoto,
                       sort, privacy, photo_count AS photoCount,
@@ -381,7 +393,7 @@ router.get('/:userId', async (req, res) => {
 router.post('/update', requireAuth, async (req, res) => {
   try {
     const userId = req.session.userId;
-    const { motto, bio, coverImage, location, website, socialLinks, privacySettings } = req.body;
+    const { motto, bio, coverImage, location, website, socialLinks, privacySettings, selfTags, tagsVisible } = req.body;
 
     // 输入校验（与 users.js PUT /me/profile 同标准；上限对齐表列与前端 maxlength）
     const isSafeUrl = (v) => typeof v === 'string' && v.length <= 500 && (
@@ -411,6 +423,10 @@ router.post('/update', requireAuth, async (req, res) => {
       if (!privacySettings || typeof privacySettings !== 'object' || Array.isArray(privacySettings)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'privacySettings 格式不正确');
       privacySettingsStr = JSON.stringify(privacySettings);
     }
+    // 自定义标签：≤8 个、每个 ≤20 字、禁控制字符（防 XSS / 超长撑破卡片）
+    const normalizedTags = normalizeSelfTags(selfTags);
+    if (normalizedTags === null) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '标签不合规：最多8个，每个不超过20字');
+    if (tagsVisible !== undefined && typeof tagsVisible !== 'boolean') return sendError(res, 400, ErrorCodes.BAD_REQUEST, '标签显示开关格式不正确');
 
     // upsert user_profile
     await getPool().query(
@@ -448,6 +464,8 @@ router.post('/update', requireAuth, async (req, res) => {
       if (website !== undefined) prefs.website = website;
       if (coverImage !== undefined) prefs.coverImage = coverImage;
       if (socialLinksStr !== null) prefs.social_links = JSON.parse(socialLinksStr);
+      if (selfTags !== undefined) prefs.self_tags = normalizedTags;
+      if (tagsVisible !== undefined) prefs.tags_visible = !!tagsVisible;
       await getPool().query(`UPDATE users SET preferences = ?, updated_at = NOW() WHERE id = ?`, [JSON.stringify(prefs), userId]);
     } catch (e) {
       logger.warn('[profile/update] preferences 同步失败（user_profile 已更新）:', e.message);

@@ -97,6 +97,19 @@ function renderProfileHeader(user, isOwner) {
     mottoEl.textContent = user.motto || user.preferences?.motto || '';
   }
 
+  // 自定义标签（后端已按隐私开关过滤：他人仅在 tags_visible 开启时返回）
+  const tagsEl = document.getElementById('profileTags');
+  if (tagsEl) {
+    const tags = Array.isArray(user.selfTags) ? user.selfTags.slice(0, 8) : [];
+    if (tags.length) {
+      tagsEl.className = 'profile-tags';
+      tagsEl.innerHTML = tags.map(t => `<span class="tag tag-accent">${esc(t)}</span>`).join('');
+    } else {
+      tagsEl.className = 'profile-tags d-none';
+      tagsEl.innerHTML = '';
+    }
+  }
+
   // 统计数据
   const statsEl = document.getElementById('profileStats');
   if (statsEl) {

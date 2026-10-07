@@ -333,7 +333,7 @@ function renderMessages(messages, otherId) {
       : '';
     return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}" data-mid="${m.id}">
       <div class="chat-msg-bubble">${chatMediaBlock(m)}${m.content ? esc(m.content) : ''}</div>
-      <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })} ${recallBtn}</div>
+      <div class="chat-msg-time">${formatChatTime(m.createdAt)} ${recallBtn}</div>
     </div>`;
   }).join('');
   chatBox.scrollTop = chatBox.scrollHeight;
@@ -546,7 +546,7 @@ function renderGroupMessages(messages, members) {
       return `<div class="chat-msg chat-msg-other" data-mid="${msgId}">
         <div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(sender.avatarUrl || '/api/avatar/default')}')">` : ''} ${esc(senderName)}</div>
         <div class="chat-msg-bubble chat-msg-location" onclick="window.openMapLocation&&openMapLocation(${m.lat},${m.lng})">${__('chat.location_sharing')}</div>
-        <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
+        <div class="chat-msg-time">${formatChatTime(m.createdAt)}</div>
       </div>`;
     }
     const recallBtn = canRecallGroupMsg(m)
@@ -556,13 +556,13 @@ function renderGroupMessages(messages, members) {
       return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}" data-mid="${msgId}">
         ${!isMe ? `<div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(sender.avatarUrl || '/api/avatar/default')}')">` : ''} ${esc(senderName)}</div>` : ''}
         <div class="chat-msg-bubble">${chatMediaBlock(m)}${m.content ? esc(m.content) : ''}</div>
-        <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })} ${recallBtn}</div>
+        <div class="chat-msg-time">${formatChatTime(m.createdAt)} ${recallBtn}</div>
       </div>`;
     }
     return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}" data-mid="${msgId}">
       ${!isMe ? `<div class="chat-msg-sender">${senderAvatar ? `<img src="${senderAvatar}" class="chat-mini-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(sender.avatarUrl || '/api/avatar/default')}')">` : ''} ${esc(senderName)}</div>` : ''}
       <div class="chat-msg-bubble">${esc(m.content)}</div>
-      <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })} ${recallBtn}</div>
+      <div class="chat-msg-time">${formatChatTime(m.createdAt)} ${recallBtn}</div>
     </div>`;
   }).join('');
   chatBox.scrollTop = chatBox.scrollHeight;
@@ -879,7 +879,7 @@ function appendReceivedMessage(msg, isSent = false) {
   chatBox.insertAdjacentHTML('beforeend', `
     <div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}" data-mid="${msg.id}">
       <div class="chat-msg-bubble">${chatMediaBlock(msg)}${msg.content ? esc(msg.content) : ''}</div>
-      <div class="chat-msg-time">${new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })} ${recallBtn}</div>
+      <div class="chat-msg-time">${formatChatTime(msg.createdAt)} ${recallBtn}</div>
     </div>`);
   chatBox.scrollTop = chatBox.scrollHeight;
 }
@@ -897,7 +897,7 @@ function appendGroupMessage(msg) {
     <div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}" data-mid="${msg.id}">
       ${!isMe ? `<div class="chat-msg-sender">${esc(msg.senderName || '')}</div>` : ''}
       <div class="chat-msg-bubble">${chatMediaBlock(msg)}${msg.content ? esc(msg.content) : ''}</div>
-      <div class="chat-msg-time">${msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' }) : ''} ${recallBtn}</div>
+      <div class="chat-msg-time">${msg.createdAt ? formatChatTime(msg.createdAt) : ''} ${recallBtn}</div>
     </div>`);
   chatBox.scrollTop = chatBox.scrollHeight;
 }
@@ -1357,7 +1357,7 @@ function prependMessages(messages) {
     const isMe = m.senderId === currentUser.id;
     return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
       <div class="chat-msg-bubble">${chatMediaBlock(m)}${m.content ? esc(m.content) : ''}</div>
-      <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
+      <div class="chat-msg-time">${formatChatTime(m.createdAt)}</div>
     </div>`;
   }).join('');
   chatBox.insertAdjacentHTML('afterbegin', newContent);
@@ -1376,13 +1376,13 @@ function prependGroupMessages(messages) {
       return `<div class="chat-msg chat-msg-other">
         <div class="chat-msg-sender">${esc(m.senderName || '')}</div>
         <div class="chat-msg-bubble chat-msg-location" onclick="window.openMapLocation&&openMapLocation(${m.lat},${m.lng})">${__('chat.location_sharing')}</div>
-        <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
+        <div class="chat-msg-time">${formatChatTime(m.createdAt)}</div>
       </div>`;
     }
     return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
       ${!isMe ? `<div class="chat-msg-sender">${esc(m.senderName || '')}</div>` : ''}
       <div class="chat-msg-bubble">${chatMediaBlock(m)}${m.content ? esc(m.content) : ''}</div>
-      <div class="chat-msg-time">${new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })}</div>
+      <div class="chat-msg-time">${formatChatTime(m.createdAt)}</div>
     </div>`;
   }).join('');
   chatBox.insertAdjacentHTML('afterbegin', newContent);

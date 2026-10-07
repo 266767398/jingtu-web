@@ -419,10 +419,11 @@ function getMarkerPopup(u) {
   const proxied = proxyAvatar(u.avatarUrl || '');
   const avatarSrc = escAttr(mapAvatarSrc(u.avatarUrl, u.vrchatId || ''));
   const borderColor = isMe ? 'var(--accent)' : 'var(--info)';
+  const _lang = getCurrentLang ? getCurrentLang() : 'zh';
   const timeStr = u.locationUpdatedAt
-    ? new Date(u.locationUpdatedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    ? new Date(u.locationUpdatedAt).toLocaleTimeString(_lang, { hour: '2-digit', minute: '2-digit' })
     : u.timestamp
-      ? new Date(u.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      ? new Date(u.timestamp).toLocaleTimeString(_lang, { hour: '2-digit', minute: '2-digit' })
       : '';
   return `<div style="min-width:150px;text-align:center;padding:4px">
     <img src="${avatarSrc}" style="width:44px;height:44px;border-radius:50%;border:2px solid ${borderColor}" onerror="window.__avatarFail&&window.__avatarFail(this,'${escAttr(proxied || '')}')" />
@@ -771,7 +772,7 @@ function updateWorldMapMarkers() {
       _renderMapRegions({});
       _renderMapTop([]);
       const up = document.getElementById('mapWorldsUpdatedAt');
-      if (up) up.textContent = '· ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      if (up) up.textContent = __('map.worlds_updated_at', { t: new Date().toLocaleTimeString(getCurrentLang ? getCurrentLang() : 'zh', { hour: '2-digit', minute: '2-digit' }) });
       return;
     }
     _renderMapWorldsPanel(worlds);
@@ -827,7 +828,7 @@ function _renderMapWorldsPanel(worlds) {
   _renderMapGrid(worlds);
 
   const up = document.getElementById('mapWorldsUpdatedAt');
-  if (up) up.textContent = '· ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  if (up) up.textContent = __('map.worlds_updated_at', { t: new Date().toLocaleTimeString(getCurrentLang ? getCurrentLang() : 'zh', { hour: '2-digit', minute: '2-digit' }) });
 }
 
 function _setMapKpi(s) {
@@ -843,7 +844,7 @@ function _renderMapRegions(regionMap) {
   if (!list) return;
   const entries = Object.keys(regionMap).map(k => ({ code: k, count: regionMap[k] })).sort((a, b) => b.count - a.count);
   if (entries.length === 0) {
-    list.innerHTML = `<div class="worlds-region-empty text-muted2 text-13" data-i18n="map.no_world_data">${esc(__('map.no_world_data'))}</div>`;
+    list.innerHTML = `<div class="worlds-region-empty text-muted2 text-13">${esc(__('map.no_region_data'))}</div>`;
     return;
   }
   const max = entries[0].count || 1;
@@ -862,7 +863,7 @@ function _renderMapTop(top) {
   const list = document.getElementById('mapWorldsTopList');
   if (!list) return;
   if (top.length === 0) {
-    list.innerHTML = `<div class="worlds-top-empty text-muted2 text-13" data-i18n="map.no_world_data">${esc(__('map.no_world_data'))}</div>`;
+    list.innerHTML = `<div class="worlds-top-empty text-muted2 text-13">${esc(__('map.no_top_instances'))}</div>`;
     return;
   }
   const max = top[0].memberCount || 1;

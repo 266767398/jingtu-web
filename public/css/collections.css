@@ -80,6 +80,8 @@
   width: 100%; aspect-ratio: 1/1; background-size: cover; background-position: center; background-color: #dfe3ea;
   position: relative;
 }
+/* VRChat 世界缩略图为 16:9 横图，用方形容器会被裁剪；世界卡片改用横图比例完整展示 */
+.coll-card-thumb--landscape { aspect-ratio: 16 / 9; }
 .coll-card.status-invalid .coll-card-thumb::after {
   content: '失效'; position: absolute; top: 6px; left: 6px; background: #e23; color: #fff;
   font-size: 11px; padding: 1px 6px; border-radius: 6px;

@@ -21,3 +21,35 @@
 .me-stat-card { flex: 1; text-align: center; padding: 8px; background: var(--bg2); border-radius: 8px; }
 .me-stat-value { font-size: 20px; font-weight: 700; color: var(--accent); }
 .me-stat-label { font-size: 11px; color: var(--muted); }
+
+/* ===== 自定义标签（me 页面编辑）===== */
+.me-tags-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.me-tags-list .tag { font-size: 13px; padding: 4px 10px; }
+.tag-x {
+  background: none; border: none; cursor: pointer;
+  color: inherit; opacity: .6; font-size: 15px; line-height: 1;
+  padding: 0 0 0 4px; margin-left: 2px; transition: opacity .15s;
+}
+.tag-x:hover { opacity: 1; }
+
+/* ===== 自定义标签（展示位：成员卡片 / 名片弹窗 / 公开主页）===== */
+/* 复用 .tag / .tag-accent 基座，只定义容器排版：flex-wrap 保证长标签换行不撑破卡片 */
+.member-tags {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  margin-top: 4px; max-width: 100%;
+}
+.member-tags .tag { font-size: 11px; padding: 2px 8px; max-width: 100%; }
+/* 单个标签过长时省略而非溢出（配合 ellipsis 保持卡片高度稳定） */
+.member-tags .tag { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 公开主页封面区：白字 + 轻微阴影，与 .profile-motto 同一视觉层 */
+.profile-tags {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 0 0 8px;
+}
+.profile-tags .tag {
+  font-size: 12px; padding: 3px 10px;
+  background: rgba(255, 255, 255, .18);
+  border-color: rgba(255, 255, 255, .3);
+  color: #fff; backdrop-filter: blur(2px);
+}

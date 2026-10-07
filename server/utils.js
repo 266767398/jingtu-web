@@ -305,6 +305,28 @@ function validateFields(updates, allowedFields) {
   return updates;
 }
 
+const SELF_TAGS_MAX = 8;
+const SELF_TAG_MAX_LEN = 20;
+
+// 归一化用户自定义标签：去空白、去重、限数量与长度，返回 null 表示输入不合规。
+// 拒绝控制字符与 < > ：标签会被原样存进 preferences JSON 再渲染到卡片，
+// 不做字符过滤等于把存储层变成 XSS 载荷通道。
+function normalizeSelfTags(input) {
+  if (input === undefined || input === null) return undefined;
+  if (!Array.isArray(input)) return null;
+  const out = [];
+  for (const raw of input) {
+    if (typeof raw !== 'string') return null;
+    const t = raw.trim();
+    if (!t) continue;
+    // eslint-disable-next-line no-control-regex
+    if (t.length > SELF_TAG_MAX_LEN || /[<>\u0000-\u001f\u007f]/.test(t)) return null;
+    if (!out.includes(t)) out.push(t);
+  }
+  if (out.length > SELF_TAGS_MAX) return null;
+  return out;
+}
+
 // ==================== 文件上传白名单配置 ====================
 const FileTypes = {
   IMAGE: {
@@ -473,4 +495,4 @@ function toSqlDatetime(value) {
   return null;
 }
 
-module.exports = { getPool, IS_DEV, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, escapeLike, toSqlDatetime, validateFields, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };
+module.exports = { getPool, IS_DEV, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, escapeLike, toSqlDatetime, validateFields, normalizeSelfTags, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };

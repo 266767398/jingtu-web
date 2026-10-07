@@ -26,7 +26,11 @@
     group: '',            // 当前分组名（'' = 全部）
     groups: [],           // 全部分组（后端混合返回）
     items: [],
+    offset:0,            // 已加载条目数，作为下一次请求的 offset
+    pageSize:50,         // 每页条数（后端 n 最大 100）
+    hasMore:false,       // 是否还有更多条目可加载
     loading: false,
+    loadingMore: false,
     loadSeq: 0,           // P3-63: 最新请求优先标记，旧请求返回后不覆盖新结果
     staticBound: false
   };
@@ -64,11 +68,11 @@
   function renderGroups() {
     const ul = $('vrcfavGroupList');
     if (!ul) return;
-    const list = [{ name: '', displayName: '', type: state.kind, count: null }, ...groupsOfKind()];
+    const list = [{ name: '', displayName: __('collections.all'), type: state.kind, count: null }, ...groupsOfKind()];
     ul.innerHTML = list.map(g => {
       const label = g.name ? `${esc(g.displayName || g.name)}` : `<span>${__('collections.all', '全部')}</span>`;
       const count = g.count != null ? `<span class="coll-folder-count">${g.count}</span>` : '';
-      return `<li class="coll-folder ${String(state.group) === String(g.name) ? 'active' : ''}" data-group="${escAttr(g.name || '')}" data-type="${escAttr(g.type || state.kind)}" title="${escAttr(g.name || '全部')}">${label}${count}</li>`;
+      return `<li class="coll-folder ${String(state.group) === String(g.name) ? 'active' : ''}" data-group="${escAttr(g.name || '')}" data-type="${escAttr(g.type || state.kind)}" title="${escAttr(g.name || __('collections.all'))}">${label}${count}</li>`;
     }).join('');
     qsa('.coll-folder', ul).forEach(li => {
       li.addEventListener('click', () => {
@@ -84,26 +88,62 @@
   }
 
   // ============ 条目 ============
-  async function loadItems(reset) {
+function cardHtml(it) {
+  const target = it.favoriteId || '';
+  const kind = KIND_LABEL[it.type] || it.type || '';
+  const tag = Array.isArray(it.tags) && it.tags.length ? it.tags[0] : '';
+  const thumb = it.thumbnailImageUrl || (window.__defaultAvatar || '');
+  const localKind = LOCAL_KIND[it.type] || '';
+  const thumbCls = it.type === 'world' ? ' coll-card-thumb--landscape' : '';
+  const collectBtn = (target && localKind)
+    ? `<button class="coll-card-btn" data-act="collect" data-kind="${escAttr(localKind)}" data-id="${escAttr(target)}">⭐ ${__('vrcfav.collect', '收藏到本站')}</button>`
+    : '';
+  return `
+    <div class="coll-card" data-fvrt="${escAttr(it.id || '')}">
+      <div class="coll-card-thumb${thumbCls}" style="background-image:url(${escCssUrl(thumb)})"></div>
+      <div class="coll-card-body">
+        <div class="coll-card-title">${esc(it.name || target || it.id || '')}</div>
+        <div class="coll-card-author">${it.authorName ? esc(it.authorName) + ' · ' : ''}${esc(kind)}${tag ? ' · ' + esc(tag) : ''}</div>
+        <div class="coll-card-actions flex-row gap-6 mt-8">
+          ${collectBtn}
+          <button class="coll-card-btn" data-act="copyid" data-id="${escAttr(target)}">📄 ${__('common.copy', '复制')}</button>
+          <button class="coll-card-btn" data-act="remove" data-id="${escAttr(it.id || '')}">🗑️ ${__('vrcfav.remove', '移除')}</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function appendItems(items) {
+  const list = $('vrcfavList');
+  if (!list) return;
+  list.innerHTML += items.map(cardHtml).join('');
+}
+
+async function loadItems(reset) {
     // P3-63: 「最新请求优先」——快速切换 kind/分组时不再直接丢弃二次加载，
     // 而是用请求序号确保只有最新请求的结果能渲染/落库
     const my = ++state.loadSeq;
     state.loading = true;
+    if (reset) { state.offset = 0; state.items = []; state.hasMore = false; }
     const list = $('vrcfavList');
     if (reset && list) list.innerHTML = '<div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>';
     try {
       const params = new URLSearchParams();
       params.set('type', state.kind);
-      params.set('n', '50');
+      params.set('n', String(state.pageSize));
+      params.set('offset', String(state.offset));
       if (state.group) params.set('tag', state.group);
       // 后端对收藏条目做名字/缩略图回源富化，冷启动耗时更高，放宽超时
       const d = await api('/api/vrc-favorites/items?' + params.toString(), { timeout: 20000 });
       if (my !== state.loadSeq) return; // 已有更新的请求发出，丢弃本次陈旧结果
       state.items = d.items || [];
+      state.hasMore = (d.items || []).length >= state.pageSize;
       renderItems();
+      renderLoadMore();
     } catch (e) {
       if (my !== state.loadSeq) return;
       if (list) list.innerHTML = `<div class="text-muted2">${esc(e.message)}</div>`;
+      if (reset) renderLoadMore();
     } finally {
       if (my === state.loadSeq) state.loading = false;
     }
@@ -115,33 +155,58 @@
     if (!list) return;
     if (!state.items.length) {
       list.innerHTML = `<div class="text-muted2">${__('vrcfav.empty', '该分类暂无官方收藏')}</div>`;
-      if (more) more.innerHTML = '';
+      renderLoadMore();
       return;
     }
-    list.innerHTML = state.items.map(it => {
-      const target = it.favoriteId || '';
-      const kind = KIND_LABEL[it.type] || it.type || '';
-      const tag = Array.isArray(it.tags) && it.tags.length ? it.tags[0] : '';
-      const thumb = it.thumbnailImageUrl || '';
-      const localKind = LOCAL_KIND[it.type] || '';
-      const collectBtn = (target && localKind)
-        ? `<button class="coll-card-btn" data-act="collect" data-kind="${escAttr(localKind)}" data-id="${escAttr(target)}">⭐ ${__('vrcfav.collect', '收藏到本站')}</button>`
-        : '';
-      return `
-        <div class="coll-card" data-fvrt="${escAttr(it.id || '')}">
-          <div class="coll-card-thumb" style="background-image:url(${escCssUrl(thumb)})"></div>
-          <div class="coll-card-body">
-            <div class="coll-card-title">${esc(it.name || target || it.id || '')}</div>
-            <div class="coll-card-author">${it.authorName ? esc(it.authorName) + ' · ' : ''}${esc(kind)}${tag ? ' · ' + esc(tag) : ''}</div>
-            <div class="coll-card-actions flex-row gap-6 mt-8">
-              ${collectBtn}
-              <button class="coll-card-btn" data-act="copyid" data-id="${escAttr(target)}">📄 ${__('common.copy', '复制')}</button>
-              <button class="coll-card-btn" data-act="remove" data-id="${escAttr(it.id || '')}">🗑️ ${__('vrcfav.remove', '移除')}</button>
-            </div>
-          </div>
-        </div>`;
-    }).join('');
-    if (more) more.innerHTML = '';
+    list.innerHTML = state.items.map(cardHtml).join('');
+    renderLoadMore();
+  }
+
+  // ============ 加载更多 ============
+  function renderLoadMore() {
+    const wrap = $('vrcfavLoadMore');
+    if (!wrap) return;
+    if (!state.items.length || !state.hasMore) {
+      if (state.items.length) {
+        wrap.innerHTML = `<div class="text-center text-gray text-13 py-4">— ${__('collections.end', '没有更多了')} —</div>`;
+      } else {
+        wrap.innerHTML = '';
+      }
+      return;
+    }
+    wrap.innerHTML = `<button id="vrcfavLoadMoreBtn" class="btn btn-outline">${__('ui.load_more', '加载更多')}</button>`;
+    const btn = $('vrcfavLoadMoreBtn');
+    if (btn) {
+      btn.disabled = !!state.loadingMore;
+      btn.addEventListener('click', loadMore);
+    }
+  }
+
+  async function loadMore() {
+    if (state.loading || state.loadingMore || !state.hasMore) return;
+    state.loadingMore = true;
+    renderLoadMore();
+    const my = state.loadSeq;
+    try {
+      const params = new URLSearchParams();
+      params.set('type', state.kind);
+      params.set('n', String(state.pageSize));
+      params.set('offset', String(state.items.length));
+      if (state.group) params.set('tag', state.group);
+      const d = await api('/api/vrc-favorites/items?' + params.toString(), { timeout: 20000 });
+      if (my !== state.loadSeq) return;
+      const incoming = d.items || [];
+      state.items = state.items.concat(incoming);
+      state.hasMore = incoming.length >= state.pageSize;
+      appendItems(incoming);
+      renderLoadMore();
+    } catch (e) {
+      if (my !== state.loadSeq) return;
+      toast(e.message || __('vrcfav.load_more_fail', '加载更多失败'), 'error');
+      renderLoadMore();
+    } finally {
+      if (my === state.loadSeq) state.loadingMore = false;
+    }
   }
 
   // ============ 操作 ============

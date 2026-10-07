@@ -103,7 +103,7 @@ router.get('/list', requireAuth, async (req, res) => {
     const [rows] = await getPool().query(
       `SELECT u.id, u.login_id AS loginId, u.display_name, u.vrchat_id, u.vrchat_name, u.role, u.avatar_type,
               u.custom_avatar_path, u.vrchat_avatar_url,
-              u.location, u.lat, u.lng, u.location_visible AS locationVisible,
+              u.location, u.lat, u.lng, u.location_visible AS locationVisible, u.preferences,
               COALESCE(l.likeCount, 0) AS likeCount,
               tr.trust_level AS trustLevel, tr.trust_level_cn AS trustLevelCn,
               ra.profile_pic_override_thumbnail AS roster_override_pic,
@@ -139,26 +139,39 @@ router.get('/list', requireAuth, async (req, res) => {
       [pageSize, offset]
     );
 
-    const users = rows.map(u => ({
-      id: u.id,
-      loginId: u.loginId,
-      displayName: u.display_name,
-      vrchatId: u.vrchat_id,
-      vrchatName: u.vrchat_name,
-      role: u.role,
-      avatarType: u.avatar_type,
-      // users.vrchat_avatar_url 是绑定时刻的快照（VRChat 签名 URL 会过期 / amlcdn 被墙），
-      // 优先用 group_roster 最近一次同步的头像；前端再按 /api/avatar/user 兜底（见 members.js）。
-      avatarUrl: getAvatarUrl(u),
-      profilePicOverrideThumbnail: proxyVrcAvatar(u.roster_override_pic || ''),
-      location: u.locationVisible ? u.location : null,
-      lat: u.locationVisible ? parseFloat(u.lat) : null,
-      lng: u.locationVisible ? parseFloat(u.lng) : null,
-      locationVisible: !!u.locationVisible,
-      likeCount: parseInt(u.likeCount) || 0,
-      trustLevel: u.trustLevel || '',
-      trustLevelCn: u.trustLevelCn || ''
-    }));
+    const users = rows.map(u => {
+      // 自定义标签：从 preferences 解析，仅当用户开启「显示标签」时才返回（隐私墙）
+      let selfTags = [];
+      if (u.preferences) {
+        try {
+          const prefs = typeof u.preferences === 'string' ? JSON.parse(u.preferences) : u.preferences;
+          if (prefs && typeof prefs === 'object' && !Array.isArray(prefs) && prefs.tags_visible && Array.isArray(prefs.self_tags)) {
+            selfTags = prefs.self_tags.filter(t => typeof t === 'string').slice(0, 8);
+          }
+        } catch (_) { selfTags = []; }
+      }
+      return {
+        id: u.id,
+        loginId: u.loginId,
+        displayName: u.display_name,
+        vrchatId: u.vrchat_id,
+        vrchatName: u.vrchat_name,
+        role: u.role,
+        avatarType: u.avatar_type,
+        // users.vrchat_avatar_url 是绑定时刻的快照（VRChat 签名 URL 会过期 / amlcdn 被墙），
+        // 优先用 group_roster 最近一次同步的头像；前端再按 /api/avatar/user 兜底（见 members.js）。
+        avatarUrl: getAvatarUrl(u),
+        profilePicOverrideThumbnail: proxyVrcAvatar(u.roster_override_pic || ''),
+        location: u.locationVisible ? u.location : null,
+        lat: u.locationVisible ? parseFloat(u.lat) : null,
+        lng: u.locationVisible ? parseFloat(u.lng) : null,
+        locationVisible: !!u.locationVisible,
+        selfTags,
+        likeCount: parseInt(u.likeCount) || 0,
+        trustLevel: u.trustLevel || '',
+        trustLevelCn: u.trustLevelCn || ''
+      };
+    });
 
     res.json({ users, total: count[0].total, page, pageSize });
   } catch (e) { handleError(res, e, '[users/list]'); }
@@ -834,6 +847,10 @@ router.get('/:id/card', requireAuth, async (req, res, next) => {
       locationVisible: !!u.location_visible,
       motto: prefs.motto || '',
       bio: prefs.bio || '',
+      // 自定义标签：与 /list 一致，仅当用户开启「显示标签」时才返回（隐私墙）
+      selfTags: (req.session.userId === u.id || prefs.tags_visible) && Array.isArray(prefs.self_tags)
+        ? prefs.self_tags.filter(t => typeof t === 'string').slice(0, 8)
+        : [],
       joinedAt: u.created_at,
       evtCount,
       photoCount

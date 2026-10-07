@@ -29,7 +29,9 @@ async function showProfile() {
         location: data.location,
         locationVisible: !!data.locationVisible,
         bio: data.bio,
-        preferences: data.preferences
+        preferences: data.preferences,
+        selfTags: Array.isArray(data.selfTags) ? data.selfTags : [],
+        tagsVisible: !!data.tagsVisible
       });
       updateUserUI();
       // 填充表单
@@ -47,6 +49,8 @@ async function showProfile() {
       renderTotpStatus();
       // 渲染头像显示设置（§11.8.8）
       renderAvatarPref();
+      // 渲染自定义标签（新增）
+      renderSelfTags();
       // 填充「账号信息」概览卡片（邮箱 / 注册时间 / 最后登录 / VRChat 名称 ID / 安全评分）
       if (typeof loadMePage === 'function') loadMePage();
     }
@@ -134,6 +138,78 @@ async function saveBio() {
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.save_failed') + ': ' + err.message, 'error'); }
 }
+
+// ==================== 自定义标签 ====================
+function renderSelfTags() {
+  const list = document.getElementById('meTagsList');
+  if (list) {
+    const tags = currentUser.selfTags || [];
+    if (tags.length === 0) {
+      list.innerHTML = '<div class="text-muted2 text-12">' + __('profile.tags_empty') + '</div>';
+    } else {
+      list.innerHTML = tags.map((t, i) =>
+        `<span class="tag tag-accent">${esc(t)}<button type="button" class="tag-x" data-i="${i}" aria-label="${__('profile.tag_remove')}">×</button></span>`
+      ).join('');
+    }
+  }
+  const vis = document.getElementById('meTagsVisible');
+  if (vis) vis.checked = !!currentUser.tagsVisible;
+}
+
+let _tagsSaving = false;
+async function saveSelfTags({ selfTags, tagsVisible }) {
+  if (_tagsSaving) return;
+  _tagsSaving = true;
+  try {
+    const res = await api('/api/users/me/profile', {
+      method: 'PUT',
+      body: { selfTags, tagsVisible }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast(errText(err) || __('profile.tags_save_failed'), 'error');
+      renderSelfTags(); // 回滚 UI
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    if (Array.isArray(data.selfTags)) currentUser.selfTags = data.selfTags;
+    else if (selfTags !== undefined) currentUser.selfTags = selfTags;
+    if (tagsVisible !== undefined) currentUser.tagsVisible = !!tagsVisible;
+    renderSelfTags();
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('profile.tags_save_failed') + ': ' + err.message, 'error');
+    renderSelfTags();
+  } finally {
+    _tagsSaving = false;
+  }
+}
+
+function addSelfTag() {
+  const input = document.getElementById('meTagInput');
+  const raw = input?.value?.trim();
+  if (!input || !raw) return;
+  const tags = Array.isArray(currentUser.selfTags) ? currentUser.selfTags.slice() : [];
+  if (tags.length >= 8) { toast(__('profile.tags_limit'), 'error'); return; }
+  if (raw.length > 20) { toast(__('profile.tags_too_long'), 'error'); return; }
+  if (tags.includes(raw)) { toast(__('profile.tags_duplicate'), 'error'); return; }
+  input.value = '';
+  saveSelfTags({ selfTags: tags.concat([raw]) });
+}
+
+function removeSelfTag(i) {
+  const tags = Array.isArray(currentUser.selfTags) ? currentUser.selfTags.slice() : [];
+  if (i < 0 || i >= tags.length) return;
+  tags.splice(i, 1);
+  saveSelfTags({ selfTags: tags });
+}
+
+function onTagsVisibleToggle() {
+  const vis = document.getElementById('meTagsVisible');
+  if (!vis) return;
+  saveSelfTags({ tagsVisible: vis.checked });
+}
+
 
 // ==================== 我的活动 ====================
 async function loadMyEvents() {

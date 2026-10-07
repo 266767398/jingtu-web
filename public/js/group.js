@@ -383,7 +383,7 @@ function formatLastSeen(d) {
   if (diff < 3600000) return Math.floor(diff / 60000) + __('group.minutes_ago_short');
   if (diff < 86400000) return Math.floor(diff / 3600000) + __('group.hours_ago_short');
   if (diff < 604800000) return Math.floor(diff / 86400000) + __('group.days_ago_short');
-  return dt.toLocaleDateString('zh-CN');
+  return dt.toLocaleDateString(getCurrentLang ? getCurrentLang() : 'zh');
 }
 
 // ==================== 群组概览 ====================
@@ -455,9 +455,9 @@ function updateGroupStatsUI(stats) {
 //   这样角标只在「有真正新增在线」时才出现，不会被常驻显示。
 let _groupBadgeSeenOnline = 0;
 function _isOnGroupTab() {
-  const el = document.getElementById('tab-group');
-  return !!el && !el.classList.contains('d-none');
-}
+        const el = document.getElementById('tab-vrc');
+        return !!el && !el.classList.contains('d-none');
+      }
 function updateGroupBadge(count) {
   const badge = document.getElementById('groupBadge');
   if (!badge) return;
@@ -555,7 +555,7 @@ async function refreshGroupStatus() {
     // 恢复只写一处。原先早退、catch、函数末尾各抄了一份，
     // 任何一条新增的 return 路径漏抄，按钮就永久禁用、刷新功能报废。
     groupStatusRefreshing = false;
-    if (btn) { btn.disabled = false; btn.textContent = __('group.refresh_btn'); }
+    if (btn) { btn.disabled = false; btn.textContent = __('group.sync_status_btn'); }
   }
 }
 
@@ -651,8 +651,7 @@ async function groupAdminFail(res) {
 
 function bindGroupAdminPanel(id, loader) {
   const el = document.getElementById(id);
-  if (!el) return;
-  el.addEventListener('toggle', () => { if (el.open && isAdminUser()) loader(); });
+  if (el && isAdminUser()) loader();
 }
 
 function bindGroupAdminClick(id, fn) {
@@ -667,7 +666,6 @@ function setupGroupAdminPanels() {
   bindGroupAdminPanel('groupRolesSection', loadGroupRoles);
   bindGroupAdminPanel('groupAuditLogsSection', loadGroupAuditLogs);
   bindGroupAdminPanel('groupBansSection', loadGroupBans);
-  bindGroupAdminPanel('groupEconomySection', loadGroupEconomy);
   bindGroupAdminClick('groupAnnPublishBtn', publishGroupAnnouncement);
   bindGroupAdminClick('groupGalCreateBtn', createGroupGallery);
   bindGroupAdminClick('groupRoleCreateBtn', createGroupRole);
@@ -688,7 +686,6 @@ function bindGroupMgmtBar() {
       if (!panel) return;
       bar.querySelectorAll('.group-mgmt-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      panel.open = true;
       panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   });
@@ -945,34 +942,6 @@ async function unbanGroupMember(userId) {
   if (!res.ok) { await groupAdminFail(res); return; }
   toast(__('group.op_done'), 'success');
   loadGroupBans();
-}
-
-// ---- 群经济（F-23） ----
-async function loadGroupEconomy() {
-  const list = document.getElementById('groupEconomyList');
-  if (!list) return;
-  try {
-    const res = await api('/api/group/economy');
-    if (!res.ok) { await groupAdminFail(res); return; }
-    const data = await res.json();
-    const econ = data.economy;
-    if (econ === null || econ === undefined || (typeof econ === 'object' && !Object.keys(econ).length)) {
-      renderEmpty(list, { icon: '💰', text: __('group.econ_none') });
-      return;
-    }
-    if (typeof econ === 'object') {
-      list.innerHTML = Object.entries(econ).map(([k, v]) => {
-        const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
-        return `<div class="group-change-item">
-          <span class="group-change-icon">💰</span>
-          <span class="group-change-name">${esc(k)}</span>
-          <span class="group-change-type">${esc(val)}</span>
-        </div>`;
-      }).join('');
-    } else {
-      list.innerHTML = `<div class="group-change-item"><span class="group-change-icon">💰</span><span class="group-change-name">${esc(String(econ))}</span></div>`;
-    }
-  } catch {}
 }
 
 // ---- 群日历关注（F-23） ----

@@ -647,15 +647,14 @@
   <!-- Tab: VRC（群组 + VRChat 世界 子选项） -->
   <div id="tab-vrc" class="tab-content d-none" role="tabpanel" aria-labelledby="tab-btn-vrc">
     <div class="group-mgmt-bar admin-only" id="groupMgmtBar">
-      <span class="group-mgmt-label">⚙️ 群组管理</span>
-      <button type="button" class="group-mgmt-btn" data-target="groupChangesSection">👥 变动</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupAnnouncementsSection">📢 公告</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupGalleriesSection">🖼️ 相册</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupRolesSection">🎭 角色</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupAuditLogsSection">📋 审计</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupBansSection">🚫 黑名单</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupEconomySection">💰 经济</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupCalendarSection">📅 日历</button>
+      <span class="group-mgmt-label" data-i18n="group.mgmt_label">⚙️ 群组管理</span>
+      <button type="button" class="group-mgmt-btn" data-target="groupChangesSection" data-i18n="group.mgmt_changes">👥 变动</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupAnnouncementsSection" data-i18n="group.mgmt_announcements">📢 公告</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupGalleriesSection" data-i18n="group.mgmt_galleries">🖼️ 相册</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupRolesSection" data-i18n="group.mgmt_roles">🎭 角色</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupAuditLogsSection" data-i18n="group.mgmt_audit_logs">📋 审计</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupBansSection" data-i18n="group.mgmt_bans">🚫 黑名单</button>
+      <button type="button" class="group-mgmt-btn" data-target="groupCalendarSection" data-i18n="group.mgmt_calendar">📅 日历</button>
     </div>
     <div class="map-legend">
       <span class="map-tab-btn active" data-view="group" role="button" tabindex="0">👥 <span data-i18n="nav.group">群组</span></span>
@@ -678,79 +677,76 @@
       <div class="group-search-box">
         <span class="group-search-icon">🔍</span>
         <input type="text" id="groupSearchInput" class="search-box m-0" data-i18n-placeholder="group.search_placeholder" placeholder="搜索玩家（昵称 / VRChat 名称 / ID）" maxlength="64" autocomplete="off" />
-        <button type="button" id="groupSearchClear" class="group-search-clear" title="清空" aria-label="清空">✕</button>
+        <button type="button" id="groupSearchClear" class="group-search-clear" data-i18n-title="group.search_clear" data-i18n-aria="group.search_clear" title="清空" aria-label="清空">✕</button>
       </div>
       <div class="flex-1"></div>
-      <button type="button" class="group-filter-btn active" data-filter="all" id="groupFilterAll">全部</button>
-      <button type="button" class="group-filter-btn" data-filter="online" id="groupFilterOnline">🟢 在线</button>
-      <button type="button" class="group-filter-btn" data-filter="ingame" id="groupFilterIngame">🎮 游戏内</button>
-      <button type="button" class="group-filter-btn" data-filter="web" id="groupFilterWeb">🌐 网页端</button>
-      <button type="button" class="group-filter-btn" data-filter="offline" id="groupFilterOffline">⚫ 离线</button>
-      <button type="button" class="group-filter-btn" data-filter="nonfriend" id="groupFilterNonfriend">👤 非好友</button>
+      <button type="button" class="group-filter-btn active" data-filter="all" id="groupFilterAll" data-i18n="group.filter_all">全部</button>
+      <button type="button" class="group-filter-btn" data-filter="online" id="groupFilterOnline" data-i18n="group.filter_online">🟢 在线</button>
+      <button type="button" class="group-filter-btn" data-filter="ingame" id="groupFilterIngame" data-i18n="group.filter_ingame">🎮 游戏内</button>
+      <button type="button" class="group-filter-btn" data-filter="web" id="groupFilterWeb" data-i18n="group.filter_web">🌐 网页端</button>
+      <button type="button" class="group-filter-btn" data-filter="offline" id="groupFilterOffline" data-i18n="group.filter_offline">⚫ 离线</button>
+      <button type="button" class="group-filter-btn" data-filter="nonfriend" id="groupFilterNonfriend" data-i18n="group.filter_nonfriend">👤 非好友</button>
       <div class="flex-1"></div>
-      <button type="button" id="groupRefreshBtn" class="btn btn-sm btn-outline">🔄 刷新</button>
-      <button type="button" class="btn btn-sm btn-outline" id="syncGroupBtn">🌐 同步 VRChat</button>
-      <button type="button" class="btn btn-sm btn-outline" id="refreshGroupBtn">📥 同步在线状态</button>
+      <button type="button" id="groupRefreshBtn" class="btn btn-sm btn-outline" data-i18n="group.refresh_btn">🔄 刷新</button>
+      <button type="button" class="btn btn-sm btn-outline" id="syncGroupBtn" data-i18n="group.sync_btn">🌐 同步 VRChat</button>
+      <button type="button" class="btn btn-sm btn-outline" id="refreshGroupBtn" data-i18n="group.sync_status_btn">📥 同步在线状态</button>
     </div>
     <div id="groupMemberGrid" class="group-member-grid">
       <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
       <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
     </div>
-    <details id="groupChangesSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">成员变动记录 <span id="groupChangesCount" class="text-muted2 text-12"></span></summary><div id="groupChangesList" class="group-changes-list"></div></details>
+    <section id="groupChangesSection" class="group-changes-section admin-only mt-16"><div class="group-changes-head"><span data-i18n="group.admin_changes">成员变动记录</span> <span id="groupChangesCount" class="text-muted2 text-12"></span></div><div id="groupChangesList" class="group-changes-list"></div></section>
     <!-- F-6/F-23 群组内容管理（管理员） -->
-    <details id="groupAnnouncementsSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">📢 群公告管理</summary>
+    <section id="groupAnnouncementsSection" class="group-changes-section admin-only mt-16"><div class="group-changes-head" data-i18n="group.admin_announcements">📢 群公告管理</div>
       <div id="groupAnnouncementsList" class="group-changes-list"></div>
       <div class="flex-row gap-6 mt-8 flex-wrap">
-        <input id="groupAnnTitle" class="group-admin-input" placeholder="公告标题" maxlength="120">
-        <label class="text-12"><input type="checkbox" id="groupAnnNotify" checked> 通知成员</label>
-        <button type="button" id="groupAnnPublishBtn" class="btn btn-sm btn-outline">📢 发布</button>
+        <input id="groupAnnTitle" class="group-admin-input" data-i18n-placeholder="group.ann_title_placeholder" placeholder="公告标题" maxlength="120">
+        <label class="text-12"><input type="checkbox" id="groupAnnNotify" checked> <span data-i18n="group.ann_notify">通知成员</span></label>
+        <button type="button" id="groupAnnPublishBtn" class="btn btn-sm btn-outline" data-i18n="group.ann_publish_btn">📢 发布</button>
       </div>
-      <textarea id="groupAnnText" class="group-admin-textarea" rows="3" placeholder="公告内容" maxlength="3000"></textarea>
-    </details>
-    <details id="groupGalleriesSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">🖼️ 群相册管理</summary>
+      <textarea id="groupAnnText" class="group-admin-textarea" rows="3" data-i18n-placeholder="group.ann_text_placeholder" placeholder="公告内容" maxlength="3000"></textarea>
+    </section>
+    <section id="groupGalleriesSection" class="group-changes-section admin-only mt-16"><div class="group-changes-head" data-i18n="group.admin_galleries">🖼️ 群相册管理</div>
       <div id="groupGalleriesList" class="group-changes-list"></div>
       <div class="flex-row gap-6 mt-8 flex-wrap">
-        <input id="groupGalName" class="group-admin-input" placeholder="相册名称" maxlength="60">
-        <input id="groupGalDesc" class="group-admin-input" placeholder="相册描述（可选）" maxlength="200">
-        <button type="button" id="groupGalCreateBtn" class="btn btn-sm btn-outline">➕ 创建相册</button>
+        <input id="groupGalName" class="group-admin-input" data-i18n-placeholder="group.gal_name_placeholder" placeholder="相册名称" maxlength="60">
+        <input id="groupGalDesc" class="group-admin-input" data-i18n-placeholder="group.gal_desc_placeholder" placeholder="相册描述（可选）" maxlength="200">
+        <button type="button" id="groupGalCreateBtn" class="btn btn-sm btn-outline" data-i18n="group.gal_create_btn">➕ 创建相册</button>
       </div>
-    </details>
-    <details id="groupRolesSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">🎭 群角色管理</summary>
+    </section>
+    <section id="groupRolesSection" class="group-changes-section admin-only mt-16"><div class="group-changes-head" data-i18n="group.admin_roles">🎭 群角色管理</div>
       <div id="groupRolesList" class="group-changes-list"></div>
       <div class="flex-row gap-6 mt-8 flex-wrap">
-        <input id="groupRoleName" class="group-admin-input" placeholder="角色名称" maxlength="60">
-        <input id="groupRoleDesc" class="group-admin-input" placeholder="角色描述（可选）" maxlength="200">
-        <button type="button" id="groupRoleCreateBtn" class="btn btn-sm btn-outline">➕ 创建角色</button>
+        <input id="groupRoleName" class="group-admin-input" data-i18n-placeholder="group.role_name_placeholder" placeholder="角色名称" maxlength="60">
+        <input id="groupRoleDesc" class="group-admin-input" data-i18n-placeholder="group.role_desc_placeholder" placeholder="角色描述（可选）" maxlength="200">
+        <button type="button" id="groupRoleCreateBtn" class="btn btn-sm btn-outline" data-i18n="group.role_create_btn">➕ 创建角色</button>
       </div>
       <div class="flex-row gap-6 mt-8 flex-wrap">
-        <input id="groupRoleUserId" class="group-admin-input" placeholder="成员 VRChat ID（usr_...）">
-        <select id="groupRoleSelect" class="group-admin-select" aria-label="选择群角色"></select>
-        <button type="button" id="groupRoleAddBtn" class="btn btn-sm btn-outline">授予</button>
-        <button type="button" id="groupRoleRemoveBtn" class="btn btn-sm btn-outline">移除</button>
+        <input id="groupRoleUserId" class="group-admin-input" data-i18n-placeholder="group.user_id_placeholder" placeholder="成员 VRChat ID（usr_...）">
+        <select id="groupRoleSelect" class="group-admin-select" data-i18n-aria="group.role_select_aria" aria-label="选择群角色"></select>
+        <button type="button" id="groupRoleAddBtn" class="btn btn-sm btn-outline" data-i18n="group.role_grant_btn">授予</button>
+        <button type="button" id="groupRoleRemoveBtn" class="btn btn-sm btn-outline" data-i18n="group.role_remove_btn">移除</button>
       </div>
-    </details>
-    <details id="groupAuditLogsSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">📋 群审计日志 <span id="groupAuditLogsCount" class="text-muted2 text-12"></span></summary>
+    </section>
+    <section id="groupAuditLogsSection" class="group-changes-section admin-only mt-16"><div class="group-changes-head"><span data-i18n="group.admin_audit_logs">📋 群审计日志</span> <span id="groupAuditLogsCount" class="text-muted2 text-12"></span></div>
       <div id="groupAuditLogsList" class="group-changes-list"></div>
-    </details>
-    <details id="groupBansSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">🚫 群黑名单 <span id="groupBansCount" class="text-muted2 text-12"></span></summary>
+    </section>
+    <section id="groupBansSection" class="group-changes-section admin-only mt-16"><div class="group-changes-head"><span data-i18n="group.admin_bans">🚫 群黑名单</span> <span id="groupBansCount" class="text-muted2 text-12"></span></div>
       <div id="groupBansList" class="group-changes-list"></div>
       <div class="flex-row gap-6 mt-8 flex-wrap">
-        <input id="groupBanUserId" class="group-admin-input" placeholder="成员 VRChat ID（usr_...）">
-        <button type="button" id="groupBanBtn" class="btn btn-sm btn-outline">🚫 加入黑名单</button>
+        <input id="groupBanUserId" class="group-admin-input" data-i18n-placeholder="group.user_id_placeholder" placeholder="成员 VRChat ID（usr_...）">
+        <button type="button" id="groupBanBtn" class="btn btn-sm btn-outline" data-i18n="group.ban_btn">🚫 加入黑名单</button>
       </div>
-    </details>
-    <details id="groupEconomySection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">💰 群经济</summary>
-      <div id="groupEconomyList" class="group-changes-list"></div>
-    </details>
-    <details id="groupCalendarSection" class="group-changes-section admin-only mt-16"><summary class="group-changes-summary">📅 群日历关注</summary>
+    </section>
+    <section id="groupCalendarSection" class="group-changes-section admin-only mt-16"><div class="group-changes-head" data-i18n="group.admin_calendar">📅 群日历关注</div>
       <div class="flex-row gap-6 mt-8 flex-wrap">
-        <button type="button" id="groupCalFollowBtn" class="btn btn-sm btn-outline">➕ 关注群日历</button>
-        <button type="button" id="groupCalUnfollowBtn" class="btn btn-sm btn-outline">➖ 取消关注</button>
+        <button type="button" id="groupCalFollowBtn" class="btn btn-sm btn-outline" data-i18n="group.cal_follow_btn">➕ 关注群日历</button>
+        <button type="button" id="groupCalUnfollowBtn" class="btn btn-sm btn-outline" data-i18n="group.cal_unfollow_btn">➖ 取消关注</button>
       </div>
-    </details>
+    </section>
     </div>
     <div id="vrcWorldsView" class="d-none">
-      <section class="worlds-panel mt-8" aria-label="VRChat 世界分布">
+      <section class="worlds-panel mt-8" aria-label="VRChat 世界分布" data-i18n-aria="map.world_dist">
         <header class="worlds-panel-header">
           <h2 class="worlds-panel-title">🌐 <span data-i18n="map.worlds_view">VRChat 世界</span></h2>
           <div class="worlds-panel-toolbar">
@@ -788,7 +784,7 @@
             <div class="worlds-top-empty text-muted2 text-13" data-i18n="common.loading">加载中…</div>
           </div>
         </div>
-        <h3 class="worlds-sub-title" data-i18n="map.kpi_worlds" style="margin-top:14px">世界分布</h3>
+        <h3 class="worlds-sub-title" data-i18n="map.world_dist" style="margin-top:14px">世界分布</h3>
         <div id="eventWorldsGrid" class="worlds-grid"></div>
       </section>
     </div>
@@ -798,7 +794,7 @@
       <aside class="coll-sidebar" id="collSidebar">
         <div class="coll-sidebar-head flex-row justify-between align-center">
           <span data-i18n="collections.folders">分组</span>
-          <button type="button" id="collAddFolderBtn" class="btn btn-xs btn-outline" title="新建分组">＋</button>
+          <button type="button" id="collAddFolderBtn" class="btn btn-xs btn-outline" data-i18n-title="collections.add_folder" title="新建分组">＋</button>
         </div>
         <ul class="coll-folder-list" id="collFolderList">
           <li class="coll-folder active" data-folder="all"><span data-i18n="collections.all">全部</span><span class="coll-folder-count" id="collCountAll">0</span></li>
@@ -832,36 +828,36 @@
 
         <!-- 筛选栏 -->
         <div class="coll-filters flex-row gap-8 mb-8 flex-wrap" id="collFilters">
-          <input type="text" id="collSearch" class="search-box m-0 flex-1" placeholder="搜索 ID / 名称 / 作者 / 描述..." data-i18n-placeholder="collections.search_placeholder" aria-label="搜索">
-          <select id="collStatusFilter" class="search-box m-0 coll-filter-sm" aria-label="按状态筛选">
-            <option value="">全部状态</option>
-            <option value="valid">有效</option>
-            <option value="invalid">已失效</option>
-            <option value="unknown">未检测</option>
+          <input type="text" id="collSearch" class="search-box m-0 flex-1" placeholder="搜索 ID / 名称 / 作者 / 描述..." data-i18n-placeholder="collections.search_placeholder" data-i18n-aria="collections.search_aria" aria-label="搜索">
+          <select id="collStatusFilter" class="search-box m-0 coll-filter-sm" data-i18n-aria="collections.filter_status_aria" aria-label="按状态筛选">
+            <option value="" data-i18n="collections.filter_status_all">全部状态</option>
+            <option value="valid" data-i18n="collections.filter_status_valid">有效</option>
+            <option value="invalid" data-i18n="collections.filter_status_invalid">已失效</option>
+            <option value="unknown" data-i18n="collections.filter_status_unknown">未检测</option>
           </select>
-          <select id="collPlatformFilter" class="search-box m-0 coll-filter-sm" aria-label="按平台筛选">
-            <option value="">全部平台</option>
-            <option value="standalonewindows">PC / Windows</option>
-            <option value="android">安卓 Android</option>
-            <option value="ios">苹果 iOS</option>
+          <select id="collPlatformFilter" class="search-box m-0 coll-filter-sm" data-i18n-aria="collections.filter_platform_aria" aria-label="按平台筛选">
+            <option value="" data-i18n="collections.filter_platform_all">全部平台</option>
+            <option value="standalonewindows" data-i18n="collections.filter_platform_pc">PC / Windows</option>
+            <option value="android" data-i18n="collections.filter_platform_android">安卓 Android</option>
+            <option value="ios" data-i18n="collections.filter_platform_ios">苹果 iOS</option>
           </select>
-          <select id="collCategoryFilter" class="search-box m-0 coll-filter-sm" aria-label="按定位筛选">
-            <option value="">全部定位</option>
-            <option value="white">白模</option>
-            <option value="functional">功能模型</option>
+          <select id="collCategoryFilter" class="search-box m-0 coll-filter-sm" data-i18n-aria="collections.filter_category_aria" aria-label="按定位筛选">
+            <option value="" data-i18n="collections.filter_category_all">全部定位</option>
+            <option value="white" data-i18n="collections.filter_category_white">白模</option>
+            <option value="functional" data-i18n="collections.filter_category_functional">功能模型</option>
           </select>
-          <select id="collContentFilter" class="search-box m-0 coll-filter-sm" aria-label="按内容分级筛选">
-            <option value="">全部分级</option>
-            <option value="all">全年龄</option>
-            <option value="18+">18+</option>
+          <select id="collContentFilter" class="search-box m-0 coll-filter-sm" data-i18n-aria="collections.filter_content_aria" aria-label="按内容分级筛选">
+            <option value="" data-i18n="collections.filter_content_all">全部分级</option>
+            <option value="all" data-i18n="collections.filter_content_general">全年龄</option>
+            <option value="18+" data-i18n="collections.filter_content_18">18+</option>
           </select>
-          <select id="collSort" class="search-box m-0 coll-filter-sm" aria-label="排序方式">
-            <option value="updated">最近更新</option>
-            <option value="favorite">收藏最多</option>
-            <option value="rating">评分最高</option>
-            <option value="created">最新发布</option>
-            <option value="name">名称</option>
-            <option value="heat" selected>社区热度</option>
+          <select id="collSort" class="search-box m-0 coll-filter-sm" data-i18n-aria="collections.filter_sort_aria" aria-label="排序方式">
+            <option value="updated" data-i18n="collections.filter_sort_updated">最近更新</option>
+            <option value="favorite" data-i18n="collections.filter_sort_favorite">收藏最多</option>
+            <option value="rating" data-i18n="collections.filter_sort_rating">评分最高</option>
+            <option value="created" data-i18n="collections.filter_sort_created">最新发布</option>
+            <option value="name" data-i18n="collections.filter_sort_name">名称</option>
+            <option value="heat" selected data-i18n="collections.filter_sort_heat">社区热度</option>
           </select>
         </div>
 
@@ -879,16 +875,16 @@
       <aside class="coll-sidebar" id="vrcfavSidebar">
         <div class="coll-sidebar-head flex-row justify-between align-center">
           <span data-i18n="vrcfav.groups">官方收藏分组</span>
-          <button type="button" id="vrcfavRefreshGroupsBtn" class="btn btn-xs btn-outline" title="刷新分组" aria-label="刷新分组">⟳</button>
+          <button type="button" id="vrcfavRefreshGroupsBtn" class="btn btn-xs btn-outline" data-i18n-title="vrcfav.refresh_groups" data-i18n-aria="vrcfav.refresh_groups" title="刷新分组" aria-label="刷新分组">⟳</button>
         </div>
         <ul class="coll-folder-list" id="vrcfavGroupList">
           <li class="coll-folder active" data-group=""><span data-i18n="collections.all">全部</span></li>
         </ul>
         <div class="mt-8" id="vrcfavGroupOps">
-          <input id="vrcfavRenameInput" class="group-admin-input" style="width:100%" placeholder="新分组显示名" maxlength="32" aria-label="新分组显示名">
+          <input id="vrcfavRenameInput" class="group-admin-input" style="width:100%" data-i18n-placeholder="vrcfav.rename_placeholder" data-i18n-aria="vrcfav.rename_placeholder" placeholder="新分组显示名" maxlength="32" aria-label="新分组显示名">
           <div class="flex-row gap-6 mt-8">
-            <button type="button" id="vrcfavRenameBtn" class="btn btn-xs btn-outline">✏️ 重命名</button>
-            <button type="button" id="vrcfavClearBtn" class="btn btn-xs btn-outline">🗑️ 清空分组</button>
+            <button type="button" id="vrcfavRenameBtn" class="btn btn-xs btn-outline" data-i18n="vrcfav.rename_btn">✏️ 重命名</button>
+            <button type="button" id="vrcfavClearBtn" class="btn btn-xs btn-outline" data-i18n="vrcfav.clear_btn">🗑️ 清空分组</button>
           </div>
         </div>
       </aside>
@@ -902,10 +898,10 @@
         <div class="coll-kind-bar" id="vrcfavKindBar">
           <button type="button" class="coll-kind active" data-kind="world">🌐 <span data-i18n="nav.worlds">世界</span></button>
           <button type="button" class="coll-kind" data-kind="avatar">🎭 <span data-i18n="nav.avatars">头像</span></button>
-          <button type="button" class="coll-kind" data-kind="friend">🧑‍🦰 <span data-i18n="nav.group">好友</span></button>
+          <button type="button" class="coll-kind" data-kind="friend">🧑‍🦰 <span data-i18n="nav.friends">好友</span></button>
         </div>
         <div class="coll-filters flex-row gap-8 mb-8 flex-wrap" id="vrcfavAddBar">
-          <input type="text" id="vrcfavAddId" class="search-box m-0 flex-1" placeholder="输入 ID（世界 wrld_ / 头像 avtr_ / 好友 usr_）" aria-label="收藏目标 ID" maxlength="64" autocomplete="off">
+          <input type="text" id="vrcfavAddId" class="search-box m-0 flex-1" data-i18n-placeholder="vrcfav.add_id_placeholder" data-i18n-aria="vrcfav.add_id_aria" placeholder="输入 ID（世界 wrld_ / 头像 avtr_ / 好友 usr_）" aria-label="收藏目标 ID" maxlength="64" autocomplete="off">
           <button type="button" id="vrcfavAddBtn" class="btn btn-sm btn-accent">➕ <span data-i18n="collections.add">添加收藏</span></button>
         </div>
         <div id="vrcfavList" class="coll-grid"></div>
@@ -1810,6 +1806,25 @@
     </div>
 
     <div class="card p-16 mt-12">
+      <h3>🏷️ <span data-i18n="profile.tags_title">自定义标签</span></h3>
+      <div class="text-muted2 text-12 mb-8" data-i18n="profile.tags_hint">最多 8 个标签，每个不超过 20 字。回车或点击「添加」即可保存。</div>
+      <div id="meTagsList" class="me-tags-list mb-8"></div>
+      <div class="form-group flex-row gap-8">
+        <input type="text" id="meTagInput" class="form-input" maxlength="20"
+               placeholder="输入标签后回车" data-i18n-placeholder="profile.tag_input_placeholder" aria-label="新标签">
+        <button type="button" id="addTagBtn" class="btn btn-accent btn-sm flex-none" data-i18n="profile.tag_add">添加</button>
+      </div>
+      <div class="form-group flex-row gap-8 align-center mt-8">
+        <label class="switch-wrap">
+          <input type="checkbox" id="meTagsVisible" onchange="onTagsVisibleToggle()">
+          <span class="switch-slider"></span>
+        </label>
+        <span data-i18n="profile.tags_visible">公开显示我的标签</span>
+      </div>
+      <div class="text-muted2 text-12" data-i18n="profile.tags_visible_hint">关闭后，仅你自己能看到标签，其他成员列表和公开主页都不会展示</div>
+    </div>
+
+    <div class="card p-16 mt-12">
       <div class="me-stats-grid">
         <div class="me-stat-card">
           <div class="me-stat-value" id="meTotalPosts">-</div>
@@ -1932,6 +1947,7 @@
       <div id="profileStats" class="profile-stats-extra"></div>
       <div id="profileActions" class="profile-actions mt-8"></div>
       <div id="profileMotto" class="profile-motto"></div>
+      <div id="profileTags" class="profile-tags d-none"></div>
       <div class="profile-stats"><span>📷 <span id="profilePhotoCount">0</span> <span data-i18n="profile.stat_photos">照片</span></span><span>🎬 <span id="profileVideoCount">0</span> <span data-i18n="profile.stat_videos">视频</span></span></div>
     </div>
     <div id="profileBio" class="card p-16 mt-8 d-none"><h4 data-i18n="profile.bio_heading">📝 个人简介</h4><div id="profileBioContent"></div></div>
@@ -2032,6 +2048,7 @@
       <div id="ucVrcName" class="d-none"></div>
       <div id="ucJoined" class="d-none"></div>
       <div id="ucBio" class="d-none"></div>
+      <div id="ucTags" class="d-none member-tags mt-4"></div>
       <div id="memberCardLinks" class="flex-row gap-4 mt-8 flex-wrap"></div>
     </div>
   </div>
@@ -2904,6 +2921,23 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
   bindClick('saveBioBtn', function() { saveBio(); });
+
+  // 自定义标签：回车添加 / 点击添加按钮 / 点击 × 删除
+  bindClick('addTagBtn', function() { addSelfTag(); });
+  var meTagInput = byId('meTagInput');
+  if (meTagInput) {
+    meTagInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); addSelfTag(); }
+    });
+  }
+  var meTagsList = byId('meTagsList');
+  if (meTagsList) {
+    meTagsList.addEventListener('click', function(e) {
+      var x = e.target.closest('.tag-x');
+      if (!x) return;
+      removeSelfTag(parseInt(x.dataset.i, 10));
+    });
+  }
 
   bindClick('vrcBindBtn', function() { bindVRChatWithPassword(); });
   bindClick('vrcBind2faBtn', function() { confirmVrcBind2fa(); });

@@ -10,7 +10,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const { requireAuth, getAvatarUrl, encryptAES, decryptAES } = require('../auth');
 const {
-  ok, getPool, validateFields, handleError, sendError, ErrorCodes, createFileFilter, secureUpload
+  ok, getPool, validateFields, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, normalizeSelfTags
 } = require('../utils');
 const { VRC_API, VRC_API_KEY } = require('../vrc');
 const logger = require('../logger');
@@ -107,6 +107,8 @@ router.get('/me/profile', requireAuth, async (req, res) => {
       website: u.preferences?.website || '',
       coverImage: u.preferences?.coverImage || '',
       socialLinks: u.preferences?.social_links || null,
+      selfTags: Array.isArray(u.preferences?.self_tags) ? u.preferences.self_tags : [],
+      tagsVisible: !!u.preferences?.tags_visible,
       createdAt: u.created_at,
       updatedAt: u.updated_at,
       email: u.email || null,
@@ -124,7 +126,7 @@ router.put('/me/profile', requireAuth, async (req, res) => {
     if (req.session.userId === 0) {
       return sendError(res, 403, ErrorCodes.FORBIDDEN, '游客不能修改资料');
     }
-    const { displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage } = req.body;
+    const { displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage, selfTags, tagsVisible } = req.body;
     const updates = {};
 
     if (displayName !== undefined) {
@@ -192,6 +194,14 @@ router.put('/me/profile', requireAuth, async (req, res) => {
       }
       prefsObj.social_links = sl;
     }
+    // 自定义标签存到 preferences.self_tags，开关存 preferences.tags_visible
+    const normalizedTags = normalizeSelfTags(selfTags);
+    if (normalizedTags === null) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '标签不合规：最多8个，每个不超过20字');
+    if (normalizedTags !== undefined) prefsObj.self_tags = normalizedTags;
+    if (tagsVisible !== undefined) {
+      if (typeof tagsVisible !== 'boolean') return sendError(res, 400, ErrorCodes.BAD_REQUEST, '标签显示开关格式不正确');
+      prefsObj.tags_visible = tagsVisible;
+    }
     // preferences 参数覆盖（如果前端传了完整的 preferences 对象）——
     // 只接受 plain object，键名限白名单字符，整体序列化后限 64KB，防止撑爆 JSON 列
     if (preferences !== undefined) {
@@ -203,9 +213,16 @@ router.put('/me/profile', requireAuth, async (req, res) => {
       if (JSON.stringify(incoming).length > 65536) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '偏好设置过大');
       for (const k of Object.keys(incoming)) {
         if (!/^[A-Za-z0-9_]{1,30}$/.test(k)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'preferences 含不支持的键名');
-        if (typeof incoming[k] === 'object' && incoming[k] !== null && k !== 'social_links') return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'preferences 值类型不正确');
+        if (typeof incoming[k] === 'object' && incoming[k] !== null && k !== 'social_links' && k !== 'self_tags') return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'preferences 值类型不正确');
       }
       Object.assign(prefsObj, incoming);
+    }
+    // preferences 整体覆盖会绕过上面对 selfTags 的归一化，这里对最终值补一道校验，
+    // 保证落库的标签始终满足数量/长度/字符约束
+    if (prefsObj.self_tags !== undefined) {
+      const revalidated = normalizeSelfTags(prefsObj.self_tags);
+      if (revalidated === null) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '标签不合规：最多8个，每个不超过20字');
+      prefsObj.self_tags = revalidated;
     }
     updates.preferences = JSON.stringify(prefsObj);
 
@@ -235,7 +252,12 @@ router.put('/me/profile', requireAuth, async (req, res) => {
     await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '更新个人资料', ?)`,
       [req.session.userId, `更新字段: ${changedFields}`]);
 
-    ok(res, { message: '资料更新成功' });
+    // 回显归一化后的标签，前端据此同步本地状态（去重/裁剪后的权威值）
+    ok(res, {
+      message: '资料更新成功',
+      selfTags: prefsObj.self_tags || [],
+      tagsVisible: !!prefsObj.tags_visible
+    });
   } catch (e) {
     handleError(res, e, '[users]');
   }

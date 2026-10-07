@@ -352,7 +352,7 @@ function updateDashboardValue(id, value) {
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const from = parseInt(el.textContent.replace(/[^0-9]/g, '') || '0', 10);
   if (reduce || from === next) {
-    el.textContent = next.toLocaleString();
+    el.textContent = next.toLocaleString(getCurrentLang ? getCurrentLang() : 'zh');
     return;
   }
   const dur = 600;
@@ -361,7 +361,7 @@ function updateDashboardValue(id, value) {
     const t = Math.min((now - start) / dur, 1);
     const eased = 1 - Math.pow(1 - t, 3);
     const cur = Math.round(from + (next - from) * eased);
-    el.textContent = cur.toLocaleString();
+    el.textContent = cur.toLocaleString(getCurrentLang ? getCurrentLang() : 'zh');
     if (t < 1) requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);

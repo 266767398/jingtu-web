@@ -157,6 +157,11 @@ function renderMembers(members) {
     const vrcFallback = memberVrcFallback(m);
     const overridePic = proxyAvatar(m.profilePicOverrideThumbnail || '');
     const cycleSet = [avSrc, overridePic].filter(Boolean).join(';') || '/api/avatar/default';
+    // 自定义标签：后端已按隐私开关过滤，这里只做安全转义 + 数量兜底
+    const tags = Array.isArray(m.selfTags) ? m.selfTags.slice(0, 8) : [];
+    const tagsHtml = tags.length
+      ? `<div class="member-tags">${tags.map(t => `<span class="tag tag-accent">${esc(t)}</span>`).join('')}</div>`
+      : '';
     return `
     <div class="member-card">
       <div class="member-card-click" onclick="goToProfile('${escJsStr(String(m.id))}')">
@@ -167,6 +172,7 @@ function renderMembers(members) {
           <div class="member-name">${esc(m.displayName || m.loginId)}${(m.trustLevel || m.trustLevelCn) ? ` <span class="member-trust-badge" style="background:${trustColorOf(m.trustLevel) || '#9e9e9e'}">${esc(m.trustLevelCn || m.trustLevel)}</span>` : ''}</div>
           <div class="member-role">${roleLabels[m.role] || __("members.role_guest")}</div>
           <div class="member-like">❤️ ${m.likeCount || 0}</div>
+          ${tagsHtml}
         </div>
       </div>
       ${m.locationVisible ? `<div class="member-location">📍 ${esc(m.location || __('members.unknown_location'))}</div>` : ''}
@@ -222,6 +228,7 @@ function paintMemberCard(u) {
   const vrcNameEl = document.getElementById('ucVrcName');
   const joinedEl = document.getElementById('ucJoined');
   const bioEl = document.getElementById('ucBio');
+  const tagsEl = document.getElementById('ucTags');
   if (img) {
     img.dataset.vrcFallback = memberVrcFallback(u);
     img.dataset.avatarFailKey = memberAvatarSrc(u);
@@ -271,6 +278,16 @@ function paintMemberCard(u) {
       bioEl.textContent = u.bio;
     } else {
       bioEl.className = 'd-none';
+    }
+  }
+  if (tagsEl) {
+    const tags = Array.isArray(u.selfTags) ? u.selfTags.slice(0, 8) : [];
+    if (tags.length) {
+      tagsEl.className = 'member-tags mt-4';
+      tagsEl.innerHTML = tags.map(t => `<span class="tag tag-accent">${esc(t)}</span>`).join('');
+    } else {
+      tagsEl.className = 'd-none';
+      tagsEl.innerHTML = '';
     }
   }
   const linksEl = document.getElementById('memberCardLinks');
@@ -890,12 +907,12 @@ function renderVrcMemberCard(d, forId) {
   // FE-1：过滤危险 URL scheme（javascript:/data: 等），仅放行 http/https 或无 scheme 链接
   const bioLinks = (d.bioLinks || []).filter(Boolean).filter(function (l) { return typeof safeHref === 'function' ? safeHref(l) : true; });
   const profileUrl = 'https://vrchat.com/home/user/' + escAttr(d.vrchatId || '');
-  const joined = d.lastLogin ? new Date(d.lastLogin).toLocaleDateString('zh-CN') : '—';
+  const joined = d.lastLogin ? new Date(d.lastLogin).toLocaleDateString(getCurrentLang ? getCurrentLang() : 'zh') : '—';
   // 语言代码 → 中文名（借鉴 VRCX $languages）
   const LANG_CN = { zho: __('auto_members_22'), eng: __('auto_members_23'), jpn: __('auto_members_24'), kor: __('auto_members_25'), fra: __('auto_members_26'), deu: __('auto_members_27'), spa: __('auto_members_28'), rus: __('auto_members_29'), cht: __('auto_members_30'), por: __('auto_members_31'), ita: __('auto_members_32'), tha: __('auto_members_33'), ind: __('auto_members_34'), vie: __('auto_members_35'), ara: __('auto_members_36'), nld: __('auto_members_37'), pol: __('auto_members_38'), tur: __('auto_members_39'), swe: __('auto_members_40'), dan: __('auto_members_41'), fin: __('auto_members_42'), nor: __('auto_members_43'), ces: __('auto_members_44'), hun: __('auto_members_45'), ron: __('auto_members_46'), ukr: __('auto_members_47') };
   const languagesText = (d.languages || []).map(l => LANG_CN[l] || l).join('、');
   // 注册日期
-  const dateJoined = d.dateJoined ? new Date(d.dateJoined).toLocaleDateString('zh-CN') : '';
+  const dateJoined = d.dateJoined ? new Date(d.dateJoined).toLocaleDateString(getCurrentLang ? getCurrentLang() : 'zh') : '';
   // 主页展示群（≠ 当前房间所属群）
   const repGroup = d.representedGroup || null;
   // 结构化实例信息
@@ -911,7 +928,7 @@ function renderVrcMemberCard(d, forId) {
   const ct = d.contribution || { publicModels: 0, eventSigns: 0, totalCheckins: 0 };
   const recent = d.recentActivity || [];
   const pubModels = d.publicModels || [];
-  const fmtDateTime = (x) => x ? new Date(x).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+  const fmtDateTime = (x) => x ? new Date(x).toLocaleString(getCurrentLang ? getCurrentLang() : 'zh', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 
   // F-10: 名片对应 VRC 账号已绑定到当前登录用户本人时，隐藏发起邀请/好友申请入口
   const isSelfCard = lu.bound && window.currentUser && String(lu.id || '') === String(window.currentUser.id || '');
@@ -1293,7 +1310,7 @@ function renderAvatarDetail(history, tags) {
   const body = document.getElementById('avatarDetailBody');
   if (!body) return;
   const hasAvatarId = /^avtr_/i.test(d.avatarId);
-  const fmtT = (x) => x ? new Date(x).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+  const fmtT = (x) => x ? new Date(x).toLocaleString(getCurrentLang ? getCurrentLang() : 'zh', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 
   const histItems = history.items || [];
   const historyHtml = d.localUserId ? `
