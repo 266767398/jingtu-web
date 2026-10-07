@@ -263,6 +263,13 @@ async function batchDeleteEvents() {
   });
 }
 
+// 批量操作工具条（原内联 onclick 迁移到委托）
+document.addEventListener('click', function (e) {
+  if (e.target.closest('#evtBatchArchiveBtn')) { batchArchiveEvents(); return; }
+  if (e.target.closest('#evtBatchDeleteBtn')) { batchDeleteEvents(); return; }
+  if (e.target.closest('#evtBatchCancelBtn')) { cancelBatchSelect(); return; }
+});
+
 function getCountdown(timeStr, endsStr) {
   if (!timeStr) return null; const now = new Date(); const start = new Date(timeStr); const ends = endsStr ? new Date(endsStr) : null;
   if (ends && now > ends) return null; const diff = start - now;

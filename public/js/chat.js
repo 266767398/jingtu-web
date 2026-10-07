@@ -278,6 +278,15 @@ function onChatVideoSelected(el) { return uploadChatMedia(el, 'video'); }
 function pickChatAudio() { pickChatMedia('chatAudioInput'); }
 function onChatAudioSelected(el) { return uploadChatMedia(el, 'audio'); }
 
+// 聊天输入区媒体入口（原内联 onclick 迁移到委托）
+document.addEventListener('click', function (e) {
+  const btn = e.target.closest('#chatImageBtn, #chatVideoBtn, #chatAudioBtn');
+  if (!btn) return;
+  if (btn.id === 'chatImageBtn') pickChatImage();
+  else if (btn.id === 'chatVideoBtn') pickChatVideo();
+  else pickChatAudio();
+});
+
 function closeChatDetail() {
   stopTypingIndicator();
   chatActiveUserId = null;

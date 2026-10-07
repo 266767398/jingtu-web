@@ -301,6 +301,8 @@ function switchTab(tab, force) {
     const isActive = btn.id === 'tab-btn-' + tab;
     btn.classList.toggle('active', isActive);
     btn.setAttribute('aria-selected', String(isActive));
+    // 方向键导航（roving tabindex）：仅当前标签可 Tab 聚焦，其余从 Tab 序列移除
+    btn.tabIndex = isActive ? 0 : -1;
   });
   document.querySelectorAll('.tab-content').forEach(content => content.classList.toggle('d-none', content.id !== 'tab-' + tab));
   // 同步底部功能栏（移动端）的高亮状态，确保选中样式与当前页面一致：
@@ -673,7 +675,8 @@ function checkPwdMatch(inputId1, inputId2, matchId) {
     style.textContent = [
       '.jt-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;',
       '  gap:12px;padding:48px 16px;text-align:center;color:var(--muted);}',
-      '.jt-empty-icon{font-size:40px;line-height:1;opacity:.85;filter:saturate(.9);}',
+      '.jt-empty-icon{font-size:40px;line-height:1;opacity:.85;filter:saturate(.9);',
+      '  animation:float 3s ease-in-out infinite;will-change:transform;}',
       '.jt-empty-title{font-size:15px;font-weight:600;color:var(--text);}',
       '.jt-empty-text{font-size:13px;line-height:1.6;max-width:320px;color:var(--muted);}',
       '.jt-empty-actions{margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}',

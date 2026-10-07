@@ -565,6 +565,12 @@ async function runGitRestart() {
   }
 }
 
+// Git 更新/重启按钮（原内联 onclick 迁移到委托）
+document.addEventListener('click', function (e) {
+  if (e.target.closest('#gitUpdateBtn')) { runGitUpdate(); return; }
+  if (e.target.closest('#gitRestartBtn')) { runGitRestart(); return; }
+});
+
 function clearSystemVrcCredentials() {
   if (!currentUser || currentUser.role !== 'super_admin') {
     toast(__('admin_vrc.super_admin_only'), 'error');

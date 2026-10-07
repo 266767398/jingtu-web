@@ -206,6 +206,11 @@
   50% { opacity: 0.8; filter: brightness(1.2); }
 }
 
+@keyframes pulse-glow-soft {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 8px var(--accent-light); }
+  50% { transform: scale(1.08); box-shadow: 0 0 20px var(--accent), 0 0 32px var(--accent-light); }
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -345,31 +350,6 @@
   animation: toastOut var(--transition-time) ease-in forwards;
 }
 
-/* ========== 按钮点击波纹效果 ========== */
-
-.btn {
-  position: relative;
-  overflow: hidden;
-}
-
-.btn::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 200%;
-  height: 200%;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 50%;
-  /* 只动 transform（合成层）；此前以 width/height 展开，每帧触发重排 */
-  transform: translate(-50%, -50%) scale(0);
-  transition: transform 0.3s;
-}
-
-.btn:active::after {
-  transform: translate(-50%, -50%) scale(1);
-}
-
 /* ========== 卡片悬停效果 ========== */
 
 .card {
@@ -416,7 +396,7 @@
 }
 
 .badge.new {
-  animation: badgePop 0.3s ease-out;
+  transform: scale(1.15);
 }
 
 /* ========== 进度条动画 ========== */
@@ -675,6 +655,17 @@
 .member-card:hover {
   transform: translateY(-3px);
   box-shadow: var(--shadow-lg);
+}
+
+/* ========== 成员卡片 3D 倾斜（桌面端，由 members.js 写入 --tilt-x/--tilt-y） ========== */
+.member-card.tilt-on {
+  transform: perspective(700px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateY(-3px);
+  transition: transform .08s linear, box-shadow var(--transition-fast);
+  box-shadow: var(--shadow-lg);
+}
+.member-card.tilt-on .member-card-click {
+  transform: translateZ(24px);
+  transition: transform .08s linear;
 }
 
 /* ========== 侧边栏滑入动画 ========== */

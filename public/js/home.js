@@ -9,6 +9,14 @@ let homeLoading = false;
 // __('auto_home_2')那一项不跳标签，而是弹出在线成员列表：这个入口原先挂在顶栏的__('auto_home_3')
 // 和 Hero 统计卡片上，那两处都因重复被移除，功能移交到这里。
 document.addEventListener('click', function(e) {
+  // 首页 widget 自定义编辑态 / 恢复默认（原内联 onclick 迁移到委托）
+  if (e.target.closest('#homeWidgetEditBtn')) { toggleHomeWidgetEdit(); return; }
+  if (e.target.closest('#homeWidgetResetBtn')) { resetHomeWidgetLayout(); return; }
+  // 精选照片「查看全部」直达相册
+  if (e.target.closest('#homeViewAllBtn')) {
+    if (typeof switchTab === 'function') switchTab('album');
+    return;
+  }
   // F-8 编辑态：显隐切换按钮（卡片内嵌的真按钮，不能放在 <button> 里所以编辑态卡片是 div）
   const wgtToggle = e.target.closest('.wgt-toggle');
   if (wgtToggle) {
@@ -337,10 +345,26 @@ async function loadPublicDashboardStats() {
 
 function updateDashboardValue(id, value) {
   const el = document.getElementById(id);
-  if (el) {
-    el.textContent = typeof value === 'number' ? value.toLocaleString() : value;
-    el.classList.remove('skeleton-stat');
+  if (!el) return;
+  const next = typeof value === 'number' ? value : null;
+  el.classList.remove('skeleton-stat');
+  if (next === null) { el.textContent = value; return; }
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const from = parseInt(el.textContent.replace(/[^0-9]/g, '') || '0', 10);
+  if (reduce || from === next) {
+    el.textContent = next.toLocaleString();
+    return;
   }
+  const dur = 600;
+  const start = performance.now();
+  function tick(now) {
+    const t = Math.min((now - start) / dur, 1);
+    const eased = 1 - Math.pow(1 - t, 3);
+    const cur = Math.round(from + (next - from) * eased);
+    el.textContent = cur.toLocaleString();
+    if (t < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
 }
 
 function updateDashboardTrend(id, growthData) {

@@ -253,6 +253,14 @@ function selectAvatarPref(type) {
   saveAvatarPref({ avatarType: type });
 }
 
+// 头像来源选择（原内联 onclick 迁移到委托）
+document.addEventListener('click', function (e) {
+  const item = e.target.closest('.avatar-pref-item');
+  if (!item) return;
+  const type = item.dataset.type;
+  if (type) selectAvatarPref(type);
+});
+
 function onAvatarVisibleToggle() {
   const vis = document.getElementById('meAvatarVisible');
   if (!vis) return;

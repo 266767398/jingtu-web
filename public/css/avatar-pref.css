@@ -9,8 +9,12 @@
   padding: 12px; text-align: center;
   cursor: pointer; transition: .15s ease;
   background: var(--card-bg, #222);
+  color: var(--text, #eee);
+  font-family: inherit; font-size: inherit; line-height: 1.5;
+  appearance: none; -webkit-appearance: none;
 }
 .avatar-pref-item:hover { border-color: var(--accent, #4f8cff); }
+.avatar-pref-item:focus-visible { outline: 2px solid var(--accent, #4f8cff); outline-offset: 2px; }
 .avatar-pref-item.active {
   border-color: var(--accent, #4f8cff);
   box-shadow: 0 0 0 2px var(--accent, #4f8cff) inset;

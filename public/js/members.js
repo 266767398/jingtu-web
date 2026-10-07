@@ -1401,3 +1401,48 @@ async function clearAvatarTags() {
     toast(__('members.avatar_tags_clear_failed'), 'error');
   }
 }
+
+// ==================== 成员卡片 3D 倾斜（桌面端） ====================
+(function () {
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const finePointer = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if (reduce || !finePointer) return;
+
+  const MAX_TILT = 6; // 度
+  let rafId = null;
+  let current = null;
+
+  document.addEventListener('mousemove', function (e) {
+    const card = e.target.closest ? e.target.closest('.member-card') : null;
+    if (card !== current) {
+      if (current) resetCard(current);
+      current = card;
+    }
+    if (!card) return;
+    if (rafId) return;
+    rafId = requestAnimationFrame(function () {
+      rafId = null;
+      if (!current) return;
+      const rect = current.getBoundingClientRect();
+      const px = (e.clientX - rect.left) / rect.width - 0.5;
+      const py = (e.clientY - rect.top) / rect.height - 0.5;
+      current.classList.add('tilt-on');
+      current.style.setProperty('--tilt-y', (px * MAX_TILT).toFixed(2) + 'deg');
+      current.style.setProperty('--tilt-x', (-py * MAX_TILT).toFixed(2) + 'deg');
+    });
+  });
+
+  document.addEventListener('mouseout', function (e) {
+    if (!current) return;
+    const to = e.relatedTarget;
+    if (to && current.contains(to)) return;
+    resetCard(current);
+    current = null;
+  });
+
+  function resetCard(card) {
+    card.classList.remove('tilt-on');
+    card.style.removeProperty('--tilt-x');
+    card.style.removeProperty('--tilt-y');
+  }
+})();

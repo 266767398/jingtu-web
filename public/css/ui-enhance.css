@@ -104,20 +104,6 @@
 }
 
 /* ========== 7. 按钮加强 ========== */
-.btn {
-  position: relative;
-  overflow: hidden;
-}
-.btn::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at var(--mx,50%) var(--my,50%), rgba(255,255,255,.15), transparent 70%);
-  opacity: 0;
-  transition: opacity .2s ease;
-  pointer-events: none;
-}
-.btn:hover::after { opacity: 1; }
 .btn:active { transform: scale(.96); }
 
 /* ========== 8. 元素入场序列 ========== */
@@ -301,7 +287,7 @@ body.home-active .tab-indicator { opacity: 0 !important; }
   transition: all .3s ease;
 }
 .online-dot.on {
-  animation: pulse-glow 2s infinite;
+  animation: pulse-glow-soft 2.4s ease-in-out infinite;
 }
 
 /* ========== 21. 消息气泡动画 ========== */
@@ -347,12 +333,14 @@ body.home-active .tab-indicator { opacity: 0 !important; }
 .dropdown-menu {
   opacity: 0;
   transform: translateY(-8px) scale(.95);
-  transition: opacity .2s ease, transform .2s cubic-bezier(.34,1.56,.64,1);
+  filter: blur(4px);
+  transition: opacity .2s ease, transform .2s cubic-bezier(.34,1.56,.64,1), filter .2s ease;
   pointer-events: none;
 }
 .dropdown-menu.show {
   opacity: 1;
   transform: translateY(0) scale(1);
+  filter: blur(0);
   pointer-events: all;
 }
 
@@ -1205,26 +1193,6 @@ body.home-active .tab-indicator { opacity: 0 !important; }
   animation: shimmer 1.5s ease infinite;
 }
 
-/* ========== 46. 按钮点击波纹效果 ========== */
-.btn {
-  position: relative;
-  overflow: hidden;
-}
-.btn::before {
-  content: '';
-  position: absolute;
-  width: 100px;
-  height: 100px;
-  background: rgba(255,255,255,.3);
-  border-radius: 50%;
-  transform: scale(0);
-  transition: transform .4s ease;
-  pointer-events: none;
-}
-.btn:active::before {
-  transform: scale(4);
-}
-
 /* ========== 47. 输入框聚焦光晕效果（已合并至 §14 的 :focus-visible 规则） ========== */
 
 /* ========== 48. 列表项交错动画 ========== */
@@ -1259,14 +1227,14 @@ body.home-active .tab-indicator { opacity: 0 !important; }
 }
 .status-dot.online {
   background: var(--green);
-  animation: pulse-glow 2s infinite;
+  animation: pulse-glow-soft 2.4s ease-in-out infinite;
 }
 .status-dot.offline {
   background: var(--text3);
 }
 .status-dot.busy {
   background: var(--orange);
-  animation: pulse-glow 1.5s infinite;
+  animation: pulse-glow-soft 1.8s ease-in-out infinite;
 }
 
 /* ========== 51. 标签页切换动画（由 §2 的 animation 负责，transition 与 animation 抢占同属性且 display:none 下不生效，已移除） ========== */

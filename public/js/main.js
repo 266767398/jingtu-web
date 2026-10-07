@@ -516,6 +516,13 @@ function bindEvents() {
     window.addEventListener('scroll', window._backToTopHandler);
   }
 
+  // 返回顶部按钮点击（原内联 onclick 迁移到委托；随 bindEvents 一并重建，避免重复绑定）
+  if (window._backToTopClickHandler) document.removeEventListener('click', window._backToTopClickHandler);
+  window._backToTopClickHandler = function (e) {
+    if (e.target.closest('#scrollTopBtn')) scrollToTop();
+  };
+  document.addEventListener('click', window._backToTopClickHandler);
+
   // 标签切换时滚动到顶部（通过 addEventListener 绑定，不覆盖 onclick）
   const tabs = document.querySelectorAll('.tab');
   tabs.forEach(tab => {

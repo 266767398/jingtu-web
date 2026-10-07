@@ -726,6 +726,12 @@ async function createAdmin() {
   }
 }
 
+// 管理员管理页按钮（原内联 onclick 迁移到委托）
+document.addEventListener('click', function (e) {
+  if (e.target.closest('#adminAddBtn')) { showAddAdminModal(); return; }
+  if (e.target.closest('#adminRefreshBtn')) { loadAdminMgrList(1); return; }
+});
+
 function showEditAdmin(userId, displayName, role, email) {
   document.getElementById('editAdminId').value = userId;
   document.getElementById('editAdminDisplayName').value = displayName || '';

@@ -964,6 +964,20 @@ function switchVrcView(view) {
   }
 }
 
+// VRC 子视图切换（原内联 onclick/onkeydown 迁移到委托，保留键盘可达性）
+document.addEventListener('click', function (e) {
+  const btn = e.target.closest('#tab-vrc .map-tab-btn');
+  if (!btn) return;
+  switchVrcView(btn.dataset.view);
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const btn = e.target.closest('#tab-vrc .map-tab-btn');
+  if (!btn) return;
+  e.preventDefault();
+  switchVrcView(btn.dataset.view);
+});
+
 // 兼容旧调用点：地图页不再有成员/世界子视图，仅保留成员地图逻辑
 function switchMapView(view) {
   if (view === 'members' || !view) {
