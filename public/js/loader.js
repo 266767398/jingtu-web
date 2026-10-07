@@ -269,3 +269,34 @@ window.SITE_LIKE = {
     return Math.max(0, Math.min(100, Math.round(raw)));
   }
 };
+
+// ==================== 非首屏 CSS 异步加载（defer-CSS 修复）====================
+// 背景：index.html 中 6 个非首屏样式表以 media="print" 挂载，原本依赖 inline
+// onload="this.media='all'" 在加载完成后切回 all。但 CSP script-src 已移除
+// 'unsafe-inline'（S-1 nonce 化），inline 事件处理器无法打 nonce，会被浏览器
+// 安全策略静默阻止，导致这些样式表 media 永远停在 print、样式不生效。
+// 修复：迁移到本外部脚本（CSP 'self' 豁免）用 addEventListener 监听 load，
+// 加载完成后把 media 切回 all；对已加载完成（缓存命中）的样式表直接切换。
+(function () {
+  function patchDeferCss() {
+    var links = document.querySelectorAll('link[rel="stylesheet"][media="print"]');
+    for (var i = 0; i < links.length; i++) {
+      (function (link) {
+        var flip = function () {
+          try { link.media = 'all'; } catch (e) { /* 忽略 */ }
+        };
+        try {
+          if (link.sheet) { flip(); return; }
+        } catch (e) { /* sheet 访问异常（加载中/跨域）则走事件监听 */ }
+        link.addEventListener('load', flip);
+        // 兜底：加载失败也切回 all，避免样式永久缺失
+        link.addEventListener('error', flip);
+      })(links[i]);
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', patchDeferCss);
+  } else {
+    patchDeferCss();
+  }
+})();

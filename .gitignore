@@ -90,6 +90,7 @@ uploads/profile/videos/*
 /uploads/chat/*
 # Jest 覆盖率本地产物（CI 上传 lcov 已足够）
 server/coverage/
+coverage/
 # 性能优化前的文件备份快照
 /.perf-backup/
 # 浏览器审计输出产物
