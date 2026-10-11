@@ -415,16 +415,17 @@ describe('P2-83/84/85 frontend lock, guard & stamp hygiene', () => {
   });
 
   // P2-84：showEventDetail（events.js）与 openMapLocation（map.js）均为懒加载模块，
-  // 内联 onclick 直接引用会在模块未加载时抛 ReferenceError；须带 window 属性守卫。
-  test('cross-module inline onclick handlers guard lazily-loaded globals', () => {
+  // 历史的内联 onclick 直接引用会在模块未加载时抛 ReferenceError。现已统一重构为
+  // 事件委托 + `typeof window.X === 'function'` 守卫调用；不允许再出现未守卫的内联引用。
+  test('cross-module calls to lazily-loaded globals are typeof-guarded', () => {
     const adminUi = readRepo('public', 'js', 'admin-ui.js');
-    expect(adminUi).toContain('onclick="window.showEventDetail&&showEventDetail(');
+    expect(adminUi).toMatch(/typeof window\.showEventDetail === 'function'[\s\S]*window\.showEventDetail\(/);
     expect(adminUi).not.toMatch(/onclick="showEventDetail/);
     const profile = readRepo('public', 'js', 'profile.js');
-    expect(profile).toContain('onclick="window.showEventDetail&&showEventDetail(');
+    expect(profile).toMatch(/typeof window\.showEventDetail === 'function'[\s\S]*window\.showEventDetail\(/);
     expect(profile).not.toMatch(/onclick="showEventDetail/);
     const chat = readRepo('public', 'js', 'chat.js');
-    expect(chat).toContain('onclick="window.openMapLocation&&openMapLocation(');
+    expect(chat).toMatch(/typeof window\.openMapLocation === 'function'[\s\S]*window\.openMapLocation\(/);
     expect(chat).not.toMatch(/onclick="openMapLocation/);
   });
 

@@ -7,7 +7,9 @@ const mockPool = { query: jest.fn() };
 jest.mock('axios', () => ({ post: jest.fn() }));
 jest.mock('dns', () => ({ lookup: jest.fn() }));
 jest.mock('../utils', () => ({
-  getPool: () => mockPool
+  getPool: () => mockPool,
+  encryptCookie: (s) => (s ? 'enc:' + s : ''),
+  decryptCookie: (s) => (s && s.startsWith('enc:') ? s.slice(4) : s)
 }));
 
 const webhook = require('../webhook');

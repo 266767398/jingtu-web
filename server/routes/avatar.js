@@ -20,6 +20,7 @@ const { fail, handleError } = require('../utils');
 const { requireAdminCompat } = require('../auth');
 const mediaProviders = require('../media_providers');
 const { vrchatGetUser } = require('../vrc');
+const { getPool } = require('../db');
 
 const ALLOWED_HOSTS = [
   'api.vrchat.cloud',
@@ -81,6 +82,16 @@ function safeHost(u) {
   } catch (e) {
     return '';
   }
+}
+
+// V9.5（省流量）：VRCX convertFileUrlToImageUrl 同款——把 VRChat 原图 URL
+//   /file/file_{id}/{v}/file 或 /file/file_{id}/{v}（原图可数 MB）
+// 转成缩略图 URL /image/file_{id}/{v}/256（几十 KB，省 95%+ 流量）。
+// 已是缩略图（/image/.../{v}/{size}）的 URL 正则不匹配、保持原样，幂等。
+// /proxy 磁盘缓存直接缓存 256 小图，反复浏览不再下载大图。
+function toThumbnailUrl(u) {
+  if (!u || typeof u !== 'string') return u;
+  return u.replace(/file\/file_([a-f0-9-]+)\/(\d+)(?:\/file)?\/?$/, 'image/file_$1/$2/256');
 }
 
 function cacheKeyFor(u) {
@@ -199,11 +210,20 @@ function sendBuffer(res, buf, contentType) {
   res.send(buf);
 }
 
-// 失败兜底统一返回 502 占位 SVG（而非 200）：让前端 <img> 能感知代理失败并触发 onerror，
-// 前端据此走「备选客户端直连」（见 public/js/ui.js __avatarFail 反解直连）。
-// no-store 防止浏览器缓存失败结果；502 语义 = 上游（VRChat CDN/镜像源）不可达。
+// 失败兜底统一返回占位 SVG（V9.2 起统一返回 200，不再 502）：
+//   - sendPlaceholderOk(res)：200 = 会话/存储/CDN 均无可用的真实头像，浏览器 <img>
+//     直接渲染默认占位，不制造控制台 502 噪音；列表每 30s 刷新会重新请求，源恢复后自动出图。
+// no-store 防止浏览器缓存失败结果，避免源恢复后仍显示旧占位。
+// sendPlaceholder（502）保留定义作兼容，当前 avatar.js 内已无调用点。
 function sendPlaceholder(res) {
   res.status(502);
+  res.set('Content-Type', 'image/svg+xml');
+  res.set('Cache-Control', 'no-store');
+  return res.send(DEFAULT_AVATAR_SVG);
+}
+
+function sendPlaceholderOk(res) {
+  res.status(200);
   res.set('Content-Type', 'image/svg+xml');
   res.set('Cache-Control', 'no-store');
   return res.send(DEFAULT_AVATAR_SVG);
@@ -242,18 +262,30 @@ function userAvatarRateLimited(ip) {
   }
   return false;
 }
-async function resolveUserAvatarUrl(cookie, uid) {
+async function resolveUserAvatarUrl(cookie, uid, isSystemCookie) {
   const inflight = _userAvatarInflight.get(uid);
   if (inflight) return inflight;
   const p = (async () => {
     const userRes = await vrchatGetUser(uid, cookie);
+    if (userRes && (userRes.status === 401 || userRes.status === 403)) {
+      // V9.2: 任意会话被拒（系统或用户绑定 cookie）都触发全局熔断，
+      // 避免「用户 cookie 被顶号 → 每个 uid 每次都真实回源 9s → 502」的页面级洪流。
+      markGlobalVrcFail();
+      if (isSystemCookie) {
+        // 系统账号 cookie 已被 VRChat 拒绝：进入 10 分钟熔断窗口，
+        // 期间对其它成员不再重复发起注定 401 的回源（见 isSystemCookieStale）。
+        markSystemCookieStale(cookie);
+      }
+    }
     if (!userRes || userRes.status !== 200) return '';
     const d = userRes.data || {};
-    const url = d.profilePicOverrideThumbnail || d.currentAvatarThumbnailImageUrl || d.currentAvatarImageUrl || '';
+    // V9.3: /users/{id} 已不再返回 currentAvatar*（VRChat 升级个人资料体系后废弃），
+    // 新字段 iconUrl（个人资料图标，非好友/隐私受限成员也始终返回）作为头像兜底。
+    const url = d.profilePicOverrideThumbnail || d.currentAvatarThumbnailImageUrl || d.currentAvatarImageUrl || d.iconUrl || '';
     if (!url) return '';
     try {
       const h = new URL(url).hostname;
-      if (ALLOWED_HOSTS.includes(h)) return url;
+      if (ALLOWED_HOSTS.includes(h)) return toThumbnailUrl(url);
     } catch (e) { /* 非法 URL 走失败缓存 */ }
     return '';
   })();
@@ -262,8 +294,145 @@ async function resolveUserAvatarUrl(cookie, uid) {
   return p;
 }
 
-module.exports = function (authStateRef) {
+// 库内头像兜底链（V9.1 + F-24 扩展）：按优先级依次查
+//   1) group_roster.avatar_url —— schedule「信任等级+头像联合补充循环」每轮 20 人实时解析写入的最新头像；
+//   2) users.vrchat_avatar_url —— 站内用户绑定 VRChat 时落库的直链；
+//   3) group_member_vrc_cache.data.avatarUrl —— 群成员资料缓存的头像缩略图；
+//   4) avatar_history_current.avatar_url —— 头像历史最近一次成功记录。
+// 全部命中失败才返回空（调用方降级占位）。URL 一律过 ALLOWED_HOSTS 白名单，防 SSRF。
+async function resolveStoredAvatarFromDb(uid) {
+  try {
+    const pool = await getPool();
+    const [rosterRows] = await pool.query(
+      `SELECT avatar_url FROM group_roster WHERE vrchat_id = ? AND avatar_url IS NOT NULL AND avatar_url != '' LIMIT 1`,
+      [uid]
+    );
+    const r = rosterRows && rosterRows[0] && rosterRows[0].avatar_url;
+    if (r) {
+      const h = safeHost(r);
+      if (ALLOWED_HOSTS.includes(h)) return toThumbnailUrl(r);
+    }
+    const [userRows] = await pool.query(
+      `SELECT vrchat_avatar_url FROM users WHERE vrchat_id = ? AND vrchat_avatar_url IS NOT NULL AND vrchat_avatar_url != '' AND deleted_at IS NULL LIMIT 1`,
+      [uid]
+    );
+    const ur = userRows && userRows[0] && userRows[0].vrchat_avatar_url;
+    if (ur) {
+      const h = safeHost(ur);
+      if (ALLOWED_HOSTS.includes(h)) return toThumbnailUrl(ur);
+    }
+    const [cacheRows] = await pool.query(
+      `SELECT data FROM group_member_vrc_cache WHERE vrchat_id = ? LIMIT 1`,
+      [uid]
+    );
+    if (cacheRows && cacheRows[0]) {
+      let d = null;
+      try { d = typeof cacheRows[0].data === 'string' ? JSON.parse(cacheRows[0].data) : cacheRows[0].data; } catch (e) { d = null; }
+      const c = d && (d.avatarUrl || d.currentAvatarThumbnailImageUrl || d.iconUrl || '');
+      if (c) {
+        const h = safeHost(c);
+        if (ALLOWED_HOSTS.includes(h)) return toThumbnailUrl(c);
+      }
+    }
+    const [histRows] = await pool.query(
+      `SELECT avatar_url FROM avatar_history_current WHERE vrchat_id = ? AND avatar_url IS NOT NULL AND avatar_url != '' ORDER BY synced_at DESC LIMIT 1`,
+      [uid]
+    );
+    const u = histRows && histRows[0] && histRows[0].avatar_url;
+    if (u) {
+      const h = safeHost(u);
+      if (ALLOWED_HOSTS.includes(h)) return toThumbnailUrl(u);
+    }
+    return '';
+  } catch (e) {
+    return '';
+  }
+}
+
+// V9.4: 回源解析成功后将头像 URL 落库（group_roster.avatar_url，仅当为空时写），
+// 后续同一成员的头像请求直接命中存储兜底，不再重复回源 VRChat API。
+// 与 schedule 补充循环共用同一字段，双向互不覆盖（仅空值写入，保留较新值）。
+// fire-and-forget：落库失败不影响本次响应（图片已 302 到 /proxy）。
+async function persistAvatarUrlToDb(uid, url) {
+  try {
+    if (!url) return;
+    const h = safeHost(url);
+    if (!ALLOWED_HOSTS.includes(h)) return;
+    const pool = await getPool();
+    await pool.query(
+      `UPDATE group_roster SET avatar_url = ? WHERE vrchat_id = ? AND (avatar_url IS NULL OR avatar_url = '')`,
+      [toThumbnailUrl(url), uid]
+    );
+  } catch (e) { /* 忽略：落库失败下次回源会再写 */ }
+}
+
+// 系统账号 cookie 失效熔断（V9.1 头像加固）：系统账号被 VRChat 顶号/401 后，
+// 若不加熔断，/user 路由会在 5 分钟失败冷却 TTL 内对每个成员都发起一次真实回源
+// /users/{id}（全部 401），群组一屏 50+ 成员 → 每次刷新都是 50+ 次无效上游调用，
+// 既浪费 VRChat API 额度又拖慢头像加载。这里在首次 401 后熔断 10 分钟：
+// 期间系统 cookie 的回源解析直接跳过，只走库内存储兜底（已绑定/已缓存成员仍可出图，
+// 无存储数据的成员快速降级占位，不再制造无意义的 401 洪流）。
+// 用户自己绑定的 cookie 不受熔断影响（getVRCCookieFn 内部已做软过期判定）。
+let _systemCookieStaleUntil = 0;
+let _systemCookieStaleId = '';
+const SYSTEM_COOKIE_STALE_TTL_MS = 10 * 60 * 1000;
+
+// V9.2: 全局 401 熔断——覆盖「用户绑定 cookie 被顶号」场景。此前只熔断系统 cookie，
+// 用户 cookie 失效时每个 uid 每次都真实回源（约 9s/次）后 502，页面一刷新就是一整屏
+// 慢请求 + 502。改为：任意会话（系统或用户绑定）被 VRChat 401/403 拒绝后，全局熔断
+// GLOBAL_VRC_FAIL_TTL_MS(5min)，期间所有 uid 跳过注定失败的回源，直接走存储兜底/占位。
+// 误伤面：A 用户的失效 cookie 会短暂屏蔽 B 用户的有效会话 5 分钟——远轻于 401 洪流代价。
+let _globalVrcFailUntil = 0;
+const GLOBAL_VRC_FAIL_TTL_MS = 5 * 60 * 1000;
+
+function markGlobalVrcFail() {
+  _globalVrcFailUntil = Date.now() + GLOBAL_VRC_FAIL_TTL_MS;
+}
+
+function isGlobalVrcFail() {
+  return Date.now() < _globalVrcFailUntil;
+}
+
+function markSystemCookieStale(cookie) {
+  _systemCookieStaleUntil = Date.now() + SYSTEM_COOKIE_STALE_TTL_MS;
+  _systemCookieStaleId = cookie || '';
+}
+
+function isSystemCookieStale(cookie) {
+  if (!cookie || Date.now() > _systemCookieStaleUntil) return false;
+  return !_systemCookieStaleId || _systemCookieStaleId === cookie;
+}
+
+// V9.1: 系统 VRChat 会话实时失效判定——优先复用 server.js 健康检查同款信号
+//（vrc-pipeline 的 sessionRejected：服务端已拒绝 authToken，无需等本模块首个 401）。
+// 重启/熔断内存清空后仍能立刻短路回源，避免「每次重启后首轮 50+ 次注定 401 的请求」。
+function isSystemCookieUnusable() {
+  if (typeof global.__getVrcPipelineStatus !== 'function') return false;
+  try {
+    const ph = global.__getVrcPipelineStatus();
+    return !!(ph && ph.sessionRejected);
+  } catch (e) {
+    return false;
+  }
+}
+
+module.exports = function (authStateRef, getVRCCookieFn) {
   const router = express.Router();
+
+  // 按候选顺序取「可用于解析 /users/{id} 的 VRChat 会话」：
+  //   1) 请求者本人绑定的 VRChat cookie（getVRCCookie 内部已处理解密与软性过期）——用户会话绑定优先
+  //   2) 系统账号 cookie（authStateRef）
+  // 背景：群成员头像解析依赖 VRChat API 鉴权，此前只认系统账号；系统账号被 VRChat 顶号/失效时
+  // 全站头像全部降级为占位。改为优先用请求者自己的绑定 cookie 后，只要站点上任意在线用户
+  // 绑定了 VRChat，群成员头像仍可解析，系统账号失效不再是一票否决。
+  function resolveAvatarCookie(req) {
+    try {
+      const userCookie = (typeof getVRCCookieFn === 'function') ? getVRCCookieFn(req) : null;
+      if (userCookie) return userCookie;
+    } catch (e) { /* 取用户 cookie 失败则回退系统账号 */ }
+    if (authStateRef && authStateRef.loggedIn && authStateRef.cookie) return authStateRef.cookie;
+    return null;
+  }
 
   // 默认头像路由已移除（P2-15 路由冲突清理）：server.js 顶部的 app.get('/api/avatar/default')
   // 先注册生效，此处重复注册不可达；DEFAULT_AVATAR_SVG 仍被 /proxy 与 fallback 使用。
@@ -281,35 +450,59 @@ module.exports = function (authStateRef) {
     const hit = _userAvatarCache.get(uid);
     if (hit && (hit.ok ? (now - hit.ts < USER_AVATAR_OK_TTL_MS) : (now - hit.ts < USER_AVATAR_FAIL_TTL_MS))) {
       if (hit.ok) return res.redirect(302, '/api/avatar/proxy?u=' + encodeURIComponent(hit.url));
-      return sendPlaceholder(res);
-    }
-    if (!authStateRef || !authStateRef.loggedIn || !authStateRef.cookie) {
-      // 系统账号未登录时无法解析（/users/{id} 需鉴权），直接占位且不写失败缓存，
-      // 待系统账号登录后自然恢复，也避免把"未登录"误判为"该用户无头像"。
-      return sendPlaceholder(res);
+      return sendPlaceholderOk(res);
     }
 
-    // 2) 限速（仅对「回源解析」计费）：未命中缓存、真正要调 VRChat 用户 API 前才限速，
-    //    防止批量冷查打爆用户 API；已缓存头像的请求在第 1 步即返回，不消耗配额。
+    // 2) V9.4 存储兜底提前到回源之前（顺序从「回源失败才查库」改为「先查库再回源」）：
+    //    补充循环已把头像回填到 group_roster.avatar_url，命中即 0 次 VRChat API 调用——
+    //    462 人整群刷新本应对每个 uid 回源一次 API，回填完成后全部改走库内直出。
+    //    四级链：group_roster → users 绑定 → 群成员资料缓存 → 头像历史，全部仅查库。
+    const storedUrl = await resolveStoredAvatarFromDb(uid);
+    if (storedUrl) {
+      _userAvatarCache.set(uid, { url: storedUrl, ok: true, ts: now });
+      return res.redirect(302, '/api/avatar/proxy?u=' + encodeURIComponent(storedUrl));
+    }
+
+    const avatarCookie = resolveAvatarCookie(req);
+    if (!avatarCookie) {
+      // 无任何可用的 VRChat 会话（请求者未绑定 & 系统账号未登录/已失效）且库内无存储：
+      // 短期不可恢复，200 占位（不产生 502 控制台噪音）。
+      return sendPlaceholderOk(res);
+    }
+    // V9.1 系统账号熔断：该 cookie 是系统账号且近期已被 VRChat 401 拒绝——
+    // 直接跳过注定 401 的回源（群组一屏 50+ 成员不再每次刷新都制造 50+ 次无效上游调用）。
+    const isSystemCookie = !!(authStateRef && authStateRef.cookie && avatarCookie === authStateRef.cookie);
+    // V9.2: 全局 401 熔断（任意会话被拒）同样跳过回源；系统 cookie 单独熔断判断保持
+    if (isGlobalVrcFail() || (isSystemCookie && (isSystemCookieStale(avatarCookie) || isSystemCookieUnusable()))) {
+      // 存储兜底已在步骤 2 查过：熔断窗口内必然 401，重试无用，200 占位（不刷 502 控制台）
+      return sendPlaceholderOk(res);
+    }
+
+    // 3) 限速（仅对「回源解析」计费）：未命中缓存、真正要调 VRChat 用户 API 前才限速，
+    //    防止批量冷查打爆用户 API；已缓存头像的请求在前两步即返回，不消耗配额。
     // P3-119：仅当直连对端为回环（即经本机 nginx 反代）时才信任 x-forwarded-for。
     const socketAddr = (req.socket && req.socket.remoteAddress) || '';
     const isLoopbackPeer = socketAddr === '::1' || socketAddr === '127.0.0.1' || socketAddr === '::ffff:127.0.0.1';
     const clientIp = (isLoopbackPeer && req.headers['x-forwarded-for'])
       ? String(req.headers['x-forwarded-for']).split(',')[0].trim()
       : socketAddr;
-    if (userAvatarRateLimited(clientIp)) return sendPlaceholder(res);
+    if (userAvatarRateLimited(clientIp)) return sendPlaceholderOk(res);
 
     try {
-      const url = await resolveUserAvatarUrl(authStateRef.cookie, uid);
+      const url = await resolveUserAvatarUrl(avatarCookie, uid, isSystemCookie);
       if (url) {
         _userAvatarCache.set(uid, { url, ok: true, ts: now });
+        // V9.4: 回源成功落库，后续请求（含内存缓存过期后）直接走步骤 2 存储兜底，免重复回源
+        persistAvatarUrlToDb(uid, url);
         return res.redirect(302, '/api/avatar/proxy?u=' + encodeURIComponent(url));
       }
+      // 回源返回空（该成员 API 无头像字段 / 隐私受限）：写失败缓存 5 分钟避免反复回源
       _userAvatarCache.set(uid, { url: '', ok: false, ts: now });
-      return sendPlaceholder(res);
+      return sendPlaceholderOk(res);
     } catch (e) {
+      // 异常（网络/超时）：写失败缓存 5 分钟，避免整群打满重试；库内已无存储可兜
       _userAvatarCache.set(uid, { url: '', ok: false, ts: now });
-      return sendPlaceholder(res);
+      return sendPlaceholderOk(res);
     }
   });
 
@@ -347,8 +540,8 @@ module.exports = function (authStateRef) {
       }
     } catch (e) { /* 缓存读失败则回源 */ }
 
-    // 3) 限速（仅对「回源」计费）：超限返回 502 占位头像（而非 429 JSON 或 200 占位），
-    //    避免 <img> 裂图并刷满控制台，同时让前端能感知失败走客户端直连；
+    // 3) 限速（仅对「回源」计费）：超限返回 200 占位头像（而非 429 JSON 或 502），
+    //    既不会 <img> 裂图，也不刷满控制台（V9.2 起统一 200 占位语义）。
     //    上游节流由 CDN 全局令牌桶兜底。
     // P3-119：仅当直连对端为回环（即经本机 nginx 反代）时才信任 x-forwarded-for，
     // 否则回退 socket 地址——客户端直接连时不采信可自造的 XFF，避免轮换桶绕过每 IP 限速。
@@ -357,7 +550,7 @@ module.exports = function (authStateRef) {
     const clientIp = (isLoopbackPeer && req.headers['x-forwarded-for'])
       ? String(req.headers['x-forwarded-for']).split(',')[0].trim()
       : socketAddr;
-    if (avatarRateLimited(clientIp)) return sendPlaceholder(res);
+    if (avatarRateLimited(clientIp)) return sendPlaceholderOk(res);
 
     // 4) 回源：经 CDN 全局令牌桶限速 + 多源 failover（官方 CDN →/← 镜像池，熔断冷却跳过死源）
     try {
@@ -381,9 +574,9 @@ module.exports = function (authStateRef) {
           return sendBuffer(res, buf, ct);
         }
       } catch (e2) { /* ignore */ }
-      // 无缓存兜底：返回 502 占位头像（而非 200 占位），前端 <img> 感知失败后
-      // 走「备选客户端直连」重试（见 public/js/ui.js __avatarFail）
-      return sendPlaceholder(res);
+      // 无缓存兜底：返回 200 占位头像（V9.2 起不再返回 502；即使源图暂时不可达，
+      // 浏览器也以默认占位正常显示，不制造控制台 502 噪音，30s 列表刷新后自动重试）
+      return sendPlaceholderOk(res);
     }
   });
 

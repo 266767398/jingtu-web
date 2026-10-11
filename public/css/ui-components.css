@@ -436,7 +436,7 @@
     position: fixed;
     bottom: 20px;
     right: 20px;
-    z-index: 10000;
+    z-index: 2147483647;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -453,8 +453,8 @@
     padding: 12px 20px;
     border-radius: 10px;
     font-size: 13px;
-    color: white;
-    z-index: 10000;
+    color: var(--text);
+    z-index: 2147483647;
     animation: slideInRight .3s ease;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
@@ -2781,6 +2781,14 @@ button[aria-expanded="false"]::after {
     min-width: auto;
   }
 
+  /* 移动端底部栏：按钮数量多（9 个含“更多”），44px 最小宽度会使总宽超出
+     375px 视口、最后一个按钮右缘被裁。底部栏保持单行不换行，允许按钮按
+     flex 收缩到内容宽度（约 32px），配合 min-height:44px 仍满足触摸目标。 */
+  .mobile-tab-bar .mobile-tab-bar-item,
+  .mobile-more-btn {
+    min-width: 0;
+  }
+
   /* 防止 iOS 输入框自动放大页面 */
   input,
   select,
@@ -2937,8 +2945,8 @@ textarea,
   outline: none;
 }
 
-.modal-close,
-.modal [data-modal-close] {
+.modal-header .modal-close,
+.modal .modal-header [data-modal-close] {
   position: absolute;
   top: 12px;
   right: 12px;
@@ -2950,6 +2958,12 @@ textarea,
   padding: 4px 8px;
   border-radius: 6px;
   transition: color 0.2s, background-color 0.2s;
+}
+
+/* 豁免：底部 .form-actions 里的取消按钮（带 data-modal-close）保持文档流，不吸附到右上角 */
+.modal .form-actions [data-modal-close] {
+  position: static;
+  margin-left: auto;
 }
 
 .modal-close:hover,

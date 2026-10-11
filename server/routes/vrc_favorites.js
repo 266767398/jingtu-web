@@ -7,10 +7,11 @@
 const express = require('express');
 const { ok, fail, sendVrcError, handleError, ErrorCodes } = require('../utils');
 const { requireAuth } = require('../auth');
+const { getPool } = require('../db');
 const {
   vrchatGetFavorites, vrchatAddFavorite, vrchatRemoveFavorite,
   vrchatGetFavoriteGroups, vrchatUpdateFavoriteGroup, vrchatClearFavoriteGroup,
-  vrchatGetAvatar, vrchatGetUser,
+  vrchatGetAvatar, vrchatGetUser, vrchatGetWorld, vrcBacklog,
   VRC_FAV_TYPES
 } = require('../vrc');
 // 条目名字/缩略图富化：世界走缓存服务（含回源与自愈），头像/用户直接回源
@@ -47,6 +48,67 @@ function favMetaSet(id, meta) {
   favMetaCache.set(id, { at: Date.now(), meta });
 }
 
+// P5-54: 负缓存冷却。回源失败（限流/断网/目标不存在）的条目短暂记录失败时刻，
+// 冷却期内同目标不再回源，让前端「等冷却后重拉」的节奏落到后端，避免漏载条目
+// 在每一轮补拉里都对着 VRChat 重复打同一个 miss，反而加剧限流。
+const FAV_FAIL_COOLDOWN_MS = 60 * 1000;
+const favFailCache = new Map();
+function favFailActive(targetId) {
+  const at = favFailCache.get(targetId);
+  if (!at) return false;
+  if (Date.now() - at > FAV_FAIL_COOLDOWN_MS) { favFailCache.delete(targetId); return false; }
+  return true;
+}
+function favFailMark(targetId) {
+  if (favFailCache.size >= FAV_META_MAX) favFailCache.delete(favFailCache.keys().next().value);
+  favFailCache.set(targetId, Date.now());
+}
+
+// V9.10: 数据库持久化缓存。target_id 全局唯一（wrld_/avtr_/usr_），跨用户、跨进程重启共享。
+// 内存优先（favMetaCache），miss 时读库；回源成功写库 + 写内存。TTL 7 天（与 VRChat 收藏变动节奏匹配）。
+const FAV_DB_TTL_DAYS = 7;
+async function dbGetFavMeta(type, targetId) {
+  try {
+    const pool = getPool();
+    const [rows] = await pool.query(
+      `SELECT name, thumbnail, author, author_id FROM vrc_fav_cache
+       WHERE target_id=? AND type=? AND fetched_at > DATE_SUB(NOW(), INTERVAL ? DAY) LIMIT 1`,
+      [targetId, type, FAV_DB_TTL_DAYS]
+    );
+    const r = rows && rows[0];
+    if (!r || !(r.name)) return null;
+    return { name: r.name, thumbnailImageUrl: r.thumbnail || '', authorName: r.author || '' };
+  } catch (e) { return null; }
+}
+function dbSetFavMeta(type, targetId, meta) {
+  if (!targetId || !meta || !meta.name) return;
+  try {
+    const pool = getPool();
+    pool.query(
+      `INSERT INTO vrc_fav_cache (target_id, type, name, thumbnail, author, author_id, fetched_at)
+       VALUES (?, ?, ?, ?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE type=VALUES(type), name=VALUES(name), thumbnail=VALUES(thumbnail),
+         author=VALUES(author), author_id=VALUES(author_id), fetched_at=NOW()`,
+      [targetId, type, meta.name, meta.thumbnailImageUrl || '', meta.authorName || '', meta.authorId || '']
+    ).catch(() => {});
+  } catch (e) { /* 缓存写入失败不影响主流程 */ }
+}
+
+// P5-54: 缓存表清理。vrc_fav_cache 行无生命周期管理会随收藏增长无限膨胀，
+// 每次收藏页加载顺带清理一次（进程级 1h 节流），删除超过 TTL 的过期行。
+let favLastPruneAt = 0;
+function pruneFavCacheIfDue() {
+  const now = Date.now();
+  if (now - favLastPruneAt < 60 * 60 * 1000) return;
+  favLastPruneAt = now;
+  try {
+    getPool().query(
+      `DELETE FROM vrc_fav_cache WHERE fetched_at < DATE_SUB(NOW(), INTERVAL ? DAY)`,
+      [FAV_DB_TTL_DAYS + 1]
+    ).catch(() => {});
+  } catch (e) { /* 清理失败不影响主流程 */ }
+}
+
 // P1-34: single-flight 防惊群——TTL 缓存只挡先后请求，挡不住同时 miss 的并发请求；
 // 同一目标的并发富化共享一次回源（世界一层另有 world_cache 去重，此处覆盖 avatar/friend）。
 const favMetaInflight = new Map();
@@ -54,7 +116,18 @@ function fetchFavoriteMeta(type, targetId, cookie) {
   const key = `${type}:${targetId}`;
   const existing = favMetaInflight.get(key);
   if (existing) return existing;
-  const p = _fetchFavoriteMeta(type, targetId, cookie).finally(() => favMetaInflight.delete(key));
+  const p = (async () => {
+    const mem = favMetaGet(targetId);
+    if (mem) return mem;
+    // 数据库持久化缓存命中 → 免回源（V9.10）
+    const dbMeta = await dbGetFavMeta(type, targetId);
+    if (dbMeta) { favMetaSet(targetId, dbMeta); return dbMeta; }
+    // 负缓存冷却期内免回源：让前端等冷却后重拉，冷却到期自然重试
+    if (favFailActive(targetId)) return null;
+    const meta = await _fetchFavoriteMeta(type, targetId, cookie);
+    if (!meta) favFailMark(targetId);
+    return meta;
+  })().finally(() => favMetaInflight.delete(key));
   favMetaInflight.set(key, p);
   return p;
 }
@@ -67,9 +140,11 @@ async function _fetchFavoriteMeta(type, targetId, cookie) {
         const meta = {
           name: w.name,
           thumbnailImageUrl: w.thumbnailImageUrl || w.imageUrl || (w.thumbnail && w.thumbnail.url) || '',
-          authorName: w.authorName || ''
+          authorName: w.authorName || '',
+          authorId: w.authorId || ''
         };
         favMetaSet(targetId, meta);
+        dbSetFavMeta(type, targetId, meta);
         return meta;
       }
       return null;
@@ -81,9 +156,11 @@ async function _fetchFavoriteMeta(type, targetId, cookie) {
         const meta = {
           name: a.name,
           thumbnailImageUrl: a.thumbnailImageUrl || (a.images && a.images.thumbnail && a.images.thumbnail.url) || '',
-          authorName: a.authorName || ''
+          authorName: a.authorName || '',
+          authorId: a.authorId || ''
         };
         favMetaSet(targetId, meta);
+        dbSetFavMeta(type, targetId, meta);
         return meta;
       }
       return null;
@@ -94,10 +171,11 @@ async function _fetchFavoriteMeta(type, targetId, cookie) {
       if (u && u.id && (u.displayName || u.name)) {
         const meta = {
           name: u.displayName || u.name || '',
-          thumbnailImageUrl: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl || '',
+          thumbnailImageUrl: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl || u.iconUrl || '',
           authorName: ''
         };
         favMetaSet(targetId, meta);
+        dbSetFavMeta(type, targetId, { ...meta, authorId: u.id || '' });
         return meta;
       }
       return null;
@@ -107,19 +185,32 @@ async function _fetchFavoriteMeta(type, targetId, cookie) {
 }
 
 async function enrichFavoriteItems(items, cookie) {
-  const CONCURRENCY = 5;
-  let budget = 25; // 单页冷回源上限，防止收藏极多时列表拖垮响应
+  // V9.9（修正 V9.8）：实测 VRChat GET /favorites 对每条收藏只返回 favoriteId/type，几乎不带 name/thumbnailUrl，
+  // 因此每条仍需回源才能显示名字与封面。V9.8 把预算压到 4 且只回“缺名”，导致大量条目缺封面/缺名。
+  // 现在「名字或封面任一缺失」即回源补齐，预算放宽到 18（覆盖当前页主力），并发保持小并发走全局 40/min 令牌桶；
+  // 剩余条目由前端自动重拉兜底（缓存随回源填充，重拉时命中即补齐）。作者随回源顺带补。
+  // P5-56：令牌桶排队深度感知——排队（vrcBacklog()>0）说明上游正饱和，动态砍预算与并发，
+  // 让列表接口尽快返回而不是继续把请求塞进队列拖到 12s 排队超时（剩余条目由前端补全循环在缓存命中后补齐）。
+  let CONCURRENCY = 4;
+  let budget = 18;
+  if (vrcBacklog() > 0) { CONCURRENCY = 2; budget = 8; }
   const pending = [];
   for (const it of items) {
     const targetId = it && it.favoriteId;
     if (!targetId) continue;
+    it.authorName = typeof it.authorName === 'string' ? it.authorName : '';
     const cached = favMetaGet(targetId);
     if (cached) {
       it.name = cached.name;
       it.thumbnailImageUrl = cached.thumbnailImageUrl;
-      it.authorName = cached.authorName;
+      if (cached.authorName) it.authorName = cached.authorName;
       continue;
     }
+    const ownName = (typeof it.name === 'string' && it.name) ? it.name : '';
+    const ownThumb = (typeof it.thumbnailUrl === 'string' && /^https?:\/\//i.test(it.thumbnailUrl)) ? it.thumbnailUrl : '';
+    if (ownName) it.name = ownName;
+    if (ownThumb) it.thumbnailImageUrl = ownThumb;
+    if (ownName && ownThumb) continue;
     if (budget > 0) { budget--; pending.push(it); }
   }
   let cursor = 0;
@@ -130,12 +221,65 @@ async function enrichFavoriteItems(items, cookie) {
       if (meta) {
         it.name = meta.name;
         it.thumbnailImageUrl = meta.thumbnailImageUrl;
-        it.authorName = meta.authorName;
+        it.authorName = meta.authorName || it.authorName || '';
       }
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pending.length) }, () => worker()));
   return items;
+}
+
+// P5-56: 官方收藏目标详情（模型/世界/好友）——列表富化只取名字/缩略图，详情要完整字段，
+// 供前端复用本地收藏详情样式展示。命中即写回 favMetaCache + DB（顺带喂列表富化缓存）。
+async function fetchTargetDetail(type, targetId, cookie) {
+  try {
+    if (type === 'world' && /^wrld_/.test(targetId)) {
+      const w = await getCachedWorld(targetId, cookie);
+      if (!w) return null;
+      const meta = {
+        id: w.id, name: w.name, description: w.description || '',
+        thumbnailImageUrl: w.thumbnailImageUrl || w.imageUrl || (w.thumbnail && w.thumbnail.url) || '',
+        imageUrl: w.imageUrl || '', authorName: w.authorName || '', authorId: w.authorId || '',
+        worldType: w.worldType || '', capacity: w.capacity || 0,
+        platform: w.platform || '', tags: Array.isArray(w.tags) ? w.tags : [],
+        releaseStatus: w.releaseStatus || '', assetUrl: w.assetUrl || '',
+        unityPackageUrl: w.unityPackageUrl || '', type: 'world'
+      };
+      favMetaSet(targetId, meta);
+      dbSetFavMeta(type, targetId, meta);
+      return meta;
+    }
+    const resp = (type === 'avatar') ? await vrchatGetAvatar(targetId, cookie)
+      : ((type === 'friend') ? await vrchatGetUser(targetId, cookie) : null);
+    const o = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+    if (!o) return null;
+    if (type === 'avatar') {
+      const meta = {
+        id: o.id, name: o.name, description: o.description || '',
+        thumbnailImageUrl: o.thumbnailImageUrl || (o.images && o.images.thumbnail && o.images.thumbnail.url) || '',
+        imageUrl: o.imageUrl || (o.images && o.images.image && o.images.image.url) || '',
+        authorName: o.authorName || '', authorId: o.authorId || '',
+        platform: o.platform || '', releaseStatus: o.releaseStatus || '',
+        unityVersion: o.unityVersion || '', featured: !!o.featured,
+        tags: Array.isArray(o.tags) ? o.tags : [], type: 'avatar'
+      };
+      favMetaSet(targetId, meta);
+      dbSetFavMeta(type, targetId, meta);
+      return meta;
+    }
+    const meta = {
+      id: o.id, name: o.displayName || o.name || '', description: o.bio || o.statusDescription || '',
+      thumbnailImageUrl: o.profilePicOverrideThumbnail || o.currentAvatarThumbnailImageUrl || o.iconUrl || '',
+      imageUrl: o.currentAvatarImageUrl || '', authorName: '', authorId: o.id || '',
+      status: o.status || '', tags: Array.isArray(o.tags) ? o.tags : [], type: 'friend'
+    };
+    favMetaSet(targetId, meta);
+    dbSetFavMeta(type, targetId, { ...meta, authorId: o.id || '' });
+    return meta;
+  } catch (e) {
+    if (e && e.code === 'VRC_RATE_TIMEOUT') throw e;
+    return null;
+  }
 }
 
 module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
@@ -204,7 +348,17 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       const n = clampInt(req.query.n, 50, 1, MAX_PAGE);
       const offset = clampInt(req.query.offset, 0, 0, 10000);
       const tag = (req.query.tag || '').trim() || null;
-      const upstream = await vrchatGetFavorites(req.vrcCookieRead, n, offset, tag);
+      let upstream;
+      try {
+        upstream = await vrchatGetFavorites(req.vrcCookieRead, n, offset, tag);
+      } catch (e) {
+        // P5-56: 令牌桶排队超时（VRC_RATE_TIMEOUT）不按 500 暴露——前端识别 code 后
+        // 显示「VRChat 限流排队中」友好提示并等冷却窗口自动重试，而不是「请求超时，请稍后再试」。
+        if (e && e.code === 'VRC_RATE_TIMEOUT') {
+          return fail(res, 429, 'VRChat 限流排队超时，正在自动重试', { code: 'VRC_RATE_TIMEOUT', retryAfter: 15 });
+        }
+        throw e;
+      }
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '获取收藏列表');
       let items = Array.isArray(upstream.data) ? upstream.data : [];
       // VRChat 官方未提供按 type 的服务端过滤（tag 过滤已等价于按分组过滤），
@@ -212,6 +366,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       if (type && !tag) items = items.filter(it => it?.type === type);
       // 前端渲染卡片标题与图片需要名字/缩略图，尽力回源富化（带缓存与并发上限）
       items = await enrichFavoriteItems(items, req.vrcCookieRead);
+      pruneFavCacheIfDue();
       ok(res, { items });
     } catch (e) { handleError(res, e, 'vrcfav.items'); }
   });
@@ -247,6 +402,26 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '移除收藏');
       ok(res);
     } catch (e) { handleError(res, e, 'vrcfav.item.remove'); }
+  });
+
+  // P5-56: 官方收藏目标详情（world/avatar/friend）——返回完整字段，前端复用本地收藏详情样式渲染
+  router.get('/detail/:type/:id', requireAuth, async (req, res) => {
+    if (!req.vrcCookieRead) return fail(res, 400, '暂无可用的 VRChat 登录态，请先绑定或配置 VRChat 账号', { code: ErrorCodes.NEED_BIND });
+    const { type, id } = req.params;
+    if (!isValidType(type)) return fail(res, 400, '不支持的收藏类型', { code: ErrorCodes.INVALID_TARGET_TYPE });
+    if (!/^(wrld_|avtr_|usr_)/.test(id || '')) {
+      return fail(res, 400, '收藏目标 ID 格式不正确', { code: ErrorCodes.VALIDATION_ERROR });
+    }
+    try {
+      const item = await fetchTargetDetail(type, id, req.vrcCookieRead);
+      if (!item) return fail(res, 404, '未能获取该收藏目标的详细信息', { code: ErrorCodes.NOT_FOUND });
+      ok(res, { item });
+    } catch (e) {
+      if (e && e.code === 'VRC_RATE_TIMEOUT') {
+        return fail(res, 429, 'VRChat 限流排队超时，请稍后重试', { code: 'VRC_RATE_TIMEOUT', retryAfter: 15 });
+      }
+      handleError(res, e, 'vrcfav.detail');
+    }
   });
 
   return router;

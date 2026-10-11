@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 境途同游 V6.18 — 分享路由
  * 涵盖：动态分享、活动分享、相册分享
  * 
@@ -10,14 +10,38 @@
 const express = require('express');
 const crypto = require('crypto');
 const { ok, getPool, handleError , sendError, ErrorCodes } = require('../utils');
-const { requireAuth } = require('../auth');
+const { requireAuth, hasRole } = require('../auth');
 
 module.exports = function () {
   const router = express.Router();
 
+  // M13 修复：分享码由 6 字节（48bit）提升到 9 字节（72bit），扩大暴力枚举空间
   function generateShareCode() {
     // 使用加密随机数生成 share_code，避免 Math.random 可预测性
-    return crypto.randomBytes(6).toString('base64url');
+    return crypto.randomBytes(9).toString('base64url');
+  }
+
+  // M13 修复：GET /:code 匿名分享访问按 IP 限流（每 IP 每分钟 30 次，超出 429）。
+  // 模块级 Map 记录，定时清理过期条目防止内存泄漏。
+  const shareRateMap = new Map(); // ip → { count, windowStart }
+  const SHARE_RATE_LIMIT = 30;
+  const SHARE_RATE_WINDOW_MS = 60 * 1000;
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, rec] of shareRateMap) {
+      if (now - rec.windowStart > SHARE_RATE_WINDOW_MS) shareRateMap.delete(ip);
+    }
+  }, SHARE_RATE_WINDOW_MS).unref();
+  function shareRateCheck(req) {
+    const ip = String(req.ip || (req.socket && req.socket.remoteAddress) || 'unknown');
+    const now = Date.now();
+    const rec = shareRateMap.get(ip);
+    if (!rec || now - rec.windowStart > SHARE_RATE_WINDOW_MS) {
+      shareRateMap.set(ip, { count: 1, windowStart: now });
+      return { ok: true };
+    }
+    rec.count += 1;
+    return rec.count > SHARE_RATE_LIMIT ? { ok: false } : { ok: true };
   }
 
   async function isShareable(type, targetId) {
@@ -89,6 +113,9 @@ module.exports = function () {
 
   router.get('/:code', async (req, res) => {
     try {
+      // M13: 匿名分享访问 IP 限流，超出每 IP 每分钟 30 次返回 429
+      const rate = shareRateCheck(req);
+      if (!rate.ok) return sendError(res, 429, ErrorCodes.RATE_LIMITED, '请求过于频繁，请稍后再试');
       const [links] = await getPool().query('SELECT * FROM share_links WHERE share_code = ? AND expires_at > NOW()', [req.params.code]);
       if (links.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '分享链接不存在或已过期');
 
@@ -284,8 +311,9 @@ module.exports = function () {
   router.delete('/:code', requireAuth, async (req, res) => {
     try {
       const uid = req.session?.userId;
-      const role = req.session?.role;
-      const isAdmin = role === 'admin' || role === 'super_admin';
+      // B2: 管理员判定实时回查 DB（hasRole/currentRole 口径，与全站 requireAdminCompat 一致），
+      // 被降权管理员在会话有效期内不得继续删除他人分享
+      const isAdmin = await hasRole(req, 'admin', 'super_admin');
       const [links] = await getPool().query('SELECT id, creator_id FROM share_links WHERE share_code = ?', [req.params.code]);
       if (links.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '分享链接不存在');
       // creator_id 为 null（匿名分享）时也不允许删除，除非管理员

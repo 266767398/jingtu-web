@@ -508,6 +508,23 @@ async function initDatabase() {
         INDEX idx_last_check(last_check)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
+      // V9.10: VRChat 收藏富化结果持久化缓存。
+      // VRChat GET /favorites 只返回 favoriteId，每条都要回源才能拿到名字/封面/作者；
+      // 这些回源结果此前仅存进程内存（重启即失）。target_id 全局唯一（wrld_/avtr_/usr_），
+      // 落到数据库后跨用户/跨重启共享，打开收藏页直接读表秒出，极大减少对 VRChat 的回源请求与限流。
+      `CREATE TABLE IF NOT EXISTS vrc_fav_cache (
+        target_id VARCHAR(80) NOT NULL COMMENT 'VRChat 目标 ID（wrld_/avtr_/usr_，全局唯一）',
+        type VARCHAR(20) NOT NULL DEFAULT '' COMMENT 'world|avatar|friend',
+        name VARCHAR(255) DEFAULT '',
+        thumbnail VARCHAR(600) DEFAULT '',
+        author VARCHAR(255) DEFAULT '',
+        author_id VARCHAR(64) DEFAULT '',
+        fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (target_id),
+        INDEX idx_vrc_type(type),
+        INDEX idx_vrc_fetched_at(fetched_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
       // 用户标签表 — routes/users.js 的 /tags 系列接口依赖此表（同样从未创建过）。
       // ON DUPLICATE KEY UPDATE color 依赖 (user_id, tag_name) 唯一键。
       `CREATE TABLE IF NOT EXISTS user_tags (
@@ -692,17 +709,24 @@ async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
       // VRChat World 缓存表 (V5.6)
+      // P5-54: 全字段与 world_cache.js 写入列对齐（V9.4 曾靠 ALTER 补 author_id/world_type/
+      // unity_package_url/asset_url/platform，新装环境直接建全，省一次迁移）
       `CREATE TABLE IF NOT EXISTS vrc_worlds_cache (
         world_id VARCHAR(100) PRIMARY KEY,
         world_name VARCHAR(255) NOT NULL,
         description TEXT,
         image_url VARCHAR(500),
         author_name VARCHAR(100),
+        author_id VARCHAR(100) DEFAULT '',
+        world_type VARCHAR(50) DEFAULT '',
+        unity_package_url VARCHAR(500) DEFAULT '',
+        asset_url VARCHAR(500) DEFAULT '',
+        platform VARCHAR(50) DEFAULT '',
         capacity INT DEFAULT 0,
         tags JSON,
         release_status VARCHAR(50),
         cached_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='VRChat 世界详情缓存（24h TTL，收藏富化/成员在线世界同源）'`,
 
       // 通知表 (V6.0 → V6.14)
       `CREATE TABLE IF NOT EXISTS notifications (
@@ -721,6 +745,16 @@ async function initDatabase() {
         INDEX idx_user_read (user_id, is_read),
         INDEX idx_time (created_at),
         INDEX idx_target (target_type, target_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // VRChat 通知已同步去重表 (V9.6)：
+      // 会员把本人 VRChat 通知并入站内通知时，用 VRChat 通知 id 在此登记去重，
+      // 避免重复落库（notifications.target_id 是 INT，无法承载 vrc 通知 id 字符串）。
+      `CREATE TABLE IF NOT EXISTS vrc_notif_sync (
+        user_id INT NOT NULL,
+        vrc_notif_id VARCHAR(100) NOT NULL,
+        synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, vrc_notif_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
       // 聊天消息表 (V6.12)

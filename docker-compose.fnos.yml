@@ -27,7 +27,16 @@
 #   <DB_ROOT_PASSWORD>   MySQL root 密码 → 强随机
 #   <DB_PASSWORD>        应用数据库密码 → 强随机
 #   <SESSION_SECRET>      会话签名密钥 → 48 字节随机十六进制
-#   <ENCRYPT_KEY>         数据加密密钥 → 64 位十六进制
+#   <ENCRYPT_KEY>         数据加密密钥 → 必须 64 位十六进制（64 hex，32 字节）；长度/格式不符时
+#                          生产环境启动直接 fail-fast 拒绝运行（server 启动校验），缺失同样拒启。
+#
+# 生成随机密钥（本机任选一种执行，结果粘贴替换上方占位符）：
+#   openssl rand -hex 48      # → SESSION_SECRET（96 个十六进制字符）
+#   openssl rand -hex 32      # → ENCRYPT_KEY（64 个十六进制字符，符合 64hex 要求）
+# 或 Node 方式：
+#   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"   # SESSION_SECRET
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"   # ENCRYPT_KEY
+# MySQL 密码可用：openssl rand -base64 24（不含换行的可打印串）
 # =============================================================================
 
 services:
@@ -67,7 +76,10 @@ services:
       # 存储空间3（飞牛挂载点 /vol3，实际目录 /vol3/1001/jingtu）——数据库数据目录
       - /vol3/1001/jingtu/db_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p<DB_ROOT_PASSWORD>"]
+      # O7：原来把 <DB_ROOT_PASSWORD> 明文写进 -p<口令>（compose 文件与 ps 进程列表都可见）。
+      # 改走容器内环境变量：CMD-SHELL 里取 MYSQL_ROOT_PASSWORD（db 服务 environment 已注入），
+      # 用 MYSQL_PWD 传密 —— $$ 转义 $ 交由 compose 解析器，运行时容器 shell 再展开，口令不再落盘明文。
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_ROOT_PASSWORD}\" mysqladmin ping -h127.0.0.1 --silent"]
       # 飞牛 NAS 上 MySQL 首次初始化可能超过 2 分钟，放宽等待预算：
       # start_period 90s + 36 × 10s ≈ 最长 7.5 分钟，避免初始化稍慢被误判 unhealthy
       interval: 10s
@@ -83,10 +95,17 @@ services:
 
   app:
     # 自动从 Gitee 拉取源码构建（Gitee 需设为公开仓库；GitHub 备份同源码）。
-    # #jingtu-web 钉死分支：保证飞牛每次重建拉到的都是最新提交（而非默认分支旧代码）。
-    # 备份：https://github.com/266767398/jingtu-web.git
+    # ⚠️ O3 修复说明（必读）：
+    #   compose build 规范【没有】独立的 ref: 字段，git 分支/标签只能写在与 URL
+    #   相连的 #fragment 上（官方语法 https://…/repo.git#branch，分支名后还可加
+    #   :子目录）。# 若写成【不带引号】的 YAML 纯量，部分编辑器/解析器会把 # 误判为
+    #   行注释起点而把分支吞掉 → 构建拉到默认分支的旧代码（本文件历史上因此钉死失效）。
+    #   这里【必须加双引号】——引号串内 # 恒为字面量，任何解析器都不会再截断。
+    #   若你的平台仍异常：改用 tag 钉住（如 #v1.0.0），或本地 git clone 后把
+    #   context 改为目录路径（如 ./），或改 image: 从私有镜像仓库拉取。
+    #   同源备份：https://github.com/266767398/jingtu-web.git
     build:
-      context: https://gitee.com/htmcwy_0/jingtu-web.git#jingtu-web
+      context: "https://gitee.com/htmcwy_0/jingtu-web.git#jingtu-web"
       args:
         # 国内镜像源（DaoCloud）：绕开飞牛失效的内置加速器 docker.fnnas.com（401 Unauthorized）
         NODE_IMAGE: docker.m.daocloud.io/library/node:22-slim
@@ -114,8 +133,9 @@ services:
       # 必填密钥（缺失则生产模式拒绝启动）
       SESSION_SECRET: "<SESSION_SECRET>"
       ENCRYPT_KEY: "<ENCRYPT_KEY>"
-      # 站点对外地址（邮件内链接、sitemap 使用），有域名就填
-      APP_URL: ""
+      # 站点对外地址（邮件内链接、sitemap 使用）——【必须替换为你的公网地址】，
+      # 否则邮件内链接回退 localhost，用户点不进来。示例仅供占位：
+      APP_URL: "https://jingtu.example.com"
       # VRChat 群组接入（管理后台可再改）
       GROUP_ID: grp_7a45b436-159c-4d9c-8303-e186ec25fc35
       VRC_API_KEY: ""

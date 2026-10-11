@@ -76,7 +76,7 @@ function renderPermissionInspect(w, g) {
   }
   return `
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
-      <img src="${escAttr(w.avatarUrl || '/api/avatar/default')}" class="admin-user-avatar" alt="">
+      <img src="${escAttr(w.avatarUrl || '/api/avatar/default')}" class="admin-user-avatar" alt="" data-avatar-fail-src="${escAttr(w.avatarUrl || '/api/avatar/default')}">
       <div><div class="admin-user-name">${esc(w.displayName || w.loginId)}</div>
       <div class="text-12 text-muted">${esc(w.loginId)} · ${__('admin_perms.role')}${esc(w.roleLabel)}（L${w.roleLevel}）</div></div>
     </div>
@@ -173,7 +173,7 @@ function renderPermGroups(groups) {
     const badges = [];
     if (g.isSystem) badges.push('<span class="badge badge-system">' + __('admin_perms.system_group') + '</span>');
     if (g.isDefault) badges.push('<span class="badge badge-default">' + __('admin_perms.default_group') + '</span>');
-    const delBtn = g.isSystem ? '' : `<button class="btn btn-sm btn-danger" onclick="deletePermGroup(${g.id})">${__('admin_perms.delete_group')}</button>`;
+    const delBtn = g.isSystem ? '' : `<button class="btn btn-sm btn-danger" data-action="perm-group-delete" data-group-id="${g.id}">${__('admin_perms.delete_group')}</button>`;
     return `<div class="perm-group-card">
       <div class="perm-group-header">
         <strong>${esc(g.name)}</strong>
@@ -183,8 +183,8 @@ function renderPermGroups(groups) {
       <div class="text-12 text-muted2">${esc(g.description || __('admin_perms.no_desc'))}</div>
       <div class="text-12 text-muted mt-4">${__('admin_perms.permissions_label')}：${__('admin_perms.perm_enabled_count', {enabled: enabledCount, total: permCount})}</div>
       <div class="perm-group-actions mt-6">
-        <button class="btn btn-sm btn-accent" onclick="showEditPermGroupPerms(${g.id}, '${escJsStr(g.name)}')">${__('admin_perms.set_perms')}</button>
-        <button class="btn btn-sm btn-outline" onclick="showEditPermGroup(${g.id})">${__('admin_perms.edit_group')}</button>
+        <button class="btn btn-sm btn-accent" data-action="perm-group-edit-perms" data-group-id="${g.id}" data-group-name="${escAttr(g.name)}">${__('admin_perms.set_perms')}</button>
+        <button class="btn btn-sm btn-outline" data-action="perm-group-edit" data-group-id="${g.id}">${__('admin_perms.edit_group')}</button>
         ${delBtn}
       </div>
     </div>`;
@@ -302,7 +302,7 @@ async function showEditPermGroupPerms(groupId, groupName) {
       const allKeys = data.allKeys || Object.keys(PERM_LABELS);
       container.innerHTML = '<div class="perm-grid">' + allKeys.map(key => `
         <label class="perm-toggle-item ${perms[key] ? 'enabled' : ''}">
-          <input type="checkbox" ${perms[key] ? 'checked' : ''} onchange="toggleGroupPerm(${groupId}, '${escJsStr(key)}', this.checked)">
+          <input type="checkbox" ${perms[key] ? 'checked' : ''} data-action="perm-toggle-group-perm" data-group-id="${groupId}" data-perm-key="${escAttr(key)}">
           <span>${esc(PERM_LABELS[key] || key)}</span>
         </label>
       `).join('') + '</div>';
@@ -343,8 +343,8 @@ function filterPermGroupUsers() {
   if (!container) return;
   const filtered = pgUsersCache.filter(u => (u.displayName || u.loginId || '').toLowerCase().includes(searchText));
   container.innerHTML = filtered.map(u => `
-    <div class="admin-user-card" onclick="showUserGroupMgmt(${u.id}, '${escJsStr(u.displayName || u.loginId)}')">
-      <img src="${escAttr(u.avatarUrl || '/api/avatar/default')}" class="admin-user-avatar" loading="lazy">
+    <div class="admin-user-card" data-action="perm-user-group-mgmt" data-user-id="${u.id}" data-user-name="${escAttr(u.displayName || u.loginId)}">
+      <img src="${escAttr(u.avatarUrl || '/api/avatar/default')}" class="admin-user-avatar" loading="lazy" data-avatar-fail-src="${escAttr(u.avatarUrl || '/api/avatar/default')}">
       <div class="admin-user-info">
         <div class="admin-user-name">${esc(u.displayName || u.loginId)}</div>
         <div class="admin-user-loginId">${esc(u.loginId)}</div>
@@ -370,13 +370,13 @@ async function showUserGroupMgmt(userId, userName) {
         currentGroups.innerHTML = (data.groups || []).map(g =>
           `<div class="group-tag">
             <span>${esc(g.name)}</span>
-            <button class="group-tag-remove" onclick="removeUserFromGroup(${userId}, ${g.id})">✕</button>
+            <button class="group-tag-remove" data-action="perm-remove-group" data-user-id="${userId}" data-group-id="${g.id}">✕</button>
           </div>`
         ).join('') || '<span class="text-muted text-12">' + __('admin_perms.not_in_any_group') + '</span>';
       }
       if (availableGroups) {
         availableGroups.innerHTML = (data.available || []).map(g =>
-          `<button class="btn btn-sm btn-outline" onclick="addUserToGroup(${userId}, ${g.id})">+ ${esc(g.name)}</button>`
+          `<button class="btn btn-sm btn-outline" data-action="perm-add-group" data-user-id="${userId}" data-group-id="${g.id}">+ ${esc(g.name)}</button>`
         ).join('') || '<span class="text-muted text-12">' + __('admin_perms.in_all_groups') + '</span>';
       }
       // 联网站/群组权限检视（调用 /api/permissions-view），与__('auto_admin_perms_3')复用同一渲染

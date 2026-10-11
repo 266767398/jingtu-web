@@ -173,6 +173,11 @@
   box-shadow: 0 0 18px color-mix(in srgb, var(--red) 30%, transparent);
 }
 
+/* 备份列表行 hover（原内联 onmouseenter/onmouseleave 被 CSP 拦截，改用纯 CSS） */
+.backup-row:hover {
+  background: var(--hover);
+}
+
 .btn-cancel,
 .btn-text {
   background: transparent;

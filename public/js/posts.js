@@ -177,14 +177,14 @@ function buildPostCard(post) {
       for (let i = 0; i < images.length; i++) {
         const m = images[i];
         const src = m.thumbUrl || m.mediaUrl;
-        mediaHtml += '<div class="post-media-item"><img class="post-media-img" data-post-id="' + post.id + '" data-idx="' + i + '" src="' + escAttr(src) + '" alt="' + __('posts.alt_image') + '" loading="lazy" onerror="this.parentElement.innerHTML=\'<div class=media-error>' + escJsStr(__('posts.load_failed')) + '</div>\'"></div>';
+        mediaHtml += '<div class="post-media-item"><img class="post-media-img" data-post-id="' + post.id + '" data-idx="' + i + '" src="' + escAttr(src) + '" alt="' + __('posts.alt_image') + '" loading="lazy"></div>';
       }
       mediaHtml += '</div>';
     }
 
     for (let v = 0; v < videos.length; v++) {
       const vm = videos[v];
-      mediaHtml += '<div class="post-video-item"><video class="post-video-player" src="' + escAttr(vm.mediaUrl) + '" controls preload="metadata" onerror="this.parentElement.innerHTML=\'<div class=media-error>' + escJsStr(__('posts.video_load_failed')) + '</div>\'"></video></div>';
+      mediaHtml += '<div class="post-video-item"><video class="post-video-player" src="' + escAttr(vm.mediaUrl) + '" controls preload="metadata"></video></div>';
     }
   }
 
@@ -193,11 +193,11 @@ function buildPostCard(post) {
 
   let cardHtml = '<div class="post-card" data-post-id="' + post.id + '">';
   cardHtml += '<div class="post-header">';
-  cardHtml += '<img class="post-avatar" src="' + escAttr(avatarUrl) + '" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,\'' + escJsStr(avatarUrl) + '\')">';
+  cardHtml += '<img class="post-avatar" src="' + escAttr(avatarUrl) + '" alt="" data-avatar-fail-src="' + escAttr(avatarUrl) + '">';
   cardHtml += '<div class="post-user-info"><span class="post-username">' + esc(post.user ? post.user.name : __('posts.user')) + '</span><span class="post-time">' + esc(time) + '</span></div>';
   cardHtml += '<div class="post-actions-top">';
   if (post.isPinned) cardHtml += '<span class="post-pin-badge">' + __('posts.pin') + '</span>';
-  if (isOwner || isAdmin) cardHtml += '<span class="post-menu-btn" tabindex="0" role="button" aria-label="' + esc(__('posts.aria_more_actions')) + '" onclick="showPostMenu(event,' + post.id + ')">⋯</span>';
+  if (isOwner || isAdmin) cardHtml += '<span class="post-menu-btn" tabindex="0" role="button" aria-label="' + esc(__('posts.aria_more_actions')) + '" data-action="post-menu" data-post-id="' + post.id + '">⋯</span>';
   cardHtml += '</div></div>';
 
   if (post.content) cardHtml += '<div class="post-content">' + esc(post.content) + '</div>';
@@ -206,8 +206,8 @@ function buildPostCard(post) {
   cardHtml += '<div class="post-stats"><span data-like-count="' + (post.likeCount || 0) + '">❤️ ' + (post.likeCount || 0) + '</span><span data-comment-count="' + (post.commentCount || 0) + '">💬 ' + (post.commentCount || 0) + '</span></div>';
 
   cardHtml += '<div class="post-actions">';
-  cardHtml += '<button class="post-action-btn ' + likeBtnClass + '" onclick="togglePostLike(' + post.id + ')"><span>' + likeIcon + '</span> <span>' + (post.liked ? __('liked') : __('like')) + '</span></button>';
-  cardHtml += '<button class="post-action-btn" onclick="focusPostComment(' + post.id + ')"><span>💬</span> <span>' + __('posts.comment_btn') + '</span></button>';
+  cardHtml += '<button class="post-action-btn ' + likeBtnClass + '" data-action="post-like" data-post-id="' + post.id + '"><span>' + likeIcon + '</span> <span>' + (post.liked ? __('liked') : __('like')) + '</span></button>';
+cardHtml += '<button class="post-action-btn" data-action="post-comment" data-post-id="' + post.id + '"><span>💬</span> <span>' + __('posts.comment_btn') + '</span></button>';
   cardHtml += '</div>';
 
   // 评论预览
@@ -217,15 +217,15 @@ function buildPostCard(post) {
     for (let ci = 0; ci < maxPreview; ci++) {
       const c = post.comments[ci];
       const cAvatar = c.user && c.user.avatarUrl ? c.user.avatarUrl : '/api/avatar/default';
-      cardHtml += '<div class="post-comment-item"><img class="post-comment-avatar" src="' + escAttr(cAvatar) + '" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,\'' + escJsStr(cAvatar) + '\')"><div class="post-comment-body"><span class="post-comment-name">' + esc(c.user ? c.user.name : __('posts.user')) + '</span><span class="post-comment-text">' + esc(c.content) + '</span></div></div>';
+      cardHtml += '<div class="post-comment-item"><img class="post-comment-avatar" src="' + escAttr(cAvatar) + '" alt="" data-avatar-fail-src="' + escAttr(cAvatar) + '"><div class="post-comment-body"><span class="post-comment-name">' + esc(c.user ? c.user.name : __('posts.user')) + '</span><span class="post-comment-text">' + esc(c.content) + '</span></div></div>';
     }
-    if (post.commentCount > 3) cardHtml += '<div class="post-comments-more" onclick="showPostDetail(' + post.id + ')">' + __('posts.view_all_comments', {n: post.commentCount}) + '</div>';
+    if (post.commentCount > 3) cardHtml += '<div class="post-comments-more" data-action="post-detail" data-post-id="' + post.id + '">' + __('posts.view_all_comments', {n: post.commentCount}) + '</div>';
     cardHtml += '</div>';
   }
 
   cardHtml += '<div class="post-comment-input-area" id="postCommentArea-' + post.id + '" style="display:none">';
-  cardHtml += '<input type="text" class="post-comment-input" id="postCommentInput-' + post.id + '" placeholder="' + __('posts.placeholder') + '" maxlength="2000" onkeydown="if(event.key===\'Enter\') submitPostComment(' + post.id + ')">';
-  cardHtml += '<button class="post-comment-submit" onclick="submitPostComment(' + post.id + ')">' + __('posts.send_btn') + '</button>';
+  cardHtml += '<input type="text" class="post-comment-input" id="postCommentInput-' + post.id + '" data-action="post-comment-input" data-post-id="' + post.id + '" placeholder="' + __('posts.placeholder') + '" maxlength="2000">';
+  cardHtml += '<button class="post-comment-submit" data-action="post-comment-submit" data-post-id="' + post.id + '">' + __('posts.send_btn') + '</button>';
   cardHtml += '</div></div>';
 
   return cardHtml;
@@ -336,7 +336,7 @@ function submitPostComment(postId) {
     const avatarUrl = currentUser.avatarUrl || '/api/avatar/default';
     newComment = document.createElement('div');
     newComment.className = 'post-comment-item';
-    newComment.innerHTML = '<img class="post-comment-avatar" src="' + escAttr(avatarUrl) + '" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,\'' + escJsStr(avatarUrl) + '\')"><div class="post-comment-body"><span class="post-comment-name">' + esc(currentUser.displayName || currentUser.loginId) + '</span><span class="post-comment-text">' + esc(content) + '</span></div>';
+    newComment.innerHTML = '<img class="post-comment-avatar" src="' + escAttr(avatarUrl) + '" alt="" data-avatar-fail-src="' + escAttr(avatarUrl) + '"><div class="post-comment-body"><span class="post-comment-name">' + esc(currentUser.displayName || currentUser.loginId) + '</span><span class="post-comment-text">' + esc(content) + '</span></div>';
     previewArea.appendChild(newComment);
     const moreLink = previewArea.querySelector('.post-comments-more');
     if (moreLink) moreLink.remove();
@@ -381,10 +381,10 @@ function showPostMenu(event, postId) {
   event.stopPropagation();
   const menu = document.createElement('div');
   menu.className = 'post-context-menu';
-  let html = '<div class="post-menu-item" onclick="editPost(' + postId + ')">' + __('posts.edit') + '</div>';
-  html += '<div class="post-menu-item" onclick="deletePost(' + postId + ')">' + __('posts.delete') + '</div>';
+  let html = '<div class="post-menu-item" data-action="post-menu-edit" data-post-id="' + postId + '">' + __('posts.edit') + '</div>';
+  html += '<div class="post-menu-item" data-action="post-menu-delete" data-post-id="' + postId + '">' + __('posts.delete') + '</div>';
   if (currentUser && (currentUser.role === 'super_admin' || currentUser.role === 'admin')) {
-    html += '<div class="post-menu-item" onclick="togglePinPost(' + postId + ')">' + __('posts.toggle_pin') + '</div>';
+    html += '<div class="post-menu-item" data-action="post-menu-pin" data-post-id="' + postId + '">' + __('posts.toggle_pin') + '</div>';
   }
   menu.innerHTML = html;
   menu.style.cssText = 'position:fixed;z-index:1000;top:' + event.clientY + 'px;left:' + event.clientX + 'px;';
@@ -433,18 +433,18 @@ function editPost(postId) {
       var overlay = document.createElement('div');
       overlay.className = 'modal-overlay active';
       overlay.innerHTML = '<div class="modal create-post-modal" id="editPostModal">'
-        + '<div class="modal-header"><h3>' + __('posts.edit_post_title') + '</h3><button class="modal-close" onclick="closeEditPostModal()">&times;</button></div>'
+        + '<div class="modal-header"><h3>' + __('posts.edit_post_title') + '</h3><button class="modal-close" data-action="edit-post-close">&times;</button></div>'
         + '<div class="modal-body">'
         + '<textarea class="create-post-textarea" id="editPostContent" placeholder="' + __('posts.share_placeholder') + '" maxlength="5000">' + esc(post.content) + '</textarea>'
         + '<div class="create-post-preview" id="editPostPreview"></div>'
         + '<div class="create-post-options">'
-        + '<label class="create-post-file-btn">' + __('posts.add_media_btn') + '<input type="file" accept="image/*,video/*" multiple style="display:none" id="editPostFiles" onchange="previewEditPostMedia(event)"></label>'
+        + '<label class="create-post-file-btn">' + __('posts.add_media_btn') + '<input type="file" accept="image/*,video/*" multiple style="display:none" id="editPostFiles"></label>'
         + '<select class="create-post-visibility" id="editPostVisibility">'
         + '<option value="members_only"' + (post.visibility === 'members_only' ? ' selected' : '') + '>' + __('posts.visibility_member') + '</option>'
         + '<option value="public"' + (post.visibility === 'public' ? ' selected' : '') + '>' + __('posts.visibility_public') + '</option>'
         + '<option value="private"' + (post.visibility === 'private' ? ' selected' : '') + '>' + __('posts.visibility_private') + '</option>'
         + '</select></div></div>'
-        + '<div class="modal-footer"><button type="button" class="btn" onclick="closeEditPostModal()">' + __('posts.cancel_btn') + '</button><button class="btn btn-primary" onclick="submitEditPost(' + postId + ')" id="editPostBtn">' + __('posts.save_btn') + '</button></div></div>';
+        + '<div class="modal-footer"><button type="button" class="btn" data-action="edit-post-close">' + __('posts.cancel_btn') + '</button><button class="btn btn-primary" data-action="edit-post-submit" data-post-id="' + postId + '" id="editPostBtn">' + __('posts.save_btn') + '</button></div></div>';
       document.body.appendChild(overlay);
       overlay.addEventListener('click', function(e) { if (e.target === overlay) closeEditPostModal(); });
 
@@ -458,9 +458,9 @@ function editPost(postId) {
           div.setAttribute('data-media-id', m.id);
           window._editPostMediaIds.push(m.id);
           if (m.mediaType === 'video') {
-            div.innerHTML = '<video src="/' + escAttr(m.mediaUrl) + '" height="100" controls></video><span class="preview-remove" onclick="removeEditPostMedia(this)">&times;</span>';
+            div.innerHTML = '<video src="/' + escAttr(m.mediaUrl) + '" height="100" controls></video><span class="preview-remove" data-action="edit-media-remove">&times;</span>';
           } else {
-            div.innerHTML = '<img src="/' + escAttr(m.mediaUrl) + '" height="100"><span class="preview-remove" onclick="removeEditPostMedia(this)">&times;</span>';
+            div.innerHTML = '<img src="/' + escAttr(m.mediaUrl) + '" height="100"><span class="preview-remove" data-action="edit-media-remove">&times;</span>';
           }
           preview.appendChild(div);
         });
@@ -497,9 +497,9 @@ function previewEditPostMedia(event) {
     var div = document.createElement('div');
     div.className = 'create-post-preview-item';
     if (f.type.startsWith('video/')) {
-      div.innerHTML = '<video src="' + url + '" height="100" controls></video><span class="preview-remove" onclick="removeEditPostMedia(this)">&times;</span>';
+      div.innerHTML = '<video src="' + url + '" height="100" controls></video><span class="preview-remove" data-action="edit-media-remove">&times;</span>';
     } else {
-      div.innerHTML = '<img src="' + url + '" height="100"><span class="preview-remove" onclick="removeEditPostMedia(this)">&times;</span>';
+      div.innerHTML = '<img src="' + url + '" height="100"><span class="preview-remove" data-action="edit-media-remove">&times;</span>';
     }
     preview.appendChild(div);
   }
@@ -584,16 +584,16 @@ function showCreatePostModal() {
   var overlay = document.createElement('div');
   overlay.className = 'modal-overlay active';
   overlay.innerHTML = '<div class="modal create-post-modal" id="createPostModal">'
-    + '<div class="modal-header"><h3>' + __('posts.create_post_title') + '</h3><button class="modal-close" onclick="closeCreatePostModal()">&times;</button></div>'
+    + '<div class="modal-header"><h3>' + __('posts.create_post_title') + '</h3><button class="modal-close" data-action="create-post-close">&times;</button></div>'
     + '<div class="modal-body">'
     + '<textarea class="create-post-textarea" id="createPostContent" placeholder="' + __('posts.share_placeholder') + '" maxlength="5000"></textarea>'
     + '<div class="create-post-preview" id="createPostPreview"></div>'
     + '<div class="create-post-options">'
-    + '<label class="create-post-file-btn">' + __('posts.add_media_btn') + '<input type="file" accept="image/*,video/*" multiple style="display:none" id="createPostFiles" onchange="previewPostMedia(event)"></label>'
+    + '<label class="create-post-file-btn">' + __('posts.add_media_btn') + '<input type="file" accept="image/*,video/*" multiple style="display:none" id="createPostFiles"></label>'
     + '<select class="create-post-visibility" id="createPostVisibility">'
     + '<option value="members_only">' + __('posts.visibility_member') + '</option><option value="public">' + __('posts.visibility_public') + '</option><option value="private">' + __('posts.visibility_private') + '</option>'
     + '</select></div></div>'
-    + '<div class="modal-footer"><button type="button" class="btn" onclick="closeCreatePostModal()">' + __('posts.cancel_btn') + '</button><button class="btn btn-primary" onclick="submitCreatePost()" id="createPostBtn">' + __('posts.publish_btn') + '</button></div></div>';
+    + '<div class="modal-footer"><button type="button" class="btn" data-action="create-post-close">' + __('posts.cancel_btn') + '</button><button class="btn btn-primary" data-action="create-post-submit" id="createPostBtn">' + __('posts.publish_btn') + '</button></div></div>';
   document.body.appendChild(overlay);
   overlay.addEventListener('click', function(e) { if (e.target === overlay) closeCreatePostModal(); });
   setTimeout(function() { var el = document.getElementById('createPostContent'); if (el) el.focus(); }, 100);
@@ -627,9 +627,9 @@ function previewPostMedia(event) {
     var div = document.createElement('div');
     div.className = 'create-post-preview-item';
     if (f.type.startsWith('video/')) {
-      div.innerHTML = '<video src="' + url + '" height="100" controls></video><span class="preview-remove" onclick="this.parentElement.remove()">&times;</span>';
+      div.innerHTML = '<video src="' + url + '" height="100" controls></video><span class="preview-remove" data-action="create-media-remove">&times;</span>';
     } else {
-      div.innerHTML = '<img src="' + url + '" height="100"><span class="preview-remove" onclick="this.parentElement.remove()">&times;</span>';
+      div.innerHTML = '<img src="' + url + '" height="100"><span class="preview-remove" data-action="create-media-remove">&times;</span>';
     }
     preview.appendChild(div);
   }
@@ -695,13 +695,14 @@ function openPostDetailModal(postId) {
     overlay.className = 'modal-overlay';
     overlay.id = 'postDetailModalOverlay';
     overlay.innerHTML = '<div class="modal post-detail-modal" id="postDetailModal">'
-      + '<div class="modal-header"><h3>' + __('posts.detail_title') + '</h3><button class="modal-close" onclick="closePostDetail()">&times;</button></div>'
+      + '<div class="modal-header"><h3>' + __('posts.detail_title') + '</h3><button class="modal-close" data-action="post-detail-close">&times;</button></div>'
       + '<div class="modal-body" id="postDetailBody"></div>'
       + '<div class="modal-footer">'
-      + '<div class="post-detail-actions"><button class="btn" id="postDetailLikeBtn">' + __('posts.like_btn') + '</button><button class="btn" id="postDetailShareBtn">' + __('posts.share_btn') + '</button></div>'
-      + '<div class="post-detail-comment-input"><input type="text" id="postDetailCommentInput" placeholder="' + __('posts.placeholder') + '" maxlength="2000" onkeydown="if(event.key===\'Enter\') submitPostDetailComment(' + postId + ')"><button class="btn btn-primary" onclick="submitPostDetailComment(' + postId + ')">' + __('posts.send_btn') + '</button></div>'
+      + '<div class="post-detail-actions"><button class="btn" data-action="detail-like" id="postDetailLikeBtn">' + __('posts.like_btn') + '</button><button class="btn" id="postDetailShareBtn">' + __('posts.share_btn') + '</button></div>'
+      + '<div class="post-detail-comment-input"><input type="text" id="postDetailCommentInput" placeholder="' + __('posts.placeholder') + '" maxlength="2000" data-action="detail-comment-input" data-post-id="' + postId + '"><button class="btn btn-primary" data-action="detail-comment-submit" data-post-id="' + postId + '">' + __('posts.send_btn') + '</button></div>'
       + '</div></div>';
     document.body.appendChild(overlay);
+    overlay.setAttribute('data-post-id', postId);
     overlay.addEventListener('click', function(e) { if (e.target === overlay) closePostDetail(); });
   }
   return overlay;
@@ -726,9 +727,9 @@ function paintPostDetail(post) {
           var ca = c.user && c.user.avatarUrl ? c.user.avatarUrl : '/api/avatar/default';
           var canEdit = currentUser && (currentUser.id === (c.user ? c.user.id : null) || currentUser.role === 'super_admin' || currentUser.role === 'admin');
           var actions = canEdit
-            ? '<span class="post-comment-actions"><button class="btn-text" onclick="editPostComment(' + post.id + ',' + c.id + ')">' + __('edit') + '</button><button class="btn-text" onclick="deletePostComment(' + post.id + ',' + c.id + ')">' + __('delete') + '</button></span>'
+            ? '<span class="post-comment-actions"><button class="btn-text" data-action="comment-edit" data-post-id="' + post.id + '" data-comment-id="' + c.id + '">' + __('edit') + '</button><button class="btn-text" data-action="comment-delete" data-post-id="' + post.id + '" data-comment-id="' + c.id + '">' + __('delete') + '</button></span>'
             : '';
-          cc.innerHTML += '<div class="post-comment-item" data-comment-id="' + c.id + '"><img class="post-comment-avatar" src="' + escAttr(ca) + '" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,\'' + escJsStr(ca) + '\')"><div class="post-comment-body"><span class="post-comment-name">' + esc(c.user ? c.user.name : __('posts.user')) + '</span><span class="post-comment-text" id="postCommentText-' + c.id + '">' + esc(c.content) + '</span><span class="post-comment-time">' + fmtTime(c.createdAt) + '</span>' + actions + '</div></div>';
+          cc.innerHTML += '<div class="post-comment-item" data-comment-id="' + c.id + '"><img class="post-comment-avatar" src="' + escAttr(ca) + '" alt="" data-avatar-fail-src="' + escAttr(ca) + '"><div class="post-comment-body"><span class="post-comment-name">' + esc(c.user ? c.user.name : __('posts.user')) + '</span><span class="post-comment-text" id="postCommentText-' + c.id + '">' + esc(c.content) + '</span><span class="post-comment-time">' + fmtTime(c.createdAt) + '</span>' + actions + '</div></div>';
         }
         if (cmts.length === 0) cc.innerHTML += (function(){ var w=document.createElement('div'); renderEmpty(w, { icon: '💬', text: __('posts.no_comments') }); return w.innerHTML; })();
         body.appendChild(cc);
@@ -866,9 +867,9 @@ function showPostMediaViewer(postId, idx) {
   viewer.innerHTML = '<button class="media-viewer-close" id="mediaViewerClose">&times;</button>'
     + '<div class="media-viewer-content"><img src="' + escAttr(images[idx].mediaUrl || images[idx].thumbUrl) + '" class="media-viewer-img" id="mediaViewerImg"></div>'
     + '<div class="media-viewer-nav">'
-    + '<button class="btn btn-xs" onclick="navigateMediaViewer(-1)">' + __('posts.prev') + '</button>'
+    + '<button class="btn btn-xs" data-action="media-prev">' + __('posts.prev') + '</button>'
     + '<span id="mediaViewerCounter">' + (idx + 1) + ' / ' + images.length + '</span>'
-    + '<button class="btn btn-xs" onclick="navigateMediaViewer(1)">' + __('posts.next') + '</button></div>';
+    + '<button class="btn btn-xs" data-action="media-next">' + __('posts.next') + '</button></div>';
   document.body.appendChild(viewer);
 
   // 统一清理：无论通过关闭按钮、点击遮罩还是 Esc 关闭，都移除键盘监听，避免重复绑定泄漏
@@ -941,4 +942,126 @@ function setPostsPageSize(size) {
   postsCurrentPage = 1;
   postsKeepScroll = true;
   loadPosts(1);
+}
+
+// ==================== 事件委托（CSP nonce 下内联处理器不可用） ====================
+// 动态渲染的卡片/弹窗/查看器里的按钮原以内联 onclick/onkeydown/onchange 触发，
+// 但 script-src nonce 化后属性型处理器一律被拦截（与成员卡/i18n/ui 通知同案），
+// 统一改为 data-action + document 级委托，天然覆盖重渲染与懒加载时序。
+let _postsClickHandler = null;
+let _postsKeydownHandler = null;
+let _postsChangeHandler = null;
+
+function _postsDelegationReady() {
+  if (_postsClickHandler) document.removeEventListener('click', _postsClickHandler);
+  if (_postsKeydownHandler) document.removeEventListener('keydown', _postsKeydownHandler);
+  if (_postsChangeHandler) document.removeEventListener('change', _postsChangeHandler);
+
+  _postsClickHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    var pid = parseInt(el.getAttribute('data-post-id'), 10);
+    var cid = parseInt(el.getAttribute('data-comment-id'), 10);
+    switch (action) {
+      case 'post-menu':
+        showPostMenu(e, pid);
+        break;
+      case 'post-like':
+        togglePostLike(pid);
+        break;
+      case 'post-comment':
+        focusPostComment(pid);
+        break;
+      case 'post-detail':
+        showPostDetail(pid);
+        break;
+      case 'post-comment-submit':
+        submitPostComment(pid);
+        break;
+      case 'post-menu-edit':
+        editPost(pid);
+        break;
+      case 'post-menu-delete':
+        deletePost(pid);
+        break;
+      case 'post-menu-pin':
+        togglePinPost(pid);
+        break;
+      case 'edit-post-close':
+        closeEditPostModal();
+        break;
+      case 'edit-post-submit':
+        submitEditPost(pid);
+        break;
+      case 'edit-media-remove':
+        removeEditPostMedia(el.closest('.preview-remove'));
+        break;
+      case 'create-post-close':
+        closeCreatePostModal();
+        break;
+      case 'create-post-submit':
+        submitCreatePost();
+        break;
+      case 'create-media-remove': {
+        var item = el.closest('.preview-remove');
+        if (item && item.parentElement) item.parentElement.remove();
+        break;
+      }
+      case 'post-detail-close':
+        closePostDetail();
+        break;
+      case 'detail-like': {
+        var overlay = el.closest('.modal-overlay');
+        togglePostDetailLike(overlay ? parseInt(overlay.getAttribute('data-post-id'), 10) : 0);
+        break;
+      }
+      case 'detail-comment-submit':
+        submitPostDetailComment(pid);
+        break;
+      case 'comment-edit':
+        editPostComment(pid, cid);
+        break;
+      case 'comment-delete':
+        deletePostComment(pid, cid);
+        break;
+      case 'media-prev':
+        navigateMediaViewer(-1);
+        break;
+      case 'media-next':
+        navigateMediaViewer(1);
+        break;
+    }
+  };
+
+  _postsKeydownHandler = function (e) {
+    if (e.key !== 'Enter') return;
+    var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    if (action === 'post-comment-input') {
+      e.preventDefault();
+      submitPostComment(parseInt(el.getAttribute('data-post-id'), 10));
+    } else if (action === 'detail-comment-input') {
+      e.preventDefault();
+      submitPostDetailComment(parseInt(el.getAttribute('data-post-id'), 10));
+    }
+  };
+
+  _postsChangeHandler = function (e) {
+    var t = e.target;
+    if (!t) return;
+    if (t.id === 'editPostFiles') previewEditPostMedia(e);
+    else if (t.id === 'createPostFiles') previewPostMedia(e);
+  };
+
+  document.addEventListener('click', _postsClickHandler);
+  document.addEventListener('keydown', _postsKeydownHandler);
+  document.addEventListener('change', _postsChangeHandler);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _postsDelegationReady);
+} else {
+  _postsDelegationReady();
 }

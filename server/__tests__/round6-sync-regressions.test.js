@@ -205,8 +205,11 @@ describe('VRChat 上游临时故障不得销毁用户的登录凭据', () => {
 // ---------------------------------------------------------------------------
 
 describe('群组同步不能把自己或整站拖住', () => {
-  // P2-66 god-route 拆分：同步域整体迁至 groups_members_sync.js（同为工厂内 2 空格缩进，切片锚点不变）
+  // P2-66 god-route 拆分：同步域整体迁至 groups_members_sync.js（同为工厂内 2 空格缩进，切片锚点不变）。
+  // V8.2：同步主体逻辑再抽取至 groups_helpers.syncRosterFromVrc（手动路由与定时任务兜底共用），
+  // 防死循环上限与批量 upsert 断言同步迁移到 helpers 文件，路由侧校验「确实调用共享函数」。
   const groupsSyncJs = srv('routes/groups_members_sync.js');
+  const helpersJs = srv('routes/groups_helpers.js');
   const syncStart = groupsSyncJs.indexOf("router.post('/group/members/sync'");
   const syncBody = groupsSyncJs.slice(syncStart, groupsSyncJs.indexOf('\n  });', syncStart));
 
@@ -214,8 +217,10 @@ describe('群组同步不能把自己或整站拖住', () => {
     // 原来是 while (true)：上游一旦忽略 offset 一直返回满页，
     // 这个请求就永远不会结束，还会一直反复打 VRChat 直到撞限流。
     expect(syncBody).not.toMatch(/while\s*\(\s*true\s*\)/);
-    expect(syncBody).toMatch(/MAX_PAGES/);
-    expect(syncBody).toMatch(/while\s*\(\s*page\s*<\s*MAX_PAGES\s*\)/);
+    // 路由必须复用共享同步函数（不再内联分页拉取）
+    expect(syncBody).toMatch(/syncRosterFromVrc/);
+    expect(helpersJs).toMatch(/MAX_PAGES/);
+    expect(helpersJs).toMatch(/while\s*\(\s*page\s*<\s*SYNC_MAX_PAGES\s*\)/);
   });
 
   test('整个 routes 目录都不许出现无上限的 while(true) 分页', () => {
@@ -228,7 +233,7 @@ describe('群组同步不能把自己或整站拖住', () => {
     expect(bad).toEqual([]);
   });
 
-  test('同一时刻只允许一次全量同步', () => {
+  test('同一时刻只允许一次全量同步（路由层互斥 + 定时任务共用同一把 GET_LOCK）', () => {
     // 前端超时后用户会重复点；并发同步会互相看到对方
     // `UPDATE ... is_member=0` 的中间态，写出成片假的"已离开群组"。
     expect(groupsSyncJs).toMatch(/let\s+syncInFlight\s*=\s*false/);
@@ -236,13 +241,16 @@ describe('群组同步不能把自己或整站拖住', () => {
     expect(syncBody).toMatch(/syncInFlight\s*=\s*true/);
     // 必须在 finally 里复位，否则一次异常就永久锁死同步功能
     expect(syncBody).toMatch(/finally\s*\{[\s\S]{0,200}syncInFlight\s*=\s*false/);
+    // P3-55 跨进程锁：路由层与定时任务兜底必须用同一锁名（group_members_sync:{GROUP_ID}）
+    expect(groupsSyncJs).toMatch(/SYNC_LOCK_NAME\s*=\s*'group_members_sync:'\s*\+\s*GROUP_ID/);
+    expect(srv('schedule.js')).toMatch(/'group_members_sync:'\s*\+\s*VRC_GROUP_ID/);
   });
 
   test('事务里不能对每个成员逐条查询/写入（N+1）', () => {
     // 一千人就是两千次串行往返，全压在一个事务里长时间锁住 group_roster。
-    expect(syncBody).not.toMatch(/for\s*\([^)]*of\s+allMembers\s*\)[\s\S]{0,400}conn\.query\([^)]*SELECT[^)]*group_roster/);
-    // 改成一次性取回已存在的 ID + 批量 upsert
-    expect(syncBody).toMatch(/ON\s+DUPLICATE\s+KEY\s+UPDATE/i);
+    expect(helpersJs).not.toMatch(/for\s*\([^)]*of\s+allMembers\s*\)[\s\S]{0,400}conn\.query\([^)]*SELECT[^)]*group_roster/);
+    // 改成一次性取回已存在的 ID + 批量 upsert（校验点在共享同步函数内）
+    expect(helpersJs).toMatch(/ON\s+DUPLICATE\s+KEY\s+UPDATE/i);
   });
 });
 
@@ -435,10 +443,10 @@ describe('样式表必须真的被页面加载', () => {
   const CSS_DIR = path.join(PUB, 'css');
 
   // 明确记录"存在但有意不引入"的文件，避免这条测试被随手加白名单绕过
+  // 注：social.css / favorites.css 已在 2026-10-11 第三轮按 C4 修复删除（功能迁移至
+  // 10-social.css / collections.css），故不再列入白名单。
   const INTENTIONALLY_UNUSED = {
     'animations.css': '定义了 .animate-* 工具类，全站 HTML/JS 均未使用，引入只会增加体积',
-    'social.css': '旧社交页样式，已被 10-social.css（friends/follows 模块）取代',
-    'favorites.css': '收藏功能样式，对应功能未上线（favorites.js 已归档至 _archive/）',
     'share-page.css': '分享落地页样式，对应 share.html 页面尚未实现',
   };
 
@@ -700,7 +708,8 @@ describe('地理定位：必须区分「用户拒绝授权」和「非安全上�
   // 根本没出现过的弹窗 —— 用户永远走不出这个死循环。
   // 唯一可靠的区分方式是 window.isSecureContext（message 文本会随浏览器版本变）。
 
-  const GEO_CALLERS = ['map.js', 'profile.js', 'chat.js'];
+  // chat.js 的 GPS 定位已于 M2 拆分迁至 location-share.js（chat.js 不再直接调用 geolocation）
+  const GEO_CALLERS = ['map.js', 'profile.js', 'location-share.js'];
 
   test('core.js 提供统一的可用性守卫与错误翻译，且不与其他文件重名', () => {
     const core = js('core.js');

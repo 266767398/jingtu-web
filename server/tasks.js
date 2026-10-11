@@ -172,9 +172,12 @@ async function cleanupExpiredNotifications() {
   try {
     const pool = getPool();
     const daysToKeep = parseInt(process.env.NOTIFICATION_RETENTION_DAYS) || 30;
+    // O1: 显式计算 cutoff 时间戳并以参数传入，兼容 MySQL/SQLite 双引擎——
+    // 不再依赖 DATE_SUB(NOW(), INTERVAL ? DAY) 在 SQLite 层的拼接修饰符翻译
+    const cutoff = new Date(Date.now() - daysToKeep * 24 * 60 * 60 * 1000);
     const [result] = await pool.query(
-      'DELETE FROM notifications WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)',
-      [daysToKeep]
+      'DELETE FROM notifications WHERE created_at < ?',
+      [cutoff]
     );
     if (result.affectedRows > 0) {
       logger.info('tasks', `[task] 清理过期通知: ${result.affectedRows} 条`);

@@ -73,16 +73,16 @@ function renderLiveCard(s, isLive) {
     : '<span class="live-badge ended">' + __('live.ended_short') + '</span>';
 
   return `
-    <div class="live-card" onclick="openLivePlayer(${s.id})">
+    <div class="live-card" data-action="live-open" data-sid="${s.id}">
       <div class="live-thumb">
-        ${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy" onerror="window.__imgFail(this)"/>` : '<div class="live-thumb-placeholder">📺</div>'}
+        ${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy" data-img-fallback="1"/>` : '<div class="live-thumb-placeholder">📺</div>'}
         ${statusBadge}
         <span class="live-viewers">👁 ${s.viewerCount || 0}</span>
       </div>
       <div class="live-info">
         <div class="live-title">${esc(s.title)}</div>
         <div class="live-meta">
-          <img src="${esc(avatar)}" class="live-avatar" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(avatar)}')"/>
+          <img src="${esc(avatar)}" class="live-avatar" alt="" data-avatar-fail-src="${escAttr(avatar)}"/>
           <span>${esc(s.userName)}</span>
           <span class="live-created">${fmtDate(s.createdAt)}</span>
         </div>
@@ -119,15 +119,15 @@ async function openLivePlayer(streamId) {
         <div class="live-player-info">
           <div class="live-player-title">${esc(s.title)}</div>
           <div class="live-player-meta">
-            <img src="${esc(s.userAvatar)}" class="live-avatar" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(s.userAvatar)}')"/>
+            <img src="${esc(s.userAvatar)}" class="live-avatar" alt="" data-avatar-fail-src="${escAttr(s.userAvatar)}"/>
             <span class="live-player-host">${esc(s.userName)}</span>
           </div>
           ${s.description ? `<div class="live-player-desc">${esc(s.description)}</div>` : ''}
           ${s.status === 'live' ? `
             <div class="live-player-actions">
-              <button class="btn btn-sm btn-outline" onclick="sendLiveLike(${s.id})">❤️ <span id="liveLikeCount">0</span></button>
-              <button class="btn btn-sm btn-outline" onclick="toggleLiveComments()">💬 ${__('live.comments')}</button>
-              ${s.userId === currentUser?.id ? `<button class="btn btn-sm btn-danger" onclick="endLiveStream(${s.id})">⏹ ${__('live.end_broadcast')}</button>` : ''}
+              <button class="btn btn-sm btn-outline" data-action="live-like" data-sid="${s.id}">❤️ <span id="liveLikeCount">0</span></button>
+              <button class="btn btn-sm btn-outline" data-action="live-toggle-comments">💬 ${__('live.comments')}</button>
+              ${s.userId === currentUser?.id ? `<button class="btn btn-sm btn-danger" data-action="live-end" data-sid="${s.id}">⏹ ${__('live.end_broadcast')}</button>` : ''}
             </div>
           ` : ''}
         </div>
@@ -137,7 +137,7 @@ async function openLivePlayer(streamId) {
           ${s.status === 'live' ? `
             <div class="live-comments-input">
               <input type="text" id="liveCommentInput" placeholder="${__('live.type_comment')}" maxlength="200"/>
-              <button class="btn btn-sm btn-accent" onclick="sendLiveComment(${s.id})">${__('live.send')}</button>
+              <button class="btn btn-sm btn-accent" data-action="live-send-comment" data-sid="${s.id}">${__('live.send')}</button>
             </div>
           ` : ''}
         </div>
@@ -183,7 +183,7 @@ async function loadLiveComments(streamId) {
     const prevHeight = list.scrollHeight;
     list.innerHTML = comments.map(c => `
       <div class="live-comment-item">
-        <img src="${esc(c.userAvatar || '/api/avatar/default')}" class="live-comment-avatar" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(c.userAvatar || '/api/avatar/default')}')"/>
+        <img src="${esc(c.userAvatar || '/api/avatar/default')}" class="live-comment-avatar" alt="" data-avatar-fail-src="${escAttr(c.userAvatar || '/api/avatar/default')}"/>
         <div class="live-comment-body">
           <span class="live-comment-user">${esc(c.userName)}</span>
           <span class="live-comment-time">${fmtTime(c.createdAt)}</span>
@@ -296,8 +296,8 @@ function openCreateLiveModal() {
         <label><input type="checkbox" id="livePublic" checked/> ${__('live.public_label')}</label>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn btn-outline" onclick="hideModal('createLiveModal')">${__('ui.cancel')}</button>
-        <button class="btn btn-accent" onclick="submitCreateLive()">${__('live.create_and_go_live')}</button>
+        <button type="button" class="btn btn-outline" data-action="live-close-create">${__('ui.cancel')}</button>
+        <button class="btn btn-accent" data-action="live-submit-create">${__('live.create_and_go_live')}</button>
       </div>
     </div>
   `;
@@ -424,4 +424,47 @@ function bindLivePlayerCloseCleanup() {
     if (!modal.classList.contains('show')) cleanupLiveOnModalClose();
   });
   observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+}
+
+// ==================== 直播页内联事件迁移（CSP nonce 拦截属性型处理器） ====================
+// 直播卡片 / 播放器操作 / 评论 / 创建直播弹窗 —— data-action + document 级委托。
+let _liveDelegationHandler = null;
+
+function _bindLiveDelegation() {
+  if (_liveDelegationHandler) document.removeEventListener('click', _liveDelegationHandler);
+  _liveDelegationHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    switch (action) {
+      case 'live-open':
+        openLivePlayer(el.getAttribute('data-sid'));
+        break;
+      case 'live-like':
+        sendLiveLike(el.getAttribute('data-sid'));
+        break;
+      case 'live-toggle-comments':
+        toggleLiveComments();
+        break;
+      case 'live-end':
+        endLiveStream(el.getAttribute('data-sid'));
+        break;
+      case 'live-send-comment':
+        sendLiveComment(el.getAttribute('data-sid'));
+        break;
+      case 'live-close-create':
+        hideModal('createLiveModal');
+        break;
+      case 'live-submit-create':
+        submitCreateLive();
+        break;
+    }
+  };
+  document.addEventListener('click', _liveDelegationHandler);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _bindLiveDelegation);
+} else {
+  _bindLiveDelegation();
 }

@@ -7,13 +7,16 @@ const crypto = require('crypto');
 const dbMod = require('./db');
 const logger = require('./logger');
 const fs = require('fs');
+// M7：上传文件校验（upload_validation.js 零依赖，顶层 require 不构成任何环）
+const { validateUploadFile } = require('./upload_validation');
 
 // ==================== 数据库连接 ====================
 const getPool = () => dbMod.holder.pool;
 
 // ==================== 错误处理 ====================
-const IS_DEV = process.env.NODE_ENV !== 'production';
-function safeError(msg) { return IS_DEV ? msg : '操作失败，请稍后重试'; }
+// B6: 错误响应一律使用安全静态文案，err.message/stack 仅写日志——
+// 不再依赖 NODE_ENV 区分透传，杜绝生产漏配 NODE_ENV 时把 SQL/堆栈/路径回吐客户端。
+function safeError() { return '操作失败，请稍后重试'; }
 
 const ErrorCodes = {
   BAD_REQUEST: 'BAD_REQUEST',
@@ -144,7 +147,8 @@ function sendVrcError(res, upstream, action) {
 
 function sendError(res, status, code, message, detail) {
   const err = { success: false, error: { code, message } };
-  if (detail && IS_DEV) err.error.detail = detail;
+  // B6: detail 为调用方显式传入的业务性补充说明，不再按 NODE_ENV 门控；err.message/stack 一律只进日志
+  if (detail) err.error.detail = detail;
   res.status(status).json(err);
 }
 
@@ -206,7 +210,9 @@ function handleError(res, e, tag = 'utils', defaultStatus = 500) {
   // 这是「上游限流/繁忙」而非「服务器内部错误」，前端对 429 有静默退避逻辑，不会弹红条误导用户。
   if (e.code === 'VRC_RATE_TIMEOUT' && status === 500) status = 429;
   const code = e.code || ErrorCodes.INTERNAL_ERROR;
-  const message = IS_DEV ? e.message : getSafeMessage(code, status);
+  // B6: 错误响应一律使用安全静态文案（round 3 收紧，不再按 IS_DEV 透传 e.message），
+  // SQL/堆栈等细节仅通过上方 logger.error 落日志
+  const message = getSafeMessage(code, status);
   res.status(status).json({ success: false, error: { code, message } });
 }
 
@@ -409,8 +415,7 @@ function createFileFilter(allowedTypes) {
 function secureUpload(multerMiddleware, opts = {}) {
   const maxSize = opts.maxSize || 200 * 1024 * 1024;
   return (req, res, next) => {
-    // 惰性引入，避免与 security.js 形成模块加载期循环依赖
-    const { validateUploadFile } = require('./middleware/security');
+    // M7：上传校验已下沉到零依赖 upload_validation.js，顶层 require 无环（原先惰性 require security.js）
     multerMiddleware(req, res, async (err) => {
       if (err) return next(err);
       const files = [];
@@ -495,4 +500,4 @@ function toSqlDatetime(value) {
   return null;
 }
 
-module.exports = { getPool, IS_DEV, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, escapeLike, toSqlDatetime, validateFields, normalizeSelfTags, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };
+module.exports = { getPool, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, escapeLike, toSqlDatetime, validateFields, normalizeSelfTags, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };

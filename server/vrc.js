@@ -386,26 +386,32 @@ async function vrchatSendFriendRequest(targetUserId, cookie) {
 }
 
 /**
- * F-24: 保存用户备注（PUT /user/{userId}/note）。
- * 写侧严格使用用户本人绑定的 cookie，由 routes/vrc_invites.js 调用。
+ * F-24: 保存用户备注（POST /userNotes）。
+ * 官方（vrchatapi 1.20.7 UserNotesApi）新式端点：POST /userNotes，body 携带
+ *   { targetUserId, note }（VRCX src/api/misc.js saveNote 同款）。
+ * 旧式 PUT /user/{userId}/note 已被官方弃用/移除，返回 502「endpoint not implemented」，
+ * 必须走新式端点。写侧严格使用用户本人绑定的 cookie，由 routes/vrc_invites.js 调用。
  * note 长度限制 512 字符（超出截断），空串删除备注（官方语义：空 note 清空）。
  */
 async function vrchatSaveNote(targetUserId, noteText, cookie) {
   const safeUserId = sanitizeVrcId(targetUserId);
   const note = typeof noteText === 'string' ? noteText.slice(0, 512) : '';
-  const endpoint = `/user/${safeUserId}/note?apiKey=${VRC_API_KEY}`;
-  return await vrchatRequest('PUT', endpoint, { note }, cookie);
+  const endpoint = `/userNotes?apiKey=${VRC_API_KEY}`;
+  return await vrchatRequest('POST', endpoint, { targetUserId: safeUserId, note }, cookie);
 }
 
 /**
- * F-24: 向指定用户发送 Boop（POST /user/{userId}/boop）。
+ * F-24: 向指定用户发送 Boop（POST /users/{userId}/boop）。
+ * 官方（vrchatapi 1.20.7 FriendsApi）端点须为复数 /users/{userId}/boop
+ * （VRCX src/api/misc.js sendBoop 同款）；旧式单数 /user/{userId}/boop 已被官方移除，
+ * 返回 502「The endpoint you're looking for is not implemented by our system」。
  * 官方要求双方为好友，非好友返回 400「These users are not friends」。
  * emojiId 可选（VRC+ 自定义表情 FileID 或内置常量）；不传则发送默认 Boop。
  */
 async function vrchatBoop(targetUserId, cookie, emojiId = null) {
   const safeUserId = sanitizeVrcId(targetUserId);
   const body = emojiId ? { emojiId } : {};
-  const endpoint = `/user/${safeUserId}/boop?apiKey=${VRC_API_KEY}`;
+  const endpoint = `/users/${safeUserId}/boop?apiKey=${VRC_API_KEY}`;
   return await vrchatRequest('POST', endpoint, body, cookie);
 }
 
@@ -504,12 +510,16 @@ async function vrchatGetAvatar(avatarId, cookie = null) {
 
 /**
  * V7.0: 切换当前用户的 Avatar
- * PUT /auth/user/avatar
+ * V9.6: VRChat 现行 API 切换头像端点为 PUT /avatars/{avatarId}/select（见官方 OpenAPI spec，
+ * operationId: selectAvatar, "Switches into that avatar"）。
+ * 旧端点 PUT /auth/user/avatar 已下线，会返回 "The endpoint you're looking for is not implemented by our system."
+ * —— 这正是此前「点上换上却换不了」的根因之一（旧代码还把非 2xx 包装体当成成功吞掉）。
+ * 现行端点只需 authCookie（authCookie 即 VRChat 登录会话 cookie），不再需要 apiKey 查询参数。
  */
 async function vrchatSetAvatar(avatarId, cookie) {
   const safeId = sanitizeVrcId(avatarId);
-  const endpoint = `/auth/user/avatar?apiKey=${VRC_API_KEY}`;
-  return await vrchatRequest('PUT', endpoint, { avatarId: safeId }, cookie);
+  const endpoint = `/avatars/${safeId}/select`;
+  return await vrchatRequest('PUT', endpoint, {}, cookie);
 }
 
 /**
@@ -879,6 +889,33 @@ async function vrchatGetAllFriends(cookie, options = {}) {
 }
 
 /**
+ * F-24: 从 VRChat 用户 tags 推断信任等级（VRCX computeTrustLevel 同款，见 VRCX
+ * src/shared/utils/userTransforms.js）。VRChat 用户 API 不直接暴露 trustLevel 字段，
+ * 信任等级由系统标签 system_trust_* 编码（好友与 /users/{id} 完整资料均返回 tags）。
+ * 返回值对齐本站 TRUST_CN / TRUST_RANK 的键：
+ *   system_troll / admin_troll_roll → negative（恶劣玩家，会被自动屏蔽）
+ *   system_trust_veteran → veteran（资深玩家，最高档）
+ *   system_trust_trusted → trusted（信任）
+ *   system_trust_known   → known（常驻玩家）
+ *   system_trust_basic   → new（新用户）
+ *   无任何信任标签         → visitor（游客）
+ */
+const TRUST_TAG_ORDER = [
+  ['system_trust_veteran', 'veteran'],
+  ['system_trust_trusted', 'trusted'],
+  ['system_trust_known', 'known'],
+  ['system_trust_basic', 'new'],
+];
+function resolveTrustLevelFromTags(tags) {
+  if (!Array.isArray(tags) || tags.length === 0) return 'visitor';
+  if (tags.includes('system_troll') || tags.includes('admin_troll_roll')) return 'negative';
+  for (const [tag, level] of TRUST_TAG_ORDER) {
+    if (tags.includes(tag)) return level;
+  }
+  return 'visitor';
+}
+
+/**
  * 将好友列表转换为 userId -> 在线状态信息的 Map。
  * 返回对象字段与 schedule.js 中 group_roster 表使用的字段对齐。
  */
@@ -900,8 +937,8 @@ async function vrchatGetFriendsOnlineMap(cookie, options = {}) {
       vrchatId: id,
       displayName: f.displayName || '',
       // 头像：优先当前模型缩略图；自定义头像大图作为第二选择（用户自己上传的头像）。
-      // 注意：不要把 userIcon 作为头像兜底，它是自定义小图标/徽章，不是头像。
-      avatarUrl: f.currentAvatarThumbnailImageUrl || f.profilePicOverrideThumbnail || '',
+      // V9.3: currentAvatarThumbnailImageUrl 已被 VRChat 弃用（个人资料体系改版），iconUrl 为新头像图标字段。
+      avatarUrl: f.currentAvatarThumbnailImageUrl || f.profilePicOverrideThumbnail || f.iconUrl || '',
       // F-16: VRChat API 的 currentAvatar 字段即当前使用的头像 ID（avtr_xxx），头像历史的键
       currentAvatar: f.currentAvatar || '',
       profilePicOverrideThumbnail: f.profilePicOverrideThumbnail || '',
@@ -919,7 +956,7 @@ async function vrchatGetFriendsOnlineMap(cookie, options = {}) {
       developerType: f.developerType || 'none',
       ageVerificationStatus: f.ageVerificationStatus || '',
       ageVerified: f.ageVerified === true,
-      trustLevel: f.trustLevel || '',
+      trustLevel: f.trustLevel || resolveTrustLevelFromTags(f.tags) || '',
       tags: Array.isArray(f.tags) ? f.tags : [],
       source: 'friends',
     });
@@ -981,10 +1018,10 @@ async function vrchatResolveOnlineStatuses(cookie, userIds, options = {}) {
           result.set(id, {
             vrchatId: id,
             displayName: userData.displayName || '',
-            avatarUrl: userData.currentAvatarThumbnailImageUrl || userData.profilePicOverrideThumbnail || '',
+            avatarUrl: userData.currentAvatarThumbnailImageUrl || userData.profilePicOverrideThumbnail || userData.iconUrl || '',
             currentAvatar: userData.currentAvatar || '',
             profilePicOverrideThumbnail: userData.profilePicOverrideThumbnail || '',
-            userIcon: userData.userIcon || '',
+            userIcon: userData.userIcon || userData.iconUrl || '',
             status,
             statusDescription: userData.statusDescription || '',
             location,
@@ -998,7 +1035,7 @@ async function vrchatResolveOnlineStatuses(cookie, userIds, options = {}) {
             developerType: userData.developerType || 'none',
             ageVerificationStatus: userData.ageVerificationStatus || '',
             ageVerified: userData.ageVerified === true,
-            trustLevel: userData.trustLevel || '',
+            trustLevel: userData.trustLevel || resolveTrustLevelFromTags(userData.tags) || '',
             tags: Array.isArray(userData.tags) ? userData.tags : [],
             source: 'user',
           });
@@ -1171,6 +1208,7 @@ module.exports = {
   vrchatCreateGroupGallery,
   vrchatGetGroupGallery,
   vrchatUpdateGroupGallery,
+  resolveTrustLevelFromTags,
   vrchatDeleteGroupGallery,
   vrchatGetGroupRoles,
   vrchatCreateGroupRole,

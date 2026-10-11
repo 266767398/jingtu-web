@@ -338,7 +338,7 @@ router.post('/me/avatar-vrchat', requireAuth, async (req, res) => {
         );
         if (profileRes.ok) {
           const profile = await profileRes.json();
-          avatarUrl = profile.currentAvatarThumbnailImageUrl || profile.userIcon || avatarUrl;
+          avatarUrl = profile.currentAvatarThumbnailImageUrl || profile.userIcon || profile.iconUrl || avatarUrl;
         }
       } finally { clearTimeout(t); }
     } catch (e) { logger.warn('users', '⚠️ 刷新 VRChat 头像失败:', e.message); }

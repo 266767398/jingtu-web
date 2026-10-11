@@ -358,7 +358,10 @@ async function checkSystemVrcStatus() {
       const pipelineWarn = renderVrcPipelineWarning(data.pipeline);
       const reloginWarn = renderVrcReloginWarning(data.vrcAutoRelogin);
       if (data.systemVrcLogin) {
-        statusEl.innerHTML = '<span class="text-green">🟢 ' + __('admin_vrc.logged_in') + '</span>' + pipelineWarn + reloginWarn;
+        statusEl.innerHTML = (data.systemVrcStale
+          ? '<span class="text-orange">⚠️ ' + __('admin_vrc.logged_in_stale') + '</span>'
+          : '<span class="text-green">🟢 ' + __('admin_vrc.logged_in') + '</span>')
+          + pipelineWarn + reloginWarn;
         if (actionsEl) actionsEl.innerHTML = '<button class="btn btn-sm btn-outline" data-vrc-action="hide-login">' + __('admin_vrc.refresh') + '</button><button class="btn btn-sm btn-danger ml-6" data-vrc-action="do-logout">' + __('admin_vrc.logout') + '</button>' + credBtn;
         // V8.2: 展示系统 VRChat cookie 软性过期设置与剩余有效期
         const wrap = document.getElementById('systemVrcExpireWrap');
@@ -378,7 +381,7 @@ async function checkSystemVrcStatus() {
                 '<option value="180"' + (data.vrcCookieExpireDays === 180 ? ' selected' : '') + '>' + __('admin_vrc.expire_half_year') + '</option>' +
                 '<option value="365"' + (data.vrcCookieExpireDays === 365 ? ' selected' : '') + '>' + __('admin_vrc.expire_year') + '</option>' +
               '</select>' +
-              '<button class="btn btn-sm btn-accent" onclick="saveVrcCookieExpire()">' + __('admin_vrc.save') + '</button>' +
+              '<button class="btn btn-sm btn-accent" data-action="vrc-cookie-expire-save">' + __('admin_vrc.save') + '</button>' +
             '</div>' +
             '<div class="vrc-expire-hint text-muted">' + __('admin_vrc.expire_remain', { t: remain }) + '</div>';
         }
@@ -565,8 +568,10 @@ async function runGitRestart() {
   }
 }
 
-// Git 更新/重启按钮（原内联 onclick 迁移到委托）
+// Git 更新/重启 + VRC cookie 有效期保存（原内联 onclick 迁移到委托）
 document.addEventListener('click', function (e) {
+  const actEl = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+  if (actEl && actEl.getAttribute('data-action') === 'vrc-cookie-expire-save') { saveVrcCookieExpire(); return; }
   if (e.target.closest('#gitUpdateBtn')) { runGitUpdate(); return; }
   if (e.target.closest('#gitRestartBtn')) { runGitRestart(); return; }
 });

@@ -15,7 +15,7 @@
         if (ORDER.indexOf(b) >= 0) return b;
         return 'zh';
       }
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261006c"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261011a"><\/script>');
     })();
   </script>
   <style>
@@ -79,13 +79,16 @@
     <p data-i18n="offline.desc_cached">页面已缓存的内容仍可正常浏览。需要联网的功能（如动态、相册、聊天）暂不可用。</p>
     <p data-i18n="offline.desc_retry">请检查网络连接，恢复后点击下方按钮重试。</p>
     <div class="actions">
-      <button onclick="location.reload()" data-i18n="offline.btn_reload">重新加载</button>
+      <button id="offlineReloadBtn" data-i18n="offline.btn_reload">重新加载</button>
       <a class="btn ghost" href="/" data-i18n="offline.btn_home">返回首页</a>
     </div>
   </main>
-  <script src="/js/i18n.js?v=20261006c"></script>
+  <script src="/js/i18n.js?v=20261011a"></script>
   <script>
     (function () {
+      // 重试按钮原为内联 onclick，被 CSP 拦截后改为此处绑定
+      var _reloadBtn = document.getElementById('offlineReloadBtn');
+      if (_reloadBtn) _reloadBtn.addEventListener('click', function () { location.reload(); });
       if (typeof initI18n === 'function') {
         initI18n();
         if (typeof applyStaticI18n === 'function') applyStaticI18n();

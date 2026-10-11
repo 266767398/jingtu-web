@@ -5,6 +5,8 @@ let profileAlbums = [];
 let profileVideos = [];
 let profileCurrentAlbumId = null;
 let profilePageMode = 'view'; // 'view' | 'album'
+// M5: 资料加载请求序号：每次加载递增，过期响应（含失败）直接丢弃，避免快速连点串台
+let _profileLoadSeq = 0;
 // albumPhotoList 和 currentPhotoIdx 定义在 core.js 中，此处直接使用全局变量
 
 // ==================== 加载用户资料 ====================
@@ -12,6 +14,7 @@ async function loadUserProfile(userId) {
   if (!userId) { toast(__('profile_page.invalid_id'), 'error'); return; }
   const container = document.getElementById('tab-profile-user');
   if (!container) return;
+  const my = ++_profileLoadSeq;
 
   // 切换到资料标签
   switchTabSilent('profile-user');
@@ -24,11 +27,13 @@ async function loadUserProfile(userId) {
 
   try {
     const res = await api(`/api/profile/${userId}`, { method: 'GET' });
+    if (my !== _profileLoadSeq) return; // 期间又发起新加载，丢弃过期响应
     if (!res.ok) {
       if (res.status === 404) { toast(__('profile_page.not_found'), 'error'); return; }
       throw new Error('LOAD_FAILED');
     }
     const data = await res.json();
+    if (my !== _profileLoadSeq) return; // 解析期间又发起新加载，同样丢弃
     profileUser = data.user ? { ...data.user, ...(data.profile || {}) } : data;
     profileAlbums = data.albums || [];
     profileVideos = data.videos || [];
@@ -40,6 +45,7 @@ async function loadUserProfile(userId) {
     renderAlbums(profileAlbums, isOwner);
     renderVideos(profileVideos, isOwner);
   } catch (err) {
+    if (my !== _profileLoadSeq) return; // 过期请求的失败不回写 UI
     if (isApiHandledError(err)) return;
     toast(__('profile.load_failed'), 'error');
     document.getElementById('profileAlbums').innerHTML = '<div class="text-muted text-center-sm p-16">' + __('profile_page.load_failed') + '</div>';
@@ -52,6 +58,8 @@ function switchTabSilent(tab) {
   activeTab = tab;
   document.querySelectorAll('.tab').forEach(btn => btn.classList.toggle('active', btn.id === 'tab-btn-' + tab));
   document.querySelectorAll('.tab-content').forEach(content => content.classList.toggle('d-none', content.id !== 'tab-' + tab));
+  // L1: 同步移动端底部导航高亮，与 ui.js switchTab 的高亮逻辑保持一致
+  document.querySelectorAll('.mobile-tab-bar-item').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
   document.title = __('app.title') + ' - ' + __('profile_page.user_profile');
 }
 
@@ -128,13 +136,13 @@ function renderProfileHeader(user, isOwner) {
   if (actionsEl) {
     let html = '';
     if (isOwner) {
-      html += '<button class="btn btn-sm btn-accent" onclick="showEditProfileModal()">' + __('profile_page.edit_profile') + '</button>';
-      html += '<button class="btn btn-sm btn-outline" onclick="showAlbumModal()">' + __('profile_page.new_album') + '</button>';
-      html += '<button class="btn btn-sm btn-outline" onclick="document.getElementById(\'profileVideoUpload\').click()">' + __('profile_page.upload_video') + '</button>';
-      html += '<button class="btn btn-sm btn-outline" onclick="openDataExportModal()">💾 ' + __('profile_page.data_export') + '</button>';
+      html += '<button class="btn btn-sm btn-accent" data-action="profile-edit">' + __('profile_page.edit_profile') + '</button>';
+      html += '<button class="btn btn-sm btn-outline" data-action="profile-new-album">' + __('profile_page.new_album') + '</button>';
+      html += '<button class="btn btn-sm btn-outline" data-action="profile-upload-video">' + __('profile_page.upload_video') + '</button>';
+      html += '<button class="btn btn-sm btn-outline" data-action="profile-export">💾 ' + __('profile_page.data_export') + '</button>';
     }
     if (!isOwner && currentUser) {
-      html += '<button class="btn btn-sm btn-accent" id="profileLikeBtn" onclick="profileLikeUser()">❤️ <span id="profileLikeCount">0</span></button>';
+      html += '<button class="btn btn-sm btn-accent" id="profileLikeBtn" data-action="profile-like">❤️ <span id="profileLikeCount">0</span></button>';
       html += '<span id="profileLikeStatus" class="text-13 text-muted ml-2"></span>';
     }
     if (user.vrchatId) {
@@ -171,7 +179,7 @@ function renderAlbums(albums, isOwner) {
   if (!container) return;
 
   if (actionsEl) {
-    actionsEl.innerHTML = isOwner ? '<button class="btn btn-accent btn-sm" onclick="showAlbumModal()">' + __('profile_page.new_album_btn') + '</button>' : '';
+    actionsEl.innerHTML = isOwner ? '<button class="btn btn-accent btn-sm" data-action="profile-new-album">' + __('profile_page.new_album_btn') + '</button>' : '';
   }
 
   if (!albums || albums.length === 0) {
@@ -194,7 +202,7 @@ function renderAlbums(albums, isOwner) {
     const privacyClass = privacyLabels[privacy] ? privacy : 'private';
 
     return `
-    <div class="profile-album-card" onclick="openAlbum(${album.id})">
+    <div class="profile-album-card" data-action="profile-open-album" data-album-id="${album.id}">
       ${imgWithFallback(cover || '/api/avatar/default', 'profile-album-cover', album.name || __('profile_page.unnamed_album'))}
       <div class="profile-album-info">
         <div class="profile-album-name">${name}</div>
@@ -214,7 +222,7 @@ function renderVideos(videos, isOwner) {
   if (!container) return;
 
   if (actionsEl) {
-    actionsEl.innerHTML = isOwner ? '<button class="btn btn-accent btn-sm" onclick="document.getElementById(\'profileVideoUpload\').click()">' + __('profile_page.upload_video') + '</button>' : '';
+    actionsEl.innerHTML = isOwner ? '<button class="btn btn-accent btn-sm" data-action="profile-upload-video">' + __('profile_page.upload_video') + '</button>' : '';
   }
 
   if (!videos || videos.length === 0) {
@@ -237,8 +245,8 @@ function renderVideos(videos, isOwner) {
     const privacyClass = privacyLabels[privacy] ? privacy : 'private';
 
     return `
-    <div class="profile-video-card" onclick="openVideo(${video.id})">
-      <img class="profile-video-thumb" src="${escAttr(thumb)}" alt="${title}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <div class="profile-video-card" data-action="profile-open-video" data-video-id="${video.id}">
+      <img class="profile-video-thumb" src="${escAttr(thumb)}" alt="${title}" loading="lazy">
       <div class="profile-video-thumb" style="display:${thumb ? 'none' : 'flex'};align-items:center;justify-content:center;background:var(--bg-muted);font-size:32px">▶️</div>
       <div class="profile-video-info">
         <div class="profile-video-title">${title}</div>
@@ -305,7 +313,7 @@ async function openAlbum(albumId) {
         const vidHtml = isVideo
           ? '<div class="profile-photo-video-thumb"><span style="font-size:32px">🎬</span></div>'
           : imgWithFallback(thumb, '', desc);
-        return '<div class="profile-photo-card" onclick="profileViewMedia(' + photo.id + ')">'
+        return '<div class="profile-photo-card" data-action="profile-view-media" data-photo-id="' + photo.id + '">'
           + vidHtml
           + (isVideo ? '<span class="album-media-badge" style="position:absolute;top:4px;right:4px;font-size:16px">🎬</span>' : '')
           + '</div>';
@@ -365,10 +373,18 @@ function profileViewMedia(photoId) {
 function showProfileVideoModal(videoPath) {
   var overlay = document.createElement('div');
   overlay.className = 'video-overlay';
-  overlay.innerHTML = '<video src="' + escAttr(videoPath) + '" controls autoplay></video><button class="modal-close" onclick="this.parentElement.remove()">✕</button>';
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  overlay.innerHTML = '<video src="' + escAttr(videoPath) + '" controls autoplay></video><button class="modal-close" data-action="close-video-overlay">✕</button>';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) window.closeProfileVideoOverlay(overlay); });
   document.body.appendChild(overlay);
 }
+
+// M2: 全局关闭视频弹层：先暂停播放再移除（供 main.js Escape 统一处理调用）
+window.closeProfileVideoOverlay = function (overlay) {
+  if (!overlay) return;
+  var video = overlay.querySelector('video');
+  if (video) video.pause();
+  overlay.remove();
+};
 
 function backToAlbums() {
   profilePageMode = 'view';
@@ -947,4 +963,59 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', bindDataExportEvents);
 } else {
   bindDataExportEvents();
+}
+
+// ==================== 个人主页按钮事件委托（CSP nonce 下内联处理器不可用） ====================
+// 迁移自个人主页操作按钮/相册卡片/视频卡片/照片卡片/视频弹窗里的内联 onclick ——
+// 属性型处理器被 script-src nonce 拦截（与成员卡/动态同案），统一改为
+// data-action + document 级委托，天然覆盖重渲染与懒加载时序。
+let _profilePageClickHandler = null;
+
+function _bindProfilePageDelegation() {
+  if (_profilePageClickHandler) document.removeEventListener('click', _profilePageClickHandler);
+  _profilePageClickHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    switch (action) {
+      case 'profile-edit':
+        showEditProfileModal();
+        break;
+      case 'profile-new-album':
+        showAlbumModal();
+        break;
+      case 'profile-upload-video': {
+        var input = document.getElementById('profileVideoUpload');
+        if (input) input.click();
+        break;
+      }
+      case 'profile-export':
+        openDataExportModal();
+        break;
+      case 'profile-like':
+        profileLikeUser();
+        break;
+      case 'profile-open-album':
+        openAlbum(el.getAttribute('data-album-id'));
+        break;
+      case 'profile-open-video':
+        openVideo(el.getAttribute('data-video-id'));
+        break;
+      case 'profile-view-media':
+        profileViewMedia(el.getAttribute('data-photo-id'));
+        break;
+      case 'close-video-overlay': {
+        var overlay = el.closest('.video-overlay');
+        if (overlay) window.closeProfileVideoOverlay(overlay);
+        break;
+      }
+    }
+  };
+  document.addEventListener('click', _profilePageClickHandler);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _bindProfilePageDelegation);
+} else {
+  _bindProfilePageDelegation();
 }

@@ -13,12 +13,12 @@ const express = require('express');
 const { fail, ok, getPool, handleError, sendVrcError, ErrorCodes, toSqlDatetime } = require('../utils');
 const { requireAuth } = require('../auth');
 const {
-  vrchatGetCurrentUserResult, vrchatGetGroupMembers,
+  vrchatGetCurrentUserResult,
   vrchatGetUser, vrchatResolveOnlineStatuses, vrchatGetFriendsOnlineMap
 } = require('../vrc');
 const logger = require('../logger');
 const schedule = require('../schedule');
-const { sleep, vrcWithFallback } = require('./groups_helpers');
+const { vrcWithFallback, syncRosterFromVrc } = require('./groups_helpers');
 
 module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   const router = express.Router();
@@ -56,12 +56,13 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   }
 
   // ==================== 全面同步群组成员 ====================
+  // 主体逻辑抽取至 groups_helpers.syncRosterFromVrc（手动路由与定时任务兜底共用），
+  // 本路由保留：按用户冷却 / 进程内互斥 + MySQL GET_LOCK / cookie 获取与 401 分流 / 错误响应映射。
   router.post('/group/members/sync', requireAuth, async (req, res) => {
     if (!getVRCCookieFn(req)) {
       return fail(res, 401, '缺少可用的 VRChat 登录状态', { detail: '请先在个人中心绑定您的 VRChat 账号，或在管理面板的"系统 VRChat 账号"卡片中登录系统账号', code: 'VRC_SYSTEM_OFFLINE' });
     }
     const pool = getPool();
-    let conn;
     // 全量同步是重操作，已对全体登录用户开放，走「按用户」冷却（5 分钟一次）再走互斥锁，
     // 防止有人反复点同步把 VRChat API 打到限流（429）。冷却按用户隔离，一人同步不冻结他人。
     const nowMs = Date.now();
@@ -108,145 +109,19 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       if (meRes.status !== 200 || !meRes.data) {
         return sendVrcError(res, meRes, '校验 VRChat 登录状态');
       }
-      let allMembers = [];
-      let offset = 0;
-      const pageSize = 100;
-      // 上限保护：原来是 while(true)，只要上游忽略 offset 一直返回满页
-      // （VRChat 故障或权限不足时确有此表现），这个请求就永远不会结束，
-      // 还会一直反复打 VRChat 直到撞限流。
-      const MAX_PAGES = 200; // 200 × 100 = 2 万人，远超任何真实群组规模
-      let page = 0;
-      while (page < MAX_PAGES) {
-        // 分页拉取：遇 VRChat 上游 429 时本页退避重试，避免整次同步因瞬时限流直接 abort。
-        let mr = null;
-        for (let attempt = 0; attempt <= SYNC_PAGE_RETRY; attempt++) {
-          mr = await vrchatGetGroupMembers(GROUP_ID, vrcCookie, pageSize, offset);
-          if (mr.status === 200) break;
-          if (mr.status === 429) {
-            const waitMs = 3000 * (attempt + 1); // 3s, 6s, 9s... 退避
-            logger.warn('groups', 'sync 拉取成员分页遇 429，退避后重试本页', { page, attempt, waitMs });
-            await sleep(waitMs);
-            continue;
-          }
-          // 其它非 2xx（401/5xx 等）直接上报，不再重试
-          return sendVrcError(res, mr, '获取群组成员列表');
-        }
-        if (mr.status !== 200) return sendVrcError(res, mr, '获取群组成员列表');
-        const batch = Array.isArray(mr.data) ? mr.data : [];
-        allMembers = allMembers.concat(batch);
-        if (batch.length < pageSize) break;
-        offset += pageSize;
-        page++;
-        // 页间限速：降低对 VRChat 的请求频率，减少触发全局限流的概率
-        await sleep(SYNC_PAGE_GAP_MS);
-      }
-      if (page >= MAX_PAGES) {
-        logger.error('groups', 'VRChat 成员分页超过上限，疑似上游忽略 offset', { pages: page, got: allMembers.length });
-        // 走 sendVrcError 统一分流，不裸写 502：前端靠 code 区分"该重新登录 VRChat"
-        // 还是"VRChat 那边出问题了"。
-        return sendVrcError(res, { status: 502, data: { error: 'VRChat 返回的成员分页异常（未按 offset 翻页）' } }, '获取群组成员列表');
-      }
-      conn = await pool.getConnection();
-      await conn.beginTransaction();
-
-      const [oldMembers] = await conn.query(`SELECT vrchat_id, vrchat_name, is_member FROM group_roster WHERE is_member=1`);
-      const oldMap = new Map(oldMembers.map(m => [m.vrchat_id, m]));
-
-      await conn.query(`UPDATE group_roster SET is_member=0 WHERE is_member=1`);
-
-      let joinedCount = 0, updatedCount = 0;
-      const newMemberIds = new Set();
-      const now = new Date();
-
-      // 原来这里对每个成员先 SELECT 再 UPDATE/INSERT，一千人就是两千次串行往返，
-      // 全部压在同一个事务里，长时间锁住 group_roster。改为一次性取回全部已存在的 ID，
-      // 再用批量 upsert（vrchat_id 上有 UNIQUE 约束）。
-      const [allRows] = await conn.query(`SELECT vrchat_id FROM group_roster`);
-      const existingIds = new Set(allRows.map(r => r.vrchat_id));
-
-      const validMembers = allMembers.filter(m => m.userId);
-      const CHUNK = 200;
-      for (let i = 0; i < validMembers.length; i += CHUNK) {
-        const chunk = validMembers.slice(i, i + CHUNK);
-        const params = [];
-        for (const m of chunk) {
-          const uid = m.userId;
-          newMemberIds.add(uid);
-          const isNew = !oldMap.has(uid);
-          if (isNew) joinedCount++;
-          updatedCount++;
-          params.push(
-            uid,
-            m.user?.displayName || '',
-            m.user?.currentAvatarThumbnailImageUrl || '',
-            m.membershipStatus || 'member',
-            JSON.stringify(m.roleIds || []),
-            // 只有从未在册的人才写 joined_at；已在册的用 COALESCE 保留原值
-            existingIds.has(uid) ? null : now
-          );
-        }
-        const placeholders = chunk.map(() => '(?, ?, ?, 1, ?, ?, ?, NOW())').join(', ');
-        await conn.query(
-          `INSERT INTO group_roster (vrchat_id, vrchat_name, avatar_url, is_member, membership_status, role_ids, joined_at, synced_at)
-           VALUES ${placeholders}
-           ON DUPLICATE KEY UPDATE
-             vrchat_name = VALUES(vrchat_name),
-             avatar_url = VALUES(avatar_url),
-             is_member = 1,
-             membership_status = VALUES(membership_status),
-             role_ids = VALUES(role_ids),
-             joined_at = COALESCE(group_roster.joined_at, VALUES(joined_at)),
-             left_at = NULL,
-             synced_at = NOW()`,
-          params
-        );
-      }
-
-      let leftCount = 0;
-      const leftIds = [...oldMap.keys()].filter(id => !newMemberIds.has(id));
-      if (leftIds.length > 0) {
-        for (let i = 0; i < leftIds.length; i += CHUNK) {
-          const chunk = leftIds.slice(i, i + CHUNK);
-          await conn.query(
-            `UPDATE group_roster SET is_member=0, left_at=NOW(), is_online=0, vrchat_status='offline'
-             WHERE vrchat_id IN (${chunk.map(() => '?').join(',')})`,
-            chunk
-          );
-          const changeParams = [];
-          for (const id of chunk) changeParams.push(id, oldMap.get(id).vrchat_name, '已离开群组（同步检测）');
-          await conn.query(
-            `INSERT INTO group_member_changes (vrchat_id, vrchat_name, change_type, detail)
-             VALUES ${chunk.map(() => "(?, ?, 'left', ?)").join(', ')}`,
-            changeParams
-          );
-        }
-        leftCount = leftIds.length;
-      }
-
-      const joinedMembers = validMembers.filter(m => !oldMap.has(m.userId));
-      for (let i = 0; i < joinedMembers.length; i += CHUNK) {
-        const chunk = joinedMembers.slice(i, i + CHUNK);
-        const changeParams = [];
-        for (const m of chunk) changeParams.push(m.userId, m.user?.displayName || '', '加入群组（同步检测）');
-        await conn.query(
-          `INSERT INTO group_member_changes (vrchat_id, vrchat_name, change_type, detail)
-           VALUES ${chunk.map(() => "(?, ?, 'joined', ?)").join(', ')}`,
-          changeParams
-        );
-      }
-
-      await conn.query(
-        `INSERT INTO group_sync_log (sync_type, total_members, online_count, joined_count, left_count, success) VALUES ('full', ?, 0, ?, ?, 1)`,
-        [allMembers.length, joinedCount, leftCount]
-      );
-
-      await conn.commit();
-      // 成员加入/离开后，立即向前端实时广播该群组最新在线统计（解决"加入/离开状态未更新"）。
-      try { await schedule.forceRosterBroadcast(GROUP_ID); } catch (be) { logger.warn('groups', 'sync 后广播群组状态失败', be.message); }
-      ok(res, { total: allMembers.length, joined: joinedCount, left: leftCount, updated: updatedCount });
+      const result = await syncRosterFromVrc({
+        pool,
+        groupId: GROUP_ID,
+        vrcCookie,
+        broadcast: async () => { await schedule.forceRosterBroadcast(GROUP_ID); },
+      });
+      ok(res, result);
     } catch (e) {
-      if (conn) { try { await conn.rollback(); } catch {} }
-      try { await getPool().query(`INSERT INTO group_sync_log (sync_type, total_members, success, error_msg) VALUES ('full', 0, 0, ?)`, [e.message]); } catch {}
+      // 上游非 2xx 或分页异常（syncRosterFromVrc 附带 upstreamStatus/upstreamData）：
+      // 统一走 sendVrcError 分流——401 引导重新登录 / 403 权限 / 429 限流静默退避。
+      if (e && typeof e === 'object' && e.upstreamStatus !== undefined) {
+        return sendVrcError(res, { status: e.upstreamStatus, data: e.upstreamData }, '获取群组成员列表');
+      }
       // VRChat 限流排队超时：这不是"服务器内部错误"，而是上游繁忙，返回 503 让前端明确提示稍后重试。
       if (e?.code === 'VRC_RATE_TIMEOUT') {
         logger.warn('groups', 'sync 遭遇 VRChat 限流排队超时，本次同步未执行');
@@ -260,7 +135,6 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         try { await lockConn.query('SELECT RELEASE_LOCK(?)', [SYNC_LOCK_NAME]); } catch (_) {}
         try { lockConn.release(); } catch (_) {}
       }
-      if (conn) conn.release();
     }
   });
 

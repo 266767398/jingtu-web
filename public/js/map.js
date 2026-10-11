@@ -348,9 +348,7 @@ function mapAvatarSrc(url, uid) {
     return `/api/avatar/user?u=${encodeURIComponent(uid)}`;
   }
   const proxied = proxyAvatar(url);
-  return (window.__avatarFailCache && window.__avatarFailCache[proxied] > Date.now() - 60000)
-    ? '/api/avatar/default'
-    : proxied;
+  return window.__avatarFailCached(proxied) ? '/api/avatar/default' : proxied;
 }
 
 function upsertLocationMarker(userData) {
@@ -391,7 +389,7 @@ function upsertLocationMarker(userData) {
   const icon = L.divIcon({
     className: 'leaflet-avatar-marker',
     html: `<div class="l-avatar-wrap ${isMe ? 'l-avatar-me' : ''}" style="width:${size}px;height:${size}px;border-color:${borderColor}">
-      <img src="${avatarSrc}" class="l-avatar-img" alt="" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escAttr(proxied || '')}')" />
+      <img src="${avatarSrc}" class="l-avatar-img" alt="" loading="lazy" data-avatar-fail-src="${escAttr(proxied || '')}" />
     </div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
@@ -426,11 +424,11 @@ function getMarkerPopup(u) {
       ? new Date(u.timestamp).toLocaleTimeString(_lang, { hour: '2-digit', minute: '2-digit' })
       : '';
   return `<div style="min-width:150px;text-align:center;padding:4px">
-    <img src="${avatarSrc}" style="width:44px;height:44px;border-radius:50%;border:2px solid ${borderColor}" onerror="window.__avatarFail&&window.__avatarFail(this,'${escAttr(proxied || '')}')" />
+    <img src="${avatarSrc}" class="map-popup-avatar" style="width:44px;height:44px;border-radius:50%;border:2px solid ${borderColor}" data-avatar-fail-src="${escAttr(proxied || '')}" />
     <div style="font-weight:700;margin-top:4px">${esc(u.displayName || '')}</div>
     <div class="map-location-text">📍 ${esc(u.location || __('map.unknown_location'))}</div>
     ${timeStr ? `<div class="map-time-text">🕐 ${timeStr}</div>` : ''}
-    <button class="btn btn-xs mt-4" onclick="openChat('${escJsStr(String(u.id))}')">${__('map.send_message')}</button>
+    <button class="btn btn-xs mt-4" data-action="map-open-chat" data-uid="${escAttr(String(u.id))}">${__('map.send_message')}</button>
   </div>`;
 }
 
@@ -877,7 +875,7 @@ function _renderMapTop(top) {
           <span class="worlds-top-name">${esc(it.worldName || it.instanceId)}</span>
         </div>
         <div class="worlds-top-line2">
-          <span class="worlds-top-id" onclick="copyToClipboard && copyToClipboard('${escJsStr(it.instanceId)}')" title="${__('map.copy_instance')}">${esc(it.instanceId.length > 36 ? it.instanceId.slice(0, 34) + '…' : it.instanceId)}</span>
+          <span class="worlds-top-id" data-action="map-copy-instance" data-instance="${escAttr(it.instanceId)}" title="${__('map.copy_instance')}">${esc(it.instanceId.length > 36 ? it.instanceId.slice(0, 34) + '…' : it.instanceId)}</span>
         </div>
         <div class="worlds-top-bar"><span style="width:${Math.max(8, Math.round(it.memberCount / max * 100))}%"></span></div>
       </div>
@@ -905,7 +903,7 @@ function _renderMapGrid(worlds) {
       <div class="world-grid-card">
         <div class="world-grid-header">
           <span class="world-grid-title">
-            ${wThumb ? `<img class="world-grid-thumb" src="${escAttr(wThumb)}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+            ${wThumb ? `<img class="world-grid-thumb" src="${escAttr(wThumb)}" alt="" loading="lazy">` : ''}
             <span class="world-grid-name" title="${esc(wName)}">🌐 ${esc(wName)}</span>
           </span>
           <div class="world-grid-meta">
@@ -917,7 +915,7 @@ function _renderMapGrid(worlds) {
           <div class="world-instance-row" title="${esc(it.instanceId)}">
             <span class="worlds-region-badge region-${mapRegionClass(it.region)}">${esc(mapRegionCn(it.region))}</span>
             ${it.isPrivate ? '<span class="worlds-private-badge" title="' + esc(__('map.private_instance')) + '">🔒</span>' : ''}
-            <span class="world-instance-id" onclick="copyToClipboard && copyToClipboard('${escJsStr(it.instanceId)}')" title="${__('map.copy_instance')}">${esc(it.instanceId.length > 30 ? it.instanceId.slice(0, 28) + '…' : it.instanceId)}</span>
+            <span class="world-instance-id" data-action="map-copy-instance" data-instance="${escAttr(it.instanceId)}" title="${__('map.copy_instance')}">${esc(it.instanceId.length > 30 ? it.instanceId.slice(0, 28) + '…' : it.instanceId)}</span>
             <span class="world-instance-count">${it.members.length}</span>
           </div>
         `).join('')}</div>` : ''}
@@ -925,8 +923,8 @@ function _renderMapGrid(worlds) {
           ${w.members.slice(0, 8).map(m => {
             const wa = mapAvatarSrc(m.avatarUrl, m.vrchatId);
             return `
-            <div class="world-mini-avatar" title="${esc(m.displayName)}" onclick="openVrcMemberCard('${escJsStr(m.vrchatId)}')" style="cursor:pointer">
-              <img src="${escAttr(wa)}" alt="${esc(m.displayName)}" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escAttr(wa)}');this.style.display='none';this.nextElementSibling.style.display='flex'">
+            <div class="world-mini-avatar" title="${esc(m.displayName)}" data-action="map-open-vrc-card" data-vrc-id="${escAttr(m.vrchatId)}" style="cursor:pointer">
+              <img src="${escAttr(wa)}" alt="${esc(m.displayName)}" class="world-mini-avatar-img" loading="lazy" data-avatar-fail-src="${escAttr(wa)}">
               <div class="world-avatar-fallback" style="${wa === '/api/avatar/default' ? 'display:flex' : ''}">${esc((m.displayName || '?').charAt(0).toUpperCase())}</div>
             </div>`;
           }).join('')}
@@ -938,19 +936,29 @@ function _renderMapGrid(worlds) {
 }
 
 // ==================== 视图切换 ====================
-// VRC 页签子视图切换：群组视图 / VRChat 世界视图 / 收藏视图。
+// VRC 页签子视图切换：群组视图 / VRChat 世界视图 / 收藏视图 / 黑名单视图（所有人）/ 群组管理视图（仅管理员）。
 // 地图页已简化为仅成员位置（原 .map-tab-btn 子页签并入 VRC 页签）。
+// 注意：currentUser 在 core.js 为顶层 let 声明（不在 window 上），必须写裸标识符引用。
 function switchVrcView(view) {
+  // 群组管理为 admin-only 视图：非管理员即使通过控制台触发也强制回退群组视图
+  if (view === 'groupmgmt') {
+    const isAdmin = !!(typeof currentUser !== 'undefined' && currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin'));
+    if (!isAdmin) view = 'group';
+  }
   const btns = document.querySelectorAll('#tab-vrc .map-tab-btn');
   btns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
   const groupView = document.getElementById('vrcGroupView');
   const worldsView = document.getElementById('vrcWorldsView');
   const collView = document.getElementById('vrcCollectionsView');
   const favView = document.getElementById('vrcFavoritesView');
+  const blView = document.getElementById('vrcBlacklistView');
+  const mgmtView = document.getElementById('vrcGroupMgmtView');
   if (groupView) groupView.classList.toggle('d-none', view !== 'group');
   if (worldsView) worldsView.classList.toggle('d-none', view !== 'worlds');
   if (collView) collView.classList.toggle('d-none', view !== 'collections');
   if (favView) favView.classList.toggle('d-none', view !== 'vrcfav');
+  if (blView) blView.classList.toggle('d-none', view !== 'blacklist');
+  if (mgmtView) mgmtView.classList.toggle('d-none', view !== 'groupmgmt');
   if (view === 'worlds') {
     bindMapWorldsControls();
     updateWorldMapMarkers();
@@ -962,6 +970,17 @@ function switchVrcView(view) {
   // F-20 VRChat 官方收藏视图：懒加载 vrc_favorites.js 后刷新数据
   if (view === 'vrcfav' && typeof window.loadVrcFavorites === 'function') {
     window.loadVrcFavorites();
+  }
+  // 黑名单视图（所有人可见）
+  if (view === 'blacklist' && typeof window.loadVrcBlacklistView === 'function') {
+    window.loadVrcBlacklistView();
+  }
+  // 群组管理视图（仅管理员）：打开时先登记面板加载器（懒加载），再派发
+  // vrc:mgmt-shown 事件批量触发登记的面板加载。避免页面加载时急切拉取
+  // VRChat 依赖请求（系统 VRC 失效时首页即炸通知风暴）。
+  if (view === 'groupmgmt' && typeof setupGroupAdminPanels === 'function') {
+    setupGroupAdminPanels();
+    document.dispatchEvent(new Event('vrc:mgmt-shown'));
   }
 }
 
@@ -1023,3 +1042,38 @@ window.openMapLocation = function(lat, lng) {
     }
   }, 300);
 };
+
+// 地图页动态内容事件委托（原内联 onclick/onerror 迁移，CSP nonce 化后属性型处理器被拦截）
+let _mapDelegationHandler = null;
+function _bindMapDelegation() {
+  if (_mapDelegationHandler) document.removeEventListener('click', _mapDelegationHandler);
+  _mapDelegationHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    switch (el.getAttribute('data-action')) {
+      case 'map-open-chat':
+        if (typeof openChat === 'function' && el.getAttribute('data-uid')) openChat(el.getAttribute('data-uid'));
+        break;
+      case 'map-copy-instance':
+        if (typeof copyToClipboard === 'function' && el.getAttribute('data-instance')) copyToClipboard(el.getAttribute('data-instance'));
+        break;
+      case 'map-open-vrc-card':
+        if (typeof openVrcMemberCard === 'function' && el.getAttribute('data-vrc-id')) openVrcMemberCard(el.getAttribute('data-vrc-id'));
+        break;
+    }
+  };
+  document.addEventListener('click', _mapDelegationHandler);
+}
+
+// 世界卡片迷你头像失败 → 先走 core.js 的 __avatarFail 重试链（类名含 avatar 触发），
+// 再隐藏图片、显示首字母兄弟占位（还原原内联 onerror 语义）
+document.addEventListener('error', function (e) {
+  var t = e.target;
+  if (!t || t.tagName !== 'IMG' || !t.classList || !t.classList.contains('world-mini-avatar-img')) return;
+  if (t.dataset.miniAvatarDone) return;
+  t.dataset.miniAvatarDone = '1';
+  t.style.display = 'none';
+  if (t.nextElementSibling) t.nextElementSibling.style.display = 'flex';
+}, true);
+
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', _bindMapDelegation); } else { _bindMapDelegation(); }

@@ -1,0 +1,1743 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>境途 &middot; 项目文档总览（02-06 + #13 模块地图）</title>
+<style>
+
+:root{
+  --bg:#070b14;
+  --bg2:#0a101f;
+  --panel:#0e1626;
+  --panel2:#111b30;
+  --line:#1b2945;
+  --line2:#2b3f68;
+  --text:#e4ecf9;
+  --muted:#94a4c6;
+  --dim:#5d6b8c;
+  --cyan:#2fd4ff;
+  --violet:#a78bfa;
+  --green:#3ee6a5;
+  --amber:#ffc35c;
+  --rose:#ff6b9d;
+  --red:#ff5d6c;
+  --radius:12px;
+  --mono:"SFMono-Regular",Consolas,"JetBrains Mono","Menlo",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;scroll-padding-top:76px}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+::selection{background:rgba(47,212,255,.25)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#223355;border-radius:6px}
+::-webkit-scrollbar-track{background:transparent}
+a{color:var(--cyan);text-decoration:none}
+a:hover{text-decoration:underline}
+code,.mono{font-family:var(--mono);font-size:12.5px}
+.mono{color:#b9c8ea}
+strong{font-weight:600}
+
+h3.sub{font-size:16px;font-weight:650;margin:30px 0 12px;color:#cfe0ff}
+h3.sub::before{content:"";display:inline-block;width:4px;height:14px;background:linear-gradient(180deg,var(--cyan),var(--violet));border-radius:2px;margin-right:9px;vertical-align:-2px}
+
+.panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);overflow:hidden}
+.panel-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);background:rgba(17,27,48,.6);flex-wrap:wrap}
+.panel-head h4{font-size:13.5px;font-weight:650;display:flex;align-items:center;gap:8px}
+.panel-head h4 .pill{font-size:10.5px;color:var(--dim);font-weight:500}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;padding:10px 16px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);background:rgba(10,16,31,.5)}
+.legend .lg{display:inline-flex;align-items:center;gap:7px}
+.legend .sw{width:12px;height:12px;border-radius:4px;flex-shrink:0}
+
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line)}
+.toolbar .searchbox{position:relative;flex:1;min-width:200px}
+.toolbar .searchbox input{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:8px 34px 8px 12px;font-size:13px;outline:none;transition:.18s}
+.toolbar .searchbox input:focus{border-color:rgba(47,212,255,.55);box-shadow:0 0 0 3px rgba(47,212,255,.12)}
+.toolbar .searchbox .st{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--dim);font-size:13px}
+.btn{border:1px solid var(--line2);background:var(--panel2);color:var(--muted);border-radius:8px;padding:7px 13px;font-size:12.5px;cursor:pointer;font-family:var(--sans);transition:.16s;white-space:nowrap}
+.btn:hover{color:var(--text);border-color:#3a5588}
+.btn.on{color:var(--cyan);border-color:rgba(47,212,255,.5);background:rgba(47,212,255,.1)}
+.btn.primary{color:#08131f;background:linear-gradient(135deg,var(--cyan),#7fb8ff);border:none;font-weight:600}
+.btn.primary:hover{filter:brightness(1.1);color:#08131f}
+
+.map-wrap{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:radial-gradient(700px 300px at 50% 0%,rgba(47,212,255,.05),transparent 70%),var(--bg2);position:relative}
+#mapSvg{display:block;width:100%;height:640px;cursor:grab;touch-action:none}
+#mapSvg.dragging{cursor:grabbing}
+.nh:focus{outline:2px solid var(--cyan);outline-offset:2px}
+.map-zooms{position:absolute;right:14px;top:14px;display:flex;flex-direction:column;gap:6px}
+.zoom-btn{width:32px;height:32px;border-radius:8px;border:1px solid var(--line2);background:rgba(14,22,38,.9);color:var(--muted);font-size:17px;cursor:pointer;font-family:var(--mono)}
+.zoom-btn:hover{color:var(--text);border-color:#3a5588}
+.map-hint{position:absolute;left:14px;bottom:12px;font-size:11.5px;color:var(--dim);background:rgba(14,22,38,.85);padding:6px 10px;border-radius:8px;border:1px solid var(--line)}
+.map-stat{position:absolute;right:14px;bottom:12px;font-size:11.5px;color:var(--dim);font-family:var(--mono);background:rgba(14,22,38,.85);padding:6px 10px;border-radius:8px;border:1px solid var(--line)}
+
+.detail-panel{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:16px;margin-top:16px}
+.detail-card{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:16px}
+.detail-card h5{font-size:12px;color:var(--dim);font-weight:600;letter-spacing:.1em;margin-bottom:10px}
+.detail-card .dname{font-family:var(--mono);font-size:16px;color:var(--text);word-break:break-all}
+.detail-card .dmeta{margin-top:6px;font-size:12px;color:var(--muted)}
+.detail-card .ddesc{margin-top:12px;font-size:13px;color:var(--muted);line-height:1.7}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);border-radius:20px;padding:2px 11px;font-size:11.5px;font-family:var(--mono);margin:3px 4px 0 0;cursor:pointer;transition:.14s}
+.chip:hover{color:var(--text);border-color:#3a5588}
+.chip.hot{color:var(--cyan);border-color:rgba(47,212,255,.45);background:rgba(47,212,255,.08)}
+.chiplist{margin:-2px 0 4px}
+.empty-note{color:var(--dim);font-size:12.5px;padding:6px 0;font-style:italic}
+
+table.tbl{width:100%;border-collapse:collapse;font-size:12.8px}
+.tbl-scroll{overflow:auto;max-height:560px}
+.tbl thead th{position:sticky;top:0;z-index:5;background:#101a30;color:#9db2dd;text-align:left;font-weight:600;font-size:11.5px;letter-spacing:.05em;padding:9px 12px;border-bottom:1px solid var(--line2);white-space:nowrap;cursor:pointer;user-select:none}
+.tbl thead th:hover{color:var(--cyan)}
+.tbl td{padding:8px 12px;border-bottom:1px solid #16233c;vertical-align:top;color:#c9d6f0}
+.tbl tbody tr:hover{background:rgba(47,212,255,.045)}
+.tbl tbody tr:nth-child(even){background:rgba(255,255,255,.014)}
+.tbl tbody tr:nth-child(even):hover{background:rgba(47,212,255,.045)}
+.tbl .f{font-family:var(--mono);color:#d7e4ff;white-space:nowrap}
+.tbl .muted{color:var(--muted)}
+.tbl .dims{color:var(--dim);font-size:11.5px}
+.tbl td.sub{color:#aebee2}
+td .tag{display:inline-block;font-family:var(--mono);font-size:10.5px;border-radius:5px;padding:1px 6px;margin:1px 3px 1px 0;border:1px solid rgba(255,255,255,.14);color:#dfe8fb;background:rgba(255,255,255,.05);white-space:nowrap}
+.tag.lazy{background:rgba(255,107,157,.1);border-color:rgba(255,107,157,.35);color:#ffb6cd}
+.tag.stand{background:rgba(255,195,92,.1);border-color:rgba(255,195,92,.35);color:#ffdca8}
+.tag.disab{background:rgba(255,93,108,.1);border-color:rgba(255,93,108,.35);color:#ffa7b0}
+.dep-chip{display:inline-block;font-family:var(--mono);font-size:10.5px;border-radius:14px;padding:1px 8px;margin:1px 4px 1px 0;color:#0a0f1c;font-weight:700}
+.rowcount{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:auto}
+
+.codeblock{position:relative;border:1px solid var(--line);border-radius:var(--radius);background:#0a101e;overflow:hidden;margin:10px 0}
+.codeblock pre{padding:16px 18px;overflow:auto;font-family:var(--mono);font-size:12.8px;line-height:1.75;color:#bcd6f5;white-space:pre}
+.copybtn{position:absolute;top:10px;right:10px;background:rgba(17,27,48,.9);border:1px solid var(--line2);color:var(--muted);font-size:11px;border-radius:7px;padding:4px 10px;cursor:pointer}
+.copybtn:hover{color:var(--cyan);border-color:rgba(47,212,255,.5)}
+
+.flow-note{display:flex;gap:8px;align-items:flex-start;border:1px solid rgba(255,195,92,.35);border-radius:10px;background:rgba(255,195,92,.07);padding:12px 14px;margin:12px 0;font-size:13px;color:#ffdfa8}
+.flow-note b{color:var(--amber)}
+.callout{border:1px solid rgba(47,212,255,.3);border-radius:10px;background:rgba(47,212,255,.05);padding:12px 14px;margin:12px 0;font-size:13px;color:#bfe9ff}
+
+.tree-block{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.tree{font-family:var(--mono);font-size:12.3px;line-height:1.9;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;color:#bcd6f5;overflow:auto}
+.tree .root{color:var(--cyan)}
+.tree .leaf{color:#93a9d4;display:block;margin-left:22px}
+.tree .leaf::before{content:"└─ ";color:#3a5588}
+
+.vrc-row{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.vbox{flex:1;min-width:150px;max-width:210px;border:1px solid var(--line2);border-radius:10px;padding:10px 12px;background:var(--panel);position:relative}
+.vbox .t{font-family:var(--mono);font-size:12px;color:var(--cyan);margin-bottom:3px}
+.vbox .d{font-size:11.5px;color:var(--muted);line-height:1.5}
+.vbox.hl{border-color:rgba(167,139,250,.6);background:linear-gradient(180deg,rgba(167,139,250,.1),rgba(17,27,48,.6))}
+.vbox.hl .t{color:var(--violet)}
+.v-arrow{display:flex;align-items:center;color:#3a5588;font-size:18px;flex-shrink:0;padding:4px 0}
+.v-arrow.small{font-size:13px;color:#5d6b8c}
+.vrack{display:flex;gap:10px;flex-wrap:wrap;margin-left:26px;margin-top:8px}
+.v-dash{border:1px dashed rgba(167,139,250,.45);border-radius:8px;padding:8px 12px;font-size:11.5px;color:#c4b8f5;background:rgba(167,139,250,.06)}
+
+.checklist{counter-reset:cli;display:grid;gap:10px}
+.check-item{display:flex;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;font-size:13.5px;line-height:1.7;color:#c9d6f0}
+.check-item::before{counter-increment:cli;content:counter(cli);font-family:var(--mono);font-weight:700;color:#08131f;background:linear-gradient(135deg,var(--cyan),#7fb8ff);border-radius:8px;min-width:26px;height:26px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.check-item b{color:var(--text)}
+.check-item code{background:var(--panel2);border:1px solid var(--line);padding:1px 6px;border-radius:5px;font-size:12px}
+
+footer{border-top:1px solid var(--line);padding:26px 24px 40px;color:var(--dim);font-size:12.5px;text-align:center}
+footer .mono{display:block;margin-bottom:6px}
+
+.diagram-svg{width:100%;height:auto;display:block}
+.diagbox{fill:#101a30;stroke:#2b3f68;stroke-width:1.2}
+.diagbox.entry{fill:rgba(47,212,255,.08);stroke:var(--cyan);stroke-width:1.6}
+.diagbox.rt{fill:rgba(62,230,165,.05);stroke:#1f5c44}
+.diagbox.svc{fill:rgba(255,195,92,.06);stroke:#6b5c35}
+.diagtitle{fill:var(--cyan);font-family:var(--sans);font-size:13px;font-weight:700}
+.diagtitle.svc{fill:var(--amber)}
+.diagsub{fill:#8fa3c9;font-size:10.5px;font-family:var(--mono)}
+.edge{stroke:#31446f;stroke-width:1.4;fill:none}
+.bus,.edge.bus{stroke:#31446f;stroke-width:1.2}
+.dash{stroke:#556389;stroke-width:1.3;stroke-dasharray:5 4;fill:none}
+.edge-label{fill:#5d6b8c;font-size:10px;font-family:var(--mono)}
+
+@media (max-width:900px){
+  .hero{padding:26px 22px}
+  #mapSvg{height:520px}
+  .detail-panel{grid-template-columns:1fr}
+  .badge-date{display:none}
+}
+@media (max-width:600px){
+  main{padding:72px 14px 40px}
+  .stats{grid-template-columns:repeat(2,1fr)}
+}
+
+code{font-family:var(--mono);font-size:.92em;background:#0a1424;border:1px solid var(--line);padding:1px 6px;border-radius:5px;color:#bfd4ff}
+pre{font-family:var(--mono);background:#0a1424;border:1px solid var(--line);border-radius:var(--radius);padding:18px;font-size:12.5px;line-height:1.65;overflow-x:auto;color:#c6d4f0}
+pre .c{color:var(--dim)}
+pre .k{color:var(--cyan)}
+pre .p{color:#b8c7e8}
+header{position:sticky;top:0;z-index:50;background:rgba(7,11,20,.88);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.hwrap{max-width:1240px;margin:0 auto;padding:10px 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.5px}
+.logo .dot{width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green)}
+.logo small{color:var(--dim);font-weight:400}
+nav.tabs{margin-left:auto;display:flex;gap:4px;flex-wrap:wrap}
+nav.tabs a{padding:6px 12px;border-radius:8px;color:var(--muted);font-size:13px;border:1px solid transparent}
+nav.tabs a:hover{color:var(--text);background:var(--panel2)}
+nav.tabs a.active{color:var(--cyan);background:var(--panel);border-color:var(--line2)}
+main{max-width:1240px;margin:0 auto;padding:26px 22px 60px}
+section{margin-top:46px;scroll-margin-top:64px}
+.section-head{display:flex;align-items:baseline;gap:12px;border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:20px}
+.section-head .no{font-family:var(--mono);color:var(--cyan);font-size:15px;font-weight:700;opacity:.85}
+.section-head h2{font-size:21px;font-weight:700;letter-spacing:.3px}
+.section-head .sp{flex:1}
+.section-head .sub{color:var(--dim);font-size:12.5px;font-family:var(--mono)}
+.section-sub{color:var(--muted);font-size:13.5px;margin-bottom:18px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;transition:border-color .2s}
+.card:hover{border-color:var(--line2)}
+.card h3{font-size:14.5px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.card h3 .ic{width:8px;height:8px;border-radius:2px;display:inline-block}
+.card p{color:var(--muted);font-size:13px}
+.card ul{list-style:none;margin-top:8px}
+.card ul li{color:var(--muted);font-size:12.8px;padding:5px 0;border-bottom:1px dashed rgba(27,41,69,.55)}
+.card ul li:last-child{border-bottom:none}
+.card ul li b{color:var(--text);font-weight:600}
+.card ul li code{font-size:11.5px;padding:0 4px}
+table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;font-size:13px}
+th{background:var(--panel2);color:var(--muted);font-weight:600;text-align:left;padding:9px 13px;font-size:12.3px;letter-spacing:.3px;white-space:nowrap}
+td{padding:8px 13px;border-top:1px solid var(--line);color:var(--text);vertical-align:top}
+td.muted{color:var(--muted)}
+td.dim{color:var(--dim)}
+td.f{font-family:var(--mono);font-size:12.3px;color:#bfd4ff}
+td code{font-size:11.5px}
+.tag{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11.5px;border:1px solid;background:transparent;white-space:nowrap}
+.tag.ok{color:var(--green);border-color:var(--green)}
+.tag.warn{color:var(--amber);border-color:var(--amber)}
+.tag.info{color:var(--cyan);border-color:var(--cyan)}
+.tag.risk{color:var(--red);border-color:var(--red)}
+.tag.off{color:var(--dim);border-color:var(--dim)}
+.badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11.5px;font-family:var(--mono);border:1px solid}
+.hero{position:relative;margin-top:34px;border:1px solid var(--line);border-radius:16px;padding:38px 34px;background:radial-gradient(900px 320px at 15% -10%,rgba(47,212,255,.12),transparent),radial-gradient(800px 300px at 85% -20%,rgba(167,139,250,.12),transparent),var(--bg2);overflow:hidden}
+.hero::after{content:'';position:absolute;right:-60px;top:-60px;width:260px;height:260px;border:1px solid rgba(62,230,165,.16);border-radius:50%}
+.hero::before{content:'';position:absolute;right:20px;top:20px;width:180px;height:180px;border:1px dashed rgba(47,212,255,.18);border-radius:50%}
+.hero .kicker{font-family:var(--mono);color:var(--green);font-size:12px;letter-spacing:2px}
+.hero h1{font-size:32px;font-weight:800;margin:10px 0 8px;letter-spacing:.5px}
+.hero p.tagline{color:var(--muted);font-size:14.5px;max-width:760px}
+.hero .meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.hero .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:26px;max-width:880px}
+.hero .stat{background:rgba(14,22,38,.85);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.hero .stat b{display:block;font-size:24px;font-family:var(--mono);color:var(--cyan);font-weight:700}
+.hero .stat b.g{color:var(--green)}
+.hero .stat b.v{color:var(--violet)}
+.hero .stat b.a{color:var(--amber)}
+.hero .stat span{color:var(--dim);font-size:12px}
+.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch}
+.flow .box{background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:9px 13px;font-size:12.3px;position:relative;flex:1;min-width:110px;text-align:center}
+.flow .box b{display:block;color:var(--text);font-size:12.3px;margin-bottom:2px}
+.flow .box span{color:var(--dim);font-size:11px;font-family:var(--mono)}
+.flow .arrow{align-self:center;color:var(--dim);font-size:15px;flex:0 0 auto}
+.flowbox{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.flowbox .node{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;padding:7px 11px;font-size:12px;color:var(--text);white-space:nowrap}
+.flowbox .node b{display:block;font-size:10.5px;color:var(--dim);font-weight:500;text-align:center;letter-spacing:.4px}
+.flowbox .node.hl{border-color:var(--cyan);color:var(--cyan)}
+.flowbox .node.warn{border-color:var(--amber);color:var(--amber)}
+.flowbox .arw{color:var(--dim)}
+.gridlist{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}
+.entry{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.entry .eh{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel2)}
+.entry .eh .m{width:9px;height:9px;border-radius:3px}
+.entry .eh b{font-size:13.5px}
+.entry .eh span{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--dim)}
+.entry .eb{padding:10px 16px;font-size:12.3px;color:var(--muted)}
+.entry .eb code{font-size:11px;margin:0 2px}
+.entry .eb .one{padding:3px 0;border-bottom:1px dashed rgba(27,41,69,.5);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.entry .eb .one:last-child{border-bottom:none}
+.entry .eb .one .path{font-family:var(--mono);color:#bfd4ff;font-size:11.5px}
+.entry .eb .one .cnt{color:var(--dim);font-size:11px;font-family:var(--mono);margin-left:auto}
+.kv{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.kv .k{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:3px 10px;font-family:var(--mono);font-size:11.5px;color:#bfd4ff}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.chips .btn{padding:5px 12px;border-radius:8px;border:1px solid var(--line2);background:var(--panel);color:var(--muted);font-size:12.3px;cursor:pointer;font-family:var(--sans)}
+.chips .btn.on{background:var(--panel2);color:var(--cyan);border-color:var(--cyan)}
+.chips .btn:hover{border-color:var(--cyan)}
+.bar{height:8px;border-radius:5px;background:#0a1424;overflow:hidden;border:1px solid var(--line);margin:4px 0}
+.bar i{display:block;height:100%;border-radius:5px}
+.foot{margin-top:60px;border-top:1px solid var(--line);padding-top:16px;color:var(--dim);font-size:12.3px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+@media(max-width:820px){
+  nav.tabs{order:3;width:100%}
+  .hero h1{font-size:25px}
+  .g2{grid-template-columns:1fr}
+}
+
+/* ===== 阅读进度条 ===== */
+.read-progress{position:fixed;top:0;left:0;height:3px;width:0;background:linear-gradient(90deg,var(--cyan),var(--violet),var(--green));z-index:200;transition:width .1s linear;box-shadow:0 0 8px rgba(47,212,255,.5)}
+/* ===== 回到顶部 ===== */
+.to-top{position:fixed;right:22px;bottom:26px;width:44px;height:44px;border-radius:12px;border:1px solid var(--line2);background:rgba(14,22,38,.92);backdrop-filter:blur(8px);color:var(--muted);font-size:20px;cursor:pointer;z-index:90;display:flex;align-items:center;justify-content:center;opacity:0;transform:translateY(16px);pointer-events:none;transition:.22s cubic-bezier(.2,.8,.2,1)}
+.to-top.show{opacity:1;transform:translateY(0);pointer-events:auto}
+.to-top:hover{color:var(--cyan);border-color:rgba(47,212,255,.55);box-shadow:0 6px 22px rgba(47,212,255,.18)}
+/* ===== 表格排序 ===== */
+.tbl thead th.sorted-asc::after{content:' \25B2';color:var(--cyan);font-size:10px;margin-left:4px}
+.tbl thead th.sorted-desc::after{content:' \25BC';color:var(--cyan);font-size:10px;margin-left:4px}
+.tbl thead th:hover{color:var(--text)}
+@media(max-width:600px){
+  .to-top{right:14px;bottom:16px;width:40px;height:40px}
+}
+
+</style>
+</head>
+<body>
+<div class="read-progress" id="readProgress"></div>
+<header>
+  <div class="hwrap">
+    <div class="logo"><span class="dot"></span>境途 jingtu-web <small>&middot; 全量文档可视化</small></div>
+    <nav class="tabs">
+<a href="#ov">项目总览</a>
+      <a href="#arch">启动与架构</a>
+      <a href="#ops">部署与运维</a>
+      <a href="#api">API 总览</a>
+      <a href="#db">数据库</a>
+      <a href="#sec">功能与安全</a>
+<a href="#overview">分层总览</a>
+    <a href="#map">交互地图</a>
+    <a href="#backend">后端</a>
+    <a href="#frontend">前端</a>
+    <a href="#vrc">VRC 链路</a>
+    <a href="#symbols">符号速查</a>
+    <a href="#checklist">检查清单</a>
+    </nav>
+  </div>
+</header>
+<main>
+<section class="hero" id="hero">
+  <div class="kicker">JINGTU PROJECT DOCS &middot; 02-06 + #13</div>
+  <h1>境途 &middot; VRChat 社群一体化 Web 应用</h1>
+  <p class="tagline">原生 HTML/CSS/JS 前端 + Node.js/Express 后端的一体化单体应用，同时提供静态文件、HTTP API 与 WebSocket；业务数据与 Session 存 MySQL（可选 SQLite 单机模式）。本页为全站文档可视化：项目级总览与代码级依赖地图合二为一。</p>
+  <div class="meta">
+    <span class="badge" style="color:var(--green);border-color:var(--green)">v1.3.0</span>
+    <span class="badge" style="color:var(--cyan);border-color:var(--cyan)">V8.2</span>
+    <span class="badge" style="color:var(--amber);border-color:var(--amber)">MySQL 5.7+/8.0+</span>
+    <span class="badge" style="color:var(--violet);border-color:var(--violet)">SQLite 可选</span>
+    <span class="badge" style="color:var(--rose);border-color:var(--rose)">端口 3456</span>
+    <span class="badge" style="color:var(--cyan);border-color:var(--cyan)">Node.js &ge;20</span>
+  </div>
+  <div class="stats">
+    <div class="stat"><b>8</b><span>全局中间件</span></div>
+    <div class="stat"><b class="v">59</b><span>活跃路由文件</span></div>
+    <div class="stat"><b class="g">30</b><span>懒加载模块</span></div>
+    <div class="stat"><b class="a">47</b><span>前端文件</span></div>
+    <div class="stat"><b>93</b><span>DB 表（MySQL）</span></div>
+    <div class="stat"><b class="v">11</b><span>API 接口族</span></div>
+    <div class="stat"><b class="g">6</b><span>安全防线</span></div>
+    <div class="stat"><b class="a">18+</b><span>功能模块</span></div>
+  </div>
+</section>
+
+<section id="ov">
+  <div class="section-head"><span class="no">01</span><h2>项目总览</h2><span class="sp"></span><span class="sub">DOC 02 · 定位 / 技术栈 / 目录 / 版本</span></div>
+
+  <div class="grid g3">
+    <div class="card">
+      <h3><span class="ic" style="background:var(--cyan)"></span>定位</h3>
+      <p>面向 <b>VRChat 社群</b> 的一体化单体 Web 应用：原生 HTML/CSS/JS 前端 + Node.js/Express 后端，同时提供静态文件、HTTP API 与 WebSocket。</p>
+      <ul>
+        <li><b>前端</b>：无框架、无打包器，Tab 式单页</li>
+        <li><b>后端</b>：Express 单体，中间件主链串联</li>
+        <li><b>存储</b>：MySQL 默认，SQLite 单机模式可选</li>
+        <li><b>实时</b>：/ws 与 HTTP 共用 Server</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--green)"></span>技术栈</h3>
+      <ul>
+        <li><b>后端</b>：Node.js ≥20 · Express 4 · mysql2 · express-session(+mysql) · bcryptjs · ws · Multer/Sharp · node-schedule · Nodemailer</li>
+        <li><b>前端</b>：原生 JS/CSS · i18n 6 语言 · Leaflet(CDN) · PWA</li>
+        <li><b>可选</b>：Redis(缓存/限流/CSRF) · PM2 · Nginx/TLS · Docker Compose</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--amber)"></span>版本</h3>
+      <p>package.json <code>1.3.0</code>；启动日志 <code>V8.2</code>。</p>
+      <ul>
+        <li>MySQL 模式 <b>93 张表</b>（核心 87 + 归档/收藏/队伍/VRC 缓存等运行时表）</li>
+        <li>历史文档已并入本文档体系，archive/ 已清理</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="margin:26px 0 10px;font-size:15px">目录结构</h3>
+  <pre><span class="k">jingtu-web/</span>
+├── <span class="k">public/</span>           # 前端：index/setup/migration/starting + 28 CSS + 56 JS（含 6 语言包）
+├── <span class="k">server/</span>           # server.js · db.js(双引擎) · auth 域(4 service) · vrc* · schedule.js
+│                     # middleware/(8 文件) · routes/(59 活跃 + _archive/4) · 服务模块
+├── <span class="k">assets/</span>           # 初始资源（群组头像/横幅缺省图等）
+├── <span class="k">uploads/</span>          # 用户上传（不纳入版本控制）
+├── <span class="k">backups/</span>          # 自动备份（每日 02:30，保留策略可配）
+├── <span class="k">logs/</span>             # 运行日志 logs/YYYY-MM-DD.log
+├── <span class="k">docs/</span>             # 文档（本目录）
+├── <span class="k">deploy/nginx/</span>    # Nginx 反代模板
+├── <span class="k">panel/</span>            # 独立运维面板（端口 3457，仅本机）
+├── Dockerfile / docker-compose*.yml / docker-entrypoint.sh
+└── install.sh / ecosystem.config.js / jingtu.ps1 / jingtu.sh</pre>
+</section>
+<section id="arch">
+  <div class="section-head"><span class="no">02</span><h2>启动与请求架构</h2><span class="sp"></span><span class="sub">DOC 02 · 中间件主链 / 启动顺序 / 实时通信 / 定时任务</span></div>
+
+  <div class="card" style="margin-bottom:16px">
+    <h3><span class="ic" style="background:var(--cyan)"></span>中间件主链</h3>
+    <p style="margin-bottom:12px">一次 /api 请求穿过完整防线链，再到业务路由：</p>
+    <div class="flowbox">
+      <div class="node">CORS<b>跨域</b></div><span class="arw">→</span>
+      <div class="node">compression<b>压缩</b></div><span class="arw">→</span>
+      <div class="node">安全头<b>nosniff/CSP</b></div><span class="arw">→</span>
+      <div class="node warn">限流<b>600/分/IP</b></div><span class="arw">→</span>
+      <div class="node">可疑检测<b>扫描</b></div><span class="arw">→</span>
+      <div class="node">metrics<b>统计</b></div><span class="arw">→</span>
+      <div class="node">JSON<b>20MB</b></div><span class="arw">→</span>
+      <div class="node warn">WAF<b>URL+body 扫描</b></div><span class="arw">→</span>
+      <div class="node">UTF-8<b>包装</b></div><span class="arw">→</span>
+      <div class="node">静态<b>文件</b></div><span class="arw">→</span>
+      <div class="node">Session<b>cookie</b></div><span class="arw">→</span>
+      <div class="node">账户校验<b>userId</b></div><span class="arw">→</span>
+      <div class="node warn">分级限流<b>5 类</b></div><span class="arw">→</span>
+      <div class="node warn">CSRF<b>token</b></div><span class="arw">→</span>
+      <div class="node hl">业务路由<b>routes/</b></div>
+    </div>
+  </div>
+
+  <div class="grid g2">
+    <div class="card">
+      <h3><span class="ic" style="background:var(--violet)"></span>启动顺序</h3>
+      <div class="flow">
+        <div class="box"><b>读 .env</b><span>环境变量</span></div><span class="arrow">→</span>
+        <div class="box"><b>建 app</b><span>端口 3456</span></div><span class="arrow">→</span>
+        <div class="box"><b>中间件</b><span>主链挂载</span></div><span class="arrow">→</span>
+        <div class="box"><b>VRChat Pipeline</b><span>wss 连接</span></div><span class="arrow">→</span>
+        <div class="box"><b>业务路由</b><span>59 活跃</span></div><span class="arrow">→</span>
+        <div class="box"><b>/ws</b><span>实时通道</span></div><span class="arrow">→</span>
+        <div class="box"><b>db_init</b><span>失败仅告警</span></div><span class="arrow">→</span>
+        <div class="box"><b>listen</b><span>3456</span></div>
+      </div>
+      <ul style="margin-top:14px">
+        <li><b>Session</b>：MySQL 存储（失败回退 MemoryStore），Cookie <code>connect.sid</code> 7 天滚动、HttpOnly、SameSite=Lax</li>
+        <li><b>角色三档</b>：<code>super_admin / admin / member</code>；bcrypt cost <b>12</b></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--green)"></span>前端加载</h3>
+      <ul>
+        <li><b>index.html</b>：Tab 式单页（非 URL 路由）</li>
+        <li><b>loader.js</b>：按需懒加载 <b>30 个业务模块</b></li>
+        <li><b>main.js</b>：交错刷新（30 秒首刷 / 75 秒轮换）</li>
+        <li><b>i18n</b>：6 语言包</li>
+        <li><b>PWA</b>：Manifest + sw.js</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--amber)"></span>实时通信 /ws</h3>
+      <ul>
+        <li>与 HTTP <b>共用 Server</b>，解析 <code>connect.sid</code> 验签后固定身份</li>
+        <li>服务端 30 秒 ping、10 分钟超时、断线指数退避重连（最多 10 次）</li>
+        <li><b>vrc_pipeline</b> 连 <code>wss://pipeline.vrchat.cloud</code>，支持 6 类事件</li>
+        <li>凭据 AES-256-GCM 加密存 <code>server/data/session.json</code>（旧版自动迁移读取）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--rose)"></span>VRChat 护栏</h3>
+      <ul>
+        <li><b>F-29</b>：F-29 会话被拒 → 暂停重连 + 自动重登（TOTP 可自动）</li>
+        <li><b>F-30</b>：双护栏 —— 60s 最小间隔 + <code>5min × 3^n</code> 封顶 30min 指数退避</li>
+        <li>Docker 挂载卷可写；凭据轮换需重新登录</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3><span class="ic" style="background:var(--cyan)"></span>定时任务（schedule.js，随服务启动）</h3>
+    <div class="kv">
+      <span class="k">缓存预热</span><span class="k">回收站清理</span><span class="k">活动归档</span><span class="k">邀请过期</span>
+      <span class="k">Token/活动提醒</span><span class="k">VRChat 在线状态 30s</span><span class="k">在线名册 5min</span>
+      <span class="k" style="color:var(--amber)">数据备份 每日 02:30</span>
+    </div>
+    <p style="margin-top:10px;font-size:12.8px;color:var(--dim)">备份以 <code>auto_</code> 前缀命名，保留天数可配（默认 7 天）；与 03-部署与运维 §3 联动。</p>
+  </div>
+</section>
+<section id="ops">
+  <div class="section-head"><span class="no">03</span><h2>部署与运维</h2><span class="sp"></span><span class="sub">DOC 03 · 健康检查 / 备份 / 升级回滚 / 故障排查 / 安全必检 / 镜像加速</span></div>
+
+  <div class="grid g4">
+    <div class="card">
+      <h3><span class="ic" style="background:var(--green)"></span>/api/health/live</h3>
+      <p>进程存活，<b>不依赖数据库</b>，恒返回 <code>200</code>。</p>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--cyan)"></span>/api/health/ready</h3>
+      <p>就绪探测：<code>SELECT 1</code> 成功才算，DB 挂返回 <code>503</code>。以它为就绪标准。</p>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--violet)"></span>/api/health</h3>
+      <p>通用探活，恒 <code>200</code>。</p>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--amber)"></span>/api/health/detailed</h3>
+      <p>详细状态（管理员），返回 <code>JSON</code>。</p>
+    </div>
+  </div>
+
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card">
+      <h3><span class="ic" style="background:var(--amber)"></span>升级 / 回滚</h3>
+      <ul>
+        <li><b>Docker</b>：<code>docker compose build && up -d</code>；server/package.json 变更自动 npm ci</li>
+        <li><b>宝塔/裸机</b>：<code>git pull --ff-only</code> → <code>npm ci && node db_init.js</code> → pm2 restart</li>
+        <li><b>在线更新（超管）</b>：git fetch → ahead/behind 保护 → merge --ff-only → 可选自动重启（跨平台 WMI/helper，2~3 秒中断）</li>
+        <li>更新<b>绝不执行 git clean</b>；.env / uploads / assets / server/data 均 .gitignore 内不受影响</li>
+        <li><b>回滚</b>：针对已标记版本 <code>git revert</code>（勿强制重置共享分支）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--rose)"></span>备份与恢复</h3>
+      <ul>
+        <li>每日 <b>02:30</b> 自动备份（<code>auto_</code> 前缀），数据库导出 + uploads/ 打包</li>
+        <li>保留策略：<code>FILE_RETENTION_DAYS</code>（默认 90）/ <code>BACKUP_RETENTION_DAYS</code>（默认 7）</li>
+        <li>手工备份：内置 <code>/api/admin/backups/*</code>（管理员 + CSRF），口令经 <code>MYSQL_PWD</code> 传参防 ps 泄露</li>
+        <li>恢复前先停写流量并保留现网备份；<b>恢复演练至少每月一次</b></li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="margin:26px 0 10px;font-size:15px">常见故障排查</h3>
+  <table>
+    <tr><th>现象</th><th>排查</th></tr>
+    <tr><td>端口在但页面无响应</td><td>查 <code>ready</code>；DB 挂会 503</td></tr>
+    <tr><td>Node 18 / 启动即崩</td><td>必须 ≥20.9.0（sharp 0.35），SQLite 模式需 ≥22</td></tr>
+    <tr><td>反代后客户端 IP 全为 127.0.0.1</td><td><code>TRUST_PROXY</code> 未设 1（按实际跳数）</td></tr>
+    <tr><td>登录频繁被限</td><td>登录 15 分钟 5 次（成功跳过）；确认 TRUST_PROXY 正确</td></tr>
+    <tr><td>任意账号登录 500（<code>ER_WRONG_VALUE</code>/1525）</td><td>SQL 把 <code>''</code> 与 DATETIME 列比较（<code>deleted_at = ''</code>）；统一改用 <code>IS NULL</code>（2026-10-04 已全站修复）</td></tr>
+    <tr><td>上传 413</td><td>前端 requestSizeLimiter 分档 + Nginx <code>client_max_body_size 200m</code> 同步</td></tr>
+    <tr><td>会话重启即失效</td><td>SESSION_SECRET 未持久化或 SQLite 模式（MemoryStore）</td></tr>
+    <tr><td>已存 VRChat 凭据解密失败</td><td>ENCRYPT_KEY 被更换（设计行为，需重新登录）</td></tr>
+  </table>
+
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card">
+      <h3><span class="ic" style="background:var(--green)"></span>生产安全必检（8 条）</h3>
+      <ul>
+        <li>① <code>SESSION_SECRET</code> / <code>ENCRYPT_KEY</code> 持久化、权限 600、纳入备份与轮换</li>
+        <li>② <code>CORS_ORIGINS</code> 限定具体域名（未配置会告警并接受任意来源）</li>
+        <li>③ HTTPS + <code>TRUST_PROXY</code> + Secure Cookie 联合验证</li>
+        <li>④ 防火墙只开 80/443（及 SSH）；<b>3456、3306 不暴露公网</b></li>
+        <li>⑤ 屏蔽 <code>/api-docs</code>、<code>/api-docs.json</code> 公网访问</li>
+        <li>⑥ 备份覆盖 MySQL + uploads/ + 密钥，并做恢复演练</li>
+        <li>⑦ 服务账号只写 uploads/backups/logs，不递归写整个仓库</li>
+        <li>⑧ 进程守护<b>单实例</b>（不支持 cluster：CSRF/WS 映射/VRC 状态在内存）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--violet)"></span>Docker 镜像加速</h3>
+      <ul>
+        <li><b>项目已内置</b>：基础镜像 <code>docker.m.daocloud.io/library/node:22-slim</code>，MySQL <code>…/mysql:8.0</code></li>
+        <li>验证可用源（2026-10-06）：<code>docker.m.daocloud.io</code> · <code>docker.xuanyuan.me</code> · <code>docker.1ms.run</code></li>
+        <li>阿里云个人加速器已停止同步、网易/中科大老站已关停，勿用</li>
+        <li>registry-mirrors 只对 docker.io 生效，GHCR 等不适用</li>
+        <li>飞牛用户直接按 <code>docker-compose.fnos.yml</code> 顶部注释操作即可</li>
+      </ul>
+      <p style="margin-top:10px;font-size:12px;color:var(--dim)">daemon 级全局加速（飞牛 SSH）：写入 /etc/docker/daemon.json registry-mirrors 三源 → systemctl restart docker。</p>
+    </div>
+  </div>
+</section>
+<section id="api">
+  <div class="section-head"><span class="no">04</span><h2>API 接口总览</h2><span class="sp"></span><span class="sub">DOC 04 · 全局约定 / 权限 / CSRF / 接口族 / 限流 / 已知差异</span></div>
+
+  <div class="grid g2">
+    <div class="card">
+      <h3><span class="ic" style="background:var(--cyan)"></span>全局约定</h3>
+      <ul>
+        <li>默认基址 <code>http://&lt;host&gt;:3456</code>；响应格式<b>不统一</b>（success/ok/裸对象/数组/文件/重定向并存）</li>
+        <li>请求体 JSON 全局 <b>20MB</b>；非上传 POST/PUT <b>5MB</b></li>
+        <li>上传分档：头像 5MB / 群图 10MB / 直播缩略图 20MB / 聊天 100MB / 动态与个人相册 200MB / 主相册 <b>500MB</b>；8 个上传路由均过扩展名+魔数双闸</li>
+        <li>Session Cookie <code>connect.sid</code>：7 天滚动、HttpOnly、SameSite=Lax</li>
+        <li>版本：<code>/api</code> 前缀 + <code>apiVersion</code> 头；<code>/api-docs</code> 仅 <code>ENABLE_SWAGGER=1</code> 且超管会话可见</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--green)"></span>权限记号</h3>
+      <ul>
+        <li><span class="tag info">公开</span> 无需登录</li>
+        <li><span class="tag ok">requireAuth</span> 登录即可（只校验 userId 存在）</li>
+        <li><span class="tag warn">requireAdminCompat</span> admin + super_admin</li>
+        <li><span class="tag risk">requireSuperAdmin</span> 仅超级管理员（运维/安全类接口）</li>
+        <li><span class="tag off">专用守卫</span> 聊天/直播 <code>requireChatAuth</code> 等</li>
+      </ul>
+      <h3 style="margin-top:16px;font-size:14px"><span class="ic" style="background:var(--amber)"></span>CSRF</h3>
+      <ul>
+        <li><code>GET /api/csrf-token</code> 取 token；除 GET/HEAD/OPTIONS 外<b>默认全校验</b></li>
+        <li>精确豁免 <b>15 条路径</b>（登录/init/登出/密码重置/setup 全流程）</li>
+        <li>前端 <code>window.api()</code> 自动带 token，勿手动处理</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="margin:26px 0 10px;font-size:15px">接口族（11 族）</h3>
+  <div class="gridlist">
+    <div class="entry"><div class="eh"><span class="m" style="background:var(--cyan)"></span><b>认证</b><span>/api/auth</span></div><div class="eb">
+      <div class="one"><span class="path">init · login · register(激活码)</span></div>
+      <div class="one"><span class="path">logout · session · 改密</span></div>
+      <div class="one"><span class="path">vrchat-login · 2FA · 找回密码</span></div>
+    </div></div>
+    <div class="entry"><div class="eh"><span class="m" style="background:var(--violet)"></span><b>用户</b><span>/api/users · /api/profile</span></div><div class="eb">
+      <div class="one"><span class="path">列表 · 生日 · 位置 · 搜索 · Me 系列</span></div>
+      <div class="one"><span class="path">管理员 CRUD · 导出 · 注销</span></div>
+    </div></div>
+    <div class="entry"><div class="eh"><span class="m" style="background:var(--green)"></span><b>内容</b><span>/api/posts · /api/events</span></div><div class="eb">
+      <div class="one"><span class="path">动态（无编辑端点）</span></div>
+      <div class="one"><span class="path">活动约 40 端点：签到/签核/QR/日历/iCal/批量删除/归档</span></div>
+      <div class="one"><span class="path">公告 /api/announcements</span></div>
+    </div></div>
+    <div class="entry"><div class="eh"><span class="m" style="background:var(--amber)"></span><b>社交</b><span>/api/friends · /api/follows</span></div><div class="eb">
+      <div class="one"><span class="path">好友 · 关注</span></div>
+      <div class="one"><span class="path">统一收藏馆 18+ 端点</span></div>
+      <div class="one"><span class="path">点赞 /api/user-like · 签到 /api/checkin · 成就 /api/achievements</span></div>
+    </div></div>
+    <div class="entry"><div class="eh"><span class="m" style="background:var(--rose)"></span><b>实时</b><span>/api/chat(~25) · /api/live(~15)</span></div><div class="eb">
+      <div class="one"><span class="path">聊天：群聊管理 · 媒体 100MB · 已读/搜索/批量已读</span></div>
+      <div class="one"><span class="path">直播元数据 · 通知 /api/notifications(~10) 站内；VRC 官方通知并入 /api/notifications/vrc-sync（仅会员，10 分钟）</span></div>
+    </div></div>
+    <div class="entry"><div class="eh"><span class="m" style="background:var(--red)"></span><b>群组 / VRC</b><span>/api/group/* · /api/vrc/* · /api/vrc-favorites</span></div><div class="eb">
+      <div class="one"><span class="path">群组管理 + VRC lookup/world/search/avatar</span></div>
+      <div class="one"><span class="path">官方收藏 /api/vrc-favorites：分组/条目；DB 三级缓存（vrc_fav_cache 7 天 TTL）+ 负缓存冷却 + 限流感知补全</span></div>
+      <div class="one"><span class="path">审核队列 /api/moderations（远程 block/mute 回显）</span></div>
+    </div></div>
+    <div class="entry"><div class="eh"><span class="m" style="background:var(--dim)"></span><b>收藏模型</b><span>/api/model-collections</span></div><div class="eb">
+      <div class="one"><span class="path">旧模型收藏 · world-tags · avatar-tags</span></div>
+    </div></div>
+    <div class="entry"><div class="eh"><span class="m" style="background:var(--violet)"></span><b>权限组</b><span>/api/permission-groups</span></div><div class="eb">
+      <div class="one"><span class="path">三张表权限模型（30 个 can_* 键）</span></div>
+    </div></div>
+    <div class="entry"><div class="eh"><span class="m" style="background:var(--cyan)"></span><b>运维</b><span>/api/admin/*</span></div><div class="eb">
+      <div class="one"><span class="path">db · backups · config · env-reload · files</span></div>
+      <div class="one"><span class="path">logs · security · analytics · export · webhooks</span></div>
+      <div class="one"><span class="path">activation-codes · git-status/update/restart</span></div>
+    </div></div>
+    <div class="entry"><div class="eh"><span class="m" style="background:var(--green)"></span><b>系统</b><span>/api/system/*</span></div><div class="eb">
+      <div class="one"><span class="path">migration · health/* · sitemap · share</span></div>
+      <div class="one"><span class="path">db-recover（RECOVERY_TOKEN 口令）</span></div>
+    </div></div>
+  </div>
+
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card">
+      <h3><span class="ic" style="background:var(--amber)"></span>限流（分层）</h3>
+      <table>
+        <tr><th>对象</th><th>限制</th></tr>
+        <tr><td class="f">/api 全局</td><td>600 次 / 分 / IP</td></tr>
+        <tr><td class="f">登录</td><td>5 次 / 15 分钟（成功跳过）</td></tr>
+        <tr><td class="f">上传</td><td>10 次 / 分（3 个入口）</td></tr>
+        <tr><td class="f">管理</td><td>30 次 / 分</td></tr>
+        <tr><td class="f">搜索</td><td>20 次 / 30 秒</td></tr>
+        <tr><td class="f">VRChat 上游</td><td>全站令牌桶 40 次 / 分（排队最长 12s）；429 → VRC_RATE_LIMITED（retryAfter 30s），收藏前端补全调度联动冷却窗口</td></tr>
+      </table>
+      <p style="margin-top:10px;font-size:12.5px;color:var(--dim)">计数 HybridStore：配置 <code>REDIS_HOST</code> 用 Redis 共享态，否则回退进程内 Map（单实例必守）。</p>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--rose)"></span>已知实现差异（对接时注意）</h3>
+      <ul>
+        <li><code>/api/search</code> 有两个 GET 处理器（登录版先注册优先）</li>
+        <li><code>users/me/profile</code> 前端兼容 <code>data.user || data</code></li>
+        <li><code>posts</code> 的 <code>limit</code> 参数被忽略</li>
+        <li>上传字段命名以代码为准：photo/media/photos/video/avatar/file/thumbnail/image</li>
+        <li>直播 <code>/live/user/history</code> 被流式参数路由遮蔽不可达（历史遗留）</li>
+      </ul>
+    </div>
+  </div>
+</section>
+<section id="db">
+  <div class="section-head"><span class="no">05</span><h2>数据库设计</h2><span class="sp"></span><span class="sub">DOC 05 · 引擎 / 核心表族 / 索引约束 / 枚举 / 数据保护</span></div>
+
+  <div class="grid g3">
+    <div class="card">
+      <h3><span class="ic" style="background:var(--green)"></span>引擎与连接</h3>
+      <ul>
+        <li>默认 <b>MySQL 5.7+/8.0+</b>（<code>utf8mb4</code> + <code>utf8mb4_unicode_ci</code> + InnoDB）</li>
+        <li>可选 SQLite 单机（<code>JINGTU_DB_ENGINE=sqlite</code>，93 张表同上口径，Session 回退 MemoryStore）</li>
+        <li>连接默认 <code>127.0.0.1:3306</code> / 库 <code>jingtu_group</code>；时区 <code>+08:00</code></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--cyan)"></span>设计原则</h3>
+      <ul>
+        <li>主键 INT AUTO_INCREMENT（config_key、world_id 等为业务主键）</li>
+        <li>仅 <code>user_group_membership</code> 与 <code>user_like</code> 共 <b>4 个外键</b>，其余应用层维护</li>
+        <li>部分表软删除（is_active / status / deleted_at 模式不一）；表名单复数混用</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--amber)"></span>索引与约束</h3>
+      <ul>
+        <li><b>20 组</b>高频查询索引（活动时间/用户外键/聊天会话/已读位置等）</li>
+        <li>约 <b>26 组</b>唯一约束（防重复报名/签到/点赞/组队等）</li>
+        <li>可选 <code>migrate-optimization.js</code> 建 5 张 <code>*_archive</code> 表 + <code>chat_offline_summary</code></li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="margin:26px 0 10px;font-size:15px">核心表族（12 族）</h3>
+  <table>
+    <tr><th>族</th><th>表</th><th>说明</th></tr>
+    <tr><td class="f">系统</td><td><code>system_config</code> · <code>sessions</code></td><td class="muted">配置键值；express-mysql-session 运行时表</td></tr>
+    <tr><td class="f">用户</td><td><code>users</code> · <code>user_profile</code> · <code>member_note</code> · <code>user_like</code> · <code>name_change_requests</code></td><td class="muted">users 40+ 字段，含签到/成就统计列；用户是业务中心</td></tr>
+    <tr><td class="f">群组</td><td><code>group_roster</code> · <code>group_member_changes</code> · <code>group_sync_log</code> · <code>group_invites</code></td><td class="muted">信任等级、变更审计、同步日志</td></tr>
+    <tr><td class="f">活动</td><td><code>event</code> · <code>event_sign</code> · <code>event_checkin</code> · <code>event_comment</code> · <code>event_teams</code> · <code>event_team_members</code></td><td class="muted">event 11 索引；event_sign.user_vrcid ↔ users.vrchat_id</td></tr>
+    <tr><td class="f">相册/媒体</td><td><code>albums</code> · <code>album_photos</code> · <code>posts</code> + 媒体/视频/评论</td><td class="muted">相册 500MB 上传、动态媒体</td></tr>
+    <tr><td class="f">通知/聊天/直播</td><td><code>notifications</code> · <code>messages</code> · <code>chat_rooms</code> · <code>live_rooms</code> · <code>vrc_notif_sync</code></td><td class="muted">站内通知；私聊/群聊；直播元数据；VRC 官方通知同步（10 分钟，仅会员）</td></tr>
+    <tr><td class="f">签到/成就</td><td><code>user_checkin</code> · <code>checkin_rewards</code> · <code>achievements</code> · <code>user_achievements</code></td><td class="muted">每日唯一键；7 档 10-1000 分；29 个默认成就</td></tr>
+    <tr><td class="f">收藏/模型</td><td><code>collections</code> · <code>collection_folders</code> · <code>collection_ratings</code> · <code>model_ratings</code> · <code>model_tag_dict</code> · <code>world_favorites</code> · <code>avatar_favorites</code> · <code>vrc_worlds_cache</code> · <code>vrc_fav_cache</code></td><td class="muted">V8.2 统一收藏馆 + 旧收藏；VRC 官方收藏三级缓存（7 天 TTL，负缓存冷却不入库）</td></tr>
+    <tr><td class="f">审核</td><td><code>moderations</code></td><td class="muted">remote_result 回显；举报/审核队列</td></tr>
+    <tr><td class="f">权限组</td><td><code>permission_groups</code> · <code>group_permission_entries</code> · <code>user_group_membership</code></td><td class="muted">默认 3 组；30 个 can_* 键；三表模型</td></tr>
+    <tr><td class="f">标签</td><td><code>world_tags</code> · avatar-tags 相关</td><td class="muted">V9.4 新增</td></tr>
+  </table>
+
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card">
+      <h3><span class="ic" style="background:var(--violet)"></span>关键枚举</h3>
+      <div class="kv">
+        <span class="k">role(member/admin/super_admin)</span><span class="k">avatar_type</span><span class="k">event_type</span>
+        <span class="k">visibility</span><span class="k">source</span><span class="k">instance_type</span>
+        <span class="k">posts type/visibility</span><span class="k">privacy</span><span class="k">live status</span>
+        <span class="k">msg_type</span><span class="k">notification.target_type</span>
+        <span class="k">achievements type/condition/rarity</span><span class="k">邀请/改名状态</span>
+      </div>
+      <p style="margin-top:10px;font-size:12.5px;color:var(--dim)">定义以 <code>server/db_init.js</code> 为准（幂等，可重复执行）。</p>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--green)"></span>数据保护（与部署相关）</h3>
+      <ul>
+        <li><code>.env</code> · <code>uploads/</code> · <code>assets/</code> · <code>server/data/*.sqlite</code> · <code>backups/</code> · <code>logs/</code> 均<b>不纳入版本控制</b></li>
+        <li>在线更新 <code>merge --ff-only</code> 只动跟踪文件、<b>永不 git clean</b>，用户数据不受影响</li>
+        <li>db_init.js：三次建库重试（2s/4s）→ CREATE DATABASE → 重建连接池 → 关 FK 检查 → 建表/ALTER/种子</li>
+      </ul>
+    </div>
+  </div>
+</section>
+<section id="sec">
+  <div class="section-head"><span class="no">06</span><h2>功能模块与安全</h2><span class="sp"></span><span class="sub">DOC 06 · 模块总览 / 认证权限 / 安全中间件 / 已知边界</span></div>
+
+  <h3 style="margin-bottom:10px;font-size:15px">功能模块总览（V8.2）</h3>
+  <table>
+    <tr><th>模块</th><th>状态</th><th>说明</th></tr>
+    <tr><td class="f">认证/注册</td><td><span class="tag ok">✅</span></td><td class="muted">登录/注册(激活码)/找回密码/2FA(TOTP)绑定验签</td></tr>
+    <tr><td class="f">用户/个人主页</td><td><span class="tag ok">✅</span></td><td class="muted">资料/头像/封面/相册/视频/位置/生日/改名申请/注销</td></tr>
+    <tr><td class="f">动态（朋友圈）</td><td><span class="tag ok">✅</span></td><td class="muted">发布/评论/点赞/置顶；无编辑端点</td></tr>
+    <tr><td class="f">活动</td><td><span class="tag ok">✅</span></td><td class="muted">约 40 端点：报名/签到/QR/评论/照片/日历/iCal/Google Calendar、批量删除/归档、VRC 同步</td></tr>
+    <tr><td class="f">组队</td><td><span class="tag ok">✅</span></td><td class="muted">活动队伍 + 成员管理</td></tr>
+    <tr><td class="f">相册</td><td><span class="tag ok">✅</span></td><td class="muted">主相册 500MB / 个人相册 200MB / 回收站（30 天清理）</td></tr>
+    <tr><td class="f">公告</td><td><span class="tag ok">✅</span></td><td class="muted">富文本/附件/历史/恢复</td></tr>
+    <tr><td class="f">聊天</td><td><span class="tag ok">✅</span></td><td class="muted">私聊/群聊/媒体 100MB/已读位置/搜索/批量已读</td></tr>
+    <tr><td class="f">直播</td><td><span class="tag warn">✅ 元数据</span></td><td class="muted">仅 RTMP/HLS 链接入库，无推流转码后端；私密直播限主播+管理员</td></tr>
+    <tr><td class="f">通知</td><td><span class="tag ok">✅</span></td><td class="muted">站内通知；VRChat 官方通知可并入同步（vrc_notif_sync，仅会员，10 分钟）</td></tr>
+    <tr><td class="f">收藏</td><td><span class="tag ok">✅</span></td><td class="muted">V8.2 统一收藏馆（文件夹/评分）+ 旧版收藏 + VRC 官方收藏（三级缓存 / 负缓存冷却 / 限流感知补全）</td></tr>
+    <tr><td class="f">点赞</td><td><span class="tag ok">✅</span></td><td class="muted">user_like 防重复（唯一键）</td></tr>
+    <tr><td class="f">签到/成就</td><td><span class="tag ok">✅</span></td><td class="muted">每日签到（7 档奖励）、29 个默认成就</td></tr>
+    <tr><td class="f">权限组</td><td><span class="tag ok">✅</span></td><td class="muted">三表模型，30 个 can_* 键（当前不被业务路由强制，预留）</td></tr>
+    <tr><td class="f">VRChat 群组</td><td><span class="tag ok">✅</span></td><td class="muted">group/vrc 管理、Pipeline 实时同步、审核队列（远程 block/mute 回显）</td></tr>
+    <tr><td class="f">好友/关注</td><td><span class="tag ok">✅</span></td><td class="muted">好友增删/状态/列表、关注流</td></tr>
+    <tr><td class="f">管理后台</td><td><span class="tag ok">✅</span></td><td class="muted">超管：用户管理/配置/内容管理/操作日志</td></tr>
+    <tr><td class="f">运维后台（网页版）</td><td><span class="tag ok">✅ 独立面板</span></td><td class="muted">端口 3457，仅本机（07-运维后台使用说明）</td></tr>
+    <tr><td class="f">DB/备份/文件/安全/分析/导出/Webhook/分享</td><td><span class="tag warn">部分无 UI</span></td><td class="muted">管理员接口族</td></tr>
+    <tr><td class="f">地图</td><td><span class="tag ok">✅</span></td><td class="muted">Leaflet CDN 瓦片地图</td></tr>
+  </table>
+
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card">
+      <h3><span class="ic" style="background:var(--violet)"></span>认证与权限</h3>
+      <ul>
+        <li>bcrypt cost <b>12</b>；密码强度 ≥8 位 + 大小写 + 数字</li>
+        <li>角色阈值：member(2) / admin(3) / super_admin(4)；<code>requireAdminCompat</code> = admin 及以上</li>
+        <li>VRChat 凭据：QQ 用 AES-256-CBC、Cookie 用 <b>AES-256-GCM</b>（ENCRYPT_KEY 64hex）</li>
+        <li>绑定三步限流 + 2FA 失败计数防爆破</li>
+      </ul>
+      <p style="margin-top:10px;font-size:12.5px;color:var(--red)">已知缺陷（详见 12-审计问题清单）：P1 2FA 用户第一步登录误判未绑定 · P2 绑定临时 token 无过期 · P3 session 双 cookie 字段冗余</p>
+    </div>
+    <div class="card">
+      <h3><span class="ic" style="background:var(--green)"></span>安全中间件（6 道防线）</h3>
+      <table>
+        <tr><th>防线</th><th>实现</th></tr>
+        <tr><td class="f">限流</td><td>5 类分层（全局 600/分、登录 5/15 分、上传 10/分、管理 30/分、搜索 20/30 秒），HybridStore</td></tr>
+        <tr><td class="f">WAF</td><td>注册于 express.json() 后，扫描 URL/query/已解析 JSON body（值+键+URL 解码复扫）</td></tr>
+        <tr><td class="f">CSRF</td><td>Token 绑定 SessionID，Map+Redis 双写，TTL 1h，15 分钟清理，超 1 万条淘汰一半</td></tr>
+        <tr><td class="f">安全头</td><td>nosniff / X-Frame-Options DENY / Referrer-Policy / CSP（script/style 仍 unsafe-inline）/ 生产 HSTS</td></tr>
+        <tr><td class="f">上传</td><td>全路由扩展名+魔数双闸 + secureUpload 白名单 + 分档大小限制</td></tr>
+        <tr><td class="f">静态/更新</td><td>/uploads 登录或 ?share= 令牌；/backups 仅管理员；在线更新仅超管 + execFile 数组直传</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3><span class="ic" style="background:var(--amber)"></span>已知边界（非缺陷，设计如此）</h3>
+    <div class="kv">
+      <span class="k">单进程单实例（禁止 cluster/多副本）</span>
+      <span class="k">直播为元数据模式，无推流/转码/HLS 后端</span>
+      <span class="k">邮件/每日汇总依赖 SMTP_*，未配置静默跳过</span>
+      <span class="k">CSP 内联脚本依然存在（index/migration 页内联），未达严格 CSP</span>
+    </div>
+  </div>
+</section>
+<section id="overview">
+    <div class="section-head">
+      <span class="no">00</span>
+      <h2>总览 · 入口 → 模块 → 服务 → 契约</h2>
+      <span class="sp"></span>
+    </div>
+    <p class="section-sub">一句话架构：<code>server.js</code> 是唯一入口 —— 全局 8 件中间件 + 59 个路由文件（其中 12 个为 admin/groups/users 三棵树的子路由）+ 2 个共享工具；前端是无框架单页，<code>index.html</code> 17 个静态脚本 + <code>loader.js</code> 懒加载 30 个业务模块，靠 <code>window.*</code> 契约跨模块链接。</p>
+    <div class="panel">
+      <div class="panel-head">
+        <h4>架构总览 <span class="pill">对应文档 §〇 mermaid flowchart</span></h4>
+      </div>
+      <svg class="diagram-svg" id="overviewSvg" viewBox="0 0 980 640" role="img" aria-label="模块地图总览架构图"></svg>
+      <div class="legend">
+        <span class="lg"><span class="sw" style="background:var(--cyan)"></span>入口</span>
+        <span class="lg"><span class="sw" style="background:var(--violet)"></span>中间件</span>
+        <span class="lg"><span class="sw" style="background:var(--green)"></span>路由组</span>
+        <span class="lg"><span class="sw" style="background:var(--amber)"></span>工具 / 服务</span>
+        <span class="lg"><span class="sw" style="background:transparent;border:1px dashed #556389"></span>被复用（虚线）</span>
+      </div>
+    </div>
+  </section>
+<section id="map">
+    <div class="section-head">
+      <span class="no">01</span>
+      <h2>交互模块地图</h2>
+      <span class="sp"></span>
+    </div>
+    <p class="section-sub">全部节点 = 后端 8 中间件 + 59 路由 + 服务层 + 前端 47 文件。力导向布局；点击节点看依赖（fan-out）与被依赖（fan-in），双击聚焦，滚轮缩放 / 拖拽平移，支持按分组筛选与名称搜索。</p>
+    <div class="toolbar" id="mapToolbar">
+      <div class="searchbox">
+        <input id="mapSearch" type="text" placeholder="搜索模块名，如 auth / posts / loader …">
+        <span class="st">⌕</span>
+      </div>
+      <button class="btn primary" onclick="mapFocusClear()">全部</button>
+      <button class="btn" id="mapFocusBtn" onclick="mapFocusSelected()">聚焦选中</button>
+      <button class="btn" onclick="mapFit()">适应画布</button>
+      <span class="rowcount" id="mapCount"></span>
+      <div id="mapChips" class="chiplist"></div>
+    </div>
+    <div class="map-wrap">
+      <svg id="mapSvg"></svg>
+      <div class="map-zooms">
+        <button class="zoom-btn" onclick="mapZoom(1.3)" title="放大">+</button>
+        <button class="zoom-btn" onclick="mapZoom(1/1.3)" title="缩小">−</button>
+        <button class="zoom-btn" onclick="mapFit()" title="适应画布">⤢</button>
+      </div>
+      <div class="map-hint">拖拽平移 · 滚轮缩放 · 单击查看详情 · 双击聚焦 · 双击空白取消</div>
+      <div class="map-stat" id="mapStat">…</div>
+    </div>
+    <div class="legend">
+      <span class="lg"><span class="sw" style="background:var(--cyan)"></span>入口</span>
+      <span class="lg"><span class="sw" style="background:var(--violet)"></span>中间件</span>
+      <span class="lg"><span class="sw" style="background:var(--green)"></span>后端路由</span>
+      <span class="lg"><span class="sw" style="background:var(--amber)"></span>服务 / 工具</span>
+      <span class="lg"><span class="sw" style="background:var(--rose)"></span>前端脚本</span>
+      <span class="lg"><span class="sw" style="background:#5d6b8c"></span>独立页 / 禁用</span>
+      <span class="lg"><span class="sw" style="background:transparent;border:1px solid #3a5588"></span>链路边</span>
+    </div>
+    <div class="detail-panel">
+      <div class="detail-card" id="dinfo">
+        <h5>当前节点</h5>
+        <div class="empty-note">单击图中的任意节点查看该模块的挂载、职责、依赖与被依赖。</div>
+      </div>
+      <div class="detail-card" id="dinfo2">
+        <h5>依赖关系</h5>
+        <div class="empty-note">选择节点后，这里展示 fan-out（它依赖谁）与 fan-in（谁依赖它）。</div>
+      </div>
+    </div>
+  </section>
+<section id="backend">
+    <div class="section-head">
+      <span class="no">02</span>
+      <h2>后端 · 中间件链与挂载拓扑</h2>
+      <span class="sp"></span>
+    </div>
+    <p class="section-sub">server.js 唯一的入口文件：中间件按注册顺序执行；路由分三类挂载（独立前缀 / <code>/api</code> 聚合 / 子路由继承）；依赖码见 §1.5 说明。</p>
+
+    <h3 class="sub">1.1 全局中间件链（注册顺序即执行顺序，server.js）</h3>
+    <div class="codeblock">
+      <button class="copybtn" onclick="copyPre(this)">复制</button>
+      <pre>app.use('/api', ddosLimiter)          <span style="color:#56678c">// 600/min 总闸</span>
+app.use('/api', suspiciousRequestDetector)
+app.use(metricsMiddleware)            <span style="color:#56678c">// 请求指标（analytics 读取）</span>
+app.use(apiVersionMiddleware)         <span style="color:#56678c">// /api/v1|v2 前缀识别</span>
+app.use(requestSizeLimiter)
+app.use(express.json({limit:'20mb'}))
+app.use(enableWaf)                    <span style="color:#56678c">// 纵深防御：扫已解析 body</span>
+app.use(session)                      <span style="color:#56678c">// 会话</span>
+app.use('/uploads', uploadsStaticLimiter + uploads_auth)   <span style="color:#56678c">// 媒体鉴权</span>
+app.use('/api', session 校验/封禁/恢复期只读)
+app.use('/api/auth/*', loginBruteForceLimiter) 等路径级限流
+app.use(setupCsrf)                    <span style="color:#56678c">// CSRF（必须在特权路由之前）</span>
+…… 路由挂载 ……
+app.use('/api', 404 + error handler)</pre>
+    </div>
+
+    <h3 class="sub">1.2 中间件 8 件明细</h3>
+    <div class="panel">
+      <div class="panel-head">
+        <h4>middleware / <span id="mwCount" class="pill">8</span></h4>
+        <input id="mwSearch" placeholder="筛选中间件…" style="flex:1;min-width:180px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12.5px;outline:none">
+      </div>
+      <div class="tbl-scroll"><table class="tbl">
+        <thead><tr><th>文件</th><th>职责</th><th>导出成员 / 注册位置</th></tr></thead>
+        <tbody id="mwBody"></tbody>
+      </table></div>
+    </div>
+
+    <h3 class="sub">1.3 鉴权 / 会话 / 工具（非中间件但被路由高频引用）</h3>
+    <div class="panel">
+      <div class="panel-head">
+        <h4>server/ 服务层与工具 <span class="pill">fan-in 最高 ≈49 · auth.js</span></h4>
+      </div>
+      <div class="tbl-scroll"><table class="tbl">
+        <thead><tr><th>模块</th><th>角色</th><th>说明</th></tr></thead>
+        <tbody id="svcBody"></tbody>
+      </table></div>
+    </div>
+
+    <h3 class="sub">1.4 挂载拓扑三类</h3>
+    <div class="panel">
+      <div class="tbl-scroll"><table class="tbl" style="max-height:260px">
+        <thead><tr><th>挂载方式</th><th>数量</th><th>说明</th></tr></thead>
+        <tbody id="topoBody"></tbody>
+      </table></div>
+    </div>
+    <div class="callout" style="margin-top:14px">server.js 内联路由（不占 routes/ 文件）：<code>/api/health</code>（db-recover 页）、<code>/api/avatar/default</code>、<code>/api/admin/group-image</code>（上传限流）、<code>/api/csrf-token</code>（csrf.js 内）、<code>/api/ops/*</code>（运维面板 panel_proxy）、<code>/api/auth/check-init</code>（csrf.js 内）。</div>
+
+    <h3 class="sub">三棵「聚合主路由」树</h3>
+    <div class="tree-block">
+      <div class="tree"><span class="root">routes/admin.js</span><span class="leaf">admin_users</span><span class="leaf">admin_name_change</span><span class="leaf">admin_vrc_blacklist</span><span class="leaf">admin_content_live</span></div>
+      <div class="tree"><span class="root">routes/groups.js</span><span class="leaf">groups_members_sync</span><span class="leaf">groups_members</span><span class="leaf">groups_member_detail</span><span class="leaf">groups_vrc_status</span><span class="leaf">groups_invites</span><span class="leaf">groups_content</span></div>
+      <div class="tree"><span class="root">routes/users.js</span><span class="leaf">users_profile</span><span class="leaf">users_tags_notes</span></div>
+    </div>
+
+    <h3 class="sub">1.5 路由文件明细（24 + 21 + 12 + 2 工具）</h3>
+    <div class="panel">
+      <div class="panel-head">
+        <h4>routes / <span id="rtCount" class="pill">59</span></h4>
+        <input id="rtSearch" placeholder="筛选路由名 / 端点 / 依赖…" style="flex:1;min-width:200px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12.5px;outline:none">
+        <div id="rtChips"></div>
+      </div>
+      <div class="legend" style="border-top:none">
+        <span class="dims">依赖码：</span>
+        <span class="dep-chip" style="background:#a78bfa" title="server/auth.js 鉴权">A</span>
+        <span class="dep-chip" style="background:#2fd4ff" title="vrc_auth.js 的 getVRCCookie">CK</span>
+        <span class="dep-chip" style="background:#3ee6a5" title="auth_vrc/auth_local/auth_reset/auth_session">AV AL AR AS</span>
+        <span class="dep-chip" style="background:#ffc35c" title="vrc_auth.js 系统账号">VA</span>
+        <span class="dep-chip" style="background:#ff6b9d" title="vrc.js 客户端">V</span>
+        <span class="dep-chip" style="background:#93a4c6" title="服务层：WC/VP/N/C/U/R/W/M/SA/LOG/MET/WS">WC VP N C U R W M SA LOG MET WS</span>
+        <span class="dep-chip" style="background:#5d6b8c" title="groups_helpers / user-data-helper">H</span>
+      </div>
+      <div class="tbl-scroll" style="max-height:640px"><table class="tbl">
+        <thead><tr><th>组</th><th>文件</th><th>挂载</th><th>端点要点</th><th>依赖</th><th>主要表</th></tr></thead>
+        <tbody id="rtBody"></tbody>
+      </table></div>
+    </div>
+
+    <h3 class="sub">1.6 DB 依赖热表（跨文件出现数 TOP 15）</h3>
+    <div class="panel">
+      <div class="panel-head">
+        <h4>改表结构前必查 <span class="pill">users 动一发牵 28 个文件</span></h4>
+      </div>
+      <div class="tbl-scroll" style="max-height:520px"><table class="tbl">
+        <thead><tr><th>排名</th><th>表</th><th>跨文件数</th><th>热度</th></tr></thead>
+        <tbody id="dbBody"></tbody>
+      </table></div>
+    </div>
+  </section>
+<section id="frontend">
+    <div class="section-head">
+      <span class="no">03</span>
+      <h2>前端 · 加载架构与模块矩阵</h2>
+      <span class="sp"></span>
+    </div>
+    <p class="section-sub">无框架单页：<code>index.html</code> 静态脚本按顺序硬依赖；<code>loader.js</code> 的 <code>ROUTE_MODULES</code> / <code>TAB_MODULES</code> / <code>DISABLED_FEATURES</code> 三张表是懒加载的唯一事实来源。</p>
+
+    <h3 class="sub">2.1 index.html 静态脚本栈（顺序即硬依赖）</h3>
+    <div class="panel">
+      <div class="panel-head">
+        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261011a</span></h4>
+      </div>
+      <div class="tbl-scroll" style="max-height:560px"><table class="tbl">
+        <thead><tr><th>#</th><th>脚本</th><th>模式</th><th>版本戳</th><th>作用</th></tr></thead>
+        <tbody id="stackBody"></tbody>
+      </table></div>
+    </div>
+
+    <h3 class="sub">2.2 loader.js 三张表（懒加载唯一事实来源）</h3>
+    <div class="codeblock">
+      <button class="copybtn" onclick="copyPre(this)">复制</button>
+      <pre><span style="color:#2fd4ff">ROUTE_MODULES</span> = 30 个：members home group announcements events vrc geo map chat album
+                  admin-users admin-perms admin-vrc admin-ui admin-model-collections admin-activation
+                  posts friends follows birthday profile profile-page
+                  checkin checkin-extra achievements collections vrc_favorites
+<span style="color:#2fd4ff">TAB_MODULES</span>：home→home ｜ members→members ｜ me→admin-users+profile+profile-page
+                  vrc→group+members+map+vrc+collections+vrc_favorites ｜ map→geo+map+vrc
+                  admin→admin-users+admin-activation+admin-perms+admin-vrc+admin-model-collections+admin-ui
+                  announcements events album chat birthday(+events) posts friends follows profile-user 各 1~2 个
+<span style="color:#2fd4ff">DISABLED_FEATURES</span>：new Set(['live'])  （唯一事实来源，路由已归档 routes/_archive/live.js）</pre>
+    </div>
+    <div class="callout">
+      <b>版本戳链：</b>懒加载模块不再写死 <code>?v=</code>，统一继承 <code>loader.js</code> 自身 <code>&lt;script&gt;</code> 标签的戳（<code>_assetVer</code>）——只改 loader 的戳即可让全部 30 个模块失效（P2-85）。<b>switchTab 三层包裹：</b>ui.js 原始实现 → motion.js（beginViewTransition）→ loader.js（先 <code>_ensureTabModules</code> 再渲染；渲染抛错则全量加载重试一次；渲染后按 <code>TAB_SEO_MAP</code> 调 <code>SITE_SEO.setPageSeo</code>）。
+    </div>
+
+    <h3 class="sub">2.3 前端模块矩阵（47 文件）</h3>
+    <div class="panel">
+      <div class="panel-head">
+        <h4>public/js / <span id="fmmCount" class="pill">47</span></h4>
+        <input id="fmmSearch" placeholder="筛选模块 / 职责 / API…" style="flex:1;min-width:200px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12.5px;outline:none">
+        <div id="fmmChips"></div>
+      </div>
+      <div class="legend" style="border-top:none">
+        <span class="lg"><span class="tag">静</span>index.html defer</span>
+        <span class="lg"><span class="tag lazy">懒</span>loader ROUTE_MODULES</span>
+        <span class="lg"><span class="tag stand">独</span>独立页</span>
+        <span class="lg"><span class="tag disab">禁</span>DISABLED_FEATURES</span>
+      </div>
+      <div class="tbl-scroll" style="max-height:640px"><table class="tbl">
+        <thead><tr><th>文件</th><th>加载</th><th>触发</th><th>职责</th><th>使用的主要契约</th><th>主要 API 前缀</th></tr></thead>
+        <tbody id="fmmBody"></tbody>
+      </table></div>
+    </div>
+
+    <h3 class="sub">2.4 关键契约链路（注册方 → 消费方）</h3>
+    <div class="panel">
+      <div class="panel-head">
+        <h4>window.* 契约 <span class="pill">M1 教训：先声明后引用</span></h4>
+      </div>
+      <div class="tbl-scroll" style="max-height:560px"><table class="tbl">
+        <thead><tr><th>契约</th><th>注册方</th><th>消费方</th><th>契约形态</th></tr></thead>
+        <tbody id="ctBody"></tbody>
+      </table></div>
+    </div>
+  </section>
+<section id="vrc">
+    <div class="section-head">
+      <span class="no">04</span>
+      <h2>VRChat 绑定 / 登录链路（审计后语义）</h2>
+      <span class="sp"></span>
+    </div>
+    <p class="section-sub">模式 A/B 两步登录 + <code>completeVrcLogin</code> 统一收尾；系统账号链（vrc_auth.js）审计确认无缺陷：双候选 cookie、自动重登、TOTP、熔断退避均在位。</p>
+
+    <div class="panel" style="padding:20px">
+      <div class="vrc-row">
+        <div class="vbox"><div class="t">前端 auth.js</div><div class="d">登录引导 / 绑定 UI</div></div>
+        <div class="v-arrow">→</div>
+        <div class="vbox"><div class="t">auth_vrc_service.js</div><div class="d">模式A: 密码 → (需要2FA ? 返回 need2fa : 查绑定)<br>模式B: 验证码 + loginToken → 查绑定</div></div>
+        <div class="v-arrow">→</div>
+        <div class="vbox"><div class="t">vrc.js 原语</div><div class="d">2FA 验证通过拿到 user.id</div></div>
+        <div class="v-arrow">→</div>
+        <div class="vbox"><div class="t">查绑定 + 锁定 / approved 检查</div><div class="d">!vResult.user || !vResult.user.id → 401</div></div>
+        <div class="v-arrow">→</div>
+        <div class="vbox hl"><div class="t">completeVrcLogin</div><div class="d">UPDATE users + regenerate + buildSession + sys_oper_log + login_history</div></div>
+      </div>
+      <div class="vrack">
+        <div class="v-dash">auth_vrc_service -.失败计数.→ security_alert</div>
+        <div class="v-dash">vrc_auth.js 系统账号（cookie 会话 + 自动重登(TOTP) + 退避）↔ vrc.js 原语</div>
+        <div class="v-dash">vrc.js 原语 → VRChat API</div>
+      </div>
+    </div>
+
+    <div class="flow-note"><div><b>链路要点（修复后语义）</b><br>
+      1）<b>P1</b>：模式 A 在 2FA 待验证阶段<b>不查绑定</b>——先生成 loginToken 返回 <code>need2fa</code>；验证通过拿到真实 <code>vResult.user.id</code> 后才查绑定；模式 B 与独立端点 <code>/vrchat-2fa</code> 同样遵守。<br>
+      2）<b>P4</b>：两条登录路径统一收尾到 <code>completeVrcLogin</code>，不再有重复三段式。<br>
+      3）<b>P2</b>：绑定 token <code>expireAt = Date.now() + 24*60*60*1000</code>（不再永久有效）。<br>
+      4）<b>P3</b>：cookie 写入侧统一 <code>req.session.vrchatCookie</code>（读取侧保留 <code>|| vrcCookie</code> 兼容）。</div></div>
+
+    <div class="flow-note" style="margin-top:12px"><div><b>官方收藏缓存与加载（2026-10-10 完善）</b><br>
+      1）<b>三级缓存</b>：内存 <code>favMetaCache</code>（6h TTL / 600 上限）→ DB <code>vrc_fav_cache</code>（7 天 TTL）→ VRChat 回源；模型与世界统一入库，收藏索引只需一次回源。<br>
+      2）<b>负缓存冷却</b>：回源失败条目进入进程内 <code>favFailCache</code> 60s 冷却（不入库），避免集中重试击穿令牌桶。<br>
+      3）<b>缓存清理</b>：<code>pruneFavCacheIfDue</code> 小时级节流，删除超过 TTL+1 天的过期行。<br>
+      4）<b>前端限流感知补全</b>：漏载条目进入补全调度器（最多 12 轮、退避 2.5s→30s），读到全局 <code>_vrcRateLimitedUntil</code> 冷却窗口（429 分支写入）自动等冷却再试；切换分组/翻页即取消；超时提供「重试补全」按钮（i18n <code>vrcfav.fill_hint / fill_retry</code>）。</div></div>
+  </section>
+<section id="symbols">
+    <div class="section-head">
+      <span class="no">05</span>
+      <h2>全局符号速查表（window.*）</h2>
+      <span class="sp"></span>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <h4>符号 / 声明处 / 用途</h4>
+      </div>
+      <div class="tbl-scroll" style="max-height:560px"><table class="tbl">
+        <thead><tr><th>符号</th><th>声明处</th><th>用途</th></tr></thead>
+        <tbody id="symBody"></tbody>
+      </table></div>
+    </div>
+    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261011a）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261011a</code>。</div>
+  </section>
+<section id="checklist">
+    <div class="section-head">
+      <span class="no">06</span>
+      <h2>改模块前的检查清单（实操）</h2>
+      <span class="sp"></span>
+    </div>
+    <div class="checklist">
+      <div class="check-item"><div><b>后端改某表</b>：先查 §1.6 热表确认波及文件数，再查 <code>05-数据库设计.md</code> 索引/约束。</div></div>
+      <div class="check-item"><div><b>后端改路由</b>：确认挂载树层级（独立前缀 / <code>/api</code> 聚合 / admin·groups·users 子路由），子路由路径继承父前缀。</div></div>
+      <div class="check-item"><div><b>后端加中间件</b>：注意 server.js 注册顺序（CSRF 必须在特权路由前；WAF 在 json 之后）。</div></div>
+      <div class="check-item"><div><b>前端改核心工具</b>（core/ui/i18n/freeze）：改完必须同步 <code>index.html</code> 版本戳；若是 i18n 语言包还要同步 <code>I18N_PACK_VERSION</code> 与 document.write 双写。</div></div>
+      <div class="check-item"><div><b>前端新增懒加载模块</b>：加入 <code>ROUTE_MODULES</code>（loader.js），并在 <code>TAB_MODULES</code> 登记触发 Tab；不要自造 <code>window.__*</code> 悬空全局（先声明后引用，工具函数收敛到 core.js——见 docs/12 M1/M3）。</div></div>
+      <div class="check-item"><div><b>前端删除 / 改名 window 契约</b>：先 grep 全 <code>public/js/</code> 消费方（§2.4 契约链路表）再动注册方。</div></div>
+      <div class="check-item"><div><b>VRC 链路改动</b>：模式 A/B 两步登录 + <code>completeVrcLogin</code> 收尾 + 系统账号 vrc_auth 三条链同时检查；跑 <code>server/</code> 下 Jest（<code>npx jest security-regressions</code>）。</div></div>
+      <div class="check-item"><div><b>改完跑验证</b>：<code>node --check</code> 全部改动文件 → <code>server/</code> 目录 <code>npx jest</code> → 浏览器冒烟（重点：未登录态、2FA 流程、收藏/成员等懒加载模块）。</div></div>
+    </div>
+  </section>
+<div class="foot">
+  <span>境途 jingtu-web &middot; 全站文档可视化 &middot; 02-06 项目文档 + #13 模块地图 合并版</span>
+  <span>深色技术风 &middot; 单文件自包含</span>
+</div>
+
+</main>
+<script>
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+function copyPre(btn){const pre=btn.parentElement.querySelector('pre');navigator.clipboard.writeText(pre.innerText).then(()=>{const t=btn.textContent;btn.textContent='已复制';setTimeout(()=>btn.textContent=t,1200)})}
+
+const NS='http://www.w3.org/2000/svg';
+function svgEl(tag,attrs){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e}
+
+function buildOverview(){
+  const svg=document.getElementById('overviewSvg');
+  const defs=svgEl('defs',{});
+  defs.innerHTML='<marker id="ovArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#31446f"/></marker>';
+  svg.appendChild(defs);
+  const box=(x,y,w,h,cls,title,subs)=>{
+    svg.appendChild(svgEl('rect',{x:x,y:y,width:w,height:h,rx:10,class:'diagbox '+cls}));
+    const cx=x+w/2;
+    svg.appendChild(svgEl('text',{x:cx,y:y+26,'text-anchor':'middle',class:'diagtitle'+(cls==='svc'?' svc':'')})).textContent=title;
+    subs.forEach((s,i)=>{
+      const t=svgEl('text',{x:cx,y:y+48+i*20,'text-anchor':'middle',class:'diagsub'});
+      t.textContent=s;svg.appendChild(t);
+    });
+  };
+  box(330,24,320,76,'entry','server.js（端口 3456）',['全局中间件 + CSRF + 限流 + 懒挂载']);
+  box(24,188,292,118,'','middleware/ 8 件',['security ｜ waf ｜ api_version ｜ csrf','rate_limit ｜ uploads_auth ｜ metrics','rate_limit_store']);
+  box(344,188,298,96,'rt','独立前缀路由 ×24',['auth · profile · posts · users ·','chat · events …']);
+  box(670,188,286,96,'rt','/api 聚合路由 ×21',['admin · groups · vrc_system ·','album · backups …']);
+  box(670,332,286,96,'rt','子路由 ×12',['admin×(4) ｜ groups×(6)','users×(2)']);
+  box(150,498,300,96,'','server/auth.js',['requireAuth / requireAdmin','requireAdminCompat / requireSuperAdmin','（fan-in ≈49）']);
+  box(530,498,300,96,'svc','服务层',['auth_*_service · vrc.js · vrc_auth.js','notification-service · utils','cache_service']);
+  box(20,498,105,96,'','工具 ×2',['groups_helpers','user-data-helper']);
+  const line=(d,cls,marker)=>{
+    const p=svgEl('path',{d:d,class:cls||'edge'});
+    if(marker)p.setAttribute('marker-end','url(#ovArrow)');
+    svg.appendChild(p);
+  };
+  line('M490,100 V142 H170 V182','edge',1);
+  line('M490,100 V148 H493 V182','edge',1);
+  line('M490,100 V142 H813 V182','edge',1);
+  line('M813,284 V310 H813 V326','edge',1);
+  line('M493,284 V400 H493 V464','edge',1);
+  line('M813,428 V446 H813 V464','edge',1);
+  line('M956,236 H978 V468 H856','edge',1);
+  line('M440,468 H856','bus');
+  line('M300,468 V492','edge',1);
+  line('M680,468 V492','edge',1);
+  line('M330,62 H110 V492','edge',1);
+  line('M125,546 C210,470 280,340 344,236','dash');
+  line('M125,546 C210,500 430,330 670,236','dash');
+  const l1=svgEl('text',{x:214,y:500,class:'edge-label'});l1.textContent='被复用';svg.appendChild(l1);
+  const l2=svgEl('text',{x:430,y:436,class:'edge-label'});l2.textContent='被复用';svg.appendChild(l2);
+}
+
+const DEP_COLORS={A:'#a78bfa',CK:'#2fd4ff',AV:'#3ee6a5',AL:'#3ee6a5',AR:'#3ee6a5',AS:'#3ee6a5',VA:'#ffc35c',V:'#ff6b9d',WC:'#93a4c6',VP:'#93a4c6',N:'#93a4c6',C:'#93a4c6',U:'#93a4c6',R:'#93a4c6',W:'#93a4c6',M:'#93a4c6',SA:'#93a4c6',LOG:'#93a4c6',MET:'#93a4c6',WS:'#93a4c6',H:'#5d6b8c',chatUpload:'#5d6b8c',jttLimiter:'#5d6b8c',achievements:'#3ee6a5',recoveryToken:'#5d6b8c'};
+const DEP_NODE={A:'sv_auth',CK:'sv_vrccookie',AV:'sv_authvrc',AL:'sv_authlocal',AR:'sv_authreset',AS:'sv_authsession',VA:'sv_vrccookie',V:'sv_vrc',WC:'sv_worldcache',VP:'sv_vrcpipeline',N:'sv_notify',C:'sv_cache',U:'sv_utils',R:'sv_ratelimitstore',W:'sv_webhooks',M:'sv_mailer',SA:'sv_secalert',LOG:'sv_logger',MET:'mw_metrics',WS:'sv_ws',chatUpload:'sv_chatupload',jttLimiter:'mw_security',achievements:'rt_achievements'};
+function depChips(deps){
+  return deps.map(d=>'<span class="dep-chip" style="background:'+(DEP_COLORS[d]||'#5d6b8c')+'">'+esc(d)+'</span>').join('');
+}
+
+const MIDDLEWARE=[
+ ['security.js','核心安全库：DDoS 总闸、登录爆破、上传/管理/搜索/JTT 路径限流、请求大小、可疑请求（无 UA / 扫描器根路径、.env、.git 探测）、文件魔数签名校验（mp4 ftyp 变长签名）','ddosLimiter / loginBruteForceLimiter / uploadLimiter / adminLimiter / searchLimiter / jttLimiter / requestSizeLimiter / suspiciousRequestDetector / validateUploadFile；server.js L255-274 / L484-504'],
+ ['waf.js','SQL 注入（引号上下文精确模式）、XSS、路径穿越（含 URL 编码/双重编码）、LFI/RFI；最多三轮解码复扫；命中 403 WAF_BLOCKED 并记安全告警','enableWaf；server.js L277 在 express.json 之后注册'],
+ ['csrf.js','token 绑定当前 sessionID（防跨用户复用），本地 Map + Redis 双写；豁免 GET/HEAD/OPTIONS 与登录/初始化/JTT 签名端点；附带 /api/auth/check-init、/api/csrf-token 两个路由','setupCsrf；server.js L508 于特权路由之前'],
+ ['rate_limit.js','精化限流定义：registerLimiter（email 归一化 key）、apiLimiter、uploadLimiter、passwordResetLimiter、uploadsStaticLimiter（/uploads 1000/15min）、createCustomLimiter 工厂','统一 hybridStore；关闭 X-Forwarded-For 校验'],
+ ['uploads_auth.js','/uploads 默认禁止匿名（/avatars/ 除外）；放行条件：已登录 或 携带严格绑定资源的 ?share=；校验 15s TTL 缓存防 DB 放大；另管 /assets/album','setupUploadsAuth / setupAssetsAlbumAuth；server.js L304 / L425'],
+ ['api_version.js','识别 /api/v1|v2 前缀并重写 req.url；未知版本显式 400；响应头 X-API-Version；requireVersion() 端点级门禁','apiVersionMiddleware；server.js L273'],
+ ['metrics.js','请求总数/成功/错误/慢请求/延迟分布/状态码/端点分布；路径归一化（数字→:id、usr_/wrld_/avtr_/grp_→:vrcid）防高基数泄漏（上限 500 键）','metricsMiddleware / getStats / resetStats；server.js L272'],
+ ['rate_limit_store.js','限流计数 HybridStore：Redis 可用走共享态（Lua 原子 decr），否则进程内 MemoryStore；Redis 异常静默回退，能力不失效','各 limiter 共用；独立 name 防 key 污染']
+];
+const SERVICES=[
+ ['server/auth.js','鉴权中间件仓库（fan-in 最高 ≈49）','requireAuth / requireAdmin / requireAdminCompat / requireSuperAdmin，全部路由通过 require(\'../auth\') 取得'],
+ ['server/auth_local_service.js','本地账号密码','登录/注册/会话'],
+ ['server/auth_vrc_service.js','VRC 绑定 + 两步登录 + 2FA','模式 A/B + completeVrcLogin 统一收尾（P1/P4 修复）'],
+ ['server/auth_reset_service.js','忘记密码','邮件重置（依赖 mailer + security_alert）'],
+ ['server/auth_session.js','buildSession 会话构建','登录后统一写 session'],
+ ['server/vrc_auth.js','系统 VRC 账号：cookie 会话 + 自动重登(TOTP) + 退避','同时导出 getVRCCookie / getVRCCookieUserOnly（注入系统/用户 cookie 的中间件工厂）'],
+ ['server/vrc.js','VRChat API 客户端','原语 + 限流/退避，系统与用户链路共用'],
+ ['server/security_alert.js','安全告警','登录失败/2FA 失败计数落库，security.js 路由读取'],
+ ['server/utils.js','fail/ok/ErrorCodes/encryptCookie/errText','全后端响应契约'],
+ ['server/notification-service.js','通知 + WS 推送','构造注入 9 个路由'],
+ ['server/webhooks.js','Webhook 事件分发','webhooks 路由 + 业务侧事件源']
+];
+const TOPO=[
+ ['直接 app.use(&#39;/api/xxx&#39;, router)','24','独立前缀（/api/posts、/api/chat 等）'],
+ ['直接 app.use(&#39;/api&#39;, router) 或根级','21','路由内部自带 /admin/... 等子路径；sitemap.js 无前缀（/sitemap.xml、/robots.txt）'],
+ ['间接 router.use(childRouter)','12','由 admin / groups / users 主路由挂载，前缀继承']
+];
+const ROUTES=[
+ ['A','auth.js','/api/auth','委托壳：registerLocalRoutes/registerVrcRoutes/registerResetRoutes 原位注册（登录/注册/2FA/绑定/找回密码/init）',['AV','AL','AR','AS'],'users、sys_oper_log、login_history、vrchat_bind_tokens'],
+ ['A','profile.js','/api/profile','资料 + 相册/照片/视频 CRUD + 隐私 + 导出',['A','U'],'users、user_profile、user_albums、user_photos、user_videos'],
+ ['A','permission_groups.js','/api/permission-groups','权限组 CRUD、父子层级、默认组、用户多组归属、冲突检测',['A'],'permission_groups、group_permission_entries、user_group_membership'],
+ ['A','permissions.js','/api/permissions-view','只读权限检视器（website/group 两视图）',['A'],'users、user_group_membership、permission_groups、group_permission_entries、user_permissions'],
+ ['A','posts.js','/api/posts','列表/搜索/详情/CRUD + 点赞/评论/置顶 + 图片上传',['A','N','U'],'posts、post_media、post_like、post_comment、users'],
+ ['A','users.js','/api/users','用户列表/CRUD/生日/位置/搜索/自助导出导入/改名密码 + 挂 2 子模块',['A','H','N'],'users、user_group_membership、sys_oper_log、user_friends、notifications'],
+ ['A','moderations.js','/api/moderations','举报 + 审核队列 + 通过/驳回/撤销；通过时按 target_type 远程 block/mute',['A','CK','V'],'moderations、users'],
+ ['A','checkin.js','/api/checkin','每日签到/连续天数/历史/排行榜/奖励（联动成就）',['A','achievements'],'checkins、users、checkin_rewards'],
+ ['A','achievements.js','/api/achievements','成就列表/解锁进度/排行榜；导出 checkAndUnlock',['A'],'achievements、user_achievements、users'],
+ ['A','user_like.js','/api/user-like','每日一赞（20 人/天上限）、收赞统计、互赞',['A','N'],'user_like、users'],
+ ['A','chat.js','/api/chat','私信 + 群聊全套（CRUD/join-by-code/messages/admins/kick）+ 实时位置 + RTC 配置（27 端点）',['A','N','chatUpload'],'messages、users、chat_groups、chat_group_members、chat_group_messages、chat_group_message_reads'],
+ ['A','friends.js','/api/friends','好友请求/回应/拉黑/共同好友/动态/世界历史/活动会话',['A','N'],'user_friends、users、posts、event_sign、album_photo'],
+ ['A','follows.js','/api/follows','单向关注，UNIQUE(follower_id,following_id) 幂等',['A','N'],'user_follows、users、user_friends'],
+ ['A','announcements.js','/api/announcements','公告 CRUD/附件/历史回滚/visibility 白名单',['A','N'],'announcement、announcement_attachments、announcement_history、notifications、users'],
+ ['A','events.js','/api/events','活动 CRUD/报名/签到+QR/评论/VRC 同步/生日派对/归档/iCal 导出',['A','CK','N'],'event、event_sign、event_checkin、event_comment、album_photo'],
+ ['A','share.js','/api/share','分享码生成/校验/HTML；把 /uploads/... 改写为 ?share=（与 uploads_auth 配对）',['A','U'],'share_links'],
+ ['A','avatar.js','/api/avatar','头像代理三级缓存（内存 LRU / 磁盘 / 源池），防 CDN 签名过期裂图',['A','VA'],'无'],
+ ['A','collections.js','/api/collections','统一收藏 V8.2：三类收藏 CRUD/分组/多维筛选/发现/评分/失效检测/VRCX 匿名搜索/管理扫描',['A','CK','U'],'collections、collection_folders、collection_ratings、users'],
+ ['A','vrc_favorites.js','/api/vrc-favorites','VRC 官方收藏：分组/条目；读可系统 cookie 兜底，写严格用户 cookie；world_cache 富化；DB 三级缓存（vrc_fav_cache 7 天 TTL）+ 负缓存冷却 + 小时级清理',['A','CK','WC'],'vrc_fav_cache（+ vrc_worlds_cache）'],
+ ['A','vrc_invites.js','/api/vrc-invites','官方邀请/好友申请/备注/Boop，未绑定返回 NEED_BIND',['A','CK','V'],'无'],
+ ['A','avatar_tags.js','/api/avatar-tags','头像私有标签（owner 限定，8 个上限，avtr_ 校验）',['A'],'avatar_tags'],
+ ['A','world_tags.js','/api/world-tags','世界私有标签（同 avatar_tags 模式）',['A'],'world_tags'],
+ ['A','event_teams.js','/api/event-teams','活动队伍：按活动查/建/加入/退出/踢人',['A'],'event_teams、event_team_members、event、users'],
+ ['A','jtt.js','/api/jtt','联动骨架：账号文件签发（超管）/状态上报（ED25519 免会话）/jt1:// 深链/客户端注册 TOFU',['A','jttLimiter'],'jtt_accounts、jtt_game_states、jtt_bind_codes、users'],
+ ['B','vrc_system.js','/api','系统 VRC 登录/2FA/登出/凭据保存清除/状态/通知（requireAdminCompat）',['A','VA','V'],'无'],
+ ['B','stats.js','/api','/client-config /stats /public/stats /search（online 语义取 wsService.onlineUsers）',['A','C','WS'],'stats、users、event、posts、album_photo、group_roster'],
+ ['B','groups.js','/api','群组信息 + VRC user/world/avatar 查询 + 角色中文映射 + 挂 6 子模块',['A','CK','H'],'无'],
+ ['B','admin.js','/api','cookie 过期/stats/操作日志/social-links/站点配置/群组排序/VRC 监控/用户数据导出导入 + 挂 4 子模块',['A','H','N'],'system_config、sys_oper_log、users、group_roster、permission_groups'],
+ ['B','git_update.js','/api','git fetch + merge --ff-only + 跨平台重启（requireSuperAdmin，execFile 防注入）',['A'],'无'],
+ ['B','album.js','/api','相册分类/照片 CRUD/点赞/评论/回收站/上传（sharp 处理），路径 /album/* 与 /photos/*',['A','N'],'album_photo、album_cate、album_like、album_comment、users'],
+ ['B','notifications.js','/api','通知列表/未读/已读/归档/设置（WS 推送）',['A','N'],'notifications、users'],
+ ['B','logs.js','/api','最近日志/文件列表/原文（requireAdminCompat，委托 logger）',['A','LOG'],'无'],
+ ['B','security.js','/api','安全告警统计（委托 security_alert.getStats）',['A','SA'],'无'],
+ ['B','setup.js','/api','安装引导：check/state/save/test-db/test-email/reset（进度存 setup-wizard.json）',[],'users（动态建表）'],
+ ['B','db-recover.js','/api/system','DB 自救通道：db-status（无鉴权）+ db-recover（recovery token）',['recoveryToken'],'无固定表'],
+ ['B','migration.js','/api/migration','MySQL/面板数据迁移（宝塔/1Panel/aaPanel）；host 白名单防 SSRF；/detect 纯 TCP 探测',['A'],'动态表'],
+ ['B','health.js','/api','live / ready / detailed 三类探针',[],'无'],
+ ['B','config.js','/api','.env 读写/重载/系统信息（requireSuperAdmin）',['A'],'无'],
+ ['B','backups.js','/api','备份 create/restore/cleanup/下载（backup-core 三重校验防 0 字节假备份）',['A'],'无'],
+ ['B','database.js','/api','DB 状态/表/进程/变量/慢查询 + OPTIMIZE/ANALYZE/CHECK/REPAIR/KILL（requireSuperAdmin）',['A'],'动态表'],
+ ['B','files.js','/api','文件中转站：列举/下载/删除/建目录/清理/重命名（防路径穿越）',['A'],'无'],
+ ['B','export.js','/api','管理员按表流式导出 CSV/JSON（mysql2 流式 + 逐行 redact，内存常数级）',['A'],'动态表'],
+ ['B','analytics.js','/api','仪表盘/请求/用户/内容/系统五类统计（读 metrics + cache_service）',['A','C','MET'],'posts、event、users、album_photo、group_roster'],
+ ['B','webhooks.js','/api','webhook CRUD/测试发送/事件类型（委托 webhook）',['A','W'],'webhooks'],
+ ['B','sitemap.js','根级','/sitemap.xml（上限 50000 URL）+ /robots.txt',[],'event、posts、photo'],
+ ['C','users_profile.js','users.js → /api/users','/me/profile 读写、头像上传/VRC 头像/删除/显示偏好、位置上报（AES 加密存位）',['A'],'users、sys_oper_log'],
+ ['C','users_tags_notes.js','users.js → /api/users','标签字典/用户标签增删查、备注颜色白名单与备注增删',['A'],'user_tags、note_notes'],
+ ['C','admin_users.js','admin.js → /api','后台用户增删查改 + 激活码系统；敏感操作二审密码确认',['A','N'],'users、user_group_membership、notifications'],
+ ['C','admin_name_change.js','admin.js → /api','VRC 改名申请 + 管理员审核',['A'],'name_change_requests、users'],
+ ['C','admin_vrc_blacklist.js','admin.js → /api','VRC 黑名单（列表登录可见，维护超管）',['A'],'vrc_blacklist、users'],
+ ['C','admin_content_live.js','admin.js → /api','直播监管（强制结束/删除）+ 动态/公告/活动/相册后台管理（级联清理）',['A'],'live_streams、posts、event、announcement、album_photo、event_checkin、event_sign、notifications'],
+ ['C','groups_members_sync.js','groups.js → /api','成员全量同步/在线状态刷新/群友互助 presence 上报',['CK','H'],'group_roster、group_member_changes、group_sync_log、group_presence_share、users'],
+ ['C','groups_members.js','groups.js → /api','成员名册/变更记录/同步日志/花名册/入群检查/统计/所在世界',['CK','A'],'group_roster、vrc_blacklist、group_member_changes、group_sync_log'],
+ ['C','groups_member_detail.js','groups.js → /api','成员本地详情 + VRC 真实资料（SWR 缓存）+ 成员快照',['CK','WC'],'group_roster、users、collections、event_sign、event_checkin'],
+ ['C','groups_vrc_status.js','groups.js → /api','VRC 账号状态单检/批检/清单（admin）',['CK','A'],'vrc_account_status'],
+ ['C','groups_invites.js','groups.js → /api','批量邀请/列表/接受/拒绝/我的邀请',['CK','A'],'group_invites、group_roster'],
+ ['C','groups_content.js','groups.js → /api','公告/画廊/角色/成员角色/审计日志/金流/黑名单/日历关注；写侧 13 端点 adminLimiter',['CK','A'],'无']
+];
+const TOOLS=[
+ ['groups_helpers.js','sleep / parseVrcLocation / vrcWithFallback（401 降级重试封装）','groups.js 及其 6 子模块'],
+ ['user-data-helper.js','用户级数据导出/导入共享逻辑（CSV 转义、VRChat ID 反查本站 user）','users.js（/me/export·import）、admin.js（按用户/批量导出导入）']
+];
+const DBHOT=[['1','users','28'],['2','event','13'],['3','album_photo','11'],['4','group_roster','9'],['5','posts','9'],['6','notifications','9'],['7','permission_groups','3'],['8','user_like','3'],['9','user_friends','7'],['10','event_sign','6'],['11','user_group_membership','6'],['12','sys_oper_log','5'],['13','announcement','5'],['14','post_comment','3'],['15','group_permission_entries','3']];
+const STACK=[
+ ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261011a','语言包×6（detectLang 动态注入）'],
+ ['2','/js/seo.js','head 内同步（非 defer）','20261011a','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
+ ['3','/js/core.js','defer','20261011a','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
+ ['4','/js/i18n.js','defer','20261011a','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261011a\''],
+ ['5','/js/ui.js','defer','20261011a','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
+ ['6','gsap.min.js','defer','20261011a','动效库'],
+ ['7','ScrollTrigger.min.js','defer','20261011a','滚动触发'],
+ ['8','/js/motion.js','defer','20261011a','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
+ ['9','/js/reveal.js','defer','20261011a','滚动揭示（IntersectionObserver；motion 启用后让位）'],
+ ['10','/js/nav-scroller.js','defer','20261011a','顶部标签滑动'],
+ ['11','/js/freeze.js','defer','20261011a','__freeze 空闲冻结'],
+ ['12','/js/theme.js','defer','20261011a','主题 V5.5（模式/明暗/强调色/时间自动）'],
+ ['13','/js/auth.js','defer','20261011a','登录/注册/2FA/VRC 登录/自动登录'],
+ ['14','/js/loader.js','defer','20261011a','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP'],
+ ['15','/js/smartsearch.js','defer','20261011a','Ctrl+K 命令面板'],
+ ['16','/js/init.js','defer','20261011a','初始化向导（main 未初始化分支调用）'],
+ ['17','/js/main.js','defer','20261011a','入口调度/WS/轮询/通知']
+];
+const FMM=[
+ ['core.js','静','—','传输层/工具/弹窗/图片兜底/全局错误日志/VRC 重登引导','`__` toast esc','/api/csrf-token'],
+ ['i18n.js','静','—','翻译 __ + 语言切换器','switchTab currentUser','动态注入语言包'],
+ ['ui.js','静','—','头像代理链/updateUserUI/switchTab 原始实现/通知中心/骨架屏/移动端菜单','`__avatarFail` `__avatarProxyCache` `__notifPrefs` `__heroConfig`','/api/notifications /api/avatar/proxy /api/public/stats'],
+ ['seo.js','静(head)','—','SEO 注入器','`_LANG_*` 微型翻译','—'],
+ ['motion.js','静','—','GSAP 动效 + switchTab 过渡包裹','gsap ScrollTrigger switchTab','—'],
+ ['reveal.js','静','—','滚动揭示','`__motionGSAPEnabled`','—'],
+ ['nav-scroller.js','静','—','标签栏滑动','`__`','—'],
+ ['freeze.js','静','—','空闲冻结','自包含','—'],
+ ['theme.js','静','—','主题系统','`__freeze` `__`','—'],
+ ['auth.js','静','—','登录/注册/2FA/VRC 绑定/自动登录','`__freeze` switchTab currentUser','/api/auth/* /api/users/me/profile'],
+ ['loader.js','静','—','懒加载调度/switchTab 包裹/SEO 刷新/SITE_LIKE','switchTab SITE_SEO SITE_LOG','—'],
+ ['smartsearch.js','静','—','Ctrl+K 命令面板','switchTab `__`','/api/users/search /api/posts?q='],
+ ['init.js','静','—','安装向导','api `__`','/api/auth/init /api/health'],
+ ['main.js','静','—','入口/WS/轮询/通知/首屏','`__freeze` `__notifPrefs` switchTab','/api/auth/init /api/client-config'],
+ ['home.js','懒','home','首页统计/导航网格/widget 拖拽/精选照片/最新动态','`__freeze` switchTab','/api/posts?limit=3'],
+ ['members.js','懒','members（vrc 组亦含）','成员列表/筛选/名片/事件/相册/VRC 详情/邀请/举报审核','`__avatarFail` `__avatarFailCache` switchTab','/api/users/list /api/group/members/{id}/detail /api/vrc-invites/*'],
+ ['group.js','懒','vrc','群组成员在线/同步/公告/画廊/角色/封禁/审计','`__freeze` `__avatarFailCache`','/api/group/*'],
+ ['announcements.js','懒','announcements','公告列表/详情/编辑/置顶','currentUser `__`','/api/announcements'],
+ ['events.js','懒','events（birthday 亦含）','活动/日历/报名/签到 QR/批量管理/活动团队','`birthdayPartiesCache`','/api/events /api/event-teams'],
+ ['vrc.js','懒','vrc（map 组亦含）','VRC World 搜索 + 2FA 弹窗','showModal `__`','/api/vrc/worlds/search /api/auth/vrchat-2fa'],
+ ['geo.js','懒','map','WGS-84 ↔ GCJ-02 坐标转换','纯算法','—'],
+ ['map.js','懒','map（vrc 亦用）','Leaflet 地图/位置共享/世界分布/VRC 视图切换','`__freeze` `__avatarFailCache` switchTab `loadVrcFavorites`','/api/users/all/locations /api/group/worlds'],
+ ['chat.js','懒','chat','私信/群聊/位置/WS/RTC','`__freeze` switchTab `openMapLocation`','/api/chat/*'],
+ ['rtc.js','懒','chat（chat 伴生）','WebRTC 音视频/P2P/PTT/屏幕共享回音抑制/离开语音房间；beforeunload 挂断广播','`handleRtcMessage` `rtcSend` `ensureRtcIce`（全局词法）','/api/chat/rtc* 配置 + WS `rtc:*` 信令'],
+ ['location-share.js','懒','chat（chat 伴生）','GPS 位置共享（单例 watch）/群位置 sweep/过期清扫；beforeunload 停止广播','`__freeze`（start/stopGroupLocSweep）','/api/chat/location* + WS `group:location:*`'],
+ ['group-manage.js','懒','chat（chat 伴生）','建组/群设置/踢人/邀请码/入群/隐私/解散','`showModal` `showConfirm`','/api/chat/groups*'],
+ ['album.js','懒','album','相册/分类/灯箱/评论/回收站/我的点赞','SITE_LIKE switchTab','/api/album/*'],
+ ['posts.js','懒','posts','动态/详情/评论/点赞(SITE_LIKE)/置顶','SITE_LIKE `__heroConfig`','/api/posts'],
+ ['friends.js','懒','friends','好友/拉黑/共同好友/历史','switchTab `openChat`','/api/friends*'],
+ ['follows.js','懒','follows','关注/取关/粉丝列表','`__`','/api/follows /api/users/search'],
+ ['birthday.js','懒','birthday','生日列表 + 生日派对','`showEventDetail`','/api/users/birthdays /api/events?type=birthday'],
+ ['profile.js','懒','me（profile-user 亦含）','个人中心：资料/VRC 绑定/头像/位置/TOTP','`__avatarFail` updateUserUI','/api/users/me/* /api/auth/vrchat-* /api/auth/totp/*'],
+ ['profile-page.js','懒','profile-user（me 亦含）','用户资料展示页/相册/视频/导出导入','`__avatarFail` `albumPhotoList`','/api/profile/* /api/users/me/export'],
+ ['checkin.js','懒','me 内渲染（auth.showApp 调 init）','签到状态/动作/奖励','`__` currentUser','/api/checkin/me/*'],
+ ['checkin-extra.js','懒','checkin 伴生','签到彩带特效/周条增强','prefers-reduced-motion','—'],
+ ['achievements.js','懒','me 内渲染','成就卡','`__`','/api/achievements/me'],
+ ['collections.js','懒','vrc','统一收藏（模型/世界/头像）/分组/发现/评分/失效重检','`__isLoggedIn` `__user` `__isAdmin`','/api/collections /api/world-tags'],
+ ['vrc_favorites.js','懒','vrc（vrcfav 视图）','VRC 官方收藏管理/导入站内收藏；漏载条目限流冷却后自动补全（最多 12 轮退避，429 冷却窗口联动）','`__isLoggedIn` `__defaultAvatar`','/api/vrc-favorites /api/collections'],
+ ['admin-users.js','懒','admin（me 亦含）','用户审批/封禁/编辑/激活码/数据备份','currentUser','/api/admin/users /api/admin/activation-codes /api/admin/backups'],
+ ['admin-activation.js','懒','admin','激活码列表/统计/生成/作废','showConfirm `__`','/api/admin/activation-codes'],
+ ['admin-perms.js','懒','admin','权限只读检视 + 权限组管理','currentUser `__`','/api/permissions-view /api/permission-groups'],
+ ['admin-vrc.js','懒','admin','VRC 系统状态/登录/黑名单/改名审核/操作日志/Git 更新','currentUser','/api/admin/* /api/name-change/* /api/vrc-credentials-status'],
+ ['admin-model-collections.js','懒','admin','模型收藏馆后台：统计/失效/用户详情/删除/扫描','`__`','/api/collections/admin/* /api/admin/users'],
+ ['admin-ui.js','懒','admin','后台导航 + 面板懒加载调度 + 内容/直播管理 + 站点配置','`_ensureTabModules` `__`','/api/admin/config /api/admin/content /api/admin/live /api/admin/analytics/dashboard /api/ops/start'],
+ ['db-recover.js','独','—','DB 恢复页','`__` fetch','/api/setup/state /api/system/db-recover'],
+ ['setup.js','独','—','安装配置向导 6 步','`__` fetch','/api/setup/*'],
+ ['live.js','禁','live（禁用）','直播（已停用，ui.js 分支防御调用）','`__`','/api/live']
+];
+const CONTRACTS=[
+ ['api / apiForm / errText / toast / esc / showModal / showConfirm','core.js','全部懒加载模块','window 函数'],
+ ['`__isLoggedIn` / `__isAdmin` / `__user` / `__defaultAvatar`','core.js（defineProperty getter，返回函数）','collections、vrc_favorites 等按 __isLoggedIn() 调用的模块','getter（M1 修复：必须是函数契约）'],
+ ['`__freeze`（isFrozen/register）','freeze.js','theme、main、auth、chat、group、home、map','window 对象'],
+ ['`__avatarFail` / `__avatarProxyCache` / `__avatarFailCache`','ui.js','core.js（error 兜底）、members、group、map、profile、profile-page、admin-perms','window 函数/缓存'],
+ ['`__notifPrefs` / `__heroConfig`','ui.js','main.js（通知开关）、posts.js（每页条数）','window 对象'],
+ ['switchTab（三层包裹）','ui.js → motion.js → loader.js','main、i18n、core、auth、home、members、map、chat、friends、smartsearch','window 函数'],
+ ['SITE_LIKE（triggerBurst/guardLock/heatScore）','loader.js','posts.js、album.js','window 对象'],
+ ['SITE_SEO（setPageSeo/getDefaults）','seo.js','loader.js（TAB_SEO_MAP 逐 Tab 刷新）','window 对象'],
+ ['`__motionGSAPEnabled`','motion.js','reveal.js（让位避免双重动画）','window 布尔'],
+ ['`__WS_URL__`','main.js（/api/client-config）','main.js connectWebSocket','window 常量'],
+ ['`__mapTeardown`','map.js','ui.js（离开 map Tab 清理清扫定时器）','window 函数'],
+ ['`__vrcPendingView`','members.js（赋值 collections）','ui.js switchTab vrc 分支、map.js switchVrcView','window 字符串'],
+ ['loadVrcFavorites','vrc_favorites.js','map.js（vrcfav 视图）','window 函数'],
+ ['openMapLocation','map.js','chat.js（位置消息跳地图）','window 函数'],
+ ['`birthdayPartiesCache`','birthday.js','events.js（日历合并生日派对）','window 缓存'],
+ ['showFriends / showFollows / loadMyLikes','friends / follows / album','ui.js switchTab 分支、auth.js showApp','window 函数'],
+ ['checkinModule / achievementsModule','checkin.js / achievements.js','auth.js showApp（me 页内渲染）','全局词法 const（非 window）'],
+ ['`__collLoaded` / `__collStaticBound` / `__vrcfavLoaded`','collections / vrc_favorites','自身幂等守卫','window 布尔'],
+ ['`_vrcRateLimitedUntil`','core.js（429/VRC_RATE_LIMITED 分支写入 retryAfter 冷却）','vrc_favorites.js fillDelayMs 补全调度联动','window 毫秒时间戳']
+];
+const SYMBOLS=[
+ ['api / apiForm / errText / toast / esc / escAttr / debounce','core.js','传输 / 表单 / 错误翻译 / 提示 / 转义 / 防抖'],
+ ['showModal / closeModal / showConfirm / renderEmpty / showSkeleton / hideSkeleton','core.js / ui.js','弹窗 / 确认 / 空态 / 骨架屏'],
+ ['`__avatarFail` / `__imgFail` / `__avatarProxyCache` / `__avatarFailCache`','ui.js / core.js','头像 / 图片失败兜底与缓存'],
+ ['`__notifPrefs` / `__heroConfig`','ui.js','通知偏好 / 首屏配置'],
+ ['`__freeze`','freeze.js','空闲冻结（轮询/WS 暂停）'],
+ ['`__isLoggedIn` / `__user` / `__isAdmin` / `__defaultAvatar` / `__toast`','core.js（getter/桥接）','登录态 / 当前用户 / 角色 / 默认头像 / 提示（M1 修复，函数契约）'],
+ ['SITE_LIKE','loader.js','点赞动效（triggerBurst/guardLock/heatScore）'],
+ ['SITE_SEO','seo.js','页面 SEO 注入（setPageSeo/getDefaults）'],
+ ['`__motionGSAPEnabled` / refreshReveal','motion.js / reveal.js','动效开关 / 滚动揭示刷新'],
+ ['`__WS_URL__`','main.js','WebSocket 地址'],
+ ['`__mapTeardown` / openMapLocation / `__vrcPendingView`','map.js / members.js','地图清理 / 位置跳转 / VRC 待切视图'],
+ ['`__collLoaded` / `__collStaticBound` / `__vrcfavLoaded`','collections.js / vrc_favorites.js','模块幂等守卫'],
+ ['loadCollections / cycleAvatar / loadMembers / showFriends / showFollows / loadMyLikes','各业务模块','Tab 渲染入口（loader / ui 调用）'],
+ ['GEO（wgs84ToGcj02/outOfChina）','geo.js','坐标转换'],
+ ['`_vrcRateLimitedUntil` / vrcFavFillHint','core.js / vrc_favorites.js','VRC 429 冷却窗口 / 漏载补全重试提示'],
+];
+
+function renderSimple(tbodyId,data,rowFn){
+  const tbody=document.getElementById(tbodyId);
+  tbody.innerHTML=data.map(rowFn).join('');
+}
+renderSimple('mwBody',MIDDLEWARE,r=>'<tr><td class="f">'+esc(r[0])+'</td><td>'+esc(r[1])+'</td><td class="muted">'+esc(r[2])+'</td></tr>');
+renderSimple('svcBody',SERVICES,r=>'<tr><td class="f">'+esc(r[0])+'</td><td>'+esc(r[1])+'</td><td class="muted">'+esc(r[2])+'</td></tr>');
+renderSimple('topoBody',TOPO,r=>'<tr><td class="sub">'+r[0]+'</td><td class="f">'+r[1]+'</td><td class="muted">'+esc(r[2])+'</td></tr>');
+renderSimple('stackBody',STACK,r=>'<tr><td class="dims">'+r[0]+'</td><td class="f">'+r[1]+'</td><td class="muted">'+esc(r[2])+'</td><td class="dims">'+r[3]+'</td><td>'+esc(r[4])+'</td></tr>');
+renderSimple('ctBody',CONTRACTS,r=>'<tr><td class="f">'+esc(r[0])+'</td><td class="muted">'+esc(r[1])+'</td><td class="muted">'+esc(r[2])+'</td><td class="sub">'+esc(r[3])+'</td></tr>');
+renderSimple('symBody',SYMBOLS,r=>'<tr><td class="f">'+esc(r[0])+'</td><td class="muted">'+esc(r[1])+'</td><td>'+esc(r[2])+'</td></tr>');
+renderSimple('dbBody',DBHOT,r=>{
+  const n=+r[2],w=Math.round(n/28*100);
+  return '<tr><td class="dims">'+r[0]+'</td><td class="f">'+esc(r[1])+'</td><td class="f">'+n+'</td><td style="min-width:160px"><div style="height:7px;border-radius:4px;background:#16233c"><div style="height:7px;width:'+w+'%;border-radius:4px;background:linear-gradient(90deg,#2fd4ff,#a78bfa)"></div></div></td></tr>';
+});
+
+const rtState={q:'',cats:new Set(['A','B','C','D'])};
+function makeChips(el,items,state,key,label){
+  el.innerHTML='';
+  items.forEach(it=>{
+    const b=document.createElement('button');
+    b.className='btn'+(state.has(it)?' on':'');
+    b.textContent=label(it);
+    b.onclick=()=>{if(state.has(it))state.delete(it);else state.add(it);makeChips(el,items,state,key,label);refresh();};
+    el.appendChild(b);
+  });
+}
+function renderRoutes(){
+  const rows=ROUTES.filter(r=>rtState.cats.has(r[0])&&(!rtState.q||(r[1]+r[2]+r[3]+r[4].join(' ')+r[5]).toLowerCase().includes(rtState.q.toLowerCase())));
+  document.getElementById('rtBody').innerHTML=rows.map(r=>
+    '<tr><td class="dims">'+r[0]+'</td><td class="f">'+esc(r[1])+'</td><td class="sub">'+esc(r[2])+'</td><td>'+esc(r[3])+'</td><td>'+depChips(r[4])+'</td><td class="muted">'+esc(r[5])+'</td></tr>'
+  ).join('');
+  document.getElementById('rtCount').textContent=rows.length;
+}
+const fmmState={q:'',loads:new Set(['静','懒','独','禁'])};
+function loadCls(l){if(l.indexOf('懒')>-1)return 'lazy';if(l.indexOf('独')>-1)return 'stand';if(l.indexOf('禁')>-1)return 'disab';return ''}
+function renderFmm(){
+  const rows=FMM.filter(r=>fmmState.loads.has(r[1].replace('(head)',''))&&(!fmmState.q||(r[0]+r[2]+r[3]+r[4]+r[5]).toLowerCase().includes(fmmState.q.toLowerCase())));
+  document.getElementById('fmmBody').innerHTML=rows.map(r=>
+    '<tr><td class="f">'+esc(r[0])+'</td><td><span class="tag '+loadCls(r[1])+'">'+esc(r[1])+'</span></td><td class="sub">'+esc(r[2])+'</td><td>'+esc(r[3])+'</td><td class="muted">'+esc(r[4])+'</td><td class="muted">'+esc(r[5])+'</td></tr>'
+  ).join('');
+  document.getElementById('fmmCount').textContent=rows.length;
+}
+function refresh(){renderRoutes();renderFmm()}
+document.getElementById('rtSearch').addEventListener('input',e=>{rtState.q=e.target.value;renderRoutes()});
+document.getElementById('fmmSearch').addEventListener('input',e=>{fmmState.q=e.target.value;renderFmm()});
+document.getElementById('mwSearch').addEventListener('input',e=>{
+  const q=e.target.value.toLowerCase();
+  const rows=MIDDLEWARE.filter(r=>r.join(' ').toLowerCase().includes(q));
+  document.getElementById('mwBody').innerHTML=rows.map(r=>'<tr><td class="f">'+esc(r[0])+'</td><td>'+esc(r[1])+'</td><td class="muted">'+esc(r[2])+'</td></tr>').join('');
+  document.getElementById('mwCount').textContent=rows.length;
+});
+makeChips(document.getElementById('rtChips'),['A','B','C','D'],rtState.cats,it=>it,it=>'组 '+it);
+makeChips(document.getElementById('fmmChips'),['静','懒','独','禁'],fmmState.loads,it=>it,it=>it+' 载');
+renderRoutes();
+renderFmm();
+
+/* ================= 交互模块地图 ================= */
+const GROUPS={entry:{label:'入口',color:'#2fd4ff'},mw:{label:'中间件',color:'#a78bfa'},rt:{label:'后端路由',color:'#3ee6a5'},sv:{label:'服务/工具',color:'#ffc35c'},fe:{label:'前端脚本',color:'#ff6b9d'},fe_std:{label:'独立页',color:'#5d6b8c'},fe_dis:{label:'禁用',color:'#5d6b8c'}};
+const GRAPH={nodes:[],links:[]};
+function addNode(id,name,grp,info){GRAPH.nodes.push({id:id,name:name,grp:grp,info:info||{},x:Math.random()*1400+100,y:Math.random()*800+100})}
+function addLink(s,t,kind){GRAPH.links.push({s:s,t:t,kind:kind||'dep'})}
+const SVC_INFO={
+  sv_auth:'鉴权中间件仓库：requireAuth/requireAdmin/requireAdminCompat/requireSuperAdmin',
+  sv_authlocal:'本地账号密码：登录/注册/会话',
+  sv_authvrc:'VRC 绑定 + 两步登录 + 2FA（模式 A/B + completeVrcLogin）',
+  sv_authreset:'忘记密码：邮件重置（依赖 mailer + security_alert）',
+  sv_authsession:'buildSession 会话构建',
+  sv_vrccookie:'系统 VRC 账号：cookie 会话 + 自动重登(TOTP) + 退避；导出 getVRCCookie/getVRCCookieUserOnly',
+  sv_vrc:'VRChat API 客户端：原语 + 限流/退避',
+  sv_worldcache:'world_cache：世界缓存',
+  sv_vrcpipeline:'vrc_pipeline：VRC 数据管道',
+  sv_notify:'notification-service：通知 + WS 推送（构造注入 9 个路由）',
+  sv_cache:'cache_service：缓存服务',
+  sv_utils:'utils.js：fail/ok/ErrorCodes/encryptCookie/errText 全后端响应契约',
+  sv_ratelimitstore:'rate_limit_store：限流计数 HybridStore',
+  sv_webhooks:'webhooks：Webhook 事件分发',
+  sv_mailer:'mailer：邮件发送',
+  sv_secalert:'security_alert：安全告警计数落库',
+  sv_logger:'logger：日志',
+  sv_ws:'wsService：WebSocket 在线状态',
+  sv_chatupload:'chatUpload：聊天上传（chat.js 依赖）',
+  helper_groups:'groups_helpers.js：sleep/parseVrcLocation/vrcWithFallback',
+  helper_userdata:'user-data-helper.js：用户级数据导出/导入共享逻辑'
+};
+(function buildGraph(){
+  addNode('sv_server','server.js','entry',{meta:'唯一入口 · 端口 3456',desc:'全局中间件 + CSRF + 限流 + 懒挂载；挂载全部中间件与路由。'});
+  const mw=[['mw_security','security.js'],['mw_waf','waf.js'],['mw_csrf','csrf.js'],['mw_rate_limit','rate_limit.js'],['mw_uploads_auth','uploads_auth.js'],['mw_api_version','api_version.js'],['mw_metrics','metrics.js'],['mw_ratelimit_store','rate_limit_store.js']];
+  mw.forEach(([id,n])=>{addNode(id,n,'mw');addLink('sv_server',id,'mount')});
+  const sv=[['sv_auth','auth.js (server)'],['sv_authlocal','auth_local_service.js'],['sv_authvrc','auth_vrc_service.js'],['sv_authreset','auth_reset_service.js'],['sv_authsession','auth_session.js'],['sv_vrccookie','vrc_auth.js'],['sv_vrc','vrc.js'],['sv_worldcache','world_cache'],['sv_vrcpipeline','vrc_pipeline'],['sv_notify','notification-service.js'],['sv_cache','cache_service'],['sv_utils','utils.js'],['sv_ratelimitstore','rate_limit_store'],['sv_webhooks','webhooks.js'],['sv_mailer','mailer'],['sv_secalert','security_alert.js'],['sv_logger','logger'],['sv_ws','wsService'],['sv_chatupload','chatUpload'],['helper_groups','groups_helpers.js'],['helper_userdata','user-data-helper.js']];
+  sv.forEach(([id,n])=>{addNode(id,n,'sv')});
+  ROUTES.forEach(r=>{
+    const id='rt_'+r[1].replace(/\.js$/,'').replace(/-/g,'_');
+    addNode(id,r[1],'rt',{meta:'挂载 '+r[2],desc:r[3],tables:r[5]});
+    addLink('sv_server',id,'mount');
+    r[4].forEach(d=>{
+      const t=DEP_NODE[d];
+      if(t&&t!==id)addLink(id,t,'dep');
+    });
+  });
+  const tree={rt_users:['rt_users_profile','rt_users_tags_notes'],rt_admin:['rt_admin_users','rt_admin_name_change','rt_admin_vrc_blacklist','rt_admin_content_live'],rt_groups:['rt_groups_members_sync','rt_groups_members','rt_groups_member_detail','rt_groups_vrc_status','rt_groups_invites','rt_groups_content']};
+  Object.keys(tree).forEach(k=>tree[k].forEach(c=>addLink(k,c,'tree')));
+  addLink('sv_server','helper_groups','mount');addLink('sv_server','helper_userdata','mount');
+  const feStack=[['fe_lang','languages/*.js'],['fe_seo','seo.js'],['fe_core','core.js'],['fe_i18n','i18n.js'],['fe_ui','ui.js'],['fe_gsap','gsap.min.js'],['fe_st','ScrollTrigger.min.js'],['fe_motion','motion.js'],['fe_reveal','reveal.js'],['fe_nav','nav-scroller.js'],['fe_freeze','freeze.js'],['fe_theme','theme.js'],['fe_auth','auth.js'],['fe_loader','loader.js'],['fe_ss','smartsearch.js'],['fe_init','init.js'],['fe_main','main.js']];
+  feStack.forEach(([id,n],i)=>{addNode(id,n,'fe');if(i>0)addLink(feStack[i-1][0],id,'order')});
+  const lazy=['home','members','group','announcements','events','vrc','geo','map','chat','album','posts','friends','follows','birthday','profile','profile-page','checkin','checkin-extra','achievements','collections','vrc_favorites','admin-users','admin-activation','admin-perms','admin-vrc','admin-model-collections','admin-ui'];
+  lazy.forEach(n=>{
+    const id='fe_'+n.replace(/-/g,'_');
+    addNode(id,n+'.js','fe');
+    addLink('fe_loader',id,'load');
+  });
+  addNode('fe_dbrecover','db-recover.js','fe_std');addNode('fe_setup','setup.js','fe_std');addNode('fe_live','live.js','fe_dis');
+  [['fe_ui','fe_main'],['fe_ui','fe_posts'],['fe_ui','fe_map'],['fe_members','fe_ui'],['fe_birthday','fe_events'],['fe_vrc_favorites','fe_map'],['fe_map','fe_chat'],['fe_freeze','fe_main'],['fe_freeze','fe_home']].forEach(([s,t])=>addLink(s,t,'ct'));
+})();
+
+let layoutPos;
+function runLayout(){
+  const n=GRAPH.nodes.length,W=1600,H=1000;
+  const k=Math.sqrt(W*H/n)*0.52;
+  const ks=k*k;
+  for(let i=0;i<300;i++){
+    GRAPH.nodes.forEach(a=>{a.vx=a.vx||0;a.vy=a.vy||0;a.vx*=0.85;a.vy*=0.85});
+    for(let j=0;j<n;j++){
+      const a=GRAPH.nodes[j];
+      for(let l=j+1;l<n;l++){
+        const b=GRAPH.nodes[l];
+        let dx=a.x-b.x,dy=a.y-b.y,d2=dx*dx+dy*dy;
+        if(d2<0.01)d2=0.01;
+        if(d2>400*400)continue;
+        const d=Math.sqrt(d2),f=ks/d2;
+        dx/=d;dy/=d;
+        a.vx+=dx*f;b.vx-=dx*f;a.vy+=dy*f;b.vy-=dy*f;
+      }
+      a.vx+=(W/2-a.x)*0.004;a.vy+=(H/2-a.y)*0.004;
+    }
+    GRAPH.links.forEach(l=>{
+      const a=GRAPH.nodes.find(x=>x.id===l.s),b=GRAPH.nodes.find(x=>x.id===l.t);
+      if(!a||!b)return;
+      let dx=b.x-a.x,dy=b.y-a.y,d2=dx*dx+dy*dy;
+      if(d2<1)d2=1;
+      const d=Math.sqrt(d2),f=(d-k)*0.06;
+      dx/=d;dy/=d;
+      a.vx+=dx*f;b.vx-=dx*f;a.vy+=dy*f;b.vy-=dy*f;
+    });
+    GRAPH.nodes.forEach(a=>{a.x+=a.vx;a.y+=a.vy;a.x=Math.max(20,Math.min(W-20,a.x));a.y=Math.max(20,Math.min(H-20,a.y))});
+  }
+  let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+  GRAPH.nodes.forEach(a=>{minX=Math.min(minX,a.x);maxX=Math.max(maxX,a.x);minY=Math.min(minY,a.y);maxY=Math.max(maxY,a.y)});
+  const sw=(maxX-minX)||1,sh=(maxY-minY)||1;
+  GRAPH.nodes.forEach(a=>{a.x=60+(a.x-minX)/sw*1480;a.y=50+(a.y-minY)/sh*900});
+}
+runLayout();
+
+const view={vis:new Set(Object.keys(GROUPS)),sel:null,focus:null,search:''};
+const svgMap=document.getElementById('mapSvg');
+const t={s:1,tx:0,ty:0};
+let gGroup,edgeGroup,nodeGroup;
+function visibleNodes(){
+  let ids=GRAPH.nodes.filter(x=>view.vis.has(x.grp)).map(x=>x.id);
+  if(view.search){
+    const q=view.search.toLowerCase();
+    const hit=new Set(GRAPH.nodes.filter(x=>ids.includes(x.id)&&x.name.toLowerCase().includes(q)).map(x=>x.id));
+    const nb=new Set();
+    GRAPH.links.forEach(l=>{
+      if(hit.has(l.s)&&ids.includes(l.t))nb.add(l.t);
+      if(hit.has(l.t)&&ids.includes(l.s))nb.add(l.s);
+    });
+    ids=ids.filter(id=>hit.has(id)||nb.has(id));
+  }
+  if(view.focus){ids=ids.filter(id=>view.focus.has(id))}
+  return ids;
+}
+function renderMap(){
+  const ids=visibleNodes();
+  const idSet=new Set(ids);
+  svgMap.innerHTML='';
+  gGroup=svgEl('g',{});
+  svgMap.appendChild(gGroup);
+  const defs=svgEl('defs',{});
+  defs.innerHTML='<marker id="mArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#2c4068"/></marker>';
+  gGroup.appendChild(defs);
+  edgeGroup=svgEl('g',{});gGroup.appendChild(edgeGroup);
+  nodeGroup=svgEl('g',{});gGroup.appendChild(nodeGroup);
+  const nb={};GRAPH.links.forEach(l=>{if(idSet.has(l.s)&&idSet.has(l.t)){(nb[l.s]=nb[l.s]||new Set()).add(l.t);(nb[l.t]=nb[l.t]||new Set()).add(l.s)}});
+  const hot=view.sel?new Set([view.sel,...(nb[view.sel]||[])]):null;
+  const nodeById={};GRAPH.nodes.forEach(a=>nodeById[a.id]=a);
+  GRAPH.links.forEach(l=>{
+    if(!idSet.has(l.s)||!idSet.has(l.t))return;
+    const a=nodeById[l.s],b=nodeById[l.t];
+    const e=svgEl('line',{x1:a.x,y1:a.y,x2:b.x,y2:b.y,class:'edge',style:'stroke:#2c4068;stroke-width:1.2;opacity:0.5'});
+    if(hot&&hot.has(l.s)&&hot.has(l.t))e.setAttribute('style','stroke:#2fd4ff;stroke-width:2;opacity:0.95');
+    edgeGroup.appendChild(e);
+  });
+  ids.forEach(id=>{
+    const a=nodeById[id],g=GROUPS[a.grp];
+    const dim=hot&&!hot.has(id);
+    const hit=svgEl('circle',{cx:a.x,cy:a.y,r:16,fill:'transparent',class:'nh','data-id':id,tabindex:'0',role:'button',focusable:'true'});
+    if(!dim)hit.setAttribute('style','cursor:pointer');
+    const c=svgEl('circle',{cx:a.x,cy:a.y,r:6,fill:g.color,'data-id':id});
+    c.setAttribute('style','fill:'+g.color+';stroke:#0a101f;stroke-width:1.2;'+(dim?'opacity:0.14;':'')+(view.sel===id?'opacity:1;filter:drop-shadow(0 0 6px '+g.color+');':''));
+    nodeGroup.appendChild(hit);nodeGroup.appendChild(c);
+    const lb=svgEl('text',{x:a.x,y:a.y-10,'text-anchor':'middle',class:'nlabel','data-id':id});
+    if(view.sel===id)lb.setAttribute('data-sel','1');
+    lb.textContent=a.name;
+    lb.setAttribute('style','font-family:var(--mono);font-size:11px;fill:#b9c8ea;'+(dim?'opacity:0.12;':t.s<0.72?'opacity:0;':'' )+(view.sel===id?'fill:#e4ecf9;font-weight:700;':''));
+    nodeGroup.appendChild(lb);
+    const tt=svgEl('title',{});tt.textContent=a.name+' · '+g.label+(a.info.meta?' · '+a.info.meta:'');lb.appendChild(tt);
+  });
+  applyTransform();
+  document.getElementById('mapStat').textContent=ids.length+' 节点 / '+GRAPH.links.filter(l=>idSet.has(l.s)&&idSet.has(l.t)).length+' 边';
+  document.getElementById('mapCount').textContent='显示 '+ids.length+' / '+GRAPH.nodes.length;
+}
+function applyTransform(){
+  if(!gGroup)return;
+  gGroup.setAttribute('transform','translate('+t.tx+','+t.ty+') scale('+t.s+')');
+  const labels=nodeGroup?nodeGroup.querySelectorAll('.nlabel'):[];
+  labels.forEach(l=>{if(l.getAttribute('data-sel')==='1')return;l.setAttribute('style',l.getAttribute('style').replace(/opacity:\d+(\.\d+)?/g,'opacity:'+(t.s<0.72?'0':'1'))) });
+}
+function mapFit(){
+  const ids=visibleNodes();if(!ids.length)return;
+  const nodeById={};GRAPH.nodes.forEach(a=>nodeById[a.id]=a);
+  let minX=1e9,minY=1e9,maxX=-1e9,maxY=-1e9;
+  ids.forEach(id=>{const a=nodeById[id];minX=Math.min(minX,a.x);maxX=Math.max(maxX,a.x);minY=Math.min(minY,a.y);maxY=Math.max(maxY,a.y)});
+  const w=svgMap.clientWidth,h=svgMap.clientHeight;
+  t.s=Math.min(w/((maxX-minX)+160),h/((maxY-minY)+120),2)*0.95;
+  t.tx=w/2-(minX+maxX)/2*t.s;t.ty=h/2-(minY+maxY)/2*t.s;
+  applyTransform();updateLabelOpacity();
+}
+function updateLabelOpacity(){
+  if(!nodeGroup)return;
+  nodeGroup.querySelectorAll('.nlabel').forEach(l=>{
+    if(l.getAttribute('data-sel')==='1')return;
+    const st=l.getAttribute('style').replace(/opacity:\d+(\.\d+)?/g,'opacity:'+(t.s<0.72?'0':'1'));
+    l.setAttribute('style',st);
+  });
+}
+function mapZoom(f){
+  const w=svgMap.clientWidth,h=svgMap.clientHeight;
+  const ns=Math.max(0.25,Math.min(5,t.s*f));
+  const k=ns/t.s;
+  t.tx=w/2-(w/2-t.tx)*k;t.ty=h/2-(h/2-t.ty)*k;
+  t.s=ns;applyTransform();updateLabelOpacity();
+}
+const mstate={down:false,lastX:0,lastY:0};
+svgMap.addEventListener('pointerdown',e=>{
+  if(e.target.closest('.nh')||e.target.classList.contains('nh'))return;
+  mstate.down=true;mstate.lastX=e.clientX;mstate.lastY=e.clientY;
+  svgMap.setPointerCapture(e.pointerId);svgMap.classList.add('dragging');
+});
+svgMap.addEventListener('pointermove',e=>{
+  if(!mstate.down)return;
+  t.tx+=e.clientX-mstate.lastX;t.ty+=e.clientY-mstate.lastY;
+  mstate.lastX=e.clientX;mstate.lastY=e.clientY;
+  applyTransform();
+});
+svgMap.addEventListener('pointerup',e=>{mstate.down=false;svgMap.classList.remove('dragging')});
+svgMap.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const rect=svgMap.getBoundingClientRect();
+  const mx=e.clientX-rect.left,my=e.clientY-rect.top;
+  const f=e.deltaY<0?1.15:1/1.15;
+  const ns=Math.max(0.25,Math.min(5,t.s*f));
+  const k=ns/t.s;
+  t.tx=mx-(mx-t.tx)*k;t.ty=my-(my-t.ty)*k;
+  t.s=ns;applyTransform();updateLabelOpacity();
+},{passive:false});
+svgMap.addEventListener('dblclick',e=>{
+  const hit=e.target.closest('.nh');
+  if(hit){selectNode(hit.getAttribute('data-id'));view.focus=new Set([hit.getAttribute('data-id'),...(nbOf(hit.getAttribute('data-id'))||[])]);renderMap();mapFit();}
+  else{view.focus=null;renderMap();mapFit();}
+});
+function nbOf(id){
+  const s=new Set();
+  GRAPH.links.forEach(l=>{if(l.s===id)s.add(l.t);if(l.t===id)s.add(l.s)});
+  return s;
+}
+function selectNode(id){
+  view.sel=id;renderMap();
+  const a=GRAPH.nodes.find(x=>x.id===id);
+  const out=[],inn=[];
+  GRAPH.links.forEach(l=>{
+    if(l.s===id)out.push(l.t);
+    if(l.t===id)inn.push(l.s);
+  });
+  const nodeById={};GRAPH.nodes.forEach(x=>nodeById[x.id]=x);
+  const d1=document.getElementById('dinfo');
+  d1.innerHTML='<h5>当前节点</h5><div class="dname">'+esc(a.name)+'</div><div class="dmeta">'+esc(GROUPS[a.grp].label)+' · '+(a.info.meta?esc(a.info.meta):'—')+'</div>'+(a.info.desc?'<div class="ddesc">'+esc(a.info.desc)+'</div>':'')+(a.info.tables?'<div class="ddesc" style="margin-top:6px">主要表：'+esc(a.info.tables)+'</div>':'');
+  const d2=document.getElementById('dinfo2');
+  d2.innerHTML='<h5>依赖关系</h5>'+
+    '<div style="margin-bottom:10px"><div class="dmeta" style="margin-bottom:4px">依赖（fan-out · '+out.length+'）</div><div class="chiplist">'+(out.length?out.map(x=>'<button class="chip" onclick="selectNode(\''+x+'\')">'+esc(nodeById[x].name)+'</button>').join(''):'<div class="empty-note">无依赖</div>')+'</div></div>'+
+    '<div><div class="dmeta" style="margin-bottom:4px">被依赖（fan-in · '+inn.length+'）</div><div class="chiplist">'+(inn.length?inn.map(x=>'<button class="chip hot" onclick="selectNode(\''+x+'\')">'+esc(nodeById[x].name)+'</button>').join(''):'<div class="empty-note">无</div>')+'</div></div>';
+}
+function mapFocusSelected(){if(view.sel){view.focus=new Set([view.sel,...(nbOf(view.sel)||[])]);renderMap();mapFit()}}
+function mapFocusClear(){
+  view.sel=null;view.focus=null;view.search='';
+  document.getElementById('mapSearch').value='';
+  Object.keys(GROUPS).forEach(k=>view.vis.add(k));
+  renderMap();mapFit();
+  document.getElementById('dinfo').innerHTML='<h5>当前节点</h5><div class="empty-note">单击图中的任意节点查看该模块的挂载、职责、依赖与被依赖。</div>';
+  document.getElementById('dinfo2').innerHTML='<h5>依赖关系</h5><div class="empty-note">选择节点后，这里展示 fan-out（它依赖谁）与 fan-in（谁依赖它）。</div>';
+}
+svgMap.addEventListener('click',e=>{
+  const hit=e.target.closest('.nh');
+  if(hit){selectNode(hit.getAttribute('data-id'));}
+});
+svgMap.addEventListener('keydown',e=>{
+  if(e.key!=='Enter'&&e.key!==' ')return;
+  const hit=e.target.closest('.nh');
+  if(hit){e.preventDefault();selectNode(hit.getAttribute('data-id'));}
+});
+document.getElementById('mapSearch').addEventListener('input',e=>{
+  view.search=e.target.value.trim();
+  view.focus=null;
+  renderMap();
+  if(view.search)mapFit();
+});
+(function makeMapChips(){
+  const el=document.getElementById('mapChips');
+  const items=[['entry','入口'],['mw','中间件'],['rt','路由'],['sv','服务'],['fe','前端'],['fe_std','独立页'],['fe_dis','禁用']];
+  items.forEach(([k,label])=>{
+    const b=document.createElement('button');
+    b.className='btn on';
+    b.style.cssText='border-color:'+GROUPS[k].color+';color:'+GROUPS[k].color+';background:transparent';
+    b.textContent=label;
+    b.onclick=()=>{
+      if(view.vis.has(k)){view.vis.delete(k);b.className='btn'}
+      else{view.vis.add(k);b.className='btn on';b.style.cssText='border-color:'+GROUPS[k].color+';color:'+GROUPS[k].color+';background:transparent'}
+      renderMap();mapFit();
+    };
+    el.appendChild(b);
+  });
+})();
+window.addEventListener('resize',()=>{if(svgMap.clientWidth)mapFit()});
+
+buildOverview();
+renderMap();
+mapFit();
+</script>
+<button class="to-top" id="toTop" title="回到顶部" aria-label="回到顶部">&#8679;</button>
+<script>
+(function(){
+  /* ---- 导航激活（scrollspy） ---- */
+  const secs=[...document.querySelectorAll('section[id]')];
+  const links=[...document.querySelectorAll('nav.tabs a')];
+  const map={};
+  secs.forEach(s=>map[s.id]=links.find(a=>a.getAttribute('href')==='#'+s.id));
+  const io=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(e.isIntersecting){links.forEach(a=>a.classList.remove('active'));const a=map[e.target.id];if(a)a.classList.add('active')}
+    });
+  },{rootMargin:'-25% 0px -65% 0px'});
+  secs.forEach(s=>io.observe(s));
+
+  /* ---- 阅读进度条 + 回到顶部 ---- */
+  const bar=document.getElementById('readProgress');
+  const topBtn=document.getElementById('toTop');
+  function onScroll(){
+    const st=window.scrollY||document.documentElement.scrollTop||document.body.scrollTop||0;
+    const max=document.documentElement.scrollHeight-window.innerHeight;
+    const pct=max>0?(st/max)*100:0;
+    if(bar)bar.style.width=pct.toFixed(2)+'%';
+    if(topBtn)topBtn.classList.toggle('show',st>400);
+  }
+  window.addEventListener('scroll',onScroll,{passive:true});
+  window.addEventListener('resize',onScroll);
+  onScroll();
+  if(topBtn)topBtn.addEventListener('click',()=>window.scrollTo({top:0,behavior:'smooth'}));
+
+  /* ---- 表格列排序 ---- */
+  function sortTable(table,colIdx,asc){
+    const tb=table.tBodies[0];if(!tb)return;
+    const rows=[...tb.rows];
+    rows.sort((a,b)=>{
+      const va=(a.cells[colIdx]?.innerText||'').trim();
+      const vb=(b.cells[colIdx]?.innerText||'').trim();
+      const na=parseFloat(va.replace(/[^0-9.-]/g,''));
+      const nb=parseFloat(vb.replace(/[^0-9.-]/g,''));
+      let r;
+      if(!isNaN(na)&&!isNaN(nb)&&va!==''&&vb!=='')r=na-nb;
+      else r=va.localeCompare(vb,'zh-Hans-CN',{numeric:true});
+      return asc?r:-r;
+    });
+    rows.forEach(r=>tb.appendChild(r));
+  }
+  document.querySelectorAll('.tbl thead th').forEach((th,i)=>{
+    th.addEventListener('click',()=>{
+      const tbl=th.closest('table.tbl');if(!tbl)return;
+      const curAsc=th.classList.contains('sorted-asc');
+      tbl.querySelectorAll('th').forEach(h=>h.classList.remove('sorted-asc','sorted-desc'));
+      th.classList.add(curAsc?'sorted-desc':'sorted-asc');
+      sortTable(tbl,i,!curAsc);
+    });
+  });
+})();
+</script>
+</body>
+</html>

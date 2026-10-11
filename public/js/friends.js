@@ -25,7 +25,7 @@
   function userRowHtml(u, actionsHtml) {
     return `
       <div class="social-row">
-        <img class="social-avatar" src="${escAttr(avatar(u))}" alt="${escAttr(name(u))}" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(avatar(u))}')">
+        <img class="social-avatar" src="${escAttr(avatar(u))}" alt="${escAttr(name(u))}" data-avatar-fail-src="${escAttr(avatar(u))}">
         <div class="social-meta">
           <div class="social-name">${esc(name(u))}</div>
           ${u && u.vrchatName ? `<div class="social-sub text-13 text-muted2">${esc(u.vrchatName)}</div>` : ''}
@@ -59,7 +59,7 @@
             const u = byId[e.id];
             const nm = name(u);
             return `<button class="mutual-top-item" data-action="mutual" data-id="${e.id}" title="${esc(nm + ' · ' + e.count)}" style="display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border,#e5e7eb);border-radius:999px;background:transparent;cursor:pointer;">
-              <img src="${escAttr(avatar(u))}" alt="${escAttr(nm)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(avatar(u))}')">
+              <img class="mutual-item-avatar" src="${escAttr(avatar(u))}" alt="${escAttr(nm)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;" data-avatar-fail-src="${escAttr(avatar(u))}">
               <span style="font-size:12px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(nm)}</span>
               <span style="font-size:11px;color:var(--muted,#888);">${e.count}</span>
             </button>`;
@@ -240,14 +240,14 @@
       body = `<div class="text-13" style="margin:4px 0 0;color:var(--text,#333);">${esc(it.eventTitle || '')}</div>`;
     } else if (it.kind === 'photo') {
       const verb = __('friends.feed_photo');
-      body = `<img src="${escAttr(it.thumbPath || it.photoPath)}" alt="" loading="lazy" onerror="window.__imgFail(this)" style="margin-top:6px;max-width:100%;border-radius:8px;max-height:220px;object-fit:cover;">`;
+      body = `<img src="${escAttr(it.thumbPath || it.photoPath)}" alt="" loading="lazy" data-img-fallback="1" style="margin-top:6px;max-width:100%;border-radius:8px;max-height:220px;object-fit:cover;">`;
       if (it.desc) body += `<div class="text-13" style="margin:4px 0 0;color:var(--text,#333);">${esc(it.desc)}</div>`;
     } else {
       return '';
     }
     return `
       <div class="social-row feed-item" style="align-items:flex-start;">
-        <img class="social-avatar" src="${av}" alt="${nm}" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(it.avatarUrl || '/api/avatar/default')}')">
+        <img class="social-avatar" src="${av}" alt="${nm}" data-avatar-fail-src="${escAttr(it.avatarUrl || '/api/avatar/default')}">
         <div class="social-meta" style="flex:1;">
           <div class="social-name">${nm} <span class="text-12 text-muted2">${esc(__('friends.feed_' + (it.kind === 'post' ? 'post' : it.kind === 'event_sign' ? 'sign' : 'photo')))}</span></div>
           <div class="text-12 text-muted2">${time}</div>

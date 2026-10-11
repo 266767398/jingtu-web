@@ -3,26 +3,7 @@
  * 功能：成员列表、在线状态检测、同步、变更通知、实时更新、世界分布
  */
 
-// 复制文本到剪贴板（兼容 http/旧浏览器降级方案）
-function copyToClipboard(text) {
-  if (navigator.clipboard && window.isSecureContext) {
-    return navigator.clipboard.writeText(text);
-  }
-  return new Promise(function (resolve, reject) {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      ok ? resolve() : reject(new Error('copy failed'));
-    } catch (e) { reject(e); }
-  });
-}
+// 剪贴板统一走 core.js 全局 copyTextToClipboard（兼容 http/旧浏览器降级）；copyToClipboard 为兼容别名
 
 // 复制世界实例链接（VRCX 风格：wrld_xxx:instanceId~region）
 function copyWorldInstance(location) {
@@ -39,6 +20,22 @@ let groupStatusRefreshing = false;
 let groupLoading = false;
 let groupStats = null;
 let groupSearchTimer = null;
+let groupPage = 1;
+const GROUP_PAGE_SIZE = 50;
+
+// 群组成员排序：在线优先 → 在线内好友优先 → 昵称
+function sortGroupMembers(list) {
+  return list.slice().sort((a, b) => {
+    const ao = a.isOnline ? 1 : 0;
+    const bo = b.isOnline ? 1 : 0;
+    if (ao !== bo) return bo - ao;
+    const af = a.isFriend ? 1 : 0;
+    const bf = b.isFriend ? 1 : 0;
+    if (af !== bf) return bf - af;
+    return String(a.displayName || a.vrchatName || a.vrchatId || '')
+      .localeCompare(String(b.displayName || b.vrchatName || b.vrchatId || ''), 'zh');
+  });
+}
 
 // ==================== 加载群组成员 ====================
 async function loadGroupMembers() {
@@ -51,6 +48,7 @@ async function loadGroupMembers() {
     if (!res.ok) throw new Error('LOAD_FAILED');
     const data = await res.json();
     groupMembersCache = data.members || [];
+    groupPage = 1;
     renderGroupMembers(groupMembersCache);
     updateGroupOverview(groupMembersCache);
     loadGroupChanges();
@@ -94,9 +92,35 @@ async function loadGroupStats() {
 }
 
 // ==================== 渲染成员卡片 ====================
+// F-头像重试：订阅 __avatarRetryReady（ui.js 头像失败自动重试器发出）。
+// 系统 VRChat 会话恢复后，曾在失败冷却中的 /api/avatar/user 头像会收到重试事件，
+// 此时把网格中所有仍停留在占位（data-failed/data-loaded 已设置）的对应 img 重新触发懒加载。
+(function () {
+  let _bound = false;
+  function bindGroupAvatarRetry() {
+    if (_bound) return;
+    _bound = true;
+    document.addEventListener('__avatarRetryReady', function (e) {
+      const src = e && e.detail && e.detail.src;
+      if (!src) return;
+      const grid = document.getElementById('groupMemberGrid');
+      if (!grid) return;
+      grid.querySelectorAll('.gm-avatar[data-avatar]').forEach(function (img) {
+        if (img.getAttribute('data-avatar') !== src) return;
+        // 清除占位/已完成标记，重新走进懒加载队列（lazyLoadGroupAvatars 会按冷却重判定）
+        img.setAttribute('data-failed', '0');
+        img.removeAttribute('data-loaded');
+      });
+      lazyLoadGroupAvatars(grid);
+    });
+  }
+  window.__bindGroupAvatarRetry = bindGroupAvatarRetry;
+})();
+
 function renderGroupMembers(members) {
   const grid = document.getElementById('groupMemberGrid');
   if (!grid) return;
+  if (typeof window.__bindGroupAvatarRetry === 'function') window.__bindGroupAvatarRetry();
   if (members.length === 0) {
     const icon = groupFilter === 'online' ? '🌙' : groupFilter === 'offline' ? '☀️' : groupFilter === 'web' ? '🌐' : groupFilter === 'ingame' ? '🎮' : groupFilter === 'nonfriend' ? '👤' : '👥';
     const line1 = groupFilter === 'online' ? __('group.no_online')
@@ -106,10 +130,18 @@ function renderGroupMembers(members) {
       : groupFilter === 'nonfriend' ? __('group.no_nonfriend')
       : __('group.no_data');
     renderEmpty(grid, { icon: icon, text: line1 + ' · ' + __('group.sync_first') });
+    const pagEl = document.getElementById('groupMemberPagination');
+    if (pagEl) pagEl.innerHTML = '';
     return;
   }
 
-  grid.innerHTML = members.map(m => {
+  // 在线优先 → 在线内好友优先 → 昵称排序；每页 GROUP_PAGE_SIZE 个，仅分页成员展示区
+  const sorted = sortGroupMembers(members);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / GROUP_PAGE_SIZE));
+  if (groupPage > totalPages) groupPage = totalPages;
+  const pageMembers = sorted.slice((groupPage - 1) * GROUP_PAGE_SIZE, groupPage * GROUP_PAGE_SIZE);
+
+  grid.innerHTML = pageMembers.map(m => {
     const isOnline = m.isOnline;
     const isFriend = !!m.isFriend;
     const blacklisted = !!m.blacklisted;
@@ -125,7 +157,7 @@ function renderGroupMembers(members) {
     const proxied = proxyAvatar(avatarUrl || vrcFallback);
     // 【P2-46 渐进加载】仅当该 URL 近期失败过（429/裂图冷却 60s）时才用 default 图标占位，
     // 否则首屏直接渲染真实头像 URL（浏览器并行加载数百张无压力）。
-    const avatarFailed = window.__avatarFailCache && proxied && window.__avatarFailCache[proxied] > Date.now() - 60000;
+    const avatarFailed = proxied && window.__avatarFailCached(proxied);
     const avatar = avatarFailed ? '/api/avatar/default' : proxied;
     const displayName = m.displayName || m.vrchatName || m.vrchatId;
     // VRCX 风格信任等级色阶：在头像外围以彩色信任环呈现，复用成员名片同一套 VRC_TRUST_COLOR（小写归一化）
@@ -135,19 +167,17 @@ function renderGroupMembers(members) {
     // 【P2-62】状态行只显示玩家自定义状态文字，无自定义时仅显示圆点（不再兜底__('auto_group_3')）
     const statusText = status.text;
 
-    const vid = escJsStr(m.vrchatId || '');
     // 缓存到全局，供 openVrcMemberCard 在详情接口缺字段时回退（确保详情可见信誉/在线状态）
     try { (window.__groupRosterById = window.__groupRosterById || {})[m.vrchatId || m.vrcUserId] = m; } catch (e) {}
     return `
     <div class="group-member-card ${!isOnline ? 'offline' : (m.isInGame ? 'online ingame' : 'online web')}${isFriend ? ' is-friend' : ' not-friend'}" role="button" tabindex="0"
          data-vrchat-id="${escAttr(m.vrchatId || '')}"
          data-tip-dot="${status.dotClass}"
-         onclick="openVrcMemberCard('${vid}')"
-         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openVrcMemberCard('${vid}')}">
+         data-action="group-open-vrc-card">
       <div class="gm-avatar-wrap${trustColor ? ' has-trust-ring' : ''}"${trustColor ? ` style="--tc:${trustColor}"` : ''}>
         <div class="gm-avatar-link" style="cursor:pointer">
-          ${avatar ? `<img src="${escAttr(avatar)}" class="gm-avatar" alt="${esc(displayName)}" data-avatar="${escAttr(proxied || '')}" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escAttr(avatar)}')">` : ''}
-          <img src="/api/avatar/default" class="gm-avatar" alt="${esc(displayName)}" style="display:none" loading="lazy" onload="this.style.display='';var fb=this.parentNode.querySelector('.gm-avatar-fallback');if(fb)fb.style.display='none';" onerror="this.remove()">
+          ${avatar ? `<img src="${escAttr(avatar)}" class="gm-avatar" alt="${esc(displayName)}" data-avatar="${escAttr(proxied || '')}" loading="lazy" data-avatar-fail-src="${escAttr(avatar)}">` : ''}
+          <img src="/api/avatar/default" class="gm-avatar" alt="${esc(displayName)}" data-gm-default-avatar="1" style="display:none" loading="lazy">
           <div class="gm-avatar-fallback" style="${avatar ? '' : 'display:flex'}">${displayName.charAt(0).toUpperCase()}</div>
         </div>
         ${!isFriend ? '<div class="gm-friend-badge" title="' + __('group.non_friend_tooltip') + '">👤</div>' : ''}
@@ -157,6 +187,126 @@ function renderGroupMembers(members) {
       <span class="gm-name" title="${esc(displayName)}">${esc(displayName)}</span>
     </div>`;
   }).join('');
+  // 默认头像兜底图：加载成功 → 显示自身并隐藏首字母占位；失败 → 移除。
+  // 原内联 onload/onerror 被 CSP 拦截，改为渲染后逐张绑定（onerror 属性赋值同时让
+  // core.js 全局错误捕获跳过这些图，避免 __avatarFail 重试链改写"移除"语义）。
+  grid.querySelectorAll('img[data-gm-default-avatar]').forEach(function (img) {
+    img.onload = function () {
+      if (img.dataset.gmDefDone) return;
+      img.dataset.gmDefDone = '1';
+      img.style.display = '';
+      var fb = img.parentNode && img.parentNode.querySelector('.gm-avatar-fallback');
+      if (fb) fb.style.display = 'none';
+    };
+    img.onerror = function () {
+      if (img.parentNode) img.parentNode.removeChild(img);
+    };
+    // 缓存命中时 load 事件可能已完成（complete=true），补跑一次兜底
+    if (img.complete) {
+      if (img.naturalWidth > 0) img.onload(); else img.onerror();
+    }
+  });
+  renderGroupPagination(totalPages, sorted.length);
+}
+
+// 成员列表分页栏：仅作用于群组玩家展示区（统计/过滤/搜索不受影响）
+function renderGroupPagination(totalPages, totalCount) {
+  const pagEl = document.getElementById('groupMemberPagination');
+  if (!pagEl) return;
+  if (!totalPages || totalPages <= 1) { pagEl.innerHTML = ''; return; }
+  let html = '';
+  if (groupPage > 1) {
+    html += `<button type="button" class="pagination-btn" data-group-page="1" title="${__('admin_users.title_first_page')}">&laquo;</button>`;
+    html += `<button type="button" class="pagination-btn" data-group-page="${groupPage - 1}">&lsaquo;</button>`;
+  }
+  const start = Math.max(1, groupPage - 2);
+  const end = Math.min(totalPages, groupPage + 2);
+  for (let i = start; i <= end; i++) {
+    html += `<button type="button" class="pagination-btn${i === groupPage ? ' active' : ''}" data-group-page="${i}">${i}</button>`;
+  }
+  if (groupPage < totalPages) {
+    html += `<button type="button" class="pagination-btn" data-group-page="${groupPage + 1}">&rsaquo;</button>`;
+    html += `<button type="button" class="pagination-btn" data-group-page="${totalPages}" title="${__('admin_users.title_last_page')}">&raquo;</button>`;
+  }
+  html += `<span class="text-muted2 text-12 ml-8">共 ${totalCount} 人 · 第 ${groupPage}/${totalPages} 页</span>`;
+  pagEl.innerHTML = html;
+}
+
+// ==================== VRChat 黑名单视图（VRC 页新 Tab，所有登录用户可见） ====================
+// GET 已放开为登录可见（后端 requireAuth）；新增/删除仍仅超管。函数放 group.js（始终加载），
+// 不依赖懒加载的 admin-vrc.js，保证黑名单 Tab 对普通用户也能打开。
+async function loadVrcBlacklistView() {
+  const listEl = document.getElementById('vrcBlacklistViewList');
+  if (!listEl) return;
+  listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_loading') + '</p>';
+  try {
+    const res = await api('/api/admin/vrc-blacklist', { method: 'GET', timeout: 30000 });
+    if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(errText(err) || __('admin_vrc.load_failed')); }
+    const data = await res.json();
+    const items = data.items || [];
+    const countEl = document.getElementById('vrcBlacklistViewCount');
+    if (countEl) countEl.textContent = '共 ' + items.length + ' 条';
+    const canManage = isAdminUser();
+    if (!items.length) {
+      listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_empty') + '</p>';
+      const addBar = document.getElementById('vrcBlacklistViewAddBar');
+      if (addBar) addBar.style.display = canManage ? '' : 'none';
+      return;
+    }
+    const addBar = document.getElementById('vrcBlacklistViewAddBar');
+    if (addBar) addBar.style.display = canManage ? '' : 'none';
+    listEl.innerHTML = items.map(it => `
+      <div class="vrc-blacklist-item">
+        <div class="vrc-blacklist-head">
+          <span class="vrc-blacklist-name">🚫 ${esc(it.username || '')}</span>
+          ${it.vrchatId ? `<span class="vrc-blacklist-id">${esc(it.vrchatId)}</span>` : ''}
+          ${canManage ? `<button class="btn btn-xs btn-outline ml-auto" data-vrc-action="blacklist-view-remove" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_remove')}">🗑️ ${__('admin_vrc.bl_remove')}</button>` : ''}
+        </div>
+        ${it.url ? `<div class="vrc-blacklist-url">🔗 <a href="${escAttr(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.url)}</a></div>` : ''}
+        ${it.reason ? `<div class="vrc-blacklist-reason">${__('admin_vrc.bl_reason_label')}${esc(it.reason)}</div>` : ''}
+        <div class="vrc-blacklist-meta">${__('admin_vrc.bl_added_by')} ${esc(it.createdByName || '-')} · ${fmtDate(it.createdAt)}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    const msg = String((e && e.message) || __('admin_vrc.load_failed'));
+    listEl.innerHTML = '<p class="text-red text-13">' + (typeof esc === 'function' ? esc(msg) : msg) + '</p>';
+  }
+}
+window.loadVrcBlacklistView = loadVrcBlacklistView;
+
+function addVrcBlacklistViewItem() {
+  if (!isAdminUser()) { toast(__('admin_vrc.super_admin_only'), 'error'); return; }
+  const username = document.getElementById('blvUsername')?.value?.trim();
+  if (!username) { toast(__('admin_vrc.bl_need_username'), 'error'); return; }
+  try {
+    api('/api/admin/vrc-blacklist', {
+      method: 'POST',
+      body: {
+        username,
+        url: document.getElementById('blvUrl')?.value?.trim() || '',
+        vrchatId: document.getElementById('blvVrchatId')?.value?.trim() || '',
+        reason: document.getElementById('blvReason')?.value?.trim() || ''
+      },
+      timeout: 30000
+    }).then(async (res) => {
+      if (!res.ok) { const err = await res.json().catch(() => ({})); toast(errText(err) || __('admin_vrc.op_failed'), 'error'); return; }
+      toast(__('admin_vrc.bl_added'), 'success');
+      ['blvUsername', 'blvUrl', 'blvVrchatId', 'blvReason'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      loadVrcBlacklistView();
+    }).catch((err) => { if (isApiHandledError(err)) return; toast(__('admin_vrc.op_failed') + ': ' + err.message, 'error'); });
+  } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.op_failed') + ': ' + err.message, 'error'); }
+}
+
+function removeVrcBlacklistViewItem(id) {
+  if (!isAdminUser()) { toast(__('admin_vrc.super_admin_only'), 'error'); return; }
+  showConfirm(__('admin_vrc.bl_remove_confirm'), async () => {
+    try {
+      const res = await api('/api/admin/vrc-blacklist/' + id, { method: 'DELETE', timeout: 30000 });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); toast(errText(err) || __('admin_vrc.op_failed'), 'error'); return; }
+      toast(__('admin_vrc.bl_removed'), 'success');
+      loadVrcBlacklistView();
+    } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.op_failed') + ': ' + err.message, 'error'); }
+  });
 }
 
 function memberStatusMeta(isOnline, isFriend, vrchatStatus, isInGame, statusDescription) {
@@ -355,9 +505,12 @@ function lazyLoadGroupAvatars(grid) {
       if (n >= BATCH) return;
       const real = img.getAttribute('data-avatar');
       if (!real) { img.setAttribute('data-failed', '1'); return; }
-      // 近期失败冷却（60s）内跳过，避免反复打代理
-      if (window.__avatarFailCache && window.__avatarFailCache[real] > Date.now() - 60000) {
-        img.setAttribute('data-failed', '1'); return;
+      // 近期失败冷却（60s）内跳过，避免反复打代理；同时登记冷却到期自动重试
+      // （系统会话恢复后 ui.js __avatarRetryReady 会通知本模块重新加载该 URL）
+      if (window.__avatarFailCached(real)) {
+        img.setAttribute('data-failed', '1');
+        if (typeof window.__avatarRegisterRetry === 'function') window.__avatarRegisterRetry(real);
+        return;
       }
       img.src = real;
       img.setAttribute('data-loaded', '1');
@@ -621,14 +774,24 @@ async function loadGroupChanges() {
     if (changes.length === 0) {
       renderEmpty(list, { icon: '🔄', text: __('group.no_changes') }); return;
     }
+    // 变动时间显示绝对时间戳（YYYY-MM-DD HH:mm），网站数据同步延后时用户能直接算出多久前发生；
+    // 相对时间（formatLastSeen）放 title 作为辅助。
+    const fmtChangeTime = (x) => {
+      if (!x) return '—';
+      const dt = new Date(x);
+      if (isNaN(dt.getTime())) return esc(String(x));
+      return dt.toLocaleString(getCurrentLang ? getCurrentLang() : 'zh', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    };
     list.innerHTML = changes.map(c => {
       const icon = c.changeType === 'joined' ? '✅' : c.changeType === 'left' ? '👋' : '🔄';
       const typeLabel = c.changeType === 'joined' ? __('group.status_joined') : c.changeType === 'left' ? __('group.status_left') : __('group.status_changed');
+      const absTime = fmtChangeTime(c.createdAt);
+      const relText = formatLastSeen(c.createdAt);
       return `<div class="group-change-item">
         <span class="group-change-icon">${icon}</span>
         <span class="group-change-name">${esc(c.vrchatName)}</span>
         <span class="group-change-type ${c.changeType}">${typeLabel}</span>
-        <span class="group-change-time">${formatLastSeen(c.createdAt)}</span>
+        <span class="group-change-time"${relText !== absTime ? ` title="${escAttr(relText)}"` : ''}>${absTime}</span>
       </div>`;
     }).join('');
   } catch {}
@@ -649,9 +812,29 @@ async function groupAdminFail(res) {
   } catch {}
 }
 
+// bindGroupAdminPanel：注册"展开时懒加载"。
+// 面板均为 admin-only 折叠项，位于 vrc tab 的 vrcGroupMgmtView 内。
+// 若在页面加载时就拉取，会：(1) 系统 VRC 账号正常时每进站白耗 5+ 次 VRChat 配额，
+// 加剧 429；(2) 系统 VRC 账号失效时在首页就同时炸出多个错误提示（重登弹窗 + 多条失败 toast）。
+// 因此这里只登记加载器，真正触发在 switchVrcView 展开 groupmgmt 视图并派发 vrc:mgmt-shown 时。
+let _adminPanelsRegistered = new Set();
+let _pendingAdminPanelLoaders = [];
+let _adminPanelHookBound = false;
+
 function bindGroupAdminPanel(id, loader) {
   const el = document.getElementById(id);
-  if (el && isAdminUser()) loader();
+  if (!el || !isAdminUser()) return;
+  if (_adminPanelsRegistered.has(id)) return; // 重复 setupGroupAdminPanels 不重复登记
+  _adminPanelsRegistered.add(id);
+  _pendingAdminPanelLoaders.push(loader);
+  if (!_adminPanelHookBound) {
+    _adminPanelHookBound = true;
+    document.addEventListener('vrc:mgmt-shown', () => {
+      // 每次展开群组管理视图都重新拉取（与原"打开即刷新"行为一致），
+      // 单个面板失败不影响其余
+      _pendingAdminPanelLoaders.forEach(fn => { try { fn(); } catch (e) { /* 忽略 */ } });
+    });
+  }
 }
 
 function bindGroupAdminClick(id, fn) {
@@ -674,21 +857,6 @@ function setupGroupAdminPanels() {
   bindGroupAdminClick('groupBanBtn', banGroupMemberAction);
   bindGroupAdminClick('groupCalFollowBtn', () => groupCalendarAction('follow'));
   bindGroupAdminClick('groupCalUnfollowBtn', () => groupCalendarAction('unfollow'));
-  bindGroupMgmtBar();
-}
-
-function bindGroupMgmtBar() {
-  const bar = document.getElementById('groupMgmtBar');
-  if (!bar) return;
-  bar.querySelectorAll('.group-mgmt-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const panel = document.getElementById(btn.dataset.target);
-      if (!panel) return;
-      bar.querySelectorAll('.group-mgmt-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  });
 }
 
 // ---- 群公告 ----
@@ -1007,6 +1175,8 @@ function stopGroupPolling() {
   // P2-2: 离开 vrc Tab / 停止轮询时，增量更新留下的防抖重渲染定时器仍可能在 1500ms 内触发
   // loadGroupMembers + loadGroupStats，导致隐藏 Tab 下发起无意义请求与 DOM 操作。一并清理。
   if (_rosterRefreshTimer) { clearTimeout(_rosterRefreshTimer); _rosterRefreshTimer = null; }
+  // M9: 头像分批懒加载的定时链也随停止轮询一并清理，避免 Tab 切换后空转
+  if (_avatarLazyTimer) { clearTimeout(_avatarLazyTimer); _avatarLazyTimer = null; }
 }
 
 // 空闲冻结：暂停/恢复 vrc Tab 的 30s 在线轮询（见 freeze.js）。
@@ -1025,6 +1195,40 @@ document.addEventListener('DOMContentLoaded', () => {
   setupGroupSearch();
   // F-6/F-23 管理面板绑定（内部有 isAdminUser 守卫，非管理员不绑定）
   setupGroupAdminPanels();
+  // 群组成员卡片：点击 / 键盘（Enter/Space）打开 VRChat 成员名片
+  // （原内联 onclick/onkeydown 被 CSP 拦截，改为文档级委托）
+  document.addEventListener('click', (e) => {
+    const card = e.target && e.target.closest ? e.target.closest('[data-action="group-open-vrc-card"]') : null;
+    if (!card) return;
+    const vid = card.getAttribute('data-vrchat-id');
+    if (vid && typeof openVrcMemberCard === 'function') openVrcMemberCard(vid);
+  });
+  // 群组成员分页按钮：仅翻页重排缓存数据，不重新请求
+  document.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('[data-group-page]') : null;
+    if (!btn) return;
+    const targetPage = parseInt(btn.getAttribute('data-group-page'), 10);
+    if (!targetPage || targetPage === groupPage) return;
+    groupPage = targetPage;
+    renderGroupMembers(groupMembersCache);
+  });
+  // 黑名单视图：新增 / 删除按钮（删除仅超管渲染，非超管点不到）
+  const blvAddBtn = document.getElementById('blvAddBtn');
+  if (blvAddBtn) blvAddBtn.addEventListener('click', addVrcBlacklistViewItem);
+  document.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('[data-vrc-action="blacklist-view-remove"]') : null;
+    if (!btn) return;
+    const id = btn.getAttribute('data-id');
+    if (id) removeVrcBlacklistViewItem(id);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const card = e.target && e.target.closest ? e.target.closest('[data-action="group-open-vrc-card"]') : null;
+    if (!card) return;
+    e.preventDefault();
+    const vid = card.getAttribute('data-vrchat-id');
+    if (vid && typeof openVrcMemberCard === 'function') openVrcMemberCard(vid);
+  });
   // 群组玩家卡片 hover 提示（事件委托，动态渲染的卡片也生效）
   document.addEventListener('mouseover', (e) => {
     const card = e.target && e.target.closest ? e.target.closest('.group-member-card') : null;

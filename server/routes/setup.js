@@ -22,7 +22,7 @@ const mysql = require('mysql2/promise');
 const bcrypt = require('bcryptjs');
 
 const { fail, ok, handleError, sendError, ErrorCodes, logger } = require('../utils');
-const { requireRole } = require('../auth');
+const { requireRole, currentRole } = require('../auth');
 const { applyDbConfig } = require('../db');
 const mailer = require('../mailer');
 
@@ -187,11 +187,14 @@ function requireNotInstalled(req, res, next) {
 }
 // 重走模式（.env 已存在）要求超级管理员；首次安装（无 .env）放行，任何人可完成初始建站
 // 会话 cookie 为 SameSite=Lax，跨站 POST 不携带 cookie → requireRole 直接 401 挡掉跨站篡改
-function requireSuperAdminForReconfigure(req, res, next) {
+async function requireSuperAdminForReconfigure(req, res, next) {
   // 判定口径与 requireNotInstalled 一致（存在且有效才算「已安装」）：
   // 此前仅看文件存在，导致 .env 损坏时「未安装放行写入」与「要求超管」互相矛盾，形成无法修复的死锁
   if (!isSiteInstalled()) return next(); // 首次安装 / .env 损坏：无超管账号可登录，放行
-  if (req.session && req.session.role === 'super_admin') return next();
+  // B1: 角色判定不再信任会话值，复用 auth.js currentRole（DB 优先实时回查）——
+  // 被降权/封禁的超管在会话有效期内不得继续重写 .env（含 SMTP_PASS、VRC_API_KEY）
+  const role = await currentRole(req);
+  if (role === 'super_admin') return next();
   return fail(res, 403, '仅超级管理员可重走建站引导（修改站点配置）');
 }
 

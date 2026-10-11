@@ -22,6 +22,9 @@ jest.mock('../utils', () => ({
   sendError(res, status, code, message) {
     return res.status(status).json({ success: false, error: { code, message } });
   },
+  fail(res, status, message, extra) {
+    return res.status(status).json(Object.assign({ success: false, error: message }, extra || {}));
+  },
   ok(res, fields) {
     return res.json(fields ? { success: true, ...fields } : { success: true });
   },
@@ -107,7 +110,7 @@ describe('P3-95 notifications 设置（requireAuth）', () => {
       .post('/notifications/settings')
       .send({ email: true, browser: false, sound: true });
     expect(res.status).toBe(200);
-    expect(res.body.settings).toEqual({ email: true, browser: false, sound: true });
+    expect(res.body.settings).toEqual({ email: true, browser: false, sound: true, vrc: true });
     expect(invalidate).toHaveBeenCalledWith(7);
   });
 
@@ -115,13 +118,13 @@ describe('P3-95 notifications 设置（requireAuth）', () => {
     mockPool.query.mockResolvedValue([[]]);
     const res = await request(makeApp()).get('/notifications/settings');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ email: false, browser: true, sound: true });
+    expect(res.body).toEqual({ email: false, browser: true, sound: true, vrc: true });
   });
 
   test('GET /notifications/settings 解析存量通知设置', async () => {
     mockPool.query.mockResolvedValue([[{ notification_settings: '{"email":true,"browser":false,"sound":false}' }]]);
     const res = await request(makeApp()).get('/notifications/settings');
-    expect(res.body).toEqual({ email: true, browser: false, sound: false });
+    expect(res.body).toEqual({ email: true, browser: false, sound: false, vrc: true });
   });
 });
 

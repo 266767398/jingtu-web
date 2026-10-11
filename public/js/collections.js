@@ -12,26 +12,7 @@
   }
   const __ = ensureI18n();
 
-  // 复制文本到剪贴板（兼容 http/内网 IP 等非安全上下文，navigator.clipboard 不可用时降级 execCommand）
-  function copyTextToClipboard(text) {
-    if (navigator.clipboard && window.isSecureContext) {
-      return navigator.clipboard.writeText(String(text));
-    }
-    return new Promise(function (resolve, reject) {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = String(text);
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        const ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-        ok ? resolve() : reject(new Error('copy failed'));
-      } catch (e) { reject(e); }
-    });
-  }
+  // 剪贴板统一走 core.js 全局 copyTextToClipboard（含 execCommand 降级）
 
   // 全局状态
   const state = {
@@ -39,12 +20,13 @@
     scope: 'mine',
     folder: 'all',
     filters: { search: '', status: '', platform: '', category: '', contentRating: '' },
-    sort: 'heat',
+    sort: 'created',
     page: 1,
     pageSize: 24,
     total: 0,
     totalPages: 1,
     loading: false,
+    loadSeq: 0,
     items: [],
     folders: [],
     tags: []
@@ -63,22 +45,15 @@
   function getUserId() { return (window.__user && window.__user.id) || null; }
   function isAdmin() { return window.__isAdmin && window.__isAdmin(); }
 
-  // 统一走全局 window.api()：自动带 credentials / CSRF 令牌 / 超时；这里只做 JSON 解析与错误剥离
-  async function api(path, opts) {
-    opts = opts || {};
-    const res = await window.api(path, opts);
-    let data;
-    try { data = await res.json(); } catch (e) { data = {}; }
-    if (!res.ok || data.success === false) {
-      throw new Error(errText(data) || ('HTTP ' + res.status));
-    }
-    return data;
-  }
+  // 统一走 core.js 全局 apiJson：window.api 自动带 credentials / CSRF 令牌 / 超时，apiJson 再做 JSON 解析与错误剥离
+  function api(path, opts) { return window.apiJson(path, opts); }
 
   // ============ 数据加载 ============
   async function loadItems(reset) {
     if (state.loading) return;
     if (reset) { state.page = 1; state.items = []; }
+    // F1-45: 请求序号——切换筛选/分类/kind 时旧响应后到会被丢弃，避免「新条件渲染旧数据」
+    const my = ++state.loadSeq;
     state.loading = true;
     const list = $('collList');
     if (reset && list) showSkeleton(list, 'grid', 6);
@@ -89,8 +64,7 @@
       params.set('page', String(state.page));
       params.set('pageSize', String(state.pageSize));
       params.set('sort', state.sort);
-      if (state.scope === 'mine' && state.folder !== 'all') params.set('folderId', state.folder === 'none' ? '' : state.folder);
-      if (state.folder === 'none') params.set('folderId', '0');
+      if (state.scope === 'mine' && state.folder !== 'all') params.set('folderId', state.folder === 'none' ? '0' : state.folder);
       if (state.filters.search) params.set('search', state.filters.search);
       if (state.filters.status) params.set('status', state.filters.status);
       if (state.filters.platform) params.set('platform', state.filters.platform);
@@ -98,12 +72,14 @@
       if (state.filters.contentRating) params.set('contentRating', state.filters.contentRating);
       const endpoint = state.scope === 'public' ? '/api/collections/discover' : '/api/collections';
       const data = await api(endpoint + '?' + params.toString());
+      if (my !== state.loadSeq) return; // 期间用户已切换条件，作废旧响应
       state.items = data.items || [];
       state.total = data.total || 0;
       state.totalPages = data.totalPages || 1;
       renderItems();
       renderLoadMore();
     } catch (e) {
+      if (my !== state.loadSeq) return;
       if (list) renderEmpty(list, { icon: '⚠️', text: __('common.load_failed') + (e.message ? '：' + e.message : '') });
     } finally {
       state.loading = false;
@@ -188,14 +164,14 @@
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
           const act = btn.getAttribute('data-act');
-          handleCardAction(act, id);
+          handleCardAction(act, id, e);
         });
       });
       card.addEventListener('click', () => openDetail(id));
     });
   }
 
-  async function handleCardAction(act, id) {
+  async function handleCardAction(act, id, e) {
     if (act === 'detail') return openDetail(id);
     if (act === 'copyid') {
       try {
@@ -215,7 +191,7 @@
       return;
     }
     if (act === 'check') {
-      const release = btnBusy(event.target);
+      const release = btnBusy(e.target);
       try {
         const d = await api('/api/collections/' + id + '/check', { method: 'POST' });
         toast(d.status === 'valid' ? __('model_coll.valid') : __('model_coll.invalid') + (d.invalidReason || ''));
@@ -226,7 +202,7 @@
     }
     if (act === 'setavatar') {
       if (!confirm(__('model_coll.confirm_copy'))) return;
-      const release = btnBusy(event.target);
+      const release = btnBusy(e.target);
       try {
         await api('/api/collections/' + id + '/set-avatar', { method: 'POST' });
         toast(__('model_coll.copied'));
@@ -252,11 +228,14 @@
   }
 
   async function appendPage() {
+    if (state.loading) return; // F1-45: 连点「加载更多」不再并发拉取拼接乱序
+    const my = state.loadSeq; // 追加页归属当前条件；期间若发生 reset 则整体作废
     state.loading = true;
     try {
       const params = buildParams();
       const endpoint = state.scope === 'public' ? '/api/collections/discover' : '/api/collections';
       const data = await api(endpoint + '?' + params.toString());
+      if (my !== state.loadSeq) return;
       state.items = state.items.concat(data.items || []);
       const list = $('collList');
       const cur = list.innerHTML;
@@ -404,6 +383,7 @@
     rows.push([__('auto_collections_37'), statusText(it.status)]);
     if (it.kind === 'avatar_model') {
       rows.push([__('auto_collections_38'), it.platform ? platformLabel(it.platform) : '-']);
+      rows.push([__('model_coll.unity_version'), it.unity_version || '-']);
       rows.push([__('auto_collections_39'), it.size_category ? sizeLabel(it.size_category) : '-']);
       rows.push([__('auto_collections_40'), it.category === 'functional' ? __('model_coll.functional') : __('model_coll.white')]);
       rows.push([__('auto_collections_43'), it.content_rating === '18+' ? '18+' : __('auto_collections_44')]);
@@ -465,7 +445,7 @@
       <div class="coll-detail flex-row gap-12">
         <div class="coll-detail-thumb" style="background-image:url('${esc(it.thumbnail || (window.__defaultAvatar || ''))}')"></div>
         <div class="coll-detail-info flex-1">
-          <table class="coll-detail-table">${rows.map(r => `<tr><th>${esc(r[0])}</th><td>${r[1]}</td></tr>`).join('')}</table>
+          <table class="coll-detail-table">${rows.map(r => `<tr><th>${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('')}</table>
           ${tagHtml}
           <div class="mt-8"><label>${__('collections.description')}</label><div class="coll-detail-desc">${esc(it.description || '-')}</div></div>
           ${pubInfoHtml}
@@ -629,8 +609,8 @@
     box.innerHTML = '<div class="coll-search-hint text-13 text-muted2">' + __('common.loading') + '</div>';
     try {
       // P3-1: 改用全局 api()，统一获得超时、no-store 缓存控制与错误兜底；与模块内其他请求一致
-      const res = await api('/api/collections/search-models?q=' + encodeURIComponent(q) + '&n=12');
-      const data = await res.json().catch(() => ({}));
+      //（api=window.apiJson 已把 Response 解析成对象返回，此处不可再调用 res.json()）
+      const data = await api('/api/collections/search-models?q=' + encodeURIComponent(q) + '&n=12');
       const results = Array.isArray(data.results) ? data.results : [];
       if (!results.length) {
         const errMsg = errText(data);
@@ -686,16 +666,14 @@
     try {
       let data;
       if (worldDiscoverState.q) {
-        // P3-1: 改用全局 api()，统一获得超时、no-store 缓存控制与错误兜底
+        // P3-1: 改用全局 api()，统一获得超时、no-store 缓存控制与错误兜底（api 已返回解析对象）
         const url = '/api/collections/search-worlds?q=' + encodeURIComponent(worldDiscoverState.q) + '&n=24';
-        const res = await api(url);
-        data = await res.json().catch(() => ({}));
+        data = await api(url);
         if (data.success === false) throw new Error(errText(data));
         renderWorldResults(data.results || []);
       } else {
         const url = '/api/collections/popular-worlds?sort=' + encodeURIComponent(worldDiscoverState.sort) + '&n=24';
-        const res = await api(url);
-        data = await res.json().catch(() => ({}));
+        data = await api(url);
         if (data.success === false) throw new Error(errText(data));
         renderWorldResults(data.results || []);
       }
@@ -787,8 +765,23 @@
   }
 
   // ============ 辅助 ============
-  function openModal(id) { const m = $(id); if (m) m.classList.add('show'); }
-  function closeModal(id) { const m = $(id); if (m) m.classList.remove('show'); }
+  // V9.7: 与 core.js showModal/closeModal 对齐 —— 同时维护 .show class 与 inline display，
+  // 解决「详情弹窗打开一次后再点打不开」：core.js 关闭（遮罩点击/全局委托）会把
+  // style.display 置为 'none'，旧实现再打开只加 .show class，display 仍为 none 导致无响应。
+  function openModal(id) {
+    const m = $(id);
+    if (!m) return;
+    m.classList.add('show');
+    m.style.display = 'flex';
+    if (typeof lockBodyScroll === 'function') lockBodyScroll('modal:' + id);
+  }
+  function closeModal(id) {
+    const m = $(id);
+    if (!m) return;
+    m.classList.remove('show');
+    m.style.display = 'none';
+    if (typeof unlockBodyScroll === 'function') unlockBodyScroll('modal:' + id);
+  }
   function showErr(id, msg) { const e = $(id); if (e) { e.textContent = msg; e.classList.remove('d-none'); } }
   function hideErr(id) { const e = $(id); if (e) e.classList.add('d-none'); }
   function toast(msg, type) { if (window.__toast) window.__toast(msg, type); else console.log(msg); }
@@ -799,7 +792,7 @@
     btn.disabled = true;
     return function () { btn.disabled = false; };
   }
-  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+  // esc() 统一走 core.js 全局（HTML 转义）
   // FE-2：危险 URL scheme（javascript:/data: 等）禁止进入 href，仅放行 http/https 或无 scheme 链接
   function safeHref(url) {
     if (typeof url !== 'string' || !url.trim()) return false;
@@ -864,7 +857,7 @@
     bindWorldDiscover();
   }
 
-  function debounce(fn, ms) { let t; return function () { clearTimeout(t); t = setTimeout(() => fn.apply(this, arguments), ms); }; }
+  // debounce() 统一走 core.js 全局
 
   // ============ 入口 ============
   window.loadCollections = async function () {
@@ -875,6 +868,4 @@
     loadTags();
     loadItems(true);
   };
-
-  window.__collApi = { loadItems, loadFolders, openAdd, scanMine };
 })();

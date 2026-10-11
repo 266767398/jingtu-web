@@ -222,6 +222,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   position: absolute;
   top: 5px;            /* 与 .tabs 的 padding 对齐 */
   bottom: 5px;
+  height: auto;        /* 覆盖 03-layout.css .tab-indicator 的 height:3px，保证药丸撑满标签行，
+                          否则激活文字白字落在透明背景上，亮色主题下不可见 */
   left: 0;             /* 定位基准与 .tab.offsetLeft 同源（均相对 .tabs 内边距） */
   width: 0;
   border-radius: 10px;
@@ -317,15 +319,19 @@ body.home-active .tab-indicator { opacity: 0 !important; }
 .input-wrap .input-hint.error { color: var(--red); }
 .input-wrap .input-hint.success { color: var(--green); }
 
-/* ========== 24. 展开/折叠动画 ========== */
+/* ========== 24. 展开/折叠动画（grid 0fr→1fr，避免硬编码 max-height 截断超长内容） ========== */
 .collapsible {
-  overflow: hidden;
-  transition: max-height .3s cubic-bezier(.4,0,.2,1), opacity .25s ease;
-  max-height: 0;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .3s cubic-bezier(.4,0,.2,1), opacity .25s ease;
   opacity: 0;
 }
+.collapsible > * {
+  min-height: 0;
+  overflow: hidden;
+}
 .collapsible.open {
-  max-height: 500px;
+  grid-template-rows: 1fr;
   opacity: 1;
 }
 
@@ -1270,6 +1276,7 @@ body.home-active .tab-indicator { opacity: 0 !important; }
 .scroll-to-top.show {
   opacity: 1;
   visibility: visible;
+  transform: translateY(0);
 }
 .scroll-top-btn:hover,
 .scroll-to-top:hover {

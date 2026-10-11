@@ -15,7 +15,9 @@ const {
   createWebhook,
   updateWebhook,
   deleteWebhook,
-  sendWebhook
+  sendWebhook,
+  decryptWebhookSecret,
+  maskWebhookSecret
 } = require('../webhook');
 
 const router = express.Router();
@@ -23,7 +25,8 @@ const router = express.Router();
 router.get('/admin/webhooks', requireAdminCompat, async (req, res) => {
   try {
     const webhooks = await getWebhooks();
-    res.json({ webhooks });
+    // M12 修复：列表接口不返回 secret 原文，仅返回前4位+**** 掩码
+    res.json({ webhooks: webhooks.map(w => ({ ...w, secret: maskWebhookSecret(w.secret) })) });
   } catch (e) {
     handleError(res, e, '[webhooks]');
   }
@@ -87,11 +90,12 @@ router.post('/admin/webhooks/:id/test', requireAdminCompat, async (req, res) => 
     }
     
     const webhook = webhooks[0];
+    // M12: 库中 secret 为加密密文，测试发送前在内存中解密用于签名
     const result = await sendWebhook(
       webhook.url,
       WEBHOOK_EVENTS.SECURITY_ALERT,
       { message: '测试消息', test: true },
-      webhook.secret
+      decryptWebhookSecret(webhook.secret)
     );
     
     res.json(result);

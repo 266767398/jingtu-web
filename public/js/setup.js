@@ -488,19 +488,25 @@ function escapeHtml(s) {
 
 // P2-100：setup.html 不加载 core.js，内联轻量版 errText（与 core.js 同逻辑），
 // 兼容 string / Error / 嵌套包络 {error:{code,message}} / 扁平包络 {error:'串',code} / {detail} / {message}；
-// 命中 code 优先走 error.* 语言包翻译，回退后端原文；解析不出返回 ''，由调用方走 __('setup.xxx') 兜底。
+// 只在后端原文缺失时才回退 error.* 语言包翻译，避免把具体原因淹没成「请求参数错误」这类笼统文案。
 function setupErrText(d) {
   if (d == null) return '';
   if (typeof d === 'string') return d;
   if (d instanceof Error) return d.message || '';
-  const code = (d.error && typeof d.error === 'object' && d.error.code) || (typeof d.code === 'string' ? d.code : '');
+  if (d.error && typeof d.error === 'object') {
+    if (typeof d.error.message === 'string' && d.error.message) return d.error.message;
+    const code = d.error.code;
+    if (code) {
+      const translated = __('error.' + code);
+      if (translated && translated !== 'error.' + code) return translated;
+    }
+    return (typeof d.detail === 'string' && d.detail) || code || '';
+  }
+  if (typeof d.error === 'string') return d.error;
+  const code = typeof d.code === 'string' ? d.code : '';
   if (code) {
     const translated = __('error.' + code);
     if (translated && translated !== 'error.' + code) return translated;
-  }
-  if (typeof d.error === 'string') return d.error;
-  if (d.error && typeof d.error === 'object') {
-    return d.error.message || (typeof d.detail === 'string' ? d.detail : '') || code || '';
   }
   if (typeof d.detail === 'string') return d.detail;
   if (typeof d.message === 'string') return d.message;

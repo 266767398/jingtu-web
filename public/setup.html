@@ -116,6 +116,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .lang-switch{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px}
 .lang-switch .lang-label{font-size:13px;color:#9898b0}
 
+/* 返回首页 hover（原内联 onmouseover/onmouseout 被 CSP 拦截，改用纯 CSS） */
+.setup-back-home:hover{color:#7c5cfc}
+
 </style>
 <script>
   (function () {
@@ -128,7 +131,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       return 'zh';
     }
     // 解析期 document.write 为阻塞式，保证当前语言包在 i18n.js 之前就绪（与 index.html 一致）
-    document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261006c"><\/script>');
+    document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261011a"><\/script>');
   })();
 </script>
 </head>
@@ -137,10 +140,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="header">
     <h1 data-i18n="setup.header_title">⚙️ 境途同游 配置向导</h1>
     <p data-i18n="setup.header_subtitle">首次部署配置，只需几步即可完成</p>
-    <a href="/" style="display:inline-block;margin-top:12px;padding:8px 12px;color:#9898b0;font-size:13px;text-decoration:underline;border-radius:8px;transition:all .2s" onmouseover="this.style.color='#7c5cfc'" onmouseout="this.style.color='#9898b0'" data-i18n="setup.back_home">← 返回首页</a>
+    <a href="/" class="setup-back-home" style="display:inline-block;margin-top:12px;padding:8px 12px;color:#9898b0;font-size:13px;text-decoration:underline;border-radius:8px;transition:all .2s" data-i18n="setup.back_home">← 返回首页</a>
     <div class="lang-switch">
       <span class="lang-label" data-i18n="setup.lang_label">🌐 语言</span>
-      <button id="langSwitcherBtn" class="lang-switcher-btn" type="button" data-i18n="lang.switch_to" onclick="showLangSwitcher()">简体中文</button>
+      <button id="langSwitcherBtn" class="lang-switcher-btn" type="button" data-i18n="lang.switch_to">简体中文</button>
     </div>
   </div>
 
@@ -379,13 +382,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
-<script src="/js/i18n.js?v=20261006c"></script>
-<script src="/js/setup.js?v=20261006c"></script>
+<script src="/js/i18n.js?v=20261011a"></script>
+<script src="/js/setup.js?v=20261011a"></script>
 <script>
   (function () {
     initI18n();
     // P2-13：切换器按钮 #langSwitcherBtn 的文案由 initI18n → updateLangSwitcherUI 填充，
     // 弹窗由 i18n.js 统一组件渲染（与主站同一 DOM 结构与样式规格）。
+    // 点击事件原为内联 onclick，被 CSP 拦截后改为此处绑定。
+    var _langBtn = document.getElementById('langSwitcherBtn');
+    if (_langBtn) _langBtn.addEventListener('click', function () { if (typeof showLangSwitcher === 'function') showLangSwitcher(); });
     if (typeof applyStaticI18n === 'function') applyStaticI18n();
   })();
 </script>

@@ -28,6 +28,21 @@ module.exports = function (notificationService) {
     return rows.length > 0;
   }
 
+  // B4: 关注/粉丝列表隐私闸——仅本人或已互加好友（accepted，双向任一方向命中）可查看，
+  // 防止登录用户枚举任意账号的关注/粉丝关系图谱（含时间戳）
+  async function canViewFollowList(me, targetUserId) {
+    if (me === targetUserId) return true;
+    try {
+      const [fr] = await getPool().query(
+        `SELECT 1 FROM user_friends WHERE status = 'accepted' AND ((user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?))`,
+        [me, targetUserId, me, targetUserId]
+      );
+      return fr.length > 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
   // ==================== POST /api/follows ====================
   router.post('/', requireAuth, async (req, res) => {
     try {
@@ -107,6 +122,10 @@ module.exports = function (notificationService) {
     try {
       const me = req.session.userId;
       const userId = parseInt(req.query.userId) || me;
+      // B4: 非本人且非好友禁止查看他人关注列表（隐私闸）
+      if (!(await canViewFollowList(me, userId))) {
+        return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权查看该用户的关注列表');
+      }
       const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 100 });
       const pool = getPool();
 
@@ -137,6 +156,10 @@ module.exports = function (notificationService) {
     try {
       const me = req.session.userId;
       const userId = parseInt(req.query.userId) || me;
+      // B4: 非本人且非好友禁止查看他人粉丝列表（隐私闸）
+      if (!(await canViewFollowList(me, userId))) {
+        return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权查看该用户的粉丝列表');
+      }
       const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 100 });
       const pool = getPool();
 

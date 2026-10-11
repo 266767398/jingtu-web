@@ -1,6 +1,12 @@
 /* nav-scroller.css — 桌面端顶部标签栏：单行溢出隐藏 + 边缘滑动（需求③）
    覆盖 03-layout.css 中「桌面换行」的旧规则，改为单行溢出隐藏，
-   由 nav-scroller.js 驱动鼠标靠边自动滑动，并提供与实际边缘对齐的翻页按钮。 */
+   由 nav-scroller.js 驱动鼠标靠边自动滑动，并提供与实际边缘对齐的翻页按钮。
+   与 99-design-system.css 的覆盖关系：99-design-system.css 第 13 节对
+   .tabs 声明 flex-wrap:wrap 换行兜底；但此处 #mainContainer > .tabs
+   （更高优先级 / 更晚加载）强制 nowrap + overflow:hidden，保证标签栏在
+   容器无法滚动/溢出时只滑不换行——该 nowrap 行为是必要的，保持不变。
+   仅翻页按钮的 z-index 需要高于页面 sticky header（z-index:100），
+   避免按钮与 header 边缘重叠时被盖住。 */
 
 /* 首页：隐藏顶部选项栏（首页使用自身内容与底部功能栏导航，避免选项栏遮挡“欢迎回来”等内容）
    注意：nav-scroller.js 会把 .tabs 包进 .nav-scroller 包裹层，
@@ -60,7 +66,8 @@ body.home-active #mainContainer .nav-scroller {
   opacity: 0;
   pointer-events: none;
   transition: opacity .15s ease, background .15s ease, color .15s ease, transform .1s ease;
-  z-index: 90;
+  /* 提升到 101：高于页面 sticky header（z-index:100），避免与 header 重叠时被盖 */
+  z-index: 101;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }

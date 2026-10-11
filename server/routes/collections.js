@@ -4,7 +4,7 @@
 const express = require('express');
 const router = express.Router();
 const logger = require('../logger');
-const { ok, getPool, handleError, proxyVrcAvatar, ErrorCodes, paginate, escapeLike } = require('../utils');
+const { ok, getPool, handleError, proxyVrcAvatar, ErrorCodes, paginate, escapeLike, sendVrcError } = require('../utils');
 const { requireAuth, requireAdminCompat } = require('../auth');
 const {
   vrchatGetAvatar, vrchatGetUser, vrchatSetAvatar, vrchatCloneAvatar,
@@ -24,6 +24,14 @@ function isValidTargetId(kind, id) {
   if (kind === 'avatar_favorite') return USR_ID_PATTERN.test(id) || AVTR_ID_PATTERN.test(id);
   return false;
 }
+
+// V9.5: 前端官方收藏卡片携带的缩略图仅接受 VRChat CDN 白名单（与 proxyVrcAvatar 一致），
+// 非白名单 URL 一律丢弃（宁可留空等回源，也不入库外部/伪造地址）。
+const VRC_THUMB_HOST_RE = /^https?:\/\/(api\.vrchat\.(cloud|com)|assets\.(amlcdn|vrchat)\.com)\//;
+
+// V9.6: 「代表当前用户」的写操作（set-avatar 切换穿戴）用的本人 cookie 获取函数。
+// 由模块工厂注入（getVRCCookieUserOnly），未注入时返回 null（视为未绑定）。
+let _userVrcCookieOf = () => null;
 
 function proxyThumb(url) {
   return proxyVrcAvatar ? proxyVrcAvatar(url) : url;
@@ -98,7 +106,7 @@ async function fetchRemotePatch(kind, targetId, cookie) {
   if (u && u.id) {
     return {
       name: u.displayName || u.username || '', author: u.displayName || '', author_id: u.id || '',
-      thumbnail: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl || '',
+      thumbnail: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl || u.iconUrl || '',
       description: ''
     };
   }
@@ -131,6 +139,68 @@ async function backfillMissingInfo(rows, cookie) {
   } finally {
     for (const r of targets) backfillInflight.delete(r.id);
   }
+}
+
+// V9.5: skipBackfill 会在收藏时跳过 VRChat 回源，导致平台/Unity 版本/标签/状态等富化字段为空。
+// 详情弹窗按需懒回填：打开详情时一次性补齐，single-flight 防并发重复回源，失败静默不影响详情展示。
+const _detailBackfillInflight = new Set();
+async function backfillAvatarDetail(it, cookie) {
+  const key = 'avatar_model:' + it.target_id;
+  if (_detailBackfillInflight.has(key)) return;
+  _detailBackfillInflight.add(key);
+  const pool = getPool();
+  try {
+    const resp = await vrchatGetAvatar(it.target_id, cookie);
+    const avatar = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+    if (!avatar || !avatar.id) return;
+    const ups = (Array.isArray(avatar.unityPackages) && avatar.unityPackages.length) ? avatar.unityPackages[0] : null;
+    const tags = avatar.tags || [];
+    await pool.query(
+      `UPDATE collections SET description=?, platform=?, unity_version=?, asset_url=?,
+         content_rating=?, category=?, tags=?, favorite_count=?, status='valid', last_checked_at=NOW()
+       WHERE id=?`,
+      [
+        avatar.description || '',
+        (ups && ups.platform) || '',
+        (ups && ups.unityVersion) || avatar.unityVersion || '',
+        (ups && ups.assetUrl) || '',
+        tags.some(t => /sex|nsfw|18\+/i.test(t)) ? '18+' : 'all',
+        tags.includes('author_tag_avatar_functional') ? 'functional' : 'white',
+        JSON.stringify(tags),
+        avatar.favoriteCount || 0,
+        it.id
+      ]
+    );
+  } catch (_) { /* 回填失败静默，下次打开详情再试 */ }
+  finally { _detailBackfillInflight.delete(key); }
+}
+
+async function backfillWorldDetail(it, cookie) {
+  const key = 'world:' + it.target_id;
+  if (_detailBackfillInflight.has(key)) return;
+  _detailBackfillInflight.add(key);
+  const pool = getPool();
+  try {
+    const w = await getCachedWorld(it.target_id, cookie);
+    if (!w || !w.id) return;
+    const tags = Array.isArray(w.tags) ? w.tags : [];
+    await pool.query(
+      `UPDATE collections SET description=?, world_type=?, platform=?, unity_package_url=?, asset_url=?,
+         tags=?, content_rating=?, status='valid', last_checked_at=NOW()
+       WHERE id=?`,
+      [
+        w.description || '',
+        w.worldType || '',
+        w.platform || '',
+        w.unityPackageUrl || '',
+        w.assetUrl || '',
+        JSON.stringify(tags),
+        tags.some(t => /sex|nsfw|18\+/i.test(t)) ? '18+' : 'all',
+        it.id
+      ]
+    );
+  } catch (_) { /* 静默 */ }
+  finally { _detailBackfillInflight.delete(key); }
 }
 
 // ============ 分组 folders ============
@@ -206,7 +276,10 @@ function buildListWhere(q, uid) {
     params.push(uid);
   }
   if (q.kind) { conds.push('c.kind = ?'); params.push(q.kind); }
-  if (q.folderId) { conds.push('c.folder_id = ?'); params.push(Number(q.folderId)); }
+  // 未分组筛选：前端约定 folderId=0 表示 folder_id 为 NULL（db 默认未分组收藏 folder_id 为 NULL，
+  // 此前直接拼 c.folder_id = 0 永远匹配不到 NULL，导致「未分组」视图恒为空——新收藏看不见）
+  if (q.folderId === '0' || q.folderId === 'none') { conds.push('c.folder_id IS NULL'); }
+  else if (q.folderId) { conds.push('c.folder_id = ?'); params.push(Number(q.folderId)); }
   if (q.worldType) { conds.push('c.world_type = ?'); params.push(q.worldType); }
   if (q.platform) { conds.push('c.platform = ?'); params.push(q.platform); }
   if (q.contentRating) { conds.push('c.content_rating = ?'); params.push(q.contentRating); }
@@ -492,6 +565,7 @@ router.get('/popular-worlds', async (req, res) => {
 // ============ 收藏详情 ============
 // 用于详情弹窗：返回完整字段 + public_duplicate(同模型是否已有他人公开副本) 标记。
 // 隐私：公开收藏任何人可看；私密收藏仅本人可看。
+// V9.5: 收藏时 skipBackfill 跳过回源，平台/Unity/标签/状态常为空 —— 打开详情时按需懒回填后返回最新行。
 router.get('/:id', requireAuth, async (req, res) => {
   try {
     const pool = getPool();
@@ -504,11 +578,41 @@ router.get('/:id', requireAuth, async (req, res) => {
       [id]
     );
     if (!rows.length) return res.status(404).json({ success: false, error: { code: ErrorCodes.NOT_FOUND, message: '收藏不存在' } });
-    const it = rows[0];
+    let it = rows[0];
     if (it.visibility !== 'public' && it.user_id !== uid)
       return res.status(403).json({ success: false, error: { code: ErrorCodes.FORBIDDEN, message: '无权查看' } });
+    // 懒回填富化字段（仅在没有关键详情时才回源，避免每次打开详情都打 VRChat）
+    let backfilled = false;
+    if (it.kind === 'avatar_model' && (!it.platform || !it.unity_version || it.tags == null || it.status === 'unknown')) {
+      await backfillAvatarDetail(it, req.vrcCookie || null);
+      backfilled = true;
+    } else if (it.kind === 'world' && (!it.world_type || it.tags == null || !it.description)) {
+      await backfillWorldDetail(it, req.vrcCookie || null);
+      backfilled = true;
+    } else if (it.kind === 'avatar_favorite' && !(it.name || '')) {
+      // 收藏用户（V9.5 skipBackfill 跳过了回源）空名时打开详情顺手补齐名字/头像
+      await backfillMissingInfo([it], req.vrcCookie || null);
+      backfilled = true;
+    }
+    // 回填成功则重查一次返回最新行（含刚补齐的平台/标签/状态等）
+    if (backfilled) {
+      const [rows2] = await pool.query(
+        `SELECT c.*, u.display_name AS owner_name,
+           (SELECT COUNT(*) FROM collections d WHERE d.target_id = c.target_id AND d.visibility='public' AND d.id <> c.id) AS public_duplicate
+         FROM collections c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?`,
+        [id]
+      );
+      if (rows2.length) it = rows2[0];
+    }
     if (it.thumbnail) it.thumbnail = proxyThumb(it.thumbnail);
     it.public_duplicate = !!Number(it.public_duplicate);
+    // V9.7 安全：公开收藏对非本人可见，但剥离私有字段，避免把 notes/分组/BOOTH 链接等
+    // 私密信息泄漏给浏览公开发现页的其他用户（前端公开视角本就不渲染这些，现后端也不再下发）。
+    if (it.user_id !== uid) {
+      delete it.notes;
+      delete it.booth_url;
+      delete it.folder_id;
+    }
     ok(res, { item: it });
   } catch (e) { handleError(res, e, 'collections.detail'); }
 });
@@ -553,59 +657,79 @@ router.post('/', requireAuth, async (req, res) => {
       favorite_count: 0, rating_avg: 0, rating_count: 0, heat: 0
     };
 
+    // V9.5: 前端「收藏到本站」从官方收藏卡片直接携带富化信息（name/author/thumbnail），
+    // 避免回源失败（系统会话临时失效 / 私有模型 404）时本地收藏卡片空白。
+    // 已提供 name+thumbnail 时下方不再回源 VRChat（省流量，收藏后立即可见）。
+    // 缩略图仅接受 VRChat CDN 白名单；name/author 做长度与空白裁剪。
+    if (typeof req.body.name === 'string' && req.body.name.trim()) rec.name = req.body.name.trim().slice(0, 128);
+    if (typeof req.body.author === 'string' && req.body.author.trim()) rec.author = req.body.author.trim().slice(0, 64);
+    if (typeof req.body.author_id === 'string' && req.body.author_id.trim()) rec.author_id = req.body.author_id.trim().slice(0, 64);
+    if (typeof req.body.thumbnail === 'string' && req.body.thumbnail.trim() && VRC_THUMB_HOST_RE.test(req.body.thumbnail.trim())) {
+      rec.thumbnail = req.body.thumbnail.trim().slice(0, 512);
+    }
+    // 卡片信息齐备即视为已富化，跳过上游回源（含 description 复用）
+    const skipBackfill = !!(rec.name && rec.thumbnail);
+
     if (kind === 'avatar_model') {
-      const cookie = req.vrcCookie || null;
-      try {
-        // vrchatGetAvatar 返回 {status,data} 包装体，须解包后使用（否则 name/thumbnail 全空、且 404 也被当成功）
-        const resp = await vrchatGetAvatar(targetId, cookie);
-        const avatar = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
-        if (avatar && avatar.id) {
-          rec.name = avatar.name || '';
-          rec.author = avatar.authorName || '';
-          rec.author_id = avatar.authorId || '';
-          rec.thumbnail = avatar.thumbnailImageUrl || (avatar.images && avatar.images.thumbnail ? avatar.images.thumbnail.url : '') || '';
-          rec.description = avatar.description || '';
-          rec.platform = (avatar.unityPackages && avatar.unityPackages[0] && avatar.unityPackages[0].platform) || '';
-          rec.unity_version = avatar.unityVersion || '';
-          rec.asset_url = (avatar.unityPackages && avatar.unityPackages[0] && avatar.unityPackages[0].assetUrl) || '';
-          rec.size_bytes = (avatar.unityPackages && avatar.unityPackages[0] && avatar.unityPackages[0].assetVersion) ? 0 : 0;
-          rec.content_rating = (avatar.tags || []).some(t => /sex|nsfw|18\+/i.test(t)) ? '18+' : 'all';
-          rec.category = (avatar.tags || []).includes('author_tag_avatar_functional') ? 'functional' : 'white';
-          rec.tags = JSON.stringify(avatar.tags || []);
-          rec.favorite_count = avatar.favoriteCount || 0;
-        }
-      } catch (e) { /* 拉取失败不阻断，标记为 unknown */ }
+      if (!skipBackfill) {
+        const cookie = req.vrcCookie || null;
+        try {
+          // vrchatGetAvatar 返回 {status,data} 包装体，须解包后使用（否则 name/thumbnail 全空、且 404 也被当成功）
+          const resp = await vrchatGetAvatar(targetId, cookie);
+          const avatar = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+          if (avatar && avatar.id) {
+            if (!rec.name) rec.name = avatar.name || '';
+            if (!rec.author) rec.author = avatar.authorName || '';
+            if (!rec.author_id) rec.author_id = avatar.authorId || '';
+            if (!rec.thumbnail) rec.thumbnail = avatar.thumbnailImageUrl || (avatar.images && avatar.images.thumbnail ? avatar.images.thumbnail.url : '') || '';
+            rec.description = avatar.description || '';
+            rec.platform = (avatar.unityPackages && avatar.unityPackages[0] && avatar.unityPackages[0].platform) || '';
+            rec.unity_version = avatar.unityVersion || '';
+            rec.asset_url = (avatar.unityPackages && avatar.unityPackages[0] && avatar.unityPackages[0].assetUrl) || '';
+            // VRChat unityPackage 无字节数字段（assetVersion 是资源版本号，不是大小），保持 0 交由 size_category 语义展示
+            rec.size_bytes = 0;
+            rec.content_rating = (avatar.tags || []).some(t => /sex|nsfw|18\+/i.test(t)) ? '18+' : 'all';
+            rec.category = (avatar.tags || []).includes('author_tag_avatar_functional') ? 'functional' : 'white';
+            rec.tags = JSON.stringify(avatar.tags || []);
+            rec.favorite_count = avatar.favoriteCount || 0;
+          }
+        } catch (e) { /* 拉取失败不阻断，标记为 unknown */ }
+      }
       rec.heat = computeHeat(rec.rating_avg, rec.rating_count, rec.favorite_count, 0, 0);
     } else if (kind === 'world') {
-      try {
-        // F-17: 走世界详情缓存，命中直接返回、miss 才回源 VRChat 并回写缓存
-        const w = await getCachedWorld(targetId, req.vrcCookie || null);
-        if (w) {
-          rec.name = w.name || '';
-          rec.author = w.authorName || '';
-          rec.author_id = w.authorId || '';
-          rec.thumbnail = (w.imageUrl || (w.thumbnail ? w.thumbnail.url : '')) || '';
-          rec.description = w.description || '';
-          rec.world_type = w.worldType || '';
-          rec.unity_package_url = w.unityPackageUrl || '';
-          rec.asset_url = w.assetUrl || '';
-          rec.platform = (w.platform || '');
-          rec.tags = JSON.stringify(w.tags || []);
-          rec.content_rating = (w.tags || []).some(t => /sex|nsfw|18\+/i.test(t)) ? '18+' : 'all';
-        }
-      } catch (e) { /* ignore */ }
+      if (!skipBackfill) {
+        try {
+          // F-17: 走世界详情缓存，命中直接返回、miss 才回源 VRChat 并回写缓存
+          const w = await getCachedWorld(targetId, req.vrcCookie || null);
+          if (w) {
+            if (!rec.name) rec.name = w.name || '';
+            if (!rec.author) rec.author = w.authorName || '';
+            if (!rec.author_id) rec.author_id = w.authorId || '';
+            if (!rec.thumbnail) rec.thumbnail = (w.imageUrl || (w.thumbnail ? w.thumbnail.url : '')) || '';
+            rec.description = w.description || '';
+            rec.world_type = w.worldType || '';
+            rec.unity_package_url = w.unityPackageUrl || '';
+            rec.asset_url = w.assetUrl || '';
+            rec.platform = (w.platform || '');
+            rec.tags = JSON.stringify(w.tags || []);
+            rec.content_rating = (w.tags || []).some(t => /sex|nsfw|18\+/i.test(t)) ? '18+' : 'all';
+          }
+        } catch (e) { /* ignore */ }
+      }
     } else if (kind === 'avatar_favorite') {
-      try {
-        // vrchatGetUser 同样返回 {status,data} 包装体，解包后再取 displayName/头像字段
-        const resp = await vrchatGetUser(targetId, req.vrcCookie || null);
-        const u = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
-        if (u && u.id) {
-          rec.name = u.displayName || u.username || '';
-          rec.author = u.displayName || '';
-          rec.author_id = u.id || targetId;
-          rec.thumbnail = (u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl || '') || '';
-        }
-      } catch (e) { /* ignore */ }
+      if (!skipBackfill) {
+        try {
+          // vrchatGetUser 同样返回 {status,data} 包装体，解包后再取 displayName/头像字段
+          const resp = await vrchatGetUser(targetId, req.vrcCookie || null);
+          const u = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+          if (u && u.id) {
+            if (!rec.name) rec.name = u.displayName || u.username || '';
+            if (!rec.author) rec.author = u.displayName || '';
+            if (!rec.author_id) rec.author_id = u.id || targetId;
+            if (!rec.thumbnail) rec.thumbnail = (u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl || u.iconUrl || '') || '';
+          }
+        } catch (e) { /* ignore */ }
+      }
     }
 
     rec.thumbnail = rec.thumbnail || '';
@@ -634,7 +758,14 @@ router.post('/', requireAuth, async (req, res) => {
       throw dupErr;
     }
     await refreshAggregates(pool, targetId, kind);
-    const [item] = await pool.query(`SELECT * FROM collections WHERE id=?`, [insertId]);
+    let [item] = await pool.query(`SELECT * FROM collections WHERE id=?`, [insertId]);
+    // V9.7: 收藏后如果名字仍为空（前端富化缺失 / 首次回源失败），用本人绑定 cookie 兜底回填一次，
+    // 避免「收藏到本站后卡片空白」。backfillMissingInfo 只回填空名行，幂等安全。
+    if (item[0] && !(item[0].name || '')) {
+      await backfillMissingInfo([item[0]], _userVrcCookieOf(req) || req.vrcCookie || null);
+      const [item2] = await pool.query(`SELECT * FROM collections WHERE id=?`, [insertId]);
+      if (item2[0]) item = item2;
+    }
     if (item[0] && item[0].thumbnail) item[0].thumbnail = proxyThumb(item[0].thumbnail);
     ok(res, { item: item[0] });
   } catch (e) { handleError(res, e, 'collections.add'); }
@@ -782,10 +913,16 @@ router.post('/:id/rate', requireAuth, async (req, res) => {
 // ============ 复制模型到游戏内 (仅 avatar_model, 需本人 cookie) ============
 // V8.4: 借鉴 VRCX 行为 —— 先尝试从基座克隆(加入本人库存)，再切换穿戴。
 // 对已在库存的模型克隆会返回 409/400，视为成功继续切换；克隆失败则直接尝试切换。
+// V9.6: 修复两处真实缺陷——
+//  1) 切换穿戴是「代表当前用户」的写操作，只允许用本人绑定 cookie（getVRCCookieUserOnly），
+//     此前回退系统账号 cookie 会把系统账号的模型改掉（用户看到「换上了」但游戏内没换）；
+//  2) vrchatSetAvatar 返回 {status,data} 包装体恒为真值，此前 if(switched) 恒走成功分支，
+//     上游 401/400/403 被当成成功吞掉 —— 现在按 status 严格判定并按原因给出可读错误。
 router.post('/:id/set-avatar', requireAuth, async (req, res) => {
   try {
-    const cookie = req.vrcCookie;
-    if (!cookie) return res.status(400).json({ success: false, error: { code: ErrorCodes.BAD_REQUEST, message: '未绑定 VRChat 账号' } });
+    // 仅取当前用户本人绑定的 VRChat cookie，绝不回退系统账号
+    const cookie = _userVrcCookieOf(req);
+    if (!cookie) return res.status(400).json({ success: false, error: { code: ErrorCodes.BAD_REQUEST, message: '请先在个人中心绑定并登录 VRChat 账号' } });
     const pool = getPool();
     const uid = req.session.userId;
     const id = Number(req.params.id);
@@ -805,10 +942,12 @@ router.post('/:id/set-avatar', requireAuth, async (req, res) => {
     if (inventoryItemId) {
       try { await vrchatCloneAvatar(inventoryItemId, cookie); } catch (_) { /* 可能已在库存，忽略 */ }
     }
-    // 3) 切换穿戴
-    const switched = await vrchatSetAvatar(avatarId, cookie);
-    if (switched) ok(res);
-    else res.status(400).json({ success: false, error: { code: ErrorCodes.BAD_REQUEST, message: '切换失败' } });
+    // 3) 切换穿戴 —— 严格按上游状态码判定（包装体恒真值，不能作为成功依据）
+    const sw = await vrchatSetAvatar(avatarId, cookie);
+    // 兼容两种返回：真实 vrc.js 的 {status,data} 包装体 / 测试桩的布尔值 true
+    const swStatus = (sw && typeof sw === 'object') ? Number(sw.status) : (sw ? 200 : 0);
+    if (swStatus >= 200 && swStatus < 300) return ok(res);
+    return sendVrcError(res, sw, '切换模型');
   } catch (e) { handleError(res, e, 'collections.setAvatar'); }
 });
 
@@ -1005,9 +1144,12 @@ async function scanAvatarModels(pool, opt = {}) {
   return { scanned, newlyInvalid };
 }
 
-module.exports = function (getVRCCookie) {
+// V9.6: 工厂签名扩展为 (getVRCCookie, getUserVRCCookie)。
+// getVRCCookie 用于读操作（可回退系统账号）；getVRCCookieUserOnly 用于「代表当前用户」的写操作（切换穿戴）。
+module.exports = function (getVRCCookie, getUserVRCCookie) {
   // 统一注入获取 VRChat cookie 的方法
   const vrcCookieOf = getVRCCookie || (() => null);
+  _userVrcCookieOf = getUserVRCCookie || (() => null);
   // 把 req.vrcCookie 的引用就地换成 vrcCookieOf(req)
   router.use((req, res, next) => { req.vrcCookie = vrcCookieOf(req); next(); });
   return router;

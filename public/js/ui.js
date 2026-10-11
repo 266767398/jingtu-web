@@ -55,6 +55,73 @@ window.proxyAvatar = proxyAvatar;
 //   2) 直连失败 → 一次代理兜底，代理成功记入 __avatarProxyCache（该 URL 代理优先）；
 //   3) 两条路都失败 / 非 CDN 源 → 弃用记忆 + 默认占位 + 60s 双 key 失败冷却。
 window.__avatarFailCache = window.__avatarFailCache || {};
+
+// ==================== 头像失败自动重试器 ====================
+// 背景：/api/avatar/user 依赖 VRChat 系统账号（或用户自身绑定）会话解析群成员头像，
+// 会话被 VRChat 顶号/过期期间头像会落 502 占位；此前失效后必须手动刷新页面才恢复。
+// 此重试器与 __avatarFail 的 60s 失败冷却联动：冷却到期后对仍保持失败状态的动态解析
+// URL（/api/avatar/user|/api/avatar/proxy）自动重新加载，系统会话恢复后无需刷新即可出图。
+// 限流：仅重试"动态接口"URL；同一 img 最多重试 4 次后放弃，避免对稳定失败的地址无限打请求。
+const AVATAR_RETRY_INTERVAL_MS = 30000;   // 全局扫描周期
+const AVATAR_RETRY_MIN_DELAY_MS = 65000;  // 首次重试至少晚于失败时间（覆盖 60s 冷却窗）
+const AVATAR_RETRY_MAX = 4;               // 单个失败 URL 最大自动重试次数
+window.__avatarRetryAt = window.__avatarRetryAt || {};          // url -> next retry ts
+window.__avatarRetryCount = window.__avatarRetryCount || {};    // url -> attempts
+window.__avatarRetryTimer = window.__avatarRetryTimer || null;
+
+function avatarNeedsRetry(src) {
+  if (!src || typeof src !== 'string') return false;
+  return src.indexOf('/api/avatar/user?') !== -1 || src.indexOf('/api/avatar/proxy?') !== -1;
+}
+
+// 失败时登记自动重试（在 __avatarFail 最终兜底处调用）：
+// 每次失败会刷新 __avatarFailCache[src]=now，登记据此把重试时刻设在"冷却窗口（60s）之后"，
+// 这样重试只会在冷却结束后发生，不抢跑、不产生请求风暴。
+window.__avatarRegisterRetry = function (src) {
+  if (!avatarNeedsRetry(src)) return;
+  const now = Date.now();
+  const lastFail = window.__avatarFailCache[src] || 0;
+  const attempts = window.__avatarRetryCount[src] || 0;
+  if (attempts >= AVATAR_RETRY_MAX) return;
+  // 冷却基准点：最近一次失败发生在冷却窗内则把基准平移到冷却结束；否则从当前起算
+  const baseFail = (lastFail && now - lastFail < 60000) ? lastFail : now;
+  const nextAt = baseFail + AVATAR_RETRY_MIN_DELAY_MS;
+  const needEarlier = !window.__avatarRetryAt[src] || window.__avatarRetryAt[src] > nextAt;
+  if (needEarlier) window.__avatarRetryAt[src] = nextAt;
+  scheduleAvatarRetryScan();
+};
+
+function scheduleAvatarRetryScan() {
+  if (window.__avatarRetryTimer) return;
+  window.__avatarRetryTimer = setTimeout(avatarRetryScan, AVATAR_RETRY_INTERVAL_MS);
+  window.__avatarRetryTimer.unref && window.__avatarRetryTimer.unref();
+}
+
+// 周期扫描：对所有登记的重试 URL，若到点则重设失败冷却并通过 DOM 图片重新加载。
+// 不直接改 img.src（DOM 分散各处），而是清掉失败缓存后派发自定义事件，
+// 由 group/members 各渲染处监听 __avatarRetryReady 事件重新触发懒加载。
+// M4: 队列非空时单次 setTimeout 自调度，队列清空即停，避免全局定时器常驻空转。
+function avatarRetryScan() {
+  const now = Date.now();
+  for (const src in window.__avatarRetryAt) {
+    if (!Object.prototype.hasOwnProperty.call(window.__avatarRetryAt, src)) continue;
+    if (window.__avatarRetryAt[src] > now) continue;
+    delete window.__avatarRetryAt[src];
+    // 到达重试时刻：如果仍然处于失败冷却，则强行将其视为可重试（冷却到期语义）
+    delete window.__avatarFailCache[src];
+    window.__avatarRetryCount[src] = (window.__avatarRetryCount[src] || 0) + 1;
+    // 通知各渲染模块重新加载该 URL 对应的 img（自定义事件，detail 含原 URL）
+    const evt = new CustomEvent('__avatarRetryReady', { detail: { src } });
+    document.dispatchEvent(evt);
+  }
+  // 队列仍有条目（含未到期的）则自调度下一次扫描；空则停止
+  window.__avatarRetryTimer = null;
+  if (Object.keys(window.__avatarRetryAt).length) scheduleAvatarRetryScan();
+}
+// M3: 60s 失败冷却查询统一入口（收敛 group/members/map 各自的重复内联判断）
+window.__avatarFailCached = function (url) {
+  return !!window.__avatarFailCache && !!url && window.__avatarFailCache[url] > Date.now() - 60000;
+};
 window.__avatarFail = function (img, url) {
   const failUrl = (img && img.src) || url || '';
   const retried = !!(img && img.dataset && img.dataset.avatarFailRetried === '1');
@@ -88,6 +155,12 @@ window.__avatarFail = function (img, url) {
   }
   window.__avatarFailCache[url] = Date.now();
   if (failUrl) window.__avatarFailCache[failUrl] = Date.now();
+  // F-头像重试：仅对动态解析接口（/api/avatar/user|/proxy）登记自动重试，
+  // 系统会话恢复后无需手动刷新页面即可自动出图（见 __avatarRegisterRetry）。
+  const retrySrc = (img && img.dataset && (img.dataset.avatarProxyKey || url)) || url;
+  if (typeof window.__avatarRegisterRetry === 'function') {
+    window.__avatarRegisterRetry(retrySrc);
+  }
   if (img) { img.onerror = null; img.src = '/api/avatar/default'; }
 };
 
@@ -134,7 +207,7 @@ function updateUserUI() {
   if (vrcStatus) {
     if (currentUser.vrchatId) {
       const vBadge = currentUser.vrchatVerified ? ' <span class="text-green text-12">✅ ' + __('profile.vrc_bind') + '</span>' : ' <span class="text-muted2 text-12">⏳ ' + __('profile.vrc_not_bind') + '</span>';
-      vrcStatus.innerHTML = `<div class="d-flex items-center gap-6"><span class="text-green">🟢 ` + __('profile.vrc_bind') + `</span><span class="text-muted">${esc(currentUser.vrchatName || currentUser.vrchatId)}</span>${vBadge}<button class="btn btn-sm btn-outline ml-auto" onclick="unbindVRChat()">` + __('profile.vrc_unbind') + `</button></div>`;
+      vrcStatus.innerHTML = `<div class="d-flex items-center gap-6"><span class="text-green">🟢 ` + __('profile.vrc_bind') + `</span><span class="text-muted">${esc(currentUser.vrchatName || currentUser.vrchatId)}</span>${vBadge}<button class="btn btn-sm btn-outline ml-auto" data-action="unbind-vrc">` + __('profile.vrc_unbind') + `</button></div>`;
     } else {
       vrcStatus.innerHTML = `<span class="text-muted">` + __('profile.vrc_not_bind') + `</span>`;
     }
@@ -293,6 +366,8 @@ setTimeout(updateTabIndicator, 0);
 setTimeout(updateTabIndicator, 300);
 
 function switchTab(tab, force) {
+  // M1: 标签切换统一滚动回顶（覆盖桌面顶部栏 / 移动端底部栏 / 深链 / 后退）
+  window.scrollTo({ top: 0, behavior: 'auto' });
   // 首页隐藏顶部标签栏（首页底部已有功能栏），其余页面显示
   document.body.classList.toggle('home-active', tab === 'home');
   if (activeTab === tab && !force) return;
@@ -376,6 +451,8 @@ function syncTabHash(tab) {
 }
 
 window.addEventListener('popstate', function (e) {
+  // M1: 后退/前进也滚动回顶（可能因同 Tab 提前 return 而不进 switchTab）
+  window.scrollTo({ top: 0, behavior: 'auto' });
   const guess = (e.state && ROUTABLE_TABS.includes(e.state.tab)) ? e.state.tab : tabFromUrl();
   if (guess === activeTab) return;
   _suppressHashSync = true;
@@ -390,6 +467,8 @@ window.addEventListener('popstate', function (e) {
 
 // 手动改地址栏 hash（含外部深链、站内锚点）也同步切页
 window.addEventListener('hashchange', function () {
+  // M1: 深链 / 手动改 hash 也滚动回顶（可能因同 Tab 提前 return 而不进 switchTab）
+  window.scrollTo({ top: 0, behavior: 'auto' });
   const t = tabFromUrl();
   _suppressHashSync = true;
   _hashReplaceNext = true; // URL 已是目标 hash，switchTab 内部的同步改为 replace，避免多压一条历史
@@ -464,20 +543,42 @@ const NOTIF_TYPES = {
   comment: { icon: '💬' },
   like: { icon: '❤️' },
   announcement: { icon: '📢' },
+  vrc: { icon: '🎮' },
   name_change_approved: { icon: '✅' },
   name_change_rejected: { icon: '❌' }
 };
 let notifFilter = 'all';
 let notifPage = 1;
 const NOTIF_PAGE_SIZE = 30;
+// M3: 通知加载请求序号：reset 时递增，过期响应直接丢弃，避免 reset 与加载更多并发重复追加
+let _notifLoadSeq = 0;
+// V9.6: 客户端 30 秒防抖，配合服务端 60 秒防抖，避免频繁打开面板刷爆 VRChat API
+let _vrcSyncLast = 0;
 
-async function loadNotifications(reset) {
+// V9.6: 把本人 VRChat 官方通知并入站内通知（fire-and-forget，失败不影响原通知链路）
+async function syncVrcNotifications() {
+  if (Date.now() - _vrcSyncLast < 30000) return;
+  // 通知设置里关闭 VRChat 官方通知后不再触发同步
+  if (window.__notifPrefs && window.__notifPrefs.vrc === false) return;
+  _vrcSyncLast = Date.now();
+  try {
+    const res = await api('/api/notifications/vrc-sync', { method: 'GET' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.synced > 0) loadNotifications(true, true);
+    }
+  } catch (e) { /* 未绑定/上游失败：静默，不打断通知面板 */ }
+}
+
+async function loadNotifications(reset, skipVrcSync) {
+  const my = reset ? ++_notifLoadSeq : _notifLoadSeq;
   const dropBox = document.getElementById('notificationList') || document.querySelector('#notificationPanel .notification-list');
   const centerBox = document.getElementById('notificationCenterList');
   const centerEmpty = document.getElementById('notificationCenterEmpty');
   const boxes = [dropBox, centerBox].filter(Boolean);
   if (reset) notifPage = 1;
   if (!boxes.length) return;
+  if (reset && !skipVrcSync) syncVrcNotifications();
   if (reset) {
     const skel = '<div class="skeleton-card-list" style="margin:4px 8px"></div><div class="skeleton-card-list" style="margin:4px 8px"></div><div class="skeleton-card-list" style="margin:4px 8px"></div>';
     boxes.forEach(b => { b.innerHTML = skel; });
@@ -485,8 +586,10 @@ async function loadNotifications(reset) {
   try {
     const qs = new URLSearchParams({ type: notifFilter, page: notifPage, pageSize: NOTIF_PAGE_SIZE }).toString();
     const res = await api('/api/notifications?' + qs, { method: 'GET' });
+    if (my !== _notifLoadSeq) return; // 期间发生过 reset，丢弃过期响应
     if (res.ok) {
       const data = await res.json();
+      if (my !== _notifLoadSeq) return; // 解析期间又发生过 reset，同样丢弃
       const notifs = data.notifications || [];
       const unread = data.unread || 0;
       // 仅首次（reset）刷新铃铛未读徽章：顶栏下拉与「我的」页两处同步
@@ -505,7 +608,7 @@ async function loadNotifications(reset) {
       }
       const html = notifs.map(n => `
         <div class="notification-item ${n.isRead ? '' : 'unread'}">
-          <div class="ni-main" onclick="markNotificationRead('${escJsStr(String(n.id))}')">
+          <div class="ni-main" data-notif-id="${escAttr(String(n.id))}">
             <div class="ni-icon">${getNotifIcon(n.type)}</div>
             <div class="ni-body">
               <div class="ni-title">${esc(n.title)}</div>
@@ -514,7 +617,7 @@ async function loadNotifications(reset) {
             </div>
             ${n.isRead ? '' : '<div class="ni-dot"></div>'}
           </div>
-          <button class="ni-del" onclick="event.stopPropagation();deleteNotification('${escJsStr(String(n.id))}')" title="${__('ui.delete')}">✕</button>
+          <button class="ni-del" data-notif-id="${escAttr(String(n.id))}" title="${__('ui.delete')}">✕</button>
         </div>
       `).join('');
       if (reset) {
@@ -534,10 +637,11 @@ async function loadNotifications(reset) {
       }
       // 加载更多（后端分页）
       if (notifPage < (data.totalPages || 1)) {
-        boxes.forEach(b => b.insertAdjacentHTML('beforeend', `<button class="notif-load-more" onclick="notifLoadMore()">${__('ui.load_more') || __('auto_ui_1')}</button>`));
+        boxes.forEach(b => b.insertAdjacentHTML('beforeend', `<button class="notif-load-more" data-load-more="1">${__('ui.load_more') || __('auto_ui_1')}</button>`));
       }
     }
   } catch {
+    if (my !== _notifLoadSeq) return; // 过期请求的失败不回写 UI
     if (reset) {
       if (dropBox) dropBox.innerHTML = `<div class="notification-empty">${__('ui.load_failed')}</div>`;
       if (centerBox) {
@@ -553,6 +657,25 @@ function notifLoadMore() {
   loadNotifications(false);
 }
 
+// 通知点击/删除/加载更多：原内联 onclick 迁移到 document 级委托（CSP nonce 会拦截内联事件处理器）
+document.addEventListener('click', function (e) {
+  if (!e.target || !e.target.closest) return;
+  const loadMore = e.target.closest('.notif-load-more[data-load-more]');
+  if (loadMore) { notifLoadMore(); return; }
+  const del = e.target.closest('.ni-del[data-notif-id]');
+  if (del) { e.stopPropagation(); deleteNotification(del.dataset.notifId); return; }
+  const main = e.target.closest('.ni-main[data-notif-id]');
+  if (main) markNotificationRead(main.dataset.notifId);
+});
+
+// VRChat 解绑按钮：原内联 onclick 迁移到 document 级委托
+document.addEventListener('click', function (e) {
+  if (!e.target || !e.target.closest) return;
+  if (e.target.closest('[data-action="unbind-vrc"]')) {
+    if (typeof unbindVRChat === 'function') unbindVRChat();
+  }
+});
+
 function getNotifIcon(type) {
   const icons = {
     'name_change_approved': '✅',
@@ -561,7 +684,8 @@ function getNotifIcon(type) {
     'system': '🔔',
     'comment': '💬',
     'like': '❤️',
-    'announcement': '📢'
+    'announcement': '📢',
+    'vrc': '🎮'
   };
   return icons[type] || '🔔';
 }
@@ -615,8 +739,8 @@ async function loadNotificationSettings() {
     if (!res.ok) return;
     const data = await res.json();
     notifSettingsLoaded = true;
-    window.__notifPrefs = { email: !!data.email, browser: data.browser !== false, sound: data.sound !== false };
-    const map = { notifEmailToggle: 'email', notifBrowserToggle: 'browser', notifSoundToggle: 'sound' };
+    window.__notifPrefs = { email: !!data.email, browser: data.browser !== false, sound: data.sound !== false, vrc: data.vrc !== false };
+    const map = { notifEmailToggle: 'email', notifBrowserToggle: 'browser', notifSoundToggle: 'sound', notifVrcToggle: 'vrc' };
     Object.keys(map).forEach(id => {
       const el = document.getElementById(id);
       if (el) el.checked = window.__notifPrefs[map[id]];
@@ -625,13 +749,13 @@ async function loadNotificationSettings() {
 }
 
 async function toggleNotificationSetting(key, value) {
-  const prefs = Object.assign({ email: false, browser: true, sound: true }, window.__notifPrefs || {});
+  const prefs = Object.assign({ email: false, browser: true, sound: true, vrc: true }, window.__notifPrefs || {});
   prefs[key] = !!value;
   window.__notifPrefs = prefs;
   try {
     const res = await api('/api/notifications/settings', {
       method: 'POST',
-      body: JSON.stringify({ email: prefs.email, browser: prefs.browser, sound: prefs.sound })
+      body: JSON.stringify({ email: prefs.email, browser: prefs.browser, sound: prefs.sound, vrc: prefs.vrc })
     });
     if (!res.ok) throw new Error('save failed');
   } catch {
@@ -807,12 +931,7 @@ function checkPwdMatch(inputId1, inputId2, matchId) {
     fallback();
   };
 
-  // 简易 HTML 转义（helper 仅在受控文本/按钮标签上使用）
-  function esc(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
+  // esc() 统一走 core.js 全局（HTML 转义；helper 仅在受控文本/按钮标签上使用）
 })();
 
 // ==================== 移动端 Tab 折叠菜单 ====================
@@ -869,10 +988,20 @@ const TAB_ITEMS = [
 // 底部栏已直接展示的 tab，不重复塞进「更多」菜单
 const MOBILE_BAR_TABS = new Set(['home', 'events', 'live', 'posts', 'chat', 'friends', 'follows', 'admin', 'notifications']);
 
+let _mobileMenuInited = false;
+
 function initMobileTabMenu() {
   const btn = document.getElementById('mobileMoreBtn');
   const menu = document.getElementById('mobileMoreMenu');
   if (!btn || !menu) return;
+
+  // 幂等守卫：ui.js 在 DOMContentLoaded 调用一次，auth.js 在登录态恢复（showApp）再调一次。
+  // 无守卫时每次调用都会重复追加菜单项、重复绑定触发钮 click 监听器，
+  // 表现为「更多」菜单项翻倍 + 点击开→关双触发（菜单看起来打不开）。只允许初始化一次。
+  if (_mobileMenuInited) return;
+  _mobileMenuInited = true;
+  // 防御性清空：即便未来出现新的调用时序，也不至于在残留子节点上二次追加。
+  menu.innerHTML = '';
 
   // 触发钮与关闭控件的可访问性命名：走 i18n，避免硬编码中文 key 裸露
   if (!btn.getAttribute('aria-label')) btn.setAttribute('aria-label', __('nav.more') || '更多功能');
@@ -941,12 +1070,21 @@ if (document.readyState === 'loading') {
   initMobileTabMenu();
 }
 
-function openGenericLightbox() {
+function openGenericLightbox(element) {
+  // J9: 保留 lockBodyScroll 以满足 ui-interaction.test.js 契约；同时对可选元素追加 show class 与 display 切换
   lockBodyScroll('generic-lightbox');
+  if (element) {
+    element.classList.add('show');
+    element.style.display = 'block';
+  }
 }
 
-function closeGenericLightbox() {
+function closeGenericLightbox(element) {
   unlockBodyScroll('generic-lightbox');
+  if (element) {
+    element.classList.remove('show');
+    element.style.display = 'none';
+  }
 }
 
 // ==================== 模态框焦点陷阱与键盘导航 ====================

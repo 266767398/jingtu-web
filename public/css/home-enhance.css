@@ -21,7 +21,7 @@ body::before {
 .tab-home::before {
   content: "";
   position: absolute;
-  inset: -40px -24px;
+  inset: -40px 0;
   z-index: -1;
   pointer-events: none;
   background:

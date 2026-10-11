@@ -1,4 +1,4 @@
-// ==================== 动态获取语言包 ====================
+﻿// ==================== 动态获取语言包 ====================
 function getLocale(lang) {
   const langMap = {
     'zh': window._LANG_ZH,
@@ -35,7 +35,7 @@ const LANG_ORDER = ['zh', 'en', 'ja', 'fr', 'de', 'ru'];
 // 语言包静态版本号（与 index.html 中 document.write 引入的语言包 ?v 保持一致）。
 // 动态按需加载的语言包同样必须带 ?v，否则 Service Worker 可能命中旧缓存，
 // 导致切换语言后文案仍显示旧语言（缓存问题 4.2）。语言包内容更新时需同步提升此版本号。
-const I18N_PACK_VERSION = '20261006c';
+const I18N_PACK_VERSION = '20261011a';
 
 // ==================== 翻译表（从语言文件加载） ====================
 
@@ -188,7 +188,7 @@ function reloadDynamicI18n() {
     }
   }
   // 刷新导航栏用户 UI
-  if (typeof updateUserUI === 'function' && window.currentUser) {
+  if (typeof updateUserUI === 'function' && typeof currentUser !== 'undefined' && currentUser) {
     updateUserUI();
   }
 }
@@ -244,7 +244,7 @@ function showLangSwitcher() {
   const items = langs.map(code => {
     const lang = LANG[code];
     const isActive = code === current;
-    return `<button class="lang-switcher-item ${isActive ? 'active' : ''}" onclick="setLanguage('${code}');_closeLangSwitcher()">
+    return `<button class="lang-switcher-item ${isActive ? 'active' : ''}" data-lang="${code}">
       <span class="lang-emoji">${lang.emoji}</span>
       <span class="lang-name">${lang.native}</span>
       ${isActive ? '<span class="lang-check">✅</span>' : ''}
@@ -255,9 +255,17 @@ function showLangSwitcher() {
   div.id = 'langSwitcherModal';
   div.className = 'modal';
   div.innerHTML = `<div class="modal-content modal-sm">
-    <div class="modal-header"><h3>${__('lang.switch_to')}</h3><button class="modal-close" onclick="_closeLangSwitcher()" aria-label="${__('ui.close')}">✕</button></div>
+    <div class="modal-header"><h3>${__('lang.switch_to')}</h3><button class="modal-close" aria-label="${__('ui.close')}">✕</button></div>
     <div class="lang-switcher-list">${items}</div>
   </div>`;
+  // CSP nonce 策略会拦截内联事件处理器，改用弹窗级委托绑定语言项点击
+  div.addEventListener('click', function (e) {
+    const item = e.target && e.target.closest ? e.target.closest('.lang-switcher-item') : null;
+    if (item && item.dataset.lang) {
+      setLanguage(item.dataset.lang);
+      _closeLangSwitcher();
+    }
+  });
   document.body.appendChild(div);
   if (typeof showModal === 'function') showModal('langSwitcherModal');
   else div.classList.add('show');

@@ -39,12 +39,77 @@ function debounce(fn, ms) {
     var t = e.target;
     if (!t || t.tagName !== 'IMG' || t.dataset.imgFb) return;
     t.dataset.imgFb = '1';
+    // 模板专用回退（原内联 onerror 语义，CSP 拦截后统一在此恢复）：
+    // VRChat 模型缩略图失败 → 给卡片加 img-failed（CSS 显示占位框）；
+    // VRChat 头像 / 头像历史图失败 → 隐藏图片、显示兄弟占位（首字母 / 🖼️）。
+    if (t.classList) {
+      if (t.classList.contains('vrc-model-img')) {
+        if (t.parentNode) t.parentNode.classList.add('img-failed');
+        return;
+      }
+      if (t.classList.contains('vrc-avatar') || t.classList.contains('avatar-hist-img') || t.classList.contains('profile-video-thumb')) {
+        t.style.display = 'none';
+        if (t.nextElementSibling) t.nextElementSibling.style.display = 'flex';
+        return;
+      }
+      // 活动世界缩略图失败 → 隐藏外层包装（原内联 onerror 语义）
+      if (t.classList.contains('event-world-thumb')) {
+        if (t.parentNode) t.parentNode.style.display = 'none';
+        return;
+      }
+      // 地图世界网格缩略图失败 → 隐藏自身（原内联 onerror 语义）
+      if (t.classList.contains('world-grid-thumb')) {
+        t.style.display = 'none';
+        return;
+      }
+      // 签到二维码失败 → 切换到 Google Charts 兜底一次（含防重入标记）
+      if (t.classList.contains('qr-img')) {
+        var qrChl = t.dataset.qrChl || '';
+        if (qrChl && !t.dataset.qrFallback) {
+          t.dataset.qrFallback = '1';
+          t.src = 'https://chart.apis.google.com/chart?cht=qr&chs=200x200&chl=' + encodeURIComponent(qrChl);
+        }
+        return;
+      }
+    }
+    // 媒体缩略图统一兜底（imgWithFallback 及各处迁移后的 __imgFail 调用点）：
+    // 原内联 onerror="window.__imgFail(this)" 被 CSP 拦截，改由捕获阶段接管，
+    // 显示相片占位图（区别于中性幽灵占位）。
+    if (t.dataset.imgFallback && typeof window.__imgFail === 'function') {
+      window.__imgFail(t);
+      return;
+    }
+    // 头像类图片：交给 __avatarFail 的 VRChat 代理重试链（ui.js 定义）。
+    // 动态内容里曾经用内联 onerror 触发，CSP nonce 化后属性型处理器被拦截
+    // （onerror 同样受 script-src 约束），头像裂图退化为通用占位。
+    // 此处统一接管：已由 JS 原生绑定 onerror 的（头部头像/成员卡等）跳过，
+    // 避免与 __avatarFail 的直连/代理重试链形成双重调用。
+    if (t.className && /avatar/.test(t.className) && !t.onerror &&
+        typeof window.__avatarFail === 'function') {
+      window.__avatarFail(t, t.dataset.avatarFailSrc || '');
+      return;
+    }
     t.src = PLACEHOLDER;
   }, true);
 })();
 
 // ==================== State ====================
 let currentUser = null;
+
+// ===== 兼容别名（collection/模型库等懒加载模块使用）=====
+// defineProperty + getter 让这些成员实时反射 currentUser，修复历史断链——
+// collections.js / vrc_favorites.js 曾引用 5 个全仓库未定义的悬空全局，
+// 导致 isLoggedIn() 恒 false、收藏操作被拦截、toast 与默认头像失效
+// （见 docs/12-审计问题清单-2026-10-09.md M1）。
+// 注意：__isLoggedIn / __isAdmin 调用方按"函数"契约调用（`__isLoggedIn && __isLoggedIn()`），
+// 因此 getter 必须返回函数而不是 boolean——否则 `window.__isLoggedIn()` 会 TypeError。
+Object.defineProperties(window, {
+  __isLoggedIn: { get: () => () => !!(currentUser && currentUser.id), configurable: true },
+  __user: { get: () => currentUser, configurable: true },
+  __isAdmin: { get: () => () => !!(currentUser && currentUser.id && (currentUser.role === 'admin' || currentUser.role === 'super_admin')), configurable: true },
+  __defaultAvatar: { get: () => '/api/avatar/default', configurable: true }
+});
+window.__toast = function (msg, type, duration) { toast(msg, type, duration); };
 let activeTab = 'home';
 let currentPhotoIdx = null;
 let albumPhotoList = [];
@@ -105,6 +170,15 @@ function toast(msg, type = 'info', duration) {
   const c = document.getElementById('toastContainer');
   if (!c) return;
 
+  // 同文案去重：同一文本的 toast 已在展示时不重复叠加。
+  // 典型场景：VRChat 登录失效时多个并发请求同时 401，每个调用方各自补一条相同
+  // 的失败 toast，再加上重登弹窗，用户会同时看到"3 个通知"。文案相同只保留一条。
+  if (msg) {
+    for (let i = 0; i < c.children.length; i++) {
+      if (c.children[i].textContent === String(msg)) return;
+    }
+  }
+
   // 超过上限移除最旧的：必须同步移除 —— 依赖 setTimeout 时 children.length 不会减少，
   // 并发第 4 条 toast 会在此 while 死循环卡死主线程（2026-09-12 浏览器实测：home 三接口并发 500）。
   while (c.children.length >= MAX_TOASTS) {
@@ -160,9 +234,12 @@ function safeUrl(path, params = {}) {
     existingQs = path.substring(qIdx); // 包含开头的 ?
   }
   // 只编码路径部分（不包含查询字符串）
+  // L4: 路径段可能含非法 % 序列导致 decodeURIComponent 抛 URIError，失败则跳过解码直接编码
   const segs = basePath.split('/').map(s => {
     if (s.startsWith(':')) return s;
-    return encodeURIComponent(decodeURIComponent(s));
+    let decoded = s;
+    try { decoded = decodeURIComponent(s); } catch (e) { /* 跳过解码 */ }
+    return encodeURIComponent(decoded);
   }).join('/');
   // 合并已存在的和新传入的查询参数
   const newQs = Object.entries(params)
@@ -253,6 +330,13 @@ async function api(path, opt = {}) {
             } else {
               toast(errData.detail || safeErrMsg(errData) || __('vrc.session_invalid'), 'error');
             }
+            return res;
+          }
+          // 本地账号登录失败（账号不存在 / 密码错误）：业务失败而非本站会话过期。
+          // 必须直接交回调用方（auth.js login() 的 else 分支会 toast 后端 error 文案），
+          // 否则落到下方 throw UNAUTHORIZED 后被 auth.js 的 isApiHandledError 判定为
+          // "已处理"而静默吞掉 —— 表现为"点了登录没反应，也不弹任何提示"。
+          if (errData.code === 'LOGIN_FAILED' || errData.code === 'ACCOUNT_LOCKED') {
             return res;
           }
         } catch {}
@@ -351,7 +435,18 @@ async function apiForm(path, formData, opt = {}) {
     if (contentType.includes('application/json')) {
       try {
         const errData = await res.clone().json();
-        if (errData.code === 'VRC_SYSTEM_OFFLINE' || errData.code === 'VRC_NOT_LOGGED_IN') return res;
+        // 与 api() 保持一致的 VRChat 业务错误分类：登录失效 / 需 2FA / 未登录等
+        // 是 VRChat 上游会话问题，不是本站会话过期。必须走重登引导后交回调用方，
+        // 否则会被误判成本站会话过期（弹 session_expired + 强制登出），
+        // 与 api() 的 promptVrcReLogin 弹窗叠加成"登录失效弹多个通知"。
+        if (VRC_BUSINESS_CODES.has(errData.code)) {
+          if (errData.code === 'VRC_COOKIE_EXPIRED' || errData.code === 'VRC_2FA_REQUIRED' || errData.code === 'VRC_NOT_LOGGED_IN') {
+            promptVrcReLogin(errData.detail || errText(errData) || __('vrc.session_invalid'));
+          } else {
+            toast(errData.detail || errText(errData) || __('vrc.session_invalid'), 'error');
+          }
+          return res;
+        }
       } catch {}
     }
     if (currentUser) {
@@ -372,20 +467,27 @@ async function apiForm(path, formData, opt = {}) {
 // 从任意错误输入中安全提取可展示文案，绝不返回 "[object Object]"。
 // 兼容：字符串 / Error 对象 / 嵌套包络 {error:{code,message}}（utils.js sendError）/
 // 旧式扁平包络 {error:'串', code}（waf.js 中间件，code 在顶层）/ {detail} / {message}。
-// 优先按 code 走 error.* 语言包翻译（未命中则回退后端原文 message，未翻译的错误码不破版）；
+// 嵌套包络 {error:{code,message}} 优先展示后端给出的具体 message（如「请先绑定 VRChat账号」），
+// 只有 message 缺失时才回退 code 的 error.* 语言包翻译（如「请求参数错误」），避免把具体原因淹没成笼统文案；
 // 解析不出时返回 ''，由调用方继续走原有的 `|| __('xxx_failed')` 兜底。
 function errText(d) {
   if (d == null) return '';
   if (typeof d === 'string') return d;
   if (d instanceof Error) return d.message || '';
-  const code = (d.error && typeof d.error === 'object' && d.error.code) || (typeof d.code === 'string' ? d.code : '');
+  if (d.error && typeof d.error === 'object') {
+    if (typeof d.error.message === 'string' && d.error.message) return d.error.message;
+    const code = d.error.code;
+    if (code) {
+      const translated = __('error.' + code);
+      if (translated && translated !== 'error.' + code) return translated;
+    }
+    return (typeof d.detail === 'string' && d.detail) || code || '';
+  }
+  if (typeof d.error === 'string') return d.error;
+  const code = typeof d.code === 'string' ? d.code : '';
   if (code) {
     const translated = __('error.' + code);
     if (translated && translated !== 'error.' + code) return translated;
-  }
-  if (typeof d.error === 'string') return d.error;
-  if (d.error && typeof d.error === 'object') {
-    return d.error.message || (typeof d.detail === 'string' ? d.detail : '') || code || '';
   }
   if (typeof d.detail === 'string') return d.detail;
   if (typeof d.message === 'string') return d.message;
@@ -395,6 +497,19 @@ function errText(d) {
 // VRC_RATE_LIMITED：api() 429 分支已提示并抛 VRC_RATE_LIMITED，调用方不应再补一刀"网络错误"
 function isApiHandledError(err) {
   return err.message === 'FORBIDDEN' || err.message === 'UNAUTHORIZED' || err.message === 'RATE_LIMITED' || err.message === 'VRC_RATE_LIMITED' || err.message === 'SERVER_ERROR' || err.message === 'TIMEOUT';
+}
+
+// M3: JSON API 便捷包装（统一收敛 collections.js/vrc_favorites.js 各自的私有副本）：
+// window.api 自动带 credentials / CSRF / 超时；这里只做 JSON 解析与错误剥离，失败抛 Error。
+async function apiJson(path, opts) {
+  opts = opts || {};
+  const res = await api(path, opts);
+  let data;
+  try { data = await res.json(); } catch (e) { data = {}; }
+  if (!res.ok || data.success === false) {
+    throw new Error(errText(data) || ('HTTP ' + res.status));
+  }
+  return data;
 }
 
 // ==================== XHR 文件上传（带进度条） ====================
@@ -424,6 +539,22 @@ async function uploadWithProgress(url, formData, onProgress) {
       });
       if (xhr.status === 401) {
         csrfToken = null;
+        // 与 api() 保持一致的 VRChat 业务错误分类：登录失效/需 2FA/上游异常等
+        // 是 VRChat 上游会话问题，不是本站会话过期。此处同样不能被误判成本站
+        // 会话过期（弹 session_expired + 强制登出），否则与 api() 的重登引导叠加
+        // 成"登录失效弹多个通知"，还会把用户错误地踢回登录页。
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (VRC_BUSINESS_CODES.has(data.code)) {
+            if (data.code === 'VRC_COOKIE_EXPIRED' || data.code === 'VRC_2FA_REQUIRED' || data.code === 'VRC_NOT_LOGGED_IN') {
+              promptVrcReLogin(data.detail || errText(data) || __('vrc.session_invalid'));
+            } else {
+              toast(data.detail || errText(data) || __('vrc.session_invalid'), 'error');
+            }
+            reject(new Error('UNAUTHORIZED'));
+            return;
+          }
+        } catch {}
         if (currentUser) {
           toast(__('session_expired'), 'error');
           setTimeout(() => logout(true, true), 1500);
@@ -518,6 +649,30 @@ function escCssUrl(str) {
   return "'" + value.replace(/[\\()'"\n\r]/g, '') + "'";
 }
 
+// M3: 剪贴板统一入口（兼容 http/内网 IP 等非安全上下文，navigator.clipboard 不可用时降级 execCommand）
+function copyTextToClipboard(text) {
+  const str = String(text);
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(str);
+  }
+  return new Promise(function (resolve, reject) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = str;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok ? resolve() : reject(new Error('copy failed'));
+    } catch (e) { reject(e); }
+  });
+}
+// 兼容旧命名（admin-users/admin-activation/group/map 等以 copyToClipboard 调用）
+function copyToClipboard(text) { return copyTextToClipboard(text); }
+
 // 通用图片兜底：普通图片（相册/媒体等）加载失败时回退占位，避免裂图
 // 与头像专用的 window.__avatarFail 区分：此处不写失败缓存，仅做一次兜底
 window.__imgFail = function (img) {
@@ -534,7 +689,7 @@ window.__imgFail = function (img) {
  * @param {string} alt alt 文本
  */
 function imgWithFallback(src, cls, alt) {
-  return '<img src="' + escAttr(src) + '" class="' + (cls || '') + '" alt="' + escAttr(alt || '') + '" loading="lazy" onerror="window.__imgFail(this)">';
+  return '<img src="' + escAttr(src) + '" class="' + (cls || '') + '" alt="' + escAttr(alt || '') + '" loading="lazy" data-img-fallback="1">';
 }
 window.imgWithFallback = imgWithFallback;
 
@@ -597,6 +752,11 @@ function closeAllModals() {
     modal.classList.remove('show');
     modal.style.display = 'none';
     if (typeof unlockBodyScroll === 'function') unlockBodyScroll('modal:' + modal.id);
+  });
+  // J8: .confirm-overlay 覆盖层无 .modal class，全局关闭时一并触发取消清理，避免 Esc/开新弹窗残留
+  document.querySelectorAll('.confirm-overlay').forEach(overlay => {
+    if (typeof overlay._cleanup === 'function') overlay._cleanup('cancel');
+    else overlay.remove();
   });
 }
 function showModal(id) {
@@ -684,7 +844,7 @@ function ensureModal(id, title) {
       <div class="modal-content">
         <div class="modal-header">
           <h3>${esc(title || '')}</h3>
-          <button class="modal-close" onclick="closeModal('${id}')" aria-label="${__('ui.close')}">&times;</button>
+          <button class="modal-close" data-modal-close="${id}" aria-label="${__('ui.close')}">&times;</button>
         </div>
         <div class="modal-body" id="${id}Body"></div>
       </div>
@@ -700,6 +860,9 @@ function hideModal(id) {
 
 // ==================== 通用弹窗工厂 ====================
 function createOverlayDialog(contentHtml, onConfirm, onCancel) {
+  // 覆盖层 z-index 高于 .modal（400），但打开前仍先把已开的弹窗全部收起：
+  // 否则成员名片等弹窗还悬在页面上，用户看到新弹窗叠在旧弹窗后面还要手动关。
+  closeAllModals();
   const overlay = document.createElement('div');
   overlay.className = 'confirm-overlay';
   overlay.innerHTML = contentHtml;
@@ -709,6 +872,7 @@ function createOverlayDialog(contentHtml, onConfirm, onCancel) {
     if (result === 'confirm' && onConfirm) onConfirm();
     if (result === 'cancel' && onCancel) onCancel();
   };
+  overlay._cleanup = cleanup; // J8: 挂到 overlay 上，供 closeAllModals 遍历 .confirm-overlay 时触发取消清理
   const okBtn = overlay.querySelector('[data-action="confirm"]') || overlay.querySelector('.btn-accent');
   const cancelBtn = overlay.querySelector('[data-action="cancel"]') || overlay.querySelector('.btn-outline');
   if (okBtn) okBtn.onclick = () => cleanup('confirm');
@@ -794,6 +958,7 @@ function showConfirm(msg, callbackYes, callbackNo) {
 
 // ==================== 输入弹窗（替代原生 prompt） ====================
 function showInput(question, defaultValue, callback) {
+  if (typeof callback !== 'function') callback = function () {}; // J8: 回调非函数时兜底为空函数，避免调用时 TypeError
   const overlay = createOverlayDialog(`
     <div class="confirm-dialog">
       <div class="confirm-msg">${esc(question)}</div>

@@ -1,7 +1,8 @@
 // F-10/F-24 VRChat 官方邀请/好友申请/备注/Boop（/api/vrc-invites）
 // 直连 VRChat 官方写接口：POST /invite/{userId}（世界实例邀请）、
 // POST /user/{userId}/friendRequest（好友申请）、
-// PUT /user/{userId}/note（保存备注）、POST /user/{userId}/boop（发送 Boop）。
+// POST /userNotes（保存备注，body { targetUserId, note }）、POST /users/{userId}/boop（发送 Boop）。
+// 备注/Boop 端点均为官方新式路径（旧式单数 /user/... 已移除返回 502）。
 // Cookie 策略：所有写操作均「代表当前用户」，严格限定用户自己绑定的
 // cookie（getVRCCookieUserOnly），未绑定用户直接返回 NEED_BIND 引导绑定，
 // 绝不回退系统账号（防止借系统账号向陌生玩家发邀请/好友申请）。
@@ -45,7 +46,7 @@ module.exports = function (getVRCCookieUserOnly) {
     } catch (e) { handleError(res, e, 'vrcinvites.friendRequest'); }
   });
 
-  // F-24 保存用户备注（PUT /user/{userId}/note）：note 为空串表示清除备注。
+  // F-24 保存用户备注（POST /userNotes）：note 为空串表示清除备注。
   router.post('/note', requireAuth, async (req, res) => {
     const cookie = getVRCCookieUserOnly(req);
     if (!cookie) return fail(res, 400, '请先在个人中心绑定你的 VRChat 账号后再保存备注', { code: ErrorCodes.NEED_BIND });
@@ -64,7 +65,7 @@ module.exports = function (getVRCCookieUserOnly) {
     } catch (e) { handleError(res, e, 'vrcinvites.note'); }
   });
 
-  // F-24 发送 Boop（POST /user/{userId}/boop）：官方要求双方为好友，非好友由上游返回 400。
+  // F-24 发送 Boop（POST /users/{userId}/boop）：官方要求双方为好友，非好友由上游返回 400。
   router.post('/boop', requireAuth, async (req, res) => {
     const cookie = getVRCCookieUserOnly(req);
     if (!cookie) return fail(res, 400, '请先在个人中心绑定你的 VRChat 账号后再发送 Boop', { code: ErrorCodes.NEED_BIND });

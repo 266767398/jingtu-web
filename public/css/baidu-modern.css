@@ -97,7 +97,8 @@ textarea:focus-visible,
 .data-table th,
 table.admin-table th {
   position: sticky;
-  top: 0;
+  /* 修：表头吸顶时避开页面 sticky header（z-index:100，高度约 60px），否则被其盖住 */
+  top: calc(var(--header-height, 60px) + 4px);
   z-index: 2;
   background: var(--bg-secondary);
   color: var(--text2);
@@ -107,6 +108,12 @@ table.admin-table th {
 .data-table tbody tr:hover td,
 table.admin-table tbody tr:hover td {
   background: var(--accent-light);
+}
+
+/* admin-ui.js 动态生成的 .table-wrap：横向滚动容器，窄屏下表格不挤压 */
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ---------- 活动管理筛选栏 / 状态标签 ---------- */

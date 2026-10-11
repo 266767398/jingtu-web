@@ -3,7 +3,7 @@ const net = require('net');
 const https = require('https');
 const dns = require('dns');
 const { promisify } = require('util');
-const { getPool } = require('./utils');
+const { getPool, encryptCookie, decryptCookie } = require('./utils');
 const crypto = require('crypto');
 const logger = require('./logger');
 
@@ -144,6 +144,29 @@ async function flushPendingDeliveries() {
 }
 setInterval(() => { flushPendingDeliveries().catch(() => {}); }, PENDING_FLUSH_MS).unref();
 
+// M12 修复：webhook secret 落库前用 ENCRYPT_KEY 对称加密（复用 utils 的 AES-256-GCM），
+// 签名校验/测试发送时在内存中解密使用，杜绝明文 secret 入库与列表接口泄露原文。
+// 历史明文（未带 enc: 前缀）由 decryptCookie 兼容读取。
+function encryptWebhookSecret(secret) {
+  if (!secret) return '';
+  const enc = encryptCookie(secret);
+  if (!enc) throw new Error('Webhook secret 加密失败，请检查 ENCRYPT_KEY 配置');
+  return enc;
+}
+function decryptWebhookSecret(stored) {
+  if (!stored) return '';
+  // 解密失败回退原值：兼容历史明文数据，避免签名链路因坏密文直接断裂
+  return decryptCookie(stored) || stored;
+}
+// 列表接口展示用掩码：仅保留前4位便于区分，剩余全部打码
+function maskWebhookSecret(secret) {
+  if (!secret) return '';
+  return String(secret).slice(0, 4) + '****';
+}
+function isMaskedSecret(s) {
+  return typeof s === 'string' && s.endsWith('****');
+}
+
 async function getWebhooks(eventType = null) {
   try {
     const pool = getPool();
@@ -152,6 +175,8 @@ async function getWebhooks(eventType = null) {
       : 'SELECT * FROM webhooks WHERE enabled = 1';
     const params = eventType ? [eventType] : [];
     const [rows] = await pool.query(query, params);
+    // 内存中解密 secret 供签名校验使用
+    for (const row of rows) row.secret = decryptWebhookSecret(row.secret);
     return rows;
   } catch (e) {
     logger.error('webhook', '[webhook] 获取webhook失败:', e);
@@ -164,9 +189,11 @@ async function createWebhook(url, events, secret = '') {
     const urlCheck = await validateWebhookUrl(url);
     if (!urlCheck.ok) throw new Error('Webhook URL 校验失败: ' + urlCheck.reason);
     const pool = getPool();
+    // M12: secret 加密后落库，杜绝明文入库
+    const storedSecret = encryptWebhookSecret(secret);
     const [result] = await pool.query(
       'INSERT INTO webhooks (url, events, secret, enabled) VALUES (?, ?, ?, 1)',
-      [url, Array.isArray(events) ? events.join(',') : events, secret]
+      [url, Array.isArray(events) ? events.join(',') : events, storedSecret]
     );
     return result.insertId;
   } catch (e) {
@@ -190,6 +217,17 @@ async function updateWebhook(id, updates) {
   try {
     const pool = getPool();
     const allowed = _normalizeWebhookUpdate(updates);
+    // M12: 列表接口返回的掩码（前4位+****）视为「未修改」，跳过写入保留库中原值；
+    // 真实新 secret 加密后落库，显式空串表示清空签名
+    if (allowed.secret !== undefined) {
+      if (isMaskedSecret(allowed.secret)) {
+        delete allowed.secret;
+      } else if (allowed.secret) {
+        allowed.secret = encryptWebhookSecret(allowed.secret);
+      } else {
+        allowed.secret = '';
+      }
+    }
     const keys = Object.keys(allowed);
     if (keys.length === 0) {
       const [hasRows] = await pool.query('SELECT id FROM webhooks WHERE id = ?', [id]);
@@ -452,6 +490,8 @@ module.exports = {
   canonicalStringify,
   validateWebhookUrl,
   isBlockedWebhookAddress,
+  decryptWebhookSecret,
+  maskWebhookSecret,
   getPendingCount: () => pendingDeliveries.length,
   flushPendingDeliveries,
   enqueuePending,

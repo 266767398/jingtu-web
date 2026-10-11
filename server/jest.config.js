@@ -75,7 +75,7 @@ module.exports = {
       functions: 84,
       branches: 56
     },
-    './routes/auth.js': {
+    './routes/auth_routes.js': {
       // P3-23②：per-glob 按文件判定，99 阈值意味着任何新增未测分支即全红（棘轮过紧）；
       // 实测 100 时按「向下取整且保留 ≥1pt 余量」规则应取 98，给测试迭代留缓冲。
       lines: 98,

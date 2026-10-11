@@ -119,13 +119,13 @@ function renderEvents(events) {
     // 管理权限：管理员/超级管理员，或活动创建者本人
     const canManage = isAdminOrSuper || isCreator;
     const visBadge = e.visibility === 'public' ? '<span class="visibility-badge public">' + __('events.public') + '</span>' : e.visibility === 'members_only' ? '<span class="visibility-badge members">' + __('events.member_only_tag') + '</span>' : '';
-    const worldThumb = e.worldImageUrl ? `<div class="event-world-thumb-wrap"><img src="${escAttr(e.worldImageUrl)}" class="event-world-thumb" alt="${esc(e.worldName || 'World')}" loading="lazy" onerror="this.parentElement.style.display='none'"></div>` : '';
+    const worldThumb = e.worldImageUrl ? `<div class="event-world-thumb-wrap"><img src="${escAttr(e.worldImageUrl)}" class="event-world-thumb" alt="${esc(e.worldName || 'World')}" loading="lazy"></div>` : '';
     // 列表卡片管理操作：编辑 + 删除（管理员/创建者可操作；已结束活动仅管理员可删，普通创建者不可）
-    const editBtn = canManage ? `<button type="button" class="event-edit-btn" title="${__('events.edit_event')}" onclick="event.stopPropagation();editEventCard('${escJsStr(String(e.id))}')">✏️</button>` : '';
-    const delBtn = canManage ? `<button type="button" class="event-del-btn" title="${__('events.delete')}" ${((!isAdminOrSuper && ended) ? 'disabled' : '')} onclick="event.stopPropagation();confirmDeleteEvent('${escJsStr(String(e.id))}'${e.eventType === 'birthday' ? ', true' : ''})">🗑️</button>` : '';
+    const editBtn = canManage ? `<button type="button" class="event-edit-btn" title="${__('events.edit_event')}" data-action="evt-edit-card" data-evt-id="${escAttr(String(e.id))}">✏️</button>` : '';
+    const delBtn = canManage ? `<button type="button" class="event-del-btn" title="${__('events.delete')}" ${((!isAdminOrSuper && ended) ? 'disabled' : '')} data-action="evt-del-card" data-evt-id="${escAttr(String(e.id))}"${e.eventType === 'birthday' ? ' data-evt-type="birthday"' : ''}>🗑️</button>` : '';
     // 批量选择框：仅对「可管理」卡片显示（与删除权限一致）
-    const chk = canManage ? `<label class="event-select" onclick="event.stopPropagation()"><input type="checkbox" class="evt-select-cb" data-evt-id="${escAttr(String(e.id))}" ${selectedEventIds.has(String(e.id)) ? 'checked' : ''} onchange="onEventSelectChange('${escJsStr(String(e.id))}', this.checked)"></label>` : '';
-    return `<div class="event-card ${evtStatus === 'past' ? 'past' : ''}" data-evt-id="${escAttr(String(e.id))}" onclick="showEventDetail('${escJsStr(String(e.id))}')">
+    const chk = canManage ? `<label class="event-select"><input type="checkbox" class="evt-select-cb" data-action="evt-select" data-evt-id="${escAttr(String(e.id))}" ${selectedEventIds.has(String(e.id)) ? 'checked' : ''}></label>` : '';
+    return `<div class="event-card ${evtStatus === 'past' ? 'past' : ''}" data-action="evt-card" data-evt-id="${escAttr(String(e.id))}">
       ${chk}
       ${editBtn}
       ${worldThumb}
@@ -269,6 +269,11 @@ document.addEventListener('click', function (e) {
   if (e.target.closest('#evtBatchDeleteBtn')) { batchDeleteEvents(); return; }
   if (e.target.closest('#evtBatchCancelBtn')) { cancelBatchSelect(); return; }
 });
+(function () {
+  const selectAll = document.getElementById('evtSelectAll');
+  if (!selectAll) return;
+  selectAll.addEventListener('change', function () { toggleSelectAll(this.checked); });
+})();
 
 function getCountdown(timeStr, endsStr) {
   if (!timeStr) return null; const now = new Date(); const start = new Date(timeStr); const ends = endsStr ? new Date(endsStr) : null;
@@ -310,7 +315,7 @@ async function showEventDetail(id) {
       document.getElementById('evtDetMeta').innerHTML = `
         <span>📅 ${fmtTime(e.time)}${e.endsAt ? ' — ' + fmtTime(e.endsAt) : ''}</span>
         ${e.place ? `<span>📍 ${esc(e.place)}</span>` : ''}
-        ${e.worldName ? `<span class="d-flex gap-4 items-center">${e.worldImageUrl ? `<img src="${escAttr(e.worldImageUrl)}" style="width:18px;height:18px;border-radius:4px;object-fit:cover" loading="lazy" onerror="window.__imgFail(this)">` : '🌐'} ${esc(e.worldName)}</span>` : ''}
+        ${e.worldName ? `<span class="d-flex gap-4 items-center">${e.worldImageUrl ? `<img src="${escAttr(e.worldImageUrl)}" style="width:18px;height:18px;border-radius:4px;object-fit:cover" loading="lazy" data-img-fallback="1">` : '🌐'} ${esc(e.worldName)}</span>` : ''}
         <span>👤 ${__('events.sign_count', {n: e.signCount || 0})}</span>
         ${e.updatedAt ? `<span class="text-muted2 text-11">${__('announcements.edit_at')} ${fmtDate(e.updatedAt)}</span>` : ''}`;
       document.getElementById('evtDetVisBadge').innerHTML = e.visibility === 'public'
@@ -341,19 +346,19 @@ async function showEventDetail(id) {
         const deleteBtn = deleteDisabled
           ? `<button class="btn btn-sm btn-danger ml-6" disabled title="${__('events.ended_no_delete')}">${__('events.delete')}</button>`
           : (isBirthday
-            ? `<button class="btn btn-sm btn-danger ml-6" onclick="confirmDeleteEvent(${id}, true)">${__('events.delete')}</button>`
-            : `<button class="btn btn-sm btn-danger ml-6" onclick="confirmDeleteEvent(${id}, false)">${__('events.delete')}</button>`);
+            ? `<button class="btn btn-sm btn-danger ml-6" data-action="evt-del-detail" data-evt-id="${id}" data-evt-type="birthday">${__('events.delete')}</button>`
+            : `<button class="btn btn-sm btn-danger ml-6" data-action="evt-del-detail" data-evt-id="${id}">${__('events.delete')}</button>`);
       // 签到按钮仅管理员可见（后端 /checkin 仅管理员可调用，避免创建者误点收到 403）
       const checkinBtnHtml = isAdmin ? `<button class="btn btn-sm btn-white-glass ml-6" id="evtDetCheckinBtn">✅ ${__('events.sign_in')}</button>` : '';
       document.getElementById('evtDetAdminActions').innerHTML = isBirthday
-        ? `<button class="btn btn-sm btn-white-glass" onclick="editBirthdayParty(${id})">${__('events.edit_party')}</button>
+        ? `<button class="btn btn-sm btn-white-glass" data-action="evt-edit-party" data-evt-id="${id}">${__('events.edit_party')}</button>
            ${deleteBtn}
            ${checkinBtnHtml}
-           <button class="btn btn-sm btn-white-glass ml-6" onclick="sharePublicLink('event', ${id})">🔗 ${__('share.btn')}</button>`
-        : `<button class="btn btn-sm btn-white-glass" onclick="showEditEvent()">${__('events.edit_event')}</button>
+           <button class="btn btn-sm btn-white-glass ml-6" data-action="evt-share" data-evt-id="${id}" data-share-type="event">🔗 ${__('share.btn')}</button>`
+        : `<button class="btn btn-sm btn-white-glass" data-action="evt-edit-open">${__('events.edit_event')}</button>
            ${deleteBtn}
            ${checkinBtnHtml}
-           <button class="btn btn-sm btn-white-glass ml-6" onclick="sharePublicLink('event', ${id})">🔗 ${__('share.btn')}</button>`;
+           <button class="btn btn-sm btn-white-glass ml-6" data-action="evt-share" data-evt-id="${id}" data-share-type="event">🔗 ${__('share.btn')}</button>`;
       }
       if (isAdmin) showEl('evtDetCheckinBar'); else hideEl('evtDetCheckinBar');
       const uploadBtnEl = document.getElementById('evtDetUploadBtn');
@@ -388,9 +393,9 @@ async function showEventDetail(id) {
           if (e.maxSign > 0 && e.signCount >= e.maxSign) {
             signBtn.innerHTML = '<span class="text-muted">' + __('events.full') + '</span>';
           } else if (isSigned) {
-            signBtn.innerHTML = `<button class="btn btn-sm sign-btn-cancel" onclick="unsignEvent(${id})">${__('events.signed_cancel')}</button>`;
+            signBtn.innerHTML = `<button class="btn btn-sm sign-btn-cancel" data-action="evt-unsign" data-evt-id="${id}">${__('events.signed_cancel')}</button>`;
           } else {
-            signBtn.innerHTML = `<button class="btn btn-sm btn-accent" onclick="signEvent(${id})">${__('events.sign_up_btn')}</button>`;
+            signBtn.innerHTML = `<button class="btn btn-sm btn-accent" data-action="evt-sign" data-evt-id="${id}">${__('events.sign_up_btn')}</button>`;
           }
         } else {
           signBtn.innerHTML = '<span class="text-muted">' + __('events.login_to_sign') + '</span>';
@@ -509,7 +514,7 @@ async function loadArchives() {
         return;
       }
       container.innerHTML = archived.map(e => `
-        <div class="archive-item" onclick="showEventDetail('${escJsStr(String(e.id))}')">
+        <div class="archive-item" data-action="evt-card" data-evt-id="${escAttr(String(e.id))}">
           <div class="archive-title">${esc(e.title)}</div>
           <div class="archive-time">📅 ${fmtTime(e.time)}</div>
           <div class="archive-desc">${esc((e.description || '').substring(0, 80))}${e.description && e.description.length > 80 ? '...' : ''}</div>
@@ -760,13 +765,13 @@ async function loadEventComments(eventId) {
         if (!Number.isInteger(cid) || !Number.isInteger(eid)) return '';
         return `
         <div class="det-comment-item" data-comment-id="${cid}">
-          <img src="${escAttr(c.avatarUrl || '/api/avatar/default')}" class="det-comment-avatar" alt="" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(c.avatarUrl || '/api/avatar/default')}')">
+          <img src="${escAttr(c.avatarUrl || '/api/avatar/default')}" class="det-comment-avatar" alt="" loading="lazy" data-avatar-fail-src="${escAttr(c.avatarUrl || '/api/avatar/default')}">
           <div class="det-comment-body">
             <div class="det-comment-header">
               <span class="det-comment-user">${esc(c.userName || __('unknown_user'))}</span>
               <span class="det-comment-time">${fmtTime(c.createdAt)}</span>
               ${currentUser && (currentUser.id === c.userId || currentUser.role === 'super_admin' || currentUser.role === 'admin') ? 
-                `<button class="btn-text det-comment-del" onclick="editEventComment(${eid}, ${cid})">${__('edit')}</button><button class="btn-text det-comment-del" onclick="deleteEventComment(${eid}, ${cid})">${__('delete')}</button>` : ''}
+                `<button class="btn-text det-comment-del" data-action="evt-comment-edit" data-evt-id="${eid}" data-comment-id="${cid}">${__('edit')}</button><button class="btn-text det-comment-del" data-action="evt-comment-del" data-evt-id="${eid}" data-comment-id="${cid}">${__('delete')}</button>` : ''}
             </div>
             <div class="det-comment-content" id="eventCommentText-${cid}">${esc(c.content)}</div>
           </div>
@@ -855,8 +860,8 @@ window.showCheckinQR = function() {
   const html = `
     <div style="text-align:center;padding:16px">
       <p class="text-13 text-muted mb-8">${__('events.scan_to_checkin')}</p>
-      <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}" alt="${__('events.checkin_qr')}" style="width:200px;height:200px;border-radius:8px;border:2px solid var(--border)" onerror="this.onerror=null;this.src='https://chart.apis.google.com/chart?cht=qr&chs=200x200&chl='+encodeURIComponent('${encodeURIComponent(qrUrl)}');">
-      <p class="text-12 text-muted2 mt-8">${__('events.or_manual_checkin')}：<button class="btn btn-sm btn-accent" onclick="document.getElementById('evtDetCheckinBtn')?.click();closeModal('qrModal')">${__('events.checkin_now')}</button></p>
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}" alt="${__('events.checkin_qr')}" class="qr-img" data-qr-chl="${encodeURIComponent(qrUrl)}" style="width:200px;height:200px;border-radius:8px;border:2px solid var(--border)">
+      <p class="text-12 text-muted2 mt-8">${__('events.or_manual_checkin')}：<button class="btn btn-sm btn-accent" data-action="evt-checkin-now">${__('events.checkin_now')}</button></p>
     </div>`;
   // 临时弹窗展示二维码
   // 注意：这里不能写 `getElementById('qrModal') || {style:{},innerHTML:''}` ——
@@ -867,7 +872,7 @@ window.showCheckinQR = function() {
   const div = document.createElement('div');
   div.id = 'qrModal';
   div.className = 'modal';
-  div.innerHTML = `<div class="modal-content modal-sm"><div class="modal-header"><h3>📱 ${__('events.checkin_qr')}</h3><button class="modal-close" onclick="closeModal('qrModal')" aria-label="${__('events.aria_close')}">✕</button></div>${html}</div>`;
+  div.innerHTML = `<div class="modal-content modal-sm"><div class="modal-header"><h3>📱 ${__('events.checkin_qr')}</h3><button class="modal-close" data-action="evt-close-qr" aria-label="${__('events.aria_close')}">✕</button></div>${html}</div>`;
   document.body.appendChild(div);
   showModal('qrModal');
 };
@@ -929,12 +934,12 @@ function renderCalendarView(events) {
   
   let html = `
     <div class="evt-calendar-nav">
-      <button class="btn btn-sm btn-outline" onclick="calendarPrevMonth()" title="${__('events.prev_month')}">◀</button>
+      <button class="btn btn-sm btn-outline" data-action="cal-prev-month" title="${__('events.prev_month')}">◀</button>
       <h3>${year} ${monthNames[month]}</h3>
       <div class="d-flex gap-4">
-        <button class="btn btn-sm btn-outline" onclick="switchCalView('week')" title="${__('events.view_week')}">${__('events.view_week')}</button>
-        ${!isCurrentMonth ? `<button class="evt-calendar-today-btn" onclick="resetCalendarMonth()" title="${__('events.back_to_today')}">${__('events.today')}</button>` : ''}
-        <button class="btn btn-sm btn-outline" onclick="calendarNextMonth()" title="${__('events.next_month')}">▶</button>
+        <button class="btn btn-sm btn-outline" data-action="cal-switch-view" data-view="week" title="${__('events.view_week')}">${__('events.view_week')}</button>
+        ${!isCurrentMonth ? `<button class="evt-calendar-today-btn" data-action="cal-today-month" title="${__('events.back_to_today')}">${__('events.today')}</button>` : ''}
+        <button class="btn btn-sm btn-outline" data-action="cal-next-month" title="${__('events.next_month')}">▶</button>
       </div>
     </div>`;
   
@@ -958,7 +963,7 @@ function renderCalendarView(events) {
       const cakeBadge = hasBirthday ? '<span class="evt-cake-badge" title="' + __('events.birthday_party') + '">🎂</span>' : '';
       dayContent += `<div class="evt-dots"><div class="evt-dot${hasBirthday ? ' evt-dot-birthday' : ''}" title="${esc(names)}">${__('events.count_events', {n: dayEvents.length})}</div>${cakeBadge}</div>`;
     }
-    html += `<div class="${cls}" onclick="calShowDayEvents(${day})"${isToday ? ' data-today="1"' : ''}>${dayContent}</div>`;
+    html += `<div class="${cls}" data-action="cal-show-day" data-day="${day}"${isToday ? ' data-today="1"' : ''}>${dayContent}</div>`;
   }
   html += '</div>';
 
@@ -972,7 +977,7 @@ function renderCalendarView(events) {
   if (hasDefaultEvents) {
     html += `<div class="cal-day-title">📌 ${__('events.day_suffix', {n: defaultDay})} (${__('events.count_events', {n: evtMap[defaultDay].length})})</div>`;
     html += evtMap[defaultDay].map(e => `
-      <div class="cal-event-item${e.eventType === 'birthday' ? ' cal-event-birthday' : ''}" onclick="showEventDetail('${escJsStr(String(e.id))}')">
+      <div class="cal-event-item${e.eventType === 'birthday' ? ' cal-event-birthday' : ''}" data-action="evt-card" data-evt-id="${escAttr(String(e.id))}">
         <span class="cal-event-time">${fmtTime(e.time)}</span>
         <span class="cal-event-title">${e.eventType === 'birthday' ? '🎂 ' : ''}${esc(e.title)}</span>
         ${e.worldName ? `<span class="cal-event-world">🌐${esc(e.worldName)}</span>` : ''}
@@ -1033,7 +1038,7 @@ window.calShowDayEvents = function calShowDayEvents(day) {
   }
   container.innerHTML = `<div class="cal-day-title">📌 ${__('events.date_format', {year: year, month: month+1, day: day})} (${__('events.count_events', {n: dayEvents.length})})</div>` +
     dayEvents.map(e => `
-      <div class="cal-event-item${e.eventType === 'birthday' ? ' cal-event-birthday' : ''}" onclick="showEventDetail('${escJsStr(String(e.id))}')">
+      <div class="cal-event-item${e.eventType === 'birthday' ? ' cal-event-birthday' : ''}" data-action="evt-card" data-evt-id="${escAttr(String(e.id))}">
         <span class="cal-event-time">${fmtTime(e.time)}</span>
         <span class="cal-event-title">${e.eventType === 'birthday' ? '🎂 ' : ''}${esc(e.title)}</span>
         ${e.worldName ? `<span class="cal-event-world">🌐${esc(e.worldName)}</span>` : ''}
@@ -1073,12 +1078,12 @@ function renderWeekView(events) {
   const monthNames = Array.from({length:12},(_,i)=>__('events.month_'+(i+1)));
   let html = `
     <div class="evt-calendar-nav">
-      <button class="btn btn-sm btn-outline" onclick="weekPrev()" title="${__('events.prev_week')}">◀</button>
+      <button class="btn btn-sm btn-outline" data-action="cal-prev-week" title="${__('events.prev_week')}">◀</button>
       <h3>${weekDays[0].getFullYear()} ${monthNames[weekDays[0].getMonth()]} ${weekDays[0].getDate()} - ${monthNames[weekDays[6].getMonth()]} ${weekDays[6].getDate()}</h3>
       <div class="d-flex gap-4">
-        <button class="btn btn-sm btn-outline" onclick="switchCalView('month')" title="${__('events.view_month')}">${__('events.view_month')}</button>
-        <button class="evt-calendar-today-btn" onclick="resetWeek()" title="${__('events.back_to_today')}">${__('events.today')}</button>
-        <button class="btn btn-sm btn-outline" onclick="weekNext()" title="${__('events.next_week')}">▶</button>
+        <button class="btn btn-sm btn-outline" data-action="cal-switch-view" data-view="month" title="${__('events.view_month')}">${__('events.view_month')}</button>
+        <button class="evt-calendar-today-btn" data-action="cal-today-week" title="${__('events.back_to_today')}">${__('events.today')}</button>
+        <button class="btn btn-sm btn-outline" data-action="cal-next-week" title="${__('events.next_week')}">▶</button>
       </div>
     </div>`;
   html += '<div class="week-view-grid">';
@@ -1087,12 +1092,12 @@ function renderWeekView(events) {
     const dayEvents = evtMap[key] || [];
     const isToday = d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
     const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map(d => __('events.weekday_' + d));
-    html += `<div class="week-view-day${isToday ? ' today' : ''}" onclick="weekShowDayEvents(${d.getDate()}, ${d.getMonth()}, ${d.getFullYear()})">`;
+    html += `<div class="week-view-day${isToday ? ' today' : ''}" data-action="cal-week-day" data-day="${d.getDate()}" data-month="${d.getMonth()}" data-year="${d.getFullYear()}">`;
     html += `<div class="week-day-header">${dayNames[idx]}<br><span class="week-day-num">${d.getDate()}</span></div>`;
     html += '<div class="week-day-events">';
     if (dayEvents.length > 0) {
       dayEvents.slice(0, 3).forEach(e => {
-        html += `<div class="week-event-item${e.eventType === 'birthday' ? ' week-event-birthday' : ''}" onclick="showEventDetail('${escJsStr(String(e.id))}')">${e.eventType === 'birthday' ? '🎂 ' : ''}${esc(e.title)}</div>`;
+        html += `<div class="week-event-item${e.eventType === 'birthday' ? ' week-event-birthday' : ''}" data-action="evt-card" data-evt-id="${escAttr(String(e.id))}">${e.eventType === 'birthday' ? '🎂 ' : ''}${esc(e.title)}</div>`;
       });
       if (dayEvents.length > 3) {
         html += `<div class="week-event-more">+${dayEvents.length - 3}</div>`;
@@ -1141,7 +1146,7 @@ window.weekShowDayEvents = function(day, month, year) {
   const monthNames = Array.from({length:12},(_,i)=>__('events.month_'+(i+1)));
   dayEventsContainer.innerHTML = `<div class="cal-day-title">📌 ${year} ${monthNames[month]} ${day} (${__('events.count_events', {n: dayEvents.length})})</div>` +
     dayEvents.map(e => `
-      <div class="cal-event-item${e.eventType === 'birthday' ? ' cal-event-birthday' : ''}" onclick="showEventDetail('${escJsStr(String(e.id))}')">
+      <div class="cal-event-item${e.eventType === 'birthday' ? ' cal-event-birthday' : ''}" data-action="evt-card" data-evt-id="${escAttr(String(e.id))}">
         <span class="cal-event-time">${fmtTime(e.time)}</span>
         <span class="cal-event-title">${e.eventType === 'birthday' ? '🎂 ' : ''}${esc(e.title)}</span>
         ${e.worldName ? `<span class="cal-event-world">🌐${esc(e.worldName)}</span>` : ''}
@@ -1168,13 +1173,13 @@ async function loadEventPhotos(eventId) {
       var hasThumb = isV && p.thumbnail && p.thumbnail.indexOf('placeholder') === -1;
       var mediaHtml;
       if (isV && hasThumb) {
-        mediaHtml = '<img src="' + escAttr(p.thumbnail) + '" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover" onerror="window.__imgFail(this)">';
+        mediaHtml = '<img src="' + escAttr(p.thumbnail) + '" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover" data-img-fallback="1">';
       } else if (isV) {
         mediaHtml = '<div class="photo-item-video-thumb" style="width:100%;height:100%;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;border-radius:6px"><span style="font-size:28px">🎬</span></div>';
       } else {
-        mediaHtml = '<img src="' + escAttr(p.thumbnail || p.url) + '" alt="" loading="lazy" onerror="window.__imgFail(this)">';
+        mediaHtml = '<img src="' + escAttr(p.thumbnail || p.url) + '" alt="" loading="lazy" data-img-fallback="1">';
       }
-      return '<div class="photo-item" onclick="showEventPhoto(\'' + escJsStr(String(p.id)) + '\')">'
+      return '<div class="photo-item" data-action="evt-photo" data-photo-id="' + escAttr(String(p.id)) + '">'
         + mediaHtml
         + (isV ? '<span class="album-media-badge" style="position:absolute;bottom:4px;right:4px;font-size:14px">🎬</span>' : '')
         + '</div>';
@@ -1233,7 +1238,7 @@ function renderEventTeams(eventId) {
   const teams = eventTeamsCache.teams || [];
   if (teams.length === 0) {
     container.innerHTML = '<div class="event-teams-empty">' + __('teams.no_teams') + '</div>' +
-      '<button class="btn btn-sm btn-accent mt-8" onclick="openCreateTeam(' + eventId + ')">' + __('teams.create_team') + '</button>';
+      '<button class="btn btn-sm btn-accent mt-8" data-action="evt-create-team" data-evt-id="' + eventId + '">' + __('teams.create_team') + '</button>';
     return;
   }
   container.innerHTML = '<div class="event-teams-list">' + teams.map(t => {
@@ -1249,7 +1254,7 @@ function renderEventTeams(eventId) {
         <div class="event-team-members">
           ${members.map(m => `
             <div class="event-team-member">
-              <img src="${esc(m.avatarUrl || '/api/avatar/default')}" class="event-team-avatar" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(m.avatarUrl || '/api/avatar/default')}')"/>
+              <img src="${esc(m.avatarUrl || '/api/avatar/default')}" class="event-team-avatar" alt="" data-avatar-fail-src="${escAttr(m.avatarUrl || '/api/avatar/default')}"/>
               <span>${esc(m.display_name)}</span>
               ${m.id === t.leader_id ? '<span class="event-team-leader-badge">' + __('teams.leader') + '</span>' : ''}
             </div>
@@ -1257,11 +1262,11 @@ function renderEventTeams(eventId) {
         </div>
         <div class="event-team-actions">
           ${isLeader ? `
-            <button class="btn btn-sm btn-outline" onclick="disbandTeam(${t.id}, ${eventId})">${__('teams.disband')}</button>
+            <button class="btn btn-sm btn-outline" data-action="team-disband" data-team-id="${t.id}" data-evt-id="${eventId}">${__('teams.disband')}</button>
           ` : isMember ? `
-            <button class="btn btn-sm btn-outline" onclick="leaveTeam(${t.id}, ${eventId})">${__('teams.leave')}</button>
+            <button class="btn btn-sm btn-outline" data-action="team-leave" data-team-id="${t.id}" data-evt-id="${eventId}">${__('teams.leave')}</button>
           ` : `
-            <button class="btn btn-sm btn-accent" onclick="joinTeam(${t.id}, ${eventId})">${__('teams.join')}</button>
+            <button class="btn btn-sm btn-accent" data-action="team-join" data-team-id="${t.id}" data-evt-id="${eventId}">${__('teams.join')}</button>
           `}
         </div>
       </div>
@@ -1278,8 +1283,8 @@ function openCreateTeam(eventId) {
         <input type="text" id="teamName" maxlength="30" placeholder="${__('teams.team_name_placeholder')}"/>
       </div>
       <div class="form-actions">
-        <button type="button" class="btn btn-outline" onclick="hideModal('createTeamModal')">${__('ui.cancel')}</button>
-        <button class="btn btn-accent" onclick="submitCreateTeam(${eventId})">${__('teams.create')}</button>
+        <button type="button" class="btn btn-outline" data-action="team-create-cancel">${__('ui.cancel')}</button>
+        <button class="btn btn-accent" data-action="team-create-submit" data-evt-id="${eventId}">${__('teams.create')}</button>
       </div>
     </div>
   `;
@@ -1330,4 +1335,129 @@ async function disbandTeam(teamId, eventId) {
     if (res.ok) { toast(__('teams.disbanded'), 'success'); loadEventTeams(eventId); }
     else { const data = await res.json(); toast(errText(data) || __('teams.disband_failed'), 'error'); }
   } catch { toast(__('teams.disband_failed'), 'error'); }
+}
+
+// ==================== 事件页内联事件迁移（CSP nonce 拦截属性型处理器） ====================
+// 活动卡片 / 详情弹窗 / 报名 / 评论 / 签到二维码 / 日历月周视图 / 照片 / 队伍
+// 统一改为 data-action + document 级委托，天然覆盖重渲染与懒加载时序。
+let _eventsDelegationHandler = null;
+let _eventsChangeHandler = null;
+
+function _bindEventsDelegation() {
+  if (_eventsDelegationHandler) document.removeEventListener('click', _eventsDelegationHandler);
+  if (_eventsChangeHandler) document.removeEventListener('change', _eventsChangeHandler);
+  _eventsDelegationHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    switch (action) {
+      case 'evt-card':
+        if (e.target.closest('.event-select, .event-edit-btn, .event-del-btn')) break;
+        showEventDetail(el.getAttribute('data-evt-id'));
+        break;
+      case 'evt-edit-card':
+        editEventCard(el.getAttribute('data-evt-id'));
+        break;
+      case 'evt-del-card':
+        confirmDeleteEvent(el.getAttribute('data-evt-id'), el.getAttribute('data-evt-type') === 'birthday');
+        break;
+      case 'evt-del-detail':
+        confirmDeleteEvent(el.getAttribute('data-evt-id'), el.getAttribute('data-evt-type') === 'birthday');
+        break;
+      case 'evt-edit-party':
+        editBirthdayParty(el.getAttribute('data-evt-id'));
+        break;
+      case 'evt-edit-open':
+        showEditEvent();
+        break;
+      case 'evt-share':
+        sharePublicLink(el.getAttribute('data-share-type') || 'event', el.getAttribute('data-evt-id'));
+        break;
+      case 'evt-sign':
+        signEvent(el.getAttribute('data-evt-id'));
+        break;
+      case 'evt-unsign':
+        unsignEvent(el.getAttribute('data-evt-id'));
+        break;
+      case 'evt-comment-edit':
+        editEventComment(el.getAttribute('data-evt-id'), el.getAttribute('data-comment-id'));
+        break;
+      case 'evt-comment-del':
+        deleteEventComment(el.getAttribute('data-evt-id'), el.getAttribute('data-comment-id'));
+        break;
+      case 'evt-checkin-now':
+        var detBtn = document.getElementById('evtDetCheckinBtn');
+        if (detBtn) detBtn.click();
+        closeModal('qrModal');
+        break;
+      case 'evt-close-qr':
+        closeModal('qrModal');
+        break;
+      case 'cal-prev-month':
+        calendarPrevMonth();
+        break;
+      case 'cal-next-month':
+        calendarNextMonth();
+        break;
+      case 'cal-today-month':
+        resetCalendarMonth();
+        break;
+      case 'cal-prev-week':
+        weekPrev();
+        break;
+      case 'cal-next-week':
+        weekNext();
+        break;
+      case 'cal-today-week':
+        resetWeek();
+        break;
+      case 'cal-switch-view':
+        switchCalView(el.getAttribute('data-view'));
+        break;
+      case 'cal-show-day':
+        calShowDayEvents(parseInt(el.getAttribute('data-day'), 10));
+        break;
+      case 'cal-week-day':
+        weekShowDayEvents(
+          parseInt(el.getAttribute('data-day'), 10),
+          parseInt(el.getAttribute('data-month'), 10),
+          parseInt(el.getAttribute('data-year'), 10)
+        );
+        break;
+      case 'evt-photo':
+        showEventPhoto(el.getAttribute('data-photo-id'));
+        break;
+      case 'evt-create-team':
+        openCreateTeam(el.getAttribute('data-evt-id'));
+        break;
+      case 'team-disband':
+        disbandTeam(el.getAttribute('data-team-id'), el.getAttribute('data-evt-id'));
+        break;
+      case 'team-leave':
+        leaveTeam(el.getAttribute('data-team-id'), el.getAttribute('data-evt-id'));
+        break;
+      case 'team-join':
+        joinTeam(el.getAttribute('data-team-id'), el.getAttribute('data-evt-id'));
+        break;
+      case 'team-create-cancel':
+        hideModal('createTeamModal');
+        break;
+      case 'team-create-submit':
+        submitCreateTeam(el.getAttribute('data-evt-id'));
+        break;
+    }
+  };
+  _eventsChangeHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action="evt-select"]') : null;
+    if (!el || el.tagName !== 'INPUT') return;
+    onEventSelectChange(el.getAttribute('data-evt-id'), el.checked);
+  };
+  document.addEventListener('click', _eventsDelegationHandler);
+  document.addEventListener('change', _eventsChangeHandler);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _bindEventsDelegation);
+} else {
+  _bindEventsDelegation();
 }

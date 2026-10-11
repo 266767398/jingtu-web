@@ -150,8 +150,8 @@
             '<div class="flex-1 min-w-0"><div class="text-14 fw-600">' + escapeHtml(s.title || __('auto_admin_ui_3')) + '</div>' +
             __('auto_admin_ui_4') + escapeHtml(s.displayName || s.username || '-') + __('auto_admin_ui_5') + (s.startedAt || '-') + '</div></div>' +
             '<span class="badge ' + (live ? 'badge-live' : 'badge-ended') + '">' + (live ? __('live.live_now') : __('auto_admin_ui_6')) + '</span>' +
-            (live ? '<button class="btn btn-sm btn-danger" onclick="adminEndLive(\'' + escJsStr(String(s.id)) + '\')">⏹ ' + __('admin_ui.end_live') + '</button>' : '') +
-            '<button class="btn btn-sm btn-outline" onclick="adminDeleteLive(\'' + escJsStr(String(s.id)) + '\')">🗑 ' + __('auto_admin_ui_7') + '</button>' +
+            (live ? '<button class="btn btn-sm btn-danger" data-action="admin-live-end" data-live-id="' + escJsStr(String(s.id)) + '">⏹ ' + __('admin_ui.end_live') + '</button>' : '') +
+            '<button class="btn btn-sm btn-outline" data-action="admin-live-delete" data-live-id="' + escJsStr(String(s.id)) + '">🗑 ' + __('auto_admin_ui_7') + '</button>' +
             '</div>';
         }).join('');
         renderAdminLivePager(r.page || page, r.totalPages || 1, page);
@@ -261,17 +261,17 @@
               var cell = escapeHtml(b);
               // 相册内容展示缩略图（后端返回 thumbPath/photoPath）
               if (_contentTab === 'album' && (it.thumbPath || it.photoPath)) {
-                cell = '<img src="' + escapeHtml(it.thumbPath || it.photoPath) + '" alt="" onerror="window.__imgFail(this)" style="width:56px;height:40px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:8px">' + cell;
+                cell = '<img src="' + escapeHtml(it.thumbPath || it.photoPath) + '" alt="" data-img-fallback="1" style="width:56px;height:40px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:8px">' + cell;
               }
               // 操作按钮：查看（公告/动态/相册）+ 编辑（公告/动态）+ 删除
               var actions = '';
               if (_contentTab === 'announcements' || _contentTab === 'posts' || _contentTab === 'album') {
-                actions += '<button class="btn btn-sm btn-outline" onclick="adminViewContent(\'' + escJsStr(String(_contentTab)) + '\',\'' + escJsStr(String(it.id)) + '\')">👁 ' + (__('events.view') || __('auto_admin_ui_view')) + '</button> ';
+                actions += '<button class="btn btn-sm btn-outline" data-action="admin-content-view" data-type="' + escJsStr(String(_contentTab)) + '" data-id="' + escJsStr(String(it.id)) + '">👁 ' + (__('events.view') || __('auto_admin_ui_view')) + '</button> ';
               }
               if (_contentTab === 'announcements' || _contentTab === 'posts') {
-                actions += '<button class="btn btn-sm btn-outline" onclick="adminEditContent(\'' + escJsStr(String(_contentTab)) + '\',\'' + escJsStr(String(it.id)) + '\')">✏️ ' + (__('events.edit_event') || '编辑') + '</button> ';
+                actions += '<button class="btn btn-sm btn-outline" data-action="admin-content-edit" data-type="' + escJsStr(String(_contentTab)) + '" data-id="' + escJsStr(String(it.id)) + '">✏️ ' + (__('events.edit_event') || '编辑') + '</button> ';
               }
-              actions += '<button class="btn btn-sm btn-outline" onclick="adminDeleteContent(\'' + escJsStr(String(_contentTab)) + '\',\'' + escJsStr(String(it.id)) + '\')">🗑 ' + (__('delete') || __('auto_admin_ui_32')) + '</button>';
+              actions += '<button class="btn btn-sm btn-outline" data-action="admin-content-delete" data-type="' + escJsStr(String(_contentTab)) + '" data-id="' + escJsStr(String(it.id)) + '">🗑 ' + (__('delete') || __('auto_admin_ui_32')) + '</button>';
               return '<tr><td><input type="checkbox" class="admin-batch-check" data-id="' + it.id + '"></td>' +
                 '<td>' + escapeHtml(a) + '</td><td>' + cell + '</td>' +
                 '<td>' + actions + '</td></tr>';
@@ -308,10 +308,10 @@
         '<td><span class="evt-status ' + (it.isArchive ? 'archived' : (ended ? 'ended' : 'ongoing')) + '">' + escapeHtml(status) + '</span></td>' +
         '<td>' + sign + '</td>' +
         '<td class="evt-actions">' +
-          '<button class="btn btn-sm btn-outline" onclick="window.showEventDetail&&showEventDetail(\'' + escJsStr(String(it.id)) + '\')">👁 ' + (__('events.view') || __('auto_admin_ui_40')) + '</button> ' +
-          '<button class="btn btn-sm btn-outline" onclick="adminEditEvent(\'' + escJsStr(String(it.id)) + '\')">✏️ ' + (__('events.edit_event') || '编辑') + '</button> ' +
-          '<button class="btn btn-sm btn-outline" onclick="adminArchiveEvent(\'' + escJsStr(String(it.id)) + '\',' + (it.isArchive ? 1 : 0) + ')">' + (it.isArchive ? (__('events.unarchive') || __('auto_admin_ui_41')) : (__('events.archive') || __('auto_admin_ui_42'))) + '</button> ' +
-          '<button class="btn btn-sm btn-outline" onclick="adminDeleteContent(\'events\',\'' + escJsStr(String(it.id)) + '\')">🗑 ' + (__('delete') || __('auto_admin_ui_43')) + '</button>' +
+          '<button class="btn btn-sm btn-outline" data-action="admin-event-view" data-id="' + escJsStr(String(it.id)) + '">👁 ' + (__('events.view') || __('auto_admin_ui_40')) + '</button> ' +
+          '<button class="btn btn-sm btn-outline" data-action="admin-event-edit" data-id="' + escJsStr(String(it.id)) + '">✏️ ' + (__('events.edit_event') || '编辑') + '</button> ' +
+          '<button class="btn btn-sm btn-outline" data-action="admin-event-archive" data-id="' + escJsStr(String(it.id)) + '" data-archived="' + (it.isArchive ? 1 : 0) + '">' + (it.isArchive ? (__('events.unarchive') || __('auto_admin_ui_41')) : (__('events.archive') || __('auto_admin_ui_42'))) + '</button> ' +
+          '<button class="btn btn-sm btn-outline" data-action="admin-content-delete" data-type="events" data-id="' + escJsStr(String(it.id)) + '">🗑 ' + (__('delete') || __('auto_admin_ui_43')) + '</button>' +
         '</td>' +
         '</tr>';
     }).join('');
@@ -425,7 +425,7 @@
         overlay.className = 'modal-overlay active';
         overlay.style.cssText = 'display:flex;align-items:center;justify-content:center;z-index:9999;';
         overlay.innerHTML = '<div style="position:relative;max-width:92vw;max-height:90vh;background:transparent;">'
-          + '<button onclick="this.parentElement.parentElement.remove()" style="position:absolute;top:-32px;right:0;background:rgba(0,0,0,.5);color:#fff;border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:18px;line-height:1;">×</button>'
+          + '<button data-action="admin-album-photo-close" style="position:absolute;top:-32px;right:0;background:rgba(0,0,0,.5);color:#fff;border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:18px;line-height:1;">×</button>'
           + (p.mediaType === 'video'
             ? '<video src="/' + encodeURI(url) + '" controls autoplay style="max-width:92vw;max-height:90vh;border-radius:8px;"></video>'
             : '<img src="/' + encodeURI(url) + '" style="max-width:92vw;max-height:90vh;object-fit:contain;border-radius:8px;">')
@@ -795,4 +795,55 @@
     _panelLoaded.__init = true;
     bindAdminNav();
   };
+
+  // ==================== 内联事件迁移（CSP nonce 拦截属性型处理器） ====================
+  // 直播结束/删除、内容查看/编辑/删除、活动查看/编辑/归档、相册照片关闭：
+  // 统一改为 data-action + document 级委托，天然覆盖重渲染与懒加载时序。
+  let _adminUiDelegationHandler = null;
+
+  function _bindAdminUiDelegation() {
+    if (_adminUiDelegationHandler) document.removeEventListener('click', _adminUiDelegationHandler);
+    _adminUiDelegationHandler = function (e) {
+      var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+      if (!el) return;
+      var action = el.getAttribute('data-action');
+      switch (action) {
+        case 'admin-live-end':
+          adminEndLive(el.getAttribute('data-live-id'));
+          break;
+        case 'admin-live-delete':
+          adminDeleteLive(el.getAttribute('data-live-id'));
+          break;
+        case 'admin-content-view':
+          adminViewContent(el.getAttribute('data-type'), el.getAttribute('data-id'));
+          break;
+        case 'admin-content-edit':
+          adminEditContent(el.getAttribute('data-type'), el.getAttribute('data-id'));
+          break;
+        case 'admin-content-delete':
+          adminDeleteContent(el.getAttribute('data-type'), el.getAttribute('data-id'));
+          break;
+        case 'admin-event-view':
+          if (typeof window.showEventDetail === 'function') window.showEventDetail(el.getAttribute('data-id'));
+          break;
+        case 'admin-event-edit':
+          adminEditEvent(el.getAttribute('data-id'));
+          break;
+        case 'admin-event-archive':
+          adminArchiveEvent(el.getAttribute('data-id'), parseInt(el.getAttribute('data-archived'), 10));
+          break;
+        case 'admin-album-photo-close':
+          var overlayEl = el.parentElement && el.parentElement.parentElement;
+          if (overlayEl) overlayEl.remove();
+          break;
+      }
+    };
+    document.addEventListener('click', _adminUiDelegationHandler);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _bindAdminUiDelegation);
+  } else {
+    _bindAdminUiDelegation();
+  }
 })();

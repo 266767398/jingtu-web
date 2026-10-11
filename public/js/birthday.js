@@ -45,13 +45,13 @@ function renderBirthdays(birthdays) {
   });
   container.innerHTML = sorted.map(b => `
     <div class="birthday-card">
-      <img src="${escAttr(b.avatarUrl || '/api/avatar/default')}" class="birthday-avatar" alt="${esc(b.displayName || b.loginId)}" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(b.avatarUrl || '/api/avatar/default')}')">
+      <img src="${escAttr(b.avatarUrl || '/api/avatar/default')}" class="birthday-avatar" alt="${esc(b.displayName || b.loginId)}" loading="lazy" data-avatar-fail-src="${escAttr(b.avatarUrl || '/api/avatar/default')}">
       <div class="birthday-info">
         <div class="birthday-name">${esc(b.displayName || b.loginId)}</div>
         <div class="birthday-date">🎂 ${b.birthday || __('unknown')}</div>
       </div>
       ${isToday(b.birthday) ? '<div class="birthday-today-badge">' + __('birthday.today') + '</div>' : ''}
-      ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin') ? `<button class="btn btn-sm btn-outline mt-4" onclick="createBirthdayEvent(${b.id}, '${escJsStr(b.displayName || b.loginId)}', '${escJsStr(b.birthday || '')}')">${__('birthday.create_party_from_birthday')}</button>` : ''}
+      ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin') ? `<button class="btn btn-sm btn-outline mt-4" data-action="birthday-create-event" data-uid="${escAttr(String(b.id))}" data-name="${escAttr(b.displayName || b.loginId)}" data-birthday="${escAttr(b.birthday || '')}">${__('birthday.create_party_from_birthday')}</button>` : ''}
     </div>
   `).join('');
 }
@@ -109,7 +109,7 @@ function renderBirthdayParties(parties) {
     return `<div class="event-card birthday-party">
       <div class="d-flex-between mb-4">
         <div class="event-title">🎂 ${esc(evtTitle)}</div>
-        <div class="flex-center-gap6">${statusBadge}${canManage ? `<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();editBirthdayParty(${evtId})" title="${__('edit')}">✏️</button><button class="btn btn-sm btn-outline" onclick="event.stopPropagation();deleteBirthdayParty(${evtId})" title="${__('delete')}">🗑️</button>` : ''}</div>
+        <div class="flex-center-gap6">${statusBadge}${canManage ? `<button class="btn btn-sm btn-outline" data-action="birthday-edit-party" data-evt-id="${escAttr(String(evtId))}" title="${__('edit')}">✏️</button><button class="btn btn-sm btn-outline" data-action="birthday-del-party" data-evt-id="${escAttr(String(evtId))}" title="${__('delete')}">🗑️</button>` : ''}</div>
       </div>
       <div class="event-time">📅 ${fmtTime(evtTime)}</div>
       <div class="event-desc">${esc(evtDesc)}</div>
@@ -264,3 +264,33 @@ function showBirthdayEventModalNew() {
   if (saveBtn) { saveBtn.textContent = __('create'); saveBtn.onclick = saveBirthdayEvent; }
   showBirthdayEventModal();
 }
+
+// ==================== 生日专区内联事件迁移（CSP nonce 拦截属性型处理器） ====================
+// 生日卡片「创建派对」按钮 / 派对卡片编辑删除按钮
+// 统一改为 data-action + document 级委托，天然覆盖重渲染时序。
+let _birthdayHandler = null;
+function _bindBirthday() {
+  if (_birthdayHandler) document.removeEventListener('click', _birthdayHandler);
+  _birthdayHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    switch (action) {
+      case 'birthday-create-event':
+        createBirthdayEvent(
+          el.getAttribute('data-uid'),
+          el.getAttribute('data-name'),
+          el.getAttribute('data-birthday')
+        );
+        break;
+      case 'birthday-edit-party':
+        editBirthdayParty(parseInt(el.getAttribute('data-evt-id'), 10));
+        break;
+      case 'birthday-del-party':
+        deleteBirthdayParty(parseInt(el.getAttribute('data-evt-id'), 10));
+        break;
+    }
+  };
+  document.addEventListener('click', _birthdayHandler);
+}
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', _bindBirthday); } else { _bindBirthday(); }

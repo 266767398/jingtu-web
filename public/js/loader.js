@@ -34,7 +34,7 @@
 // 全部路由模块（不含基础设施：core/ui/i18n/theme/auth/reveal/nav-more/init/main）
 var ROUTE_MODULES = [
   'members.js', 'home.js', 'group.js', 'announcements.js', 'events.js',
-  'vrc.js', 'geo.js', 'map.js', 'chat.js', 'album.js',
+  'vrc.js', 'geo.js', 'map.js', 'chat.js', 'rtc.js', 'location-share.js', 'group-manage.js', 'album.js',
   'admin-users.js', 'admin-perms.js', 'admin-vrc.js', 'admin-ui.js',
   'admin-model-collections.js', 'admin-activation.js', 'posts.js', 'friends.js', 'follows.js',
   'birthday.js', 'profile.js', 'profile-page.js',
@@ -58,7 +58,7 @@ var TAB_MODULES = {
   events: ['events.js'],
   album: ['album.js'],
   map: ['geo.js', 'map.js', 'vrc.js'],
-  chat: ['chat.js'],
+  chat: ['chat.js', 'rtc.js', 'location-share.js', 'group-manage.js'],
   birthday: ['birthday.js', 'events.js'],
   posts: ['posts.js'],
   friends: ['friends.js'],

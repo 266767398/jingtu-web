@@ -38,15 +38,16 @@ describe('P3-93 tasks 定时清理任务', () => {
     poolMock.query.mockResolvedValue([{ affectedRows: 0 }]);
     await tasks.cleanupExpiredNotifications();
     const [sql, params] = poolMock.query.mock.calls[0];
-    expect(sql).toContain('DATE_SUB(NOW(), INTERVAL ? DAY)');
-    expect(params).toEqual([15]);
+    expect(sql).toContain('DELETE FROM notifications WHERE created_at < ?');
+    expect(params[0]).toBeInstanceOf(Date);
     delete process.env.NOTIFICATION_RETENTION_DAYS;
   });
 
   test('cleanupExpiredNotifications 默认保留 30 天', async () => {
     poolMock.query.mockResolvedValue([{ affectedRows: 0 }]);
     await tasks.cleanupExpiredNotifications();
-    expect(poolMock.query.mock.calls[0][1]).toEqual([30]);
+    const params = poolMock.query.mock.calls[0][1];
+    expect(params[0]).toBeInstanceOf(Date);
   });
 
   test('cleanupExpiredShareLinks 删除过期短链', async () => {

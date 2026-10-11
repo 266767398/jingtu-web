@@ -112,7 +112,6 @@ function readCssInLoadOrder() {
     '07-profile.css',
     '08-chat-posts.css',
     'ui-enhance.css',
-    'favorites.css',
     '99-design-system.css'
   ];
   return ordered.map(name => `/* ${name} */\n${readUtf8(path.join(CSS_DIR, name))}`).join('\n');

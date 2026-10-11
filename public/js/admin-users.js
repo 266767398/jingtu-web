@@ -175,7 +175,7 @@ function renderUsersAdmin(users) {
     const historyBtn = `<button class="btn btn-sm" data-user-action="login-history" data-user-id="${id_esc}">📜 ${__('admin_users.login_history')}</button>`;
     const delBtn = `<button class="btn btn-sm btn-danger" data-user-action="delete" data-user-id="${id_esc}">${__('delete')}</button>`;
     return `<div class="admin-user-card">
-      <img src="${avatarSrc}" class="admin-user-avatar" alt="${name}" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(u.avatarUrl || '/api/avatar/default')}')">
+      <img src="${avatarSrc}" class="admin-user-avatar" alt="${name}" loading="lazy" data-avatar-fail-src="${escAttr(u.avatarUrl || '/api/avatar/default')}">
       <div class="admin-user-info">
         <div class="admin-user-name">${name}</div>
         <div class="admin-user-loginId">${__('admin_users.login_id')}: ${loginId}</div>
@@ -544,13 +544,13 @@ function renderBackups(backups) {
           const createdDate = b.createdAt ? new Date(b.createdAt) : null;
           const createdText = createdDate && !isNaN(createdDate.getTime()) ? createdDate.toLocaleString() : __('unknown');
           return `
-          <tr style="border-bottom:1px solid var(--border);transition:background 0.2s" onmouseenter="this.style.background='var(--hover)'" onmouseleave="this.style.background='transparent'">
+          <tr class="backup-row" style="border-bottom:1px solid var(--border);transition:background 0.2s">
             <td style="padding:8px;font-size:12px">${esc(filename)}</td>
             <td style="padding:8px;font-size:12px">${b.sizeFormatted}</td>
             <td style="padding:8px;font-size:12px">${createdText}</td>
             <td style="padding:8px;font-size:12px">
-              <button onclick="downloadBackup('${escJsStr(encodedFilename)}')" class="btn btn-sm btn-outline" style="padding:2px 8px" data-i18n="admin.download">下载</button>
-              <button onclick="deleteBackup('${escJsStr(encodedFilename)}')" class="btn btn-sm btn-red" style="padding:2px 8px" data-i18n="admin.delete">删除</button>
+              <button class="btn btn-sm btn-outline" style="padding:2px 8px" data-i18n="admin.download" data-action="download-backup" data-filename="${escAttr(encodedFilename)}">下载</button>
+              <button class="btn btn-sm btn-red" style="padding:2px 8px" data-i18n="admin.delete" data-action="delete-backup" data-filename="${escAttr(encodedFilename)}">删除</button>
             </td>
           </tr>
         `; }).join('')}
@@ -665,7 +665,7 @@ function renderAdminMgrList(users, totalPages) {
     const editBtn = !isSelf ? `<button class="btn btn-sm" data-user-action="edit-admin" data-user-id="${id_esc}" data-user-name="${name_attr}" data-user-role="${role_attr}" data-user-email="${escAttr(u.email || '')}">✏️ ${__('edit')}</button>` : '';
     const delBtn = !isSelf ? `<button class="btn btn-sm btn-danger" data-user-action="delete-admin" data-user-id="${id_esc}">${__('delete')}</button>` : '';
     return `<div class="admin-user-card">
-      <img src="${avatarSrc}" class="admin-user-avatar" alt="${name}" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(u.avatarUrl || '/api/avatar/default')}')">
+      <img src="${avatarSrc}" class="admin-user-avatar" alt="${name}" loading="lazy" data-avatar-fail-src="${escAttr(u.avatarUrl || '/api/avatar/default')}">
       <div class="admin-user-info">
         <div class="admin-user-name">${name}${isSelf ? ' <span style="color:var(--accent)">(' + __('admin.self') + ')</span>' : ''}</div>
         <div class="admin-user-loginId">${__('admin_users.login_id')}: ${loginId}</div>
@@ -726,8 +726,14 @@ async function createAdmin() {
   }
 }
 
-// 管理员管理页按钮（原内联 onclick 迁移到委托）
+// 管理员管理页按钮 + 系统备份下载/删除（原内联 onclick 迁移到委托）
 document.addEventListener('click', function (e) {
+  const actEl = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+  if (actEl) {
+    const action = actEl.getAttribute('data-action');
+    if (action === 'download-backup') { downloadBackup(actEl.getAttribute('data-filename')); return; }
+    if (action === 'delete-backup') { deleteBackup(actEl.getAttribute('data-filename')); return; }
+  }
   if (e.target.closest('#adminAddBtn')) { showAddAdminModal(); return; }
   if (e.target.closest('#adminRefreshBtn')) { loadAdminMgrList(1); return; }
 });

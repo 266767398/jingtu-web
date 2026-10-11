@@ -823,7 +823,13 @@ router.get('/:id/card', requireAuth, async (req, res, next) => {
     if (rows.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
 
     const u = rows[0];
-    const prefs = typeof u.preferences === 'string' ? JSON.parse(u.preferences) : (u.preferences || {});
+    // B9: 单用户 preferences 脏数据（损坏 JSON）不再拖垮名片接口，解析失败降级为空对象
+    let prefs = {};
+    try {
+      prefs = typeof u.preferences === 'string' ? JSON.parse(u.preferences) : (u.preferences || {});
+    } catch (e) {
+      logger.warn('users', '[card] preferences JSON 解析失败，按空对象处理:', e.message);
+    }
     // 获取该用户报名的活动数和照片数
     const [[{ evtCount }]] = await getPool().query(
       `SELECT COUNT(*) AS evtCount FROM event_sign WHERE user_vrcid = ?`, [u.id]
@@ -831,6 +837,32 @@ router.get('/:id/card', requireAuth, async (req, res, next) => {
     const [[{ photoCount }]] = await getPool().query(
       `SELECT COUNT(*) AS photoCount FROM user_photos WHERE user_id = ?`, [u.id]
     );
+    // B3: birthday 隐私口径与 /birthdays、profile 公开主页一致——本人/好友/管理员返回完整日期，
+    // 其余仅返回「月-日」（隐藏出生年份），生日缺失或无法解析时返回 null
+    let canSeeFullBirthday = req.session.userId === u.id;
+    if (!canSeeFullBirthday) {
+      const isAdminView = await hasRole(req, 'admin', 'super_admin');
+      if (isAdminView) {
+        canSeeFullBirthday = true;
+      } else {
+        try {
+          const [fr] = await getPool().query(
+            `SELECT 1 FROM user_friends WHERE status = 'accepted' AND ((user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?))`,
+            [req.session.userId, u.id, req.session.userId, u.id]
+          );
+          canSeeFullBirthday = fr.length > 0;
+        } catch (e) { logger.warn('users', '[card] 好友关系查询失败，按非好友处理:', e.message); }
+      }
+    }
+    let birthday = u.birthday;
+    if (birthday && !canSeeFullBirthday) {
+      const b = new Date(birthday);
+      if (!Number.isNaN(b.getTime())) {
+        birthday = `${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
+      } else {
+        birthday = null;
+      }
+    }
     res.json({
       id: u.id,
       loginId: u.login_id,
@@ -841,7 +873,7 @@ router.get('/:id/card', requireAuth, async (req, res, next) => {
       roleLabel: u.role === 'super_admin' ? '超级管理员' : u.role === 'admin' ? '管理员' : u.role === 'member' ? '成员' : '访客',
       avatarUrl: getAvatarUrl(u),
       profilePicOverrideThumbnail: proxyVrcAvatar(u.roster_override_pic || ''),
-      birthday: u.birthday,
+      birthday,
       // P2-163: location 脱敏口径与 /list 一致——location_visible 未开启时返回 null
       location: u.location_visible ? u.location : null,
       locationVisible: !!u.location_visible,

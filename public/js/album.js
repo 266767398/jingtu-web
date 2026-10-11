@@ -156,7 +156,7 @@ function updateLightbox() {
       imgContainer.innerHTML = '<video id="lightboxVideo" class="lightbox-video" src="' + escAttr(p.url) + '" controls autoplay style="max-width:90vw;max-height:80vh;border-radius:8px;"></video>';
       document.getElementById('lightboxImg')?.classList.add('d-none');
     } else {
-      imgContainer.innerHTML = '<img id="lightboxImg" src="' + escAttr(p.url || p.thumbnail) + '" alt="" style="max-width:90vw;max-height:80vh;object-fit:contain;border-radius:8px;" onerror="window.__imgFail(this)">';
+      imgContainer.innerHTML = '<img id="lightboxImg" src="' + escAttr(p.url || p.thumbnail) + '" alt="" style="max-width:90vw;max-height:80vh;object-fit:contain;border-radius:8px;" data-img-fallback="1">';
     }
   }
   const caption = document.getElementById('lbDesc');
@@ -202,11 +202,11 @@ function renderThumbnails() {
     const activeClass = i === currentPhotoIdx ? 'active' : '';
     const thumbStyle = `width:60px;height:60px;object-fit:cover;border-radius:6px;cursor:pointer;flex-shrink:0;border:2px solid ${i === currentPhotoIdx ? 'var(--accent)' : 'transparent'}`;
     if (isV && hasThumb) {
-      return `<img src="${escAttr(p.thumbnail)}" class="${activeClass}" data-thumb-idx="${i}" alt="" loading="lazy" style="${thumbStyle}" onerror="window.__imgFail(this)">`;
+      return `<img src="${escAttr(p.thumbnail)}" class="${activeClass}" data-thumb-idx="${i}" alt="" loading="lazy" style="${thumbStyle}" data-img-fallback="1">`;
     }
     return isV
       ? `<div class="lb-thumb-item ${activeClass}" data-thumb-idx="${i}" style="width:60px;height:60px;background:var(--bg-secondary);display:inline-flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;flex-shrink:0;border:2px solid ${i === currentPhotoIdx ? 'var(--accent)' : 'transparent'}"><span style="font-size:20px">🎬</span></div>`
-      : `<img src="${escAttr(p.thumbnail || p.url)}" class="${activeClass}" data-thumb-idx="${i}" alt="" loading="lazy" onerror="window.__imgFail(this)">`;
+      : `<img src="${escAttr(p.thumbnail || p.url)}" class="${activeClass}" data-thumb-idx="${i}" alt="" loading="lazy" data-img-fallback="1">`;
   }).join('');
   initAlbumEventDelegates();
   // 滚动到当前缩略图可见
@@ -381,7 +381,7 @@ async function showRecycle() {
       } else {
         container.innerHTML = data.map(p => `
           <div class="recycle-item">
-            <img src="${escAttr(p.thumbPath || p.path)}" class="recycle-thumb" alt="${__('album.alt_photo')}" loading="lazy" onerror="window.__imgFail(this)">
+            <img src="${escAttr(p.thumbPath || p.path)}" class="recycle-thumb" alt="${__('album.alt_photo')}" loading="lazy" data-img-fallback="1">
             <div class="recycle-info">
               <div class="recycle-desc">${esc(p.desc || __('album.no_desc'))}</div>
               <div class="recycle-meta">${__('album.uploader')}${esc(p.uploaderName || __('unknown'))} · ${__('album.deleted_at')}：${fmtDate(p.recycleTime)}</div>
@@ -516,7 +516,7 @@ async function loadPhotoComments(photoId) {
       }
       list.innerHTML = comments.map(c => `
         <div class="det-comment-item" data-comment-id="${c.id}">
-          <img src="${escAttr(c.avatarUrl || '/api/avatar/default')}" class="det-comment-avatar" alt="" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(c.avatarUrl || '/api/avatar/default')}')">
+          <img src="${escAttr(c.avatarUrl || '/api/avatar/default')}" class="det-comment-avatar" alt="" loading="lazy" data-avatar-fail-src="${escAttr(c.avatarUrl || '/api/avatar/default')}">
           <div class="det-comment-body">
             <div class="det-comment-header">
               <span class="det-comment-user">${esc(c.userName || __('unknown_user'))}</span>

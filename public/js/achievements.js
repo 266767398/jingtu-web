@@ -113,22 +113,28 @@ class AchievementsModule {
       legendary: 'rarity-legendary'
     };
 
-    grid.innerHTML = filtered.map(a => `
+    grid.innerHTML = filtered.map(a => {
+      // J5: 数值字段 Number()||0 归一化，防止缺字段直接拼接出 undefined/undefined；百分比 clamp 0-100
+      const progress = Number(a.progress) || 0;
+      const conditionValue = Number(a.conditionValue) || 0;
+      const percentage = Math.min(100, Math.max(0, Number(a.percentage) || 0));
+      const points = Number(a.points) || 0;
+      return `
       <div class="achievement-item ${a.isUnlocked ? 'unlocked' : 'locked'} ${rarityColors[a.rarity] || ''}">
         <div class="achievement-icon">${a.isUnlocked ? esc(a.icon) || '🏆' : '🔒'}</div>
         <div class="achievement-info">
           <div class="achievement-name">${a.isUnlocked ? esc(a.name) : __('achievements.hidden')}</div>
-          <div class="achievement-desc">${a.isUnlocked ? esc(a.description) : __('achievements.progress')}: ${a.progress}/${a.conditionValue}</div>
+          <div class="achievement-desc">${a.isUnlocked ? esc(a.description) : __('achievements.progress')}: ${progress}/${conditionValue}</div>
         </div>
-        ${!a.isUnlocked && a.progress > 0 ? `
+        ${!a.isUnlocked && progress > 0 ? `
         <div class="achievement-progress">
-          <div class="achievement-progress-bar" style="width: ${a.percentage}%"></div>
+          <div class="achievement-progress-bar" style="width: ${percentage}%"></div>
         </div>
         ` : ''}
-        <div class="achievement-points">+${a.points}</div>
+        <div class="achievement-points">+${points}</div>
         ${a.isUnlocked ? `<div class="achievement-date">${this.formatDate(a.unlockedAt)}</div>` : ''}
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   }
 
   formatDate(dateStr) {

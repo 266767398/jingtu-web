@@ -13,7 +13,7 @@ const fs = require('fs');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const logger = require('../logger');
-const { getPool, getAvatarUrl, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, paginate, escapeLike } = require('../utils');
+const { getPool, getAvatarUrl, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, paginate, escapeLike, decryptCookie } = require('../utils');
 const { hybridStore } = require('../middleware/rate_limit_store');
 // §67: 引入 ws_service 以在成员变更后失效群成员缓存
 const wsService = require('../ws_service');
@@ -187,12 +187,9 @@ router.post('/groups', requireChatAuth, async (req, res) => {
     const isPublicBool = (isPublic === false || isPublic === 'false') ? 0 : 1;
     let inviteCodeVal = null;
     if (isPublicBool === 0) {
-      if (inviteCode && typeof inviteCode === 'string' && /^[A-Za-z0-9]{4,32}$/.test(inviteCode)) {
-        inviteCodeVal = inviteCode;
-      } else {
-        // 自动生成 8 位邀请码（base64 去符号后取前 8 位，大写）
-        inviteCodeVal = crypto.randomBytes(6).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 8).toUpperCase();
-      }
+      // H5 修复：私密群邀请码一律服务端自动生成，忽略客户端提交的自定义 inviteCode，
+      // 防止弱邀请码（4 位可爆破）被恶意采用，保障私密群入口不可预测
+      inviteCodeVal = crypto.randomBytes(6).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 8).toUpperCase();
     }
     const conn = await getPool().getConnection();
     try {
@@ -303,7 +300,8 @@ router.patch('/groups/:groupId', requireChatAuth, async (req, res) => {
     }
     // 重新生成邀请码 或 显式设置邀请码（需为私密群）
     const wantRegen = body.regenerateCode === true || body.regenerateCode === 'true';
-    const setCode = (typeof body.inviteCode === 'string' && /^[A-Za-z0-9]{4,32}$/.test(body.inviteCode)) ? body.inviteCode : null;
+    // B7: 自定义邀请码最低 8 位（与创建时服务端强制 8 位随机码一致），保持字母/数字，避免短码可枚举
+    const setCode = (typeof body.inviteCode === 'string' && /^[A-Za-z0-9]{8,32}$/.test(body.inviteCode)) ? body.inviteCode : null;
     if (wantRegen || setCode) {
       if (isPublicBool === null) { updates.push('is_public = ?'); params.push(0); } // 有邀请码即视为私密
       newCode = wantRegen
@@ -325,6 +323,7 @@ const joinGroupLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   store: hybridStore('chat-join-group'),
   message: { ok: false, error: '操作过于频繁，请稍后再试' }
 });
@@ -729,7 +728,8 @@ router.put('/messages/:id', requireChatAuth, async (req, res) => {
       if (!content || !content.trim()) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '消息内容不能为空');
       const [msgs] = await getPool().query('SELECT sender_id, receiver_id FROM messages WHERE id = ? AND deleted_at IS NULL', [msgId]);
       if (msgs.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '消息不存在');
-      if (msgs[0].sender_id !== uid && msgs[0].receiver_id !== uid) return sendError(res, 403, ErrorCodes.FORBIDDEN, '只能编辑自己或收到的消息');
+      // B5: 私信编辑权收紧——仅发送方本人可修改内容，接收方不可篡改他人消息（避免聊天证据被栽赃）
+      if (msgs[0].sender_id !== uid) return sendError(res, 403, ErrorCodes.FORBIDDEN, '只能编辑自己发送的消息');
       await getPool().query('UPDATE messages SET content = ?, edited_at = NOW() WHERE id = ?', [content.trim(), msgId]);
       res.json({ ok: true, message: '消息已编辑' });
     } catch (e) { handleError(res, e, '[chat/edit-message]'); }
@@ -853,13 +853,21 @@ router.get('/rtc/config', requireChatAuth, async (req, res) => {
        FROM system_config WHERE config_key IN ('rtc_turn_urls', 'rtc_turn_username', 'rtc_turn_credential', 'rtc_turn_secret')`
     );
     const cfg = {};
-    rows.forEach(r => { cfg[r.configKey] = r.configValue; });
+    rows.forEach(r => {
+      // M16: 敏感凭据已按 enc: 前缀密文落库（见 admin.js PUT /admin/config），读取时解密
+      if (r.configKey === 'rtc_turn_secret' || r.configKey === 'rtc_turn_credential') {
+        cfg[r.configKey] = decryptCookie(r.configValue) || r.configValue;
+      } else {
+        cfg[r.configKey] = r.configValue;
+      }
+    });
     const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
     const turnUrls = (cfg.rtc_turn_urls || '').split(',').map(s => s.trim()).filter(Boolean);
     if (turnUrls.length) {
       const turn = { urls: turnUrls };
       if (cfg.rtc_turn_secret && cfg.rtc_turn_secret.length >= 16) {
-        const TURN_REST_TTL_SEC = 24 * 60 * 60;
+        // M15 修复：coturn REST 临时凭据有效期由 1 天缩短为默认 1 小时，收敛 TURN 凭据泄露窗口
+        const TURN_REST_TTL_SEC = 60 * 60;
         const expiry = Math.floor(Date.now() / 1000) + TURN_REST_TTL_SEC;
         const username = `${expiry}:${req.session.userId}`;
         turn.username = username;

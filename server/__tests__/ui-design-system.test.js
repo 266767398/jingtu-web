@@ -27,7 +27,7 @@ const read = (...p) => fs.readFileSync(path.join(PUB, ...p), 'utf8');
 const CSS_ORDER = [
   '01-variables.css', '02-base.css', '03-layout.css', '04-components.css',
   '05-auth.css', '06-members.css', '07-profile.css', '08-chat-posts.css',
-  'ui-enhance.css', 'favorites.css', '99-design-system.css'
+  'ui-enhance.css', '99-design-system.css'
 ];
 
 let win;

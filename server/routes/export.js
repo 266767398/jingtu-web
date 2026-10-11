@@ -30,7 +30,7 @@ const STREAM_HIGH_WATER = 200;
 const REDACT_KEYS = new Set([
   'password', 'password_hash', 'vrcookie', 'secret', 'signing_secret', 'webhook_secret', 'token',
   'access_token', 'refresh_token', 'api_key', 'apikey', 'private_key',
-  'client_secret', 'signing_key', 'encryption_key', 'auth_token'
+  'client_secret', 'signing_key', 'encryption_key', 'auth_token', 'totp_secret'
 ]);
 
 // P4-XX：system_config 是 key-value 结构（config_key/config_value），REDACT_KEYS 按列名

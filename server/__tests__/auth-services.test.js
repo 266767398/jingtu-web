@@ -58,7 +58,7 @@ jest.mock('../vrc', () => ({
 const auth = require('../auth');
 const authSession = require('../auth_session');
 const { verifyVrc2fa } = require('../auth_vrc_service');
-const authRouter = require('../routes/auth');
+const authRouter = require('../routes/auth_routes');
 const { vrchatVerifyTwoFactor, vrchatGetCurrentUserResult, vrchatBasicLogin } = require('../vrc');
 
 // ─────────────────────────── 工具 ───────────────────────────

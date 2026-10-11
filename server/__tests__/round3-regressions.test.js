@@ -220,7 +220,7 @@ describe('数据库表定义覆盖代码里的所有引用', () => {
   const created = new Set();
   for (const m of dbInit.matchAll(/CREATE TABLE IF NOT EXISTS\s+`?(\w+)`?/gi)) created.add(m[1]);
 
-  test.each(['vrc_account_status', 'user_tags', 'chat_offline_summary', 'sys_oper_log', 'live_streams'])(
+  test.each(['vrc_account_status', 'vrc_fav_cache', 'user_tags', 'chat_offline_summary', 'sys_oper_log', 'live_streams'])(
     '%s 在 db_init 中被创建', (t) => {
       expect(created.has(t)).toBe(true);
     });

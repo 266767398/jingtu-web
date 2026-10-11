@@ -112,7 +112,7 @@ function memberAvatarSrc(m) {
   if (/^https?:\/\/[^/]*assets\.amlcdn\.com\//i.test(rawProxiedAvatar(url))) url = '';
   if (!url) return memberVrcFallback(m) || '/api/avatar/default';
   const proxied = proxyAvatar(url);
-  if (window.__avatarFailCache && window.__avatarFailCache[proxied] > Date.now() - 60000) {
+  if (window.__avatarFailCached(proxied)) {
     return memberVrcFallback(m) || '/api/avatar/default';
   }
   return proxied;
@@ -133,7 +133,30 @@ function memberAvatarOnError(img) {
   window.__avatarFail && window.__avatarFail(img, failKey);
 }
 
+// F-头像重试：订阅 ui.js __avatarRetryReady（系统会话恢复后 /api/avatar/user 头像自动重试），
+// 命中 data-avatar-fail-key 的成员头像重置 retried 标记并重新加载（走 memberAvatarOnError 链）。
+(function () {
+  let _bound = false;
+  function bindMemberAvatarRetry() {
+    if (_bound) return;
+    _bound = true;
+    document.addEventListener('__avatarRetryReady', function (e) {
+      const src = e && e.detail && e.detail.src;
+      if (!src) return;
+      document.querySelectorAll('img[data-avatar-fail-key]').forEach(function (img) {
+        if (img.dataset.avatarFailKey !== src) return;
+        img.dataset.retried = '0';
+        img.onerror = function () { memberAvatarOnError(img); };
+        img.src = img.dataset.avatarFailKey || src;
+      });
+    });
+  }
+  window.__bindMemberAvatarRetry = bindMemberAvatarRetry;
+})();
+
 function renderMembers(members) {
+  // F-头像重试：确保重试监听已绑定（一次性）
+  if (typeof window.__bindMemberAvatarRetry === 'function') window.__bindMemberAvatarRetry();
   // 新增：头像预览切换函数
   window.cycleAvatar = function(img) {
     if (!img.dataset.avatars) return;
@@ -164,10 +187,10 @@ function renderMembers(members) {
       : '';
     return `
     <div class="member-card">
-      <div class="member-card-click" onclick="goToProfile('${escJsStr(String(m.id))}')">
+      <div class="member-card-click" data-member-id="${escAttr(String(m.id))}">
         <img src="${escAttr(avSrc)}" class="member-avatar" alt="${escAttr(m.displayName || m.loginId)}" loading="lazy"
-          onerror="memberAvatarOnError(this)" data-vrc-fallback="${escAttr(vrcFallback)}"
-          data-avatar-fail-key="${escAttr(avSrc)}" data-avatars="${escAttr(cycleSet)}" onclick="cycleAvatar(this)" >
+          data-vrc-fallback="${escAttr(vrcFallback)}"
+          data-avatar-fail-key="${escAttr(avSrc)}" data-avatars="${escAttr(cycleSet)}" >
         <div class="member-info">
           <div class="member-name">${esc(m.displayName || m.loginId)}${(m.trustLevel || m.trustLevelCn) ? ` <span class="member-trust-badge" style="background:${trustColorOf(m.trustLevel) || '#9e9e9e'}">${esc(m.trustLevelCn || m.trustLevel)}</span>` : ''}</div>
           <div class="member-role">${roleLabels[m.role] || __("members.role_guest")}</div>
@@ -176,11 +199,27 @@ function renderMembers(members) {
         </div>
       </div>
       ${m.locationVisible ? `<div class="member-location">📍 ${esc(m.location || __('members.unknown_location'))}</div>` : ''}
-      <button class="btn btn-sm btn-outline ml-auto" onclick="event.stopPropagation();showMemberDetail('${escJsStr(String(m.id))}')">${__('members.card')}</button>
+      <button class="btn btn-sm btn-outline ml-auto" data-show-detail="${escAttr(String(m.id))}">${__('members.card')}</button>
     </div>
   `;
   }).join('');
+  container.querySelectorAll?.('.member-avatar').forEach(img => { img.onerror = function () { memberAvatarOnError(this); }; });
 }
+
+// 成员卡片点击（原内联 onclick 迁移到 document 级委托；CSP nonce 策略会拦截内联事件处理器）
+document.addEventListener('click', function (e) {
+  if (!e.target || !e.target.closest || !e.target.closest('#membersList')) return;
+  const t = e.target;
+  const avatar = t.closest('.member-avatar');
+  if (avatar) {
+    if (window.cycleAvatar) cycleAvatar(avatar);
+    return;
+  }
+  const btn = t.closest('button[data-show-detail]');
+  if (btn && btn.dataset.showDetail) { showMemberDetail(btn.dataset.showDetail); return; }
+  const clickArea = t.closest('.member-card-click');
+  if (clickArea && clickArea.dataset.memberId) goToProfile(clickArea.dataset.memberId);
+});
 
 // ==================== 站内用户名片本地缓存（localStorage） ====================
 // 与 VRChat 名片同思路：点开先秒开本地缓存，再后台刷新，达到「瞬间弹出」的体感。
@@ -294,24 +333,48 @@ function paintMemberCard(u) {
   if (linksEl) {
     let html = '';
     if (u.evtCount > 0) {
-      html += `<a href="#" onclick="showUserEvents(${u.id})" class="btn btn-sm btn-outline">📅 ${__('members.n_events', {n: u.evtCount})}</a>`;
+      html += `<a href="#" data-action="member-events" data-member-id="${u.id}" class="btn btn-sm btn-outline">📅 ${__('members.n_events', {n: u.evtCount})}</a>`;
     }
     if (u.photoCount > 0) {
-      html += `<a href="#" onclick="showUserPhotos(${u.id})" class="btn btn-sm btn-outline">📷 ${__('members.n_photos', {n: u.photoCount})}</a>`;
+      html += `<a href="#" data-action="member-photos" data-member-id="${u.id}" class="btn btn-sm btn-outline">📷 ${__('members.n_photos', {n: u.photoCount})}</a>`;
     }
     if (currentUser && currentUser.id === u.id) {
-      html += `<a href="#" onclick="closeModal('memberModal');switchTab('me')" class="btn btn-sm btn-outline">${__('members.edit_profile')}</a>`;
+      html += `<a href="#" data-action="member-edit-profile" class="btn btn-sm btn-outline">${__('members.edit_profile')}</a>`;
     }
     if (currentUser) {
-      html += `<button onclick="event.stopPropagation();openMemberNotes(${u.id}, '${escJsStr(u.displayName || u.loginId)}')" class="btn btn-sm btn-outline">📝 ${__('members.notes')}</button>`;
+      html += `<button data-action="member-notes" data-member-id="${u.id}" data-member-name="${escAttr(u.displayName || u.loginId)}" class="btn btn-sm btn-outline">📝 ${__('members.notes')}</button>`;
       if (currentUser.id !== u.id) {
-        html += `<button onclick="event.stopPropagation();reportUser(${u.id}, '${escJsStr(u.displayName || u.loginId)}')" class="btn btn-sm btn-outline">🚩 ${__('members.report_btn')}</button>`;
+        html += `<button data-action="member-report" data-member-id="${u.id}" data-member-name="${escAttr(u.displayName || u.loginId)}" class="btn btn-sm btn-outline">🚩 ${__('members.report_btn')}</button>`;
       }
     }
-    html += `<a href="#" onclick="closeModal('memberModal');goToProfile(${u.id})" class="btn btn-sm btn-outline">${__('members.full_profile')}</a>`;
+    html += `<a href="#" data-action="member-profile" data-member-id="${u.id}" class="btn btn-sm btn-outline">${__('members.full_profile')}</a>`;
     linksEl.innerHTML = html || '';
   }
   if (modal) showModal('memberModal');
+}
+
+function renderMemberCardSkeleton(userId, failed) {
+  const modal = document.getElementById('memberModal');
+  const img = document.getElementById('ucAvatar');
+  if (img) {
+    img.onerror = null;
+    img.dataset.vrcFallback = '';
+    img.dataset.retried = '0';
+    img.src = '/api/avatar/default';
+  }
+  const nameEl = document.getElementById('ucName');
+  if (nameEl) nameEl.textContent = failed ? __('members.detail_load_failed') : __('common.loading');
+  ['ucRole', 'ucMotto', 'ucLocation', 'ucBirthday', 'ucVrcName', 'ucJoined', 'ucTags'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = '';
+    el.className = 'd-none';
+  });
+  const bioEl = document.getElementById('ucBio');
+  if (bioEl) { bioEl.textContent = ''; bioEl.className = 'd-none'; }
+  const linksEl = document.getElementById('memberCardLinks');
+  if (linksEl) linksEl.innerHTML = '';
+  if (modal) { if (typeof showModal === 'function') showModal('memberModal'); else modal.classList.add('show'); }
 }
 
 async function showMemberCard(userId) {
@@ -323,6 +386,7 @@ async function showMemberCard(userId) {
     // 1) 先秒开本地缓存（如有），立即弹出，零网络等待
     const cached = memberCardCacheGet(userId);
     if (cached) paintMemberCard(cached);
+    else renderMemberCardSkeleton(userId, false); // 无缓存先出骨架，杜绝「点进去啥都没有」
 
     // 2) 无论有无缓存，都后台刷新最新数据（不阻塞弹出）
     const res = await api(`/api/users/${userId}/card`, { method: 'GET' });
@@ -334,11 +398,15 @@ async function showMemberCard(userId) {
       // 仅在「无缓存首屏」或「数据有变化」时重绘；缓存命中时刷新但不闪烁（对比 avatar 即可）
       paintMemberCard(u);
     } else if (!cached) {
-      // 无缓存且请求失败：提示错误
+      // 无缓存且请求失败：骨架标记失败，避免白屏
       toast(__('members.detail_load_failed'), 'error');
+      renderMemberCardSkeleton(userId, true);
     }
   } catch {
-    if (!memberCardCacheGet(userId)) toast(__('members.detail_load_failed'), 'error');
+    if (!memberCardCacheGet(userId)) {
+      toast(__('members.detail_load_failed'), 'error');
+      renderMemberCardSkeleton(userId, true);
+    }
   }
 }
 
@@ -390,7 +458,7 @@ async function openMemberNotes(userId, userName) {
         <div class="modal-content modal-sm">
           <div class="modal-header">
             <h3>📝 ${__('members.notes_title')}</h3>
-            <button class="modal-close" onclick="closeModal('memberNotesModal')" aria-label="${__('common.close')}">✕</button>
+            <button class="modal-close" data-action="close-notes" aria-label="${__('common.close')}">✕</button>
           </div>
           <div class="form-group">
             <label>${__('members.notes_for')} ${esc(userName)}</label>
@@ -400,7 +468,7 @@ async function openMemberNotes(userId, userName) {
           <div class="form-group">
             <label>${__('members.notes_color')}</label>
             <div class="note-colors">
-              ${NOTE_COLOR_PALETTE.map(c => `<span class="note-color-dot" data-color="${c}" style="background:${NOTE_COLOR_MAP[c]}" onclick="selectNoteColor('${c}', this)" title="${c}"></span>`).join('')}
+              ${NOTE_COLOR_PALETTE.map(c => `<span class="note-color-dot" data-action="note-color" data-color="${c}" style="background:${NOTE_COLOR_MAP[c]}" title="${c}"></span>`).join('')}
             </div>
           </div>
           <div class="form-group">
@@ -409,9 +477,9 @@ async function openMemberNotes(userId, userName) {
           </div>
           <div id="memberNotesError" class="text-13 text-red d-none mb-4"></div>
           <div class="form-actions">
-            <button onclick="deleteMemberNote()" class="btn btn-sm btn-danger">${__('common.delete')}</button>
-            <button type="button" onclick="closeModal('memberNotesModal')" class="btn btn-sm btn-outline">${__('common.cancel')}</button>
-            <button onclick="saveMemberNote()" class="btn btn-sm btn-accent">${__('common.save')}</button>
+            <button data-action="note-delete" class="btn btn-sm btn-danger">${__('common.delete')}</button>
+            <button type="button" data-action="close-notes" class="btn btn-sm btn-outline">${__('common.cancel')}</button>
+            <button data-action="note-save" class="btn btn-sm btn-accent">${__('common.save')}</button>
           </div>
         </div>
       </div>
@@ -512,7 +580,7 @@ async function reportUser(userId, userName) {
         <div class="modal-content modal-sm">
           <div class="modal-header">
             <h3>🚩 ${__('members.report_title')}</h3>
-            <button class="modal-close" onclick="closeModal('reportUserModal')" aria-label="${__('common.close')}">✕</button>
+            <button class="modal-close" data-action="close-report" aria-label="${__('common.close')}">✕</button>
           </div>
           <div class="form-group">
             <label>${__('members.report_for')} ${esc(userName)}</label>
@@ -528,8 +596,8 @@ async function reportUser(userId, userName) {
           </div>
           <div id="reportError" class="text-13 text-red d-none mb-4"></div>
           <div class="form-actions">
-            <button onclick="closeModal('reportUserModal')" class="btn btn-sm btn-outline">${__('common.cancel')}</button>
-            <button onclick="submitUserReport()" class="btn btn-sm btn-danger">${__('members.report_submit')}</button>
+            <button data-action="close-report" class="btn btn-sm btn-outline">${__('common.cancel')}</button>
+            <button data-action="report-submit" class="btn btn-sm btn-danger">${__('members.report_submit')}</button>
           </div>
         </div>
       </div>`;
@@ -583,10 +651,10 @@ async function loadModerationQueue(status) {
     }
     box.innerHTML = data.items.map(it => {
       const actionsHtml = it.status === 'pending'
-        ? `<button class="btn btn-sm btn-accent" onclick="resolveModeration(${it.id}, 'approve')">${__('common.approve')}</button>
-           <button class="btn btn-sm btn-outline" onclick="resolveModeration(${it.id}, 'reject')">${__('common.reject')}</button>`
+        ? `<button class="btn btn-sm btn-accent" data-action="mod-approve" data-mod-id="${it.id}">${__('common.approve')}</button>
+           <button class="btn btn-sm btn-outline" data-action="mod-reject" data-mod-id="${it.id}">${__('common.reject')}</button>`
         : (it.status === 'approved'
-          ? `<button class="btn btn-sm btn-outline" onclick="revertModeration(${it.id})">${__('members.report_revert')}</button>`
+          ? `<button class="btn btn-sm btn-outline" data-action="mod-revert" data-mod-id="${it.id}">${__('members.report_revert')}</button>`
           : '');
       return `
       <div class="moderation-item" data-id="${it.id}">
@@ -701,26 +769,9 @@ const VRC_STATUS_LABEL = {
 function copyVrcName(el) {
   const text = el.textContent.trim();
   if (!text || text === __('auto_members_16')) return;
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(() => toast(__('members.name_copied'), 'success')).catch(() => fallbackCopy(text));
-  } else {
-    fallbackCopy(text);
-  }
-  function fallbackCopy(t) {
-    const ta = document.createElement('textarea');
-    ta.value = t;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    try {
-      document.execCommand('copy');
-      toast(__('members.name_copied'), 'success');
-    } catch (e) {
-      toast(__('members.copy_failed'), 'error');
-    }
-    document.body.removeChild(ta);
-  }
+  copyTextToClipboard(text)
+    .then(() => toast(__('members.name_copied'), 'success'))
+    .catch(() => toast(__('members.copy_failed'), 'error'));
 }
 window.copyVrcName = copyVrcName;
 
@@ -887,10 +938,16 @@ function renderVrcMemberCard(d, forId) {
   if (!body) return;
   // 二次保险：仅当渲染目标与当前弹窗归属一致时才落盘，杜绝任何过期/错用户响应串台
   if (forId != null && vrcCardOpener.stale(forId)) return;
-  // 头像优先顺序：用户上传的自定义头像大图 > 当前模型缩略图 > 默认图
-  const customAvatar = d.profilePicOverrideThumbnail || d.profilePicOverride;
-  const currentAvatar = d.avatarUrl;
-  const avatar = customAvatar || currentAvatar || '/api/avatar/default';
+  // 头像优先顺序：用户上传的自定义头像大图 > 当前模型缩略图 > 后端按 VRChat ID 解析 > 默认图。
+  // 与群组列表同一链路（P2-46）：assets.amlcdn.com 历史缩略图国内 TLS 层即被阻断，直接弃用；
+  // CDN 地址经 proxyAvatar（直连优先/代理兜底/失败记忆）；DB 无头像时走 /api/avatar/user
+  // 按 ID 解析真实头像（列表已验证可达），避免名片永远挂默认占位图。
+  const rawCustomAvatar = d.profilePicOverrideThumbnail || d.profilePicOverride || '';
+  const rawCurrentAvatar = d.avatarUrl || '';
+  const customAvatar = /^https?:\/\/[^/]*assets\.amlcdn\.com\//i.test(rawProxiedAvatar(rawCustomAvatar)) ? '' : rawCustomAvatar;
+  const currentAvatar = /^https?:\/\/[^/]*assets\.amlcdn\.com\//i.test(rawProxiedAvatar(rawCurrentAvatar)) ? '' : rawCurrentAvatar;
+  const vrcAvatarFallback = d.vrchatId ? '/api/avatar/user?u=' + encodeURIComponent(d.vrchatId) : '';
+  const avatar = proxyAvatar(customAvatar || currentAvatar || vrcAvatarFallback) || '/api/avatar/default';
   // 在线状态文案以 group_roster 权威同步值（d.isOnline）为根基，确保与群组列表完全一致：
   // 离线时一律显示「⚫ 离线」，避免被 API 对非好友返回的 stale/offline 文案误标；
   // 在线时再附加 DB 同步到的具体状态（active/join me 等），好友视角下才展示 API 实时精确状态。
@@ -915,6 +972,19 @@ function renderVrcMemberCard(d, forId) {
   const dateJoined = d.dateJoined ? new Date(d.dateJoined).toLocaleDateString(getCurrentLang ? getCurrentLang() : 'zh') : '';
   // 主页展示群（≠ 当前房间所属群）
   const repGroup = d.representedGroup || null;
+  // F-24: 所在世界 → 地图名 + vrchat.com 官网世界页链接（VRCX/RVW 同款）。
+  // world_id 来自 d.worldId（VRChat user.worldId）或 location 首段（wrld_xxx:instance...）；
+  // world_name 由后端经 world_cache 解析为真实名称，解析失败时保留 wrld_id 降级显示。
+  const curWorldId = d.worldId || (d.location ? String(d.location).split(':')[0] : '') || '';
+  const curWorldInstanceId = d.location ? (String(d.location).split(':')[1] || '') : '';
+  const rawWorldName = d.worldName || '';
+  const displayWorldName = rawWorldName && !/^wrld_[0-9a-fA-F-]+$/.test(String(rawWorldName)) ? rawWorldName : '';
+  const worldUrl = curWorldId
+    ? 'https://vrchat.com/home/world/' + encodeURIComponent(curWorldId) + (curWorldInstanceId ? '?instanceId=' + encodeURIComponent(curWorldInstanceId) : '')
+    : '';
+  const worldHtml = worldUrl
+    ? `<a href="${escAttr(worldUrl)}" target="_blank" rel="noopener" class="vrc-world-link">🌐 ${esc(displayWorldName || curWorldId)}</a>`
+    : (displayWorldName ? '🌐 ' + esc(displayWorldName) : '—');
   // 结构化实例信息
   const inst = d.instance || null;
   const instAccessLabel = inst ? (inst.accessTypeName === 'groupPlus' ? __('members.vrc_access_group_plus') : (inst.accessTypeName || __('auto_members_48'))) : '';
@@ -931,7 +1001,7 @@ function renderVrcMemberCard(d, forId) {
   const fmtDateTime = (x) => x ? new Date(x).toLocaleString(getCurrentLang ? getCurrentLang() : 'zh', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 
   // F-10: 名片对应 VRC 账号已绑定到当前登录用户本人时，隐藏发起邀请/好友申请入口
-  const isSelfCard = lu.bound && window.currentUser && String(lu.id || '') === String(window.currentUser.id || '');
+  const isSelfCard = lu.bound && currentUser && String(lu.id || '') === String(currentUser.id || '');
 
   const localUserHtml = lu.bound ? `
     <div class="vrc-localuser">
@@ -970,7 +1040,7 @@ function renderVrcMemberCard(d, forId) {
   };
   const modelCard = (m) => {
     const img = m.thumbnailUrl
-      ? `<img class="vrc-model-img" src="${escAttr(m.thumbnailUrl)}" alt="${escAttr(m.name)}" loading="lazy" onerror="this.parentNode.classList.add('img-failed')">`
+      ? `<img class="vrc-model-img" src="${escAttr(m.thumbnailUrl)}" alt="${escAttr(m.name)}" loading="lazy">`
       : `<div class="vrc-model-img img-failed"></div>`;
     const tags = (Array.isArray(m.tags) ? m.tags.slice(0, 4) : [])
       .map(t => `<span class="vrc-model-tag">${esc(t)}</span>`).join('');
@@ -995,7 +1065,7 @@ function renderVrcMemberCard(d, forId) {
         linkClose = '</a>';
       } else {
         // 站内路由（收藏已并入 VRC 页签子视图）：切到 VRC 页签并指定目标子视图
-        linkOpen = `<a class="vrc-model-card" href="javascript:void(0)" onclick="window.__vrcPendingView='collections';if(typeof switchTab==='function'){switchTab('vrc');}">`;
+        linkOpen = `<a class="vrc-model-card" href="javascript:void(0)" data-action="vrc-goto-collections">`;
         linkClose = '</a>';
       }
     } else {
@@ -1031,14 +1101,12 @@ function renderVrcMemberCard(d, forId) {
       <div class="vrc-card-banner" ${bannerColor ? `style="background:${escAttr(bannerColor)}"` : ''}></div>
       <div class="vrc-card-head">
         <div class="vrc-avatar-wrap">
-          <img src="${escAttr(avatar)}" class="vrc-avatar" alt="${esc(d.displayName)}"
-               onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+          <img src="${escAttr(avatar)}" class="vrc-avatar" alt="${esc(d.displayName)}">
           <div class="vrc-avatar-fallback" style="display:none">${(d.displayName || '?').charAt(0).toUpperCase()}</div>
-          <button type="button" class="vrc-avatar-detail-badge" onclick="openAvatarDetail('${escJsStr(d.vrchatId || '')}','${escJsStr(d.avatarId || '')}','${escJsStr(d.displayName || '')}',${lu.bound ? (Number(lu.id) || 0) : 0},'${escJsStr(avatar)}')" title="${__('members.avatar_detail_btn')}" aria-label="${__('members.avatar_detail_btn')}">🖼️</button>
         </div>
         <div class="vrc-head-meta">
           <div class="vrc-name-row">
-            <h3 class="vrc-displayname" onclick="copyVrcName(this)" title="${esc(__('auto_members_61'))}">${esc(d.displayName || __('auto_members_62'))}</h3>
+            <h3 class="vrc-displayname" data-action="copy-vrc-name" title="${esc(__('auto_members_61'))}">${esc(d.displayName || __('auto_members_62'))}</h3>
             <span class="vrc-status-pill ${d.isOnline ? 'online' : 'offline'}" title="${esc(__('auto_members_63'))}">${statusLabel}</span>
             ${d.isVrcPlus ? `<span class="vrc-plus-badge" title="VRC+ ${__('members.vrc_plus')}">⭐ ${__('members.vrc_plus')}</span>` : ''}
             ${d.ageVerified ? `<span class="vrc-age-badge" title="${esc(__('members.age_verified_tooltip').replace('{status}', d.ageVerificationStatus || '18+'))}">🔞 ${__('members.verified')}</span>` : ''}
@@ -1074,7 +1142,7 @@ function renderVrcMemberCard(d, forId) {
       <div class="vrc-meta-grid">
         <div class="vrc-meta-item">
           <span class="vrc-meta-k">${__('members.vrc_meta_world')}</span>
-          <span class="vrc-meta-v">${d.worldName ? '🌐 ' + esc(d.worldName) : '—'}</span>
+          <span class="vrc-meta-v">${worldHtml}</span>
         </div>
         <div class="vrc-meta-item">
           <span class="vrc-meta-k">${__('members.vrc_meta_platform')}</span>
@@ -1151,13 +1219,31 @@ function renderVrcMemberCard(d, forId) {
 
       <div class="vrc-card-actions">
         <a href="${profileUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">${__('members.vrc_view_in_vrchat')}</a>
-        <button type="button" class="btn btn-sm btn-outline" onclick="openAvatarDetail('${escJsStr(d.vrchatId || '')}','${escJsStr(d.avatarId || '')}','${escJsStr(d.displayName || '')}',${lu.bound ? (Number(lu.id) || 0) : 0},'${escJsStr(avatar)}')">🖼️ ${__('members.avatar_detail_btn')}</button>
-        ${!isSelfCard && !d.isFriend && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" onclick="vrcSendFriendRequest('${escJsStr(d.vrchatId)}', this)">🤝 ${__('members.vrc_friend_request_btn')}</button>` : ''}
-        ${!isSelfCard && d.vrchatId && inst && !inst.isOffline && /^wrld_[0-9a-fA-F-]+:.+$/.test(d.location || '') ? `<button type="button" class="btn btn-sm btn-outline" onclick="vrcSendInvite('${escJsStr(d.vrchatId)}','${escJsStr(d.location)}', this)">📨 ${__('members.vrc_invite_btn')}</button>` : ''}
-        ${!isSelfCard && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" onclick="vrcBoop('${escJsStr(d.vrchatId)}', this)" title="${escAttr(__('members.vrc_boop_hint'))}">👋 ${__('members.vrc_boop_btn')}</button>` : ''}
-        ${!isSelfCard && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" onclick="vrcEditNote('${escJsStr(d.vrchatId)}', this)">📝 ${__('members.vrc_note_btn')}</button>` : ''}
+        ${!isSelfCard && !d.isFriend && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" data-action="vrc-friend" data-vrc-id="${escAttr(d.vrchatId)}">🤝 ${__('members.vrc_friend_request_btn')}</button>` : ''}
+        ${!isSelfCard && d.vrchatId && inst && !inst.isOffline && /^wrld_[0-9a-fA-F-]+:.+$/.test(d.location || '') ? `<button type="button" class="btn btn-sm btn-outline" data-action="vrc-invite" data-vrc-id="${escAttr(d.vrchatId)}" data-location="${escAttr(d.location)}">📨 ${__('members.vrc_invite_btn')}</button>` : ''}
+        ${!isSelfCard && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" data-action="vrc-boop" data-vrc-id="${escAttr(d.vrchatId)}" title="${escAttr(__('members.vrc_boop_hint'))}">👋 ${__('members.vrc_boop_btn')}</button>` : ''}
+        ${!isSelfCard && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" data-action="vrc-note" data-vrc-id="${escAttr(d.vrchatId)}">📝 ${__('members.vrc_note_btn')}</button>` : ''}
       </div>
     </div>`;
+
+  // 头像失败兜底：先按 VRChat ID 经 /api/avatar/user 重试一次，再失败切首字母占位
+  const avatarImg = body.querySelector('.vrc-avatar');
+  const avatarFallbackEl = body.querySelector('.vrc-avatar-fallback');
+  if (avatarImg) {
+    avatarImg.onerror = function () {
+      if (vrcAvatarFallback && avatarImg.getAttribute('src') !== vrcAvatarFallback && !avatarImg.dataset.vrcAvatarRetried) {
+        avatarImg.dataset.vrcAvatarRetried = '1';
+        avatarImg.onerror = function () {
+          avatarImg.style.display = 'none';
+          if (avatarFallbackEl) avatarFallbackEl.style.display = 'flex';
+        };
+        avatarImg.src = vrcAvatarFallback;
+        return;
+      }
+      avatarImg.style.display = 'none';
+      if (avatarFallbackEl) avatarFallbackEl.style.display = 'flex';
+    };
+  }
 }
 
 // ==================== F-10 VRChat 官方实例邀请 / 好友申请 ====================
@@ -1270,7 +1356,7 @@ async function openAvatarDetail(vrchatId, avatarId, displayName, localUserId, av
         <div class="modal-content">
           <div class="modal-header">
             <h3>🖼️ ${__('members.avatar_detail_title')}</h3>
-            <button class="modal-close" onclick="closeModal('avatarDetailModal')" aria-label="${__('common.close')}">✕</button>
+            <button class="modal-close" data-action="close-avatar-detail" aria-label="${__('common.close')}">✕</button>
           </div>
           <div id="avatarDetailBody" class="avatar-detail-body">
             <div class="avatar-detail-loading">${__('common.loading')}</div>
@@ -1318,7 +1404,7 @@ function renderAvatarDetail(history, tags) {
       <span class="vrc-section-label">${__('members.avatar_history_label')}${history.totalAvatars ? `（${__('members.avatar_history_total').replace('{a}', history.totalAvatars).replace('{u}', history.totalUses)}）` : ''}</span>
       ${histItems.length ? `<div class="avatar-hist-list">${histItems.map(it => `
         <div class="avatar-hist-item">
-          <img class="avatar-hist-img" src="${escAttr(it.avatarUrl || '/api/avatar/default')}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+          <img class="avatar-hist-img" src="${escAttr(it.avatarUrl || '/api/avatar/default')}" alt="" loading="lazy">
           <div class="avatar-hist-fallback" style="display:none">🖼️</div>
           <div class="avatar-hist-meta">
             <div class="avatar-hist-id" title="${escAttr(it.avatarId)}">${esc(it.avatarId)}</div>
@@ -1333,19 +1419,19 @@ function renderAvatarDetail(history, tags) {
       <div class="avatar-tag-edit">
         <input id="avatarTagInput" class="form-input" type="text" maxlength="255" placeholder="${__('members.avatar_tags_placeholder')}" value="${escAttr(tags.join(', '))}">
         <div class="form-actions mt-2">
-          <button type="button" class="btn btn-sm btn-danger" onclick="clearAvatarTags()">${__('common.delete')}</button>
-          <button type="button" class="btn btn-sm btn-accent" onclick="saveAvatarTags()">${__('common.save')}</button>
+          <button type="button" class="btn btn-sm btn-danger" data-action="avatar-tags-clear">${__('common.delete')}</button>
+          <button type="button" class="btn btn-sm btn-accent" data-action="avatar-tags-save">${__('common.save')}</button>
         </div>
       </div>
     </div>` : '';
 
   const favBtn = hasAvatarId
-    ? `<button id="avatarFavoriteBtn" type="button" class="btn btn-sm btn-primary" onclick="favoriteAvatar()">♥ ${__('members.avatar_favorite_btn')}</button>`
+    ? `<button id="avatarFavoriteBtn" type="button" class="btn btn-sm btn-primary" data-action="avatar-fav">♥ ${__('members.avatar_favorite_btn')}</button>`
     : '';
 
   body.innerHTML = `
     <div class="avatar-detail-current">
-      <img class="avatar-detail-current-img" src="${escAttr(d.avatarUrl || '/api/avatar/default')}" alt="${escAttr(d.displayName)}" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(d.avatarUrl || '/api/avatar/default')}')">
+      <img class="avatar-detail-current-img" src="${escAttr(d.avatarUrl || '/api/avatar/default')}" alt="${escAttr(d.displayName)}" data-avatar-fail-src="${escAttr(d.avatarUrl || '/api/avatar/default')}">
       <div class="avatar-detail-current-meta">
         <div class="avatar-detail-current-name">${esc(d.displayName)}</div>
         <div class="avatar-detail-current-id" title="${escAttr(d.avatarId)}">${esc(d.avatarId || __('members.avatar_no_id'))}</div>
@@ -1463,3 +1549,119 @@ async function clearAvatarTags() {
     card.style.removeProperty('--tilt-y');
   }
 })();
+
+// ==================== 名片/VRChat/审核等弹窗按钮事件委托（CSP nonce 下内联处理器不可用） ====================
+// 迁移自成员名片链接区、备注/举报弹窗、审核队列、VRChat 名片与头像详情弹窗里的
+// 内联 onclick —— 属性型处理器被 script-src nonce 拦截（与成员卡/动态同案），
+// 统一改为 data-action + document 级委托，天然覆盖重渲染与懒加载时序。
+let _membersDelegationHandler = null;
+
+function _bindMembersDelegation() {
+  if (_membersDelegationHandler) document.removeEventListener('click', _membersDelegationHandler);
+  _membersDelegationHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    var uid = el.getAttribute('data-member-id');
+    switch (action) {
+      case 'member-events':
+        e.preventDefault();
+        showUserEvents(uid);
+        break;
+      case 'member-photos':
+        e.preventDefault();
+        showUserPhotos(uid);
+        break;
+      case 'member-edit-profile':
+        e.preventDefault();
+        closeModal('memberModal');
+        switchTab('me');
+        break;
+      case 'member-notes':
+        openMemberNotes(uid, el.getAttribute('data-member-name') || '');
+        break;
+      case 'member-report':
+        reportUser(uid, el.getAttribute('data-member-name') || '');
+        break;
+      case 'member-profile':
+        e.preventDefault();
+        closeModal('memberModal');
+        goToProfile(uid);
+        break;
+      case 'close-notes':
+        closeModal('memberNotesModal');
+        break;
+      case 'note-color':
+        selectNoteColor(el.getAttribute('data-color'), el);
+        break;
+      case 'note-delete':
+        deleteMemberNote();
+        break;
+      case 'note-save':
+        saveMemberNote();
+        break;
+      case 'close-report':
+        closeModal('reportUserModal');
+        break;
+      case 'report-submit':
+        submitUserReport();
+        break;
+      case 'mod-approve':
+        resolveModeration(el.getAttribute('data-mod-id'), 'approve');
+        break;
+      case 'mod-reject':
+        resolveModeration(el.getAttribute('data-mod-id'), 'reject');
+        break;
+      case 'mod-revert':
+        revertModeration(el.getAttribute('data-mod-id'));
+        break;
+      case 'vrc-goto-collections':
+        window.__vrcPendingView = 'collections';
+        if (typeof switchTab === 'function') switchTab('vrc');
+        break;
+      case 'avatar-detail':
+        openAvatarDetail(
+          el.getAttribute('data-vrc-id') || '',
+          el.getAttribute('data-avatar-id') || '',
+          el.getAttribute('data-name') || '',
+          parseInt(el.getAttribute('data-uid'), 10) || 0,
+          el.getAttribute('data-avatar-src') || ''
+        );
+        break;
+      case 'copy-vrc-name':
+        copyVrcName(el);
+        break;
+      case 'vrc-friend':
+        vrcSendFriendRequest(el.getAttribute('data-vrc-id') || '', el);
+        break;
+      case 'vrc-invite':
+        vrcSendInvite(el.getAttribute('data-vrc-id') || '', el.getAttribute('data-location') || '', el);
+        break;
+      case 'vrc-boop':
+        vrcBoop(el.getAttribute('data-vrc-id') || '', el);
+        break;
+      case 'vrc-note':
+        vrcEditNote(el.getAttribute('data-vrc-id') || '', el);
+        break;
+      case 'close-avatar-detail':
+        closeModal('avatarDetailModal');
+        break;
+      case 'avatar-tags-clear':
+        clearAvatarTags();
+        break;
+      case 'avatar-tags-save':
+        saveAvatarTags();
+        break;
+      case 'avatar-fav':
+        favoriteAvatar();
+        break;
+    }
+  };
+  document.addEventListener('click', _membersDelegationHandler);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _bindMembersDelegation);
+} else {
+  _bindMembersDelegation();
+}

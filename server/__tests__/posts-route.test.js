@@ -206,7 +206,7 @@ describe('P3-95 posts 点赞', () => {
   test('POST /:id/like 首次点赞：插入记录、计数 +1、通知属主', async () => {
     // 前置 post 查询走 getPool().query，其余事务步骤走 getConnection().query
     mockQueryBySql([
-      [/SELECT id, user_id, like_count FROM posts/, [[{ id: 10, user_id: 8, like_count: 0 }]]]
+      [/SELECT id, user_id, content, like_count FROM posts/, [[{ id: 10, user_id: 8, like_count: 0, content: '第一条动态' }]]]
     ]);
     mockConnection.query.mockImplementation((sql) => {
       if (sql.includes('INSERT INTO post_like')) return Promise.resolve([{ affectedRows: 1 }]);
@@ -225,7 +225,7 @@ describe('P3-95 posts 点赞', () => {
 
   test('POST /:id/like 已点赞：取消并递减', async () => {
     mockQueryBySql([
-      [/SELECT id, user_id, like_count FROM posts/, [[{ id: 11, user_id: 8, like_count: 3 }]]]
+      [/SELECT id, user_id, content, like_count FROM posts/, [[{ id: 11, user_id: 8, like_count: 3, content: '第二条动态' }]]]
     ]);
     mockConnection.query.mockImplementation((sql) => {
       // INSERT ... ON DUPLICATE KEY 已存在 → affectedRows 0 → 走取消分支

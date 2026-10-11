@@ -27,8 +27,8 @@ function renderWorldSearchResults(worlds) {
   if (!container) return;
   if (!worlds || worlds.length === 0) { renderEmpty(container, { icon: '🌐', text: __('vrc.no_results') }); return; }
   container.innerHTML = worlds.map(w => `
-    <div class="world-search-item" onclick="selectWorld('${escJsStr(w.id)}', '${escJsStr(w.name)}', '${escJsStr(w.imageUrl || '')}', document.getElementById('worldSearchModal')?.dataset?.context || 'evt')">
-      <img src="${escAttr(w.thumbnailImageUrl || w.imageUrl || '/img/world-placeholder.png')}" class="world-search-thumb" alt="${escAttr(w.name)}" loading="lazy" onerror="this.src='/img/world-placeholder.png'">
+    <div class="world-search-item" data-action="world-search-select" data-world-id="${escAttr(w.id)}" data-world-name="${escAttr(w.name)}" data-world-img="${escAttr(w.imageUrl || '')}">
+      <img src="${escAttr(w.thumbnailImageUrl || w.imageUrl || '/img/world-placeholder.png')}" class="world-search-thumb" alt="${escAttr(w.name)}" loading="lazy" data-img-src-fallback="/img/world-placeholder.png">
       <div class="world-search-info">
         <div class="world-search-name">${esc(w.name)}</div>
         <div class="world-search-author">${__('vrc.by_author')} ${esc(w.authorName || __('unknown'))}</div>
@@ -118,3 +118,35 @@ async function submitVrc2fa() {
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('vrc.verify_failed'), 'error'); }
 }
+
+// ==================== 世界搜索结果事件委托 ====================
+// 原内联 onclick/onerror 被 CSP 拦截，统一迁移到文档级委托：
+// - 点击结果项 → 读取弹窗 dataset.context 作为表单前缀后调 selectWorld
+// - 缩略图加载失败 → 用占位图覆盖 src（本文件内捕获，core.js 先落中性占位兜底）
+let _vrcHandler = null;
+let _vrcImgErrHandler = null;
+function _bindVrcWorldSearch() {
+  if (_vrcHandler) document.removeEventListener('click', _vrcHandler);
+  if (_vrcImgErrHandler) document.removeEventListener('error', _vrcImgErrHandler, true);
+  _vrcHandler = function (e) {
+    const el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el || el.getAttribute('data-action') !== 'world-search-select') return;
+    if (typeof selectWorld !== 'function') return;
+    const ctx = (document.getElementById('worldSearchModal') && document.getElementById('worldSearchModal').dataset.context) || 'evt';
+    selectWorld(
+      el.getAttribute('data-world-id') || '',
+      el.getAttribute('data-world-name') || '',
+      el.getAttribute('data-world-img') || '',
+      ctx
+    );
+  };
+  _vrcImgErrHandler = function (e) {
+    const t = e.target;
+    if (!t || t.tagName !== 'IMG' || !t.dataset.imgSrcFallback || t.dataset.srcFbDone) return;
+    t.dataset.srcFbDone = '1';
+    t.src = t.dataset.imgSrcFallback;
+  };
+  document.addEventListener('click', _vrcHandler);
+  document.addEventListener('error', _vrcImgErrHandler, true);
+}
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', _bindVrcWorldSearch); } else { _bindVrcWorldSearch(); }

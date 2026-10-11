@@ -644,7 +644,6 @@
 .album-card,
 .member-card {
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
-  will-change: transform;
 }
 
 .card:hover,
@@ -655,6 +654,7 @@
 .member-card:hover {
   transform: translateY(-3px);
   box-shadow: var(--shadow-lg);
+  will-change: transform;
 }
 
 /* ========== 成员卡片 3D 倾斜（桌面端，由 members.js 写入 --tilt-x/--tilt-y） ========== */
@@ -662,6 +662,7 @@
   transform: perspective(700px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)) translateY(-3px);
   transition: transform .08s linear, box-shadow var(--transition-fast);
   box-shadow: var(--shadow-lg);
+  will-change: transform;
 }
 .member-card.tilt-on .member-card-click {
   transform: translateZ(24px);
@@ -758,11 +759,6 @@
   transform: translateY(20px);
 }
 
-.scroll-top-btn.visible {
-  opacity: 1;
-  transform: translateY(0);
-}
-
 /* ========== 禁用动画 ========== */
 
 @media (prefers-reduced-motion: reduce) {
@@ -770,5 +766,6 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    will-change: auto;
   }
 }

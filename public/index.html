@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -16,37 +16,37 @@
 <link rel="dns-prefetch" href="https://assets.amlcdn.com">
 <link rel="dns-prefetch" href="https://assets.vrchat.com">
 <!-- 首屏关键 CSS：阻塞渲染（页面骨架 / 设计令牌 / 基础 UI / 导航 / 首页内容） -->
-<link rel="stylesheet" href="/css/style.css?v=20261006c">
-  <link rel="stylesheet" href="/css/99-design-system.css?v=20261006e">
-  <link rel="stylesheet" href="/css/ui-components.css?v=20261006c">
-  <link rel="stylesheet" href="/css/ui-enhance.css?v=20261006c">
-<link rel="stylesheet" href="/css/nav-scroller.css?v=20261006c">
-<link rel="stylesheet" href="/css/home-featured.css?v=20261006c">
-<link rel="stylesheet" href="/css/home-enhance.css?v=20261006c">
-<link rel="stylesheet" href="/css/animations.css?v=20261006c">
+<link rel="stylesheet" href="/css/style.css?v=20261011a">
+  <link rel="stylesheet" href="/css/99-design-system.css?v=20261011a">
+  <link rel="stylesheet" href="/css/ui-components.css?v=20261011a">
+  <link rel="stylesheet" href="/css/ui-enhance.css?v=20261011a">
+<link rel="stylesheet" href="/css/nav-scroller.css?v=20261011a">
+<link rel="stylesheet" href="/css/home-featured.css?v=20261011a">
+<link rel="stylesheet" href="/css/home-enhance.css?v=20261011a">
+<link rel="stylesheet" href="/css/animations.css?v=20261011a">
 <!-- 点赞动效（like-burst）：给 post/album 等点赞按钮加心爆裂动画 + 无障碍兜底 -->
-<link rel="stylesheet" href="/css/likes-anim.css?v=20261006c">
+<link rel="stylesheet" href="/css/likes-anim.css?v=20261011a">
 <!-- 功能隐藏：直播入口 #tab-btn-live / 管理侧栏 live / #tab-live 面板统一不显示。
      兜底性兜底：即使 JS 误把 #tab-live 设为 active，也会被 CSS 强制隐藏。 -->
-<link rel="stylesheet" href="/css/feature-disabled.css?v=20261006c">
+<link rel="stylesheet" href="/css/feature-disabled.css?v=20261011a">
 <!-- 非首屏 CSS：改为非阻塞异步加载（media=print 命中后切回 all），避免拖慢 LCP；
      首屏默认落在 home Tab，members/collections/social/地图/“更多”菜单等样式多为
      第二屏或弹层，异步加载后由浏览器空闲补全，导航到对应 Tab 时已就绪（P2-21） -->
-<link rel="stylesheet" href="/css/06b-presence.css?v=20261006c" media="print">
-<link rel="stylesheet" href="/css/06-members.css?v=20261006e" media="print">
-<link rel="stylesheet" href="/css/collections.css?v=20261006c" media="print">
-<link rel="stylesheet" href="/css/10-social.css?v=20261006c" media="print">
-<link rel="stylesheet" href="/css/baidu-modern.css?v=20261006c" media="print">
+<link rel="stylesheet" href="/css/06b-presence.css?v=20261011a" media="print">
+<link rel="stylesheet" href="/css/06-members.css?v=20261011a" media="print">
+<link rel="stylesheet" href="/css/collections.css?v=20261011a" media="print">
+<link rel="stylesheet" href="/css/10-social.css?v=20261011a" media="print">
+<link rel="stylesheet" href="/css/baidu-modern.css?v=20261011a" media="print">
 <!-- V9.4 地图 VRChat 世界面板样式（异步加载） -->
-<link rel="stylesheet" href="/css/worlds-panel.css?v=20261006c" media="print">
-<noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20261006c"></noscript>
+<link rel="stylesheet" href="/css/worlds-panel.css?v=20261011a" media="print">
+<noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20261011a"></noscript>
 <!-- 无 JS 兜底：保证禁用 JS 时样式仍加载 -->
 <noscript>
-  <link rel="stylesheet" href="/css/06b-presence.css?v=20261006c">
-  <link rel="stylesheet" href="/css/06-members.css?v=20261006e">
-  <link rel="stylesheet" href="/css/collections.css?v=20261006c">
-  <link rel="stylesheet" href="/css/10-social.css?v=20261006c">
-  <link rel="stylesheet" href="/css/baidu-modern.css?v=20261006c">
+  <link rel="stylesheet" href="/css/06b-presence.css?v=20261011a">
+  <link rel="stylesheet" href="/css/06-members.css?v=20261011a">
+  <link rel="stylesheet" href="/css/collections.css?v=20261011a">
+  <link rel="stylesheet" href="/css/10-social.css?v=20261011a">
+  <link rel="stylesheet" href="/css/baidu-modern.css?v=20261011a">
 </noscript>
   <meta name="description" content="境途同游是一个面向 VRChat 玩家的社群平台，提供群组相册、活动报名、动态分享、成员地图与实时聊天，记录你在虚拟世界里的每一次同游。">
   <meta property="og:type" content="website">
@@ -78,12 +78,12 @@
         return 'zh';
       }
       // 解析期 document.write 外部脚本为阻塞式，保证在 i18n.js 之前就绪
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261006c"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261011a"><\/script>');
     })();
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
        必须在 i18n 之后（依赖 window.__）、在 loader.js / ui.js 之前（确保 og:url 尽早被爬虫读取）。 -->
-  <script src="/js/seo.js?v=20261006c"></script>
+  <script src="/js/seo.js?v=20261011a"></script>
   <!-- 首屏性能量化（P2-21）：?perf=1 时上报 LCP/FCP 到 console，便于回归比对；
        生产默认关闭，零副作用。仅观测，不改写任何渲染行为。 -->
   <script>
@@ -165,12 +165,12 @@
       <!-- 账号头像预览（§11.8.3）：输入账号后实时显示本地头像 + VRChat 头像 -->
       <div class="login-avatar-preview" id="loginAvatarPreview" style="display:none;">
         <div class="lap-item">
-          <img id="loginLocalAvatar" class="lap-img" src="/api/avatar/default" alt="本地头像" onerror="this.src='/api/avatar/default'">
+          <img id="loginLocalAvatar" class="lap-img" src="/api/avatar/default" alt="本地头像">
           <span class="lap-label" data-i18n="auth.avatar_local">本地</span>
         </div>
         <div class="lap-divider"></div>
         <div class="lap-item">
-          <img id="loginVrcAvatar" class="lap-img" src="/api/avatar/default" alt="VRChat头像" onerror="this.src='/api/avatar/default'">
+          <img id="loginVrcAvatar" class="lap-img" src="/api/avatar/default" alt="VRChat头像">
           <span class="lap-label" data-i18n="auth.avatar_vrchat">VRChat</span>
         </div>
       </div>
@@ -411,6 +411,7 @@
             <label class="notif-toggle-row"><input type="checkbox" id="notifEmailToggle"><span data-i18n="notifications.email_notif">📧 邮件通知</span></label>
             <label class="notif-toggle-row"><input type="checkbox" id="notifBrowserToggle" checked><span data-i18n="notifications.browser_notif">🌐 浏览器通知</span></label>
             <label class="notif-toggle-row"><input type="checkbox" id="notifSoundToggle" checked><span data-i18n="notifications.sound_notif">🔊 声音提醒</span></label>
+            <label class="notif-toggle-row"><input type="checkbox" id="notifVrcToggle" checked><span data-i18n="notifications.vrc_notif">🎮 VRChat 官方通知</span></label>
           </div>
         </div>
       </div>
@@ -616,11 +617,11 @@
         <div id="chatInputArea" class="chat-input-area d-none">
           <textarea id="chatInput" class="chat-input" placeholder="输入消息…" data-i18n-placeholder="chat.input_placeholder" rows="2" aria-label="消息内容"></textarea>
           <button type="button" id="chatImageBtn" class="btn btn-xs btn-outline" data-i18n-title="chat.upload_image" title="发送图片" aria-label="发送图片">🖼️</button>
-          <input type="file" id="chatImageInput" accept="image/jpeg,image/png,image/gif,image/webp" class="d-none" data-i18n-aria="chat.upload_image" onchange="onChatImageSelected(this)">
+          <input type="file" id="chatImageInput" accept="image/jpeg,image/png,image/gif,image/webp" class="d-none" data-i18n-aria="chat.upload_image">
           <button type="button" id="chatVideoBtn" class="btn btn-xs btn-outline" data-i18n-title="chat.upload_video" title="发送视频" aria-label="发送视频">🎬</button>
-          <input type="file" id="chatVideoInput" accept="video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-matroska" class="d-none" data-i18n-aria="chat.upload_video" onchange="onChatVideoSelected(this)">
+          <input type="file" id="chatVideoInput" accept="video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-matroska" class="d-none" data-i18n-aria="chat.upload_video">
           <button type="button" id="chatAudioBtn" class="btn btn-xs btn-outline" data-i18n-title="chat.upload_audio" title="发送语音" aria-label="发送语音">🎤</button>
-          <input type="file" id="chatAudioInput" accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/webm" class="d-none" data-i18n-aria="chat.upload_audio" onchange="onChatAudioSelected(this)">
+          <input type="file" id="chatAudioInput" accept="audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/webm" class="d-none" data-i18n-aria="chat.upload_audio">
           <button type="button" id="chatSendBtn" class="btn btn-sm" data-i18n="chat.send">发送</button>
         </div>
       </div>
@@ -646,21 +647,13 @@
 
   <!-- Tab: VRC（群组 + VRChat 世界 子选项） -->
   <div id="tab-vrc" class="tab-content d-none" role="tabpanel" aria-labelledby="tab-btn-vrc">
-    <div class="group-mgmt-bar admin-only" id="groupMgmtBar">
-      <span class="group-mgmt-label" data-i18n="group.mgmt_label">⚙️ 群组管理</span>
-      <button type="button" class="group-mgmt-btn" data-target="groupChangesSection" data-i18n="group.mgmt_changes">👥 变动</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupAnnouncementsSection" data-i18n="group.mgmt_announcements">📢 公告</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupGalleriesSection" data-i18n="group.mgmt_galleries">🖼️ 相册</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupRolesSection" data-i18n="group.mgmt_roles">🎭 角色</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupAuditLogsSection" data-i18n="group.mgmt_audit_logs">📋 审计</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupBansSection" data-i18n="group.mgmt_bans">🚫 黑名单</button>
-      <button type="button" class="group-mgmt-btn" data-target="groupCalendarSection" data-i18n="group.mgmt_calendar">📅 日历</button>
-    </div>
     <div class="map-legend">
       <span class="map-tab-btn active" data-view="group" role="button" tabindex="0">👥 <span data-i18n="nav.group">群组</span></span>
       <span class="map-tab-btn" data-view="worlds" role="button" tabindex="0">🌐 <span data-i18n="map.worlds_view">VRChat 世界</span></span>
       <span class="map-tab-btn" data-view="collections" role="button" tabindex="0">📚 <span data-i18n="nav.collections">收藏</span></span>
       <span class="map-tab-btn" data-view="vrcfav" role="button" tabindex="0">⭐ <span data-i18n="nav.vrc_favorites">VRChat 收藏</span></span>
+      <span class="map-tab-btn" data-view="blacklist" role="button" tabindex="0">🚫 <span data-i18n="group.mgmt_bans">黑名单</span></span>
+      <span class="map-tab-btn admin-only" data-view="groupmgmt" role="button" tabindex="0">⚙️ <span data-i18n="group.mgmt_label">群组管理</span></span>
     </div>
     <div id="vrcGroupView">
     <div id="groupOverview" class="group-overview">
@@ -695,7 +688,11 @@
       <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
       <div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>
     </div>
-    <section id="groupChangesSection" class="group-changes-section admin-only mt-16"><div class="group-changes-head"><span data-i18n="group.admin_changes">成员变动记录</span> <span id="groupChangesCount" class="text-muted2 text-12"></span></div><div id="groupChangesList" class="group-changes-list"></div></section>
+    <div id="groupMemberPagination" class="pagination-bar"></div>
+    </div>
+    <!-- 群组管理（独立视图页，仅管理员可见：标签按钮 admin-only，内部面板亦带 admin-only 守卫） -->
+    <div id="vrcGroupMgmtView" class="d-none">
+    <section id="groupChangesSection" class="group-changes-section mt-16"><div class="group-changes-head"><span data-i18n="group.admin_changes">成员变动记录</span> <span id="groupChangesCount" class="text-muted2 text-12"></span></div><div id="groupChangesList" class="group-changes-list"></div></section>
     <!-- F-6/F-23 群组内容管理（管理员） -->
     <section id="groupAnnouncementsSection" class="group-changes-section admin-only mt-16"><div class="group-changes-head" data-i18n="group.admin_announcements">📢 群公告管理</div>
       <div id="groupAnnouncementsList" class="group-changes-list"></div>
@@ -744,6 +741,20 @@
         <button type="button" id="groupCalUnfollowBtn" class="btn btn-sm btn-outline" data-i18n="group.cal_unfollow_btn">➖ 取消关注</button>
       </div>
     </section>
+    </div>
+    <!-- VRChat 黑名单（所有人可见，管理入口仅管理员） -->
+    <div id="vrcBlacklistView" class="d-none">
+      <section class="group-changes-section">
+        <div class="group-changes-head"><span data-i18n="admin_vrc.bl_title">🚫 VRChat 黑名单</span> <span id="vrcBlacklistViewCount" class="text-muted2 text-12"></span></div>
+        <div class="admin-only flex-row gap-6 mt-8 flex-wrap" id="vrcBlacklistViewAddBar">
+          <input id="blvUsername" class="group-admin-input" placeholder="用户名" maxlength="255" style="max-width:200px">
+          <input id="blvVrchatId" class="group-admin-input" placeholder="VRChat ID（可选）" maxlength="64" style="max-width:180px">
+          <input id="blvUrl" class="group-admin-input" placeholder="用户URL（可选）" maxlength="2048" style="max-width:220px">
+          <input id="blvReason" class="group-admin-input" placeholder="原因（可选）" maxlength="2000" style="max-width:220px">
+          <button type="button" id="blvAddBtn" class="btn btn-sm btn-outline">🚫 加入黑名单</button>
+        </div>
+        <div id="vrcBlacklistViewList" class="group-changes-list"></div>
+      </section>
     </div>
     <div id="vrcWorldsView" class="d-none">
       <section class="worlds-panel mt-8" aria-label="VRChat 世界分布" data-i18n-aria="map.world_dist">
@@ -855,9 +866,9 @@
             <option value="updated" data-i18n="collections.filter_sort_updated">最近更新</option>
             <option value="favorite" data-i18n="collections.filter_sort_favorite">收藏最多</option>
             <option value="rating" data-i18n="collections.filter_sort_rating">评分最高</option>
-            <option value="created" data-i18n="collections.filter_sort_created">最新发布</option>
+            <option value="created" selected data-i18n="collections.filter_sort_created">最新发布</option>
             <option value="name" data-i18n="collections.filter_sort_name">名称</option>
-            <option value="heat" selected data-i18n="collections.filter_sort_heat">社区热度</option>
+            <option value="heat" data-i18n="collections.filter_sort_heat">社区热度</option>
           </select>
         </div>
 
@@ -920,11 +931,12 @@
   <!-- Tab: 活动 -->
   <div id="tab-events" class="tab-content d-none" role="tabpanel" aria-labelledby="tab-btn-events">
     <div class="evt-filter-bar">
-      <button type="button" class="evt-status-btn active" data-status="all">📋 全部</button>
-      <button type="button" class="evt-status-btn" data-status="ongoing">🔴 进行中</button>
-      <button type="button" class="evt-status-btn" data-status="upcoming">🟢 即将</button>
-      <button type="button" class="evt-status-btn" data-status="past">⚪ 往期</button>
-      <div class="flex-1"></div>
+      <div class="evt-status-scroll">
+        <button type="button" class="evt-status-btn active" data-status="all">📋 全部</button>
+        <button type="button" class="evt-status-btn" data-status="ongoing">🔴 进行中</button>
+        <button type="button" class="evt-status-btn" data-status="upcoming">🟢 即将</button>
+        <button type="button" class="evt-status-btn" data-status="past">⚪ 往期</button>
+      </div>
       <span id="evtCount" class="text-muted2 text-13"></span>
       <button type="button" class="evt-view-btn active" data-view="list">📋 列表</button>
       <button type="button" class="evt-view-btn" data-view="calendar">📅 日历</button>
@@ -932,7 +944,7 @@
       <button type="button" class="btn btn-sm btn-outline admin-only">🔄 VRC 同步</button>
     </div>
     <div id="evtBatchBar" class="evt-batch-bar d-none">
-      <label class="evt-batch-selectall"><input type="checkbox" id="evtSelectAll" onchange="toggleSelectAll(this.checked)"> 全选</label>
+      <label class="evt-batch-selectall"><input type="checkbox" id="evtSelectAll"> 全选</label>
       <span id="evtBatchCount" class="text-muted2 text-13">已选 0 项</span>
       <div class="flex-1"></div>
       <button type="button" class="btn btn-sm btn-primary" id="evtBatchArchiveBtn" disabled>📦 批量归档</button>
@@ -1754,7 +1766,7 @@
       <h3>🧑‍🦰 <span data-i18n="profile.avatar_settings">头像显示设置</span></h3>
       <div class="form-group flex-row gap-8 align-center mb-8">
         <label class="switch-wrap">
-          <input type="checkbox" id="meAvatarVisible" onchange="onAvatarVisibleToggle()">
+          <input type="checkbox" id="meAvatarVisible">
           <span class="switch-slider"></span>
         </label>
         <span><span data-i18n="profile.show_avatar">显示头像</span></span>
@@ -1762,12 +1774,12 @@
       <div class="text-muted2 text-12 mb-8" data-i18n="profile.avatar_settings_hint">选择希望向他人展示的头像来源；关闭上方开关则全站不显示你的头像</div>
       <div class="avatar-pref-row" id="avatarPrefRow">
         <button class="avatar-pref-item" id="prefCustom" type="button" data-type="custom">
-          <img class="ap-img" id="prefCustomImg" src="/api/avatar/default" alt="本地头像" onerror="this.src='/api/avatar/default'">
+          <img class="ap-img" id="prefCustomImg" src="/api/avatar/default" alt="本地头像">
           <div class="ap-name" data-i18n="auth.avatar_local">本地</div>
           <div class="ap-status" id="prefCustomStatus"></div>
         </button>
         <button class="avatar-pref-item" id="prefVrc" type="button" data-type="vrchat">
-          <img class="ap-img" id="prefVrcImg" src="/api/avatar/default" alt="VRChat头像" onerror="this.src='/api/avatar/default'">
+          <img class="ap-img" id="prefVrcImg" src="/api/avatar/default" alt="VRChat头像">
           <div class="ap-name" data-i18n="auth.avatar_vrchat">VRChat</div>
           <div class="ap-status" id="prefVrcStatus"></div>
         </button>
@@ -1816,7 +1828,7 @@
       </div>
       <div class="form-group flex-row gap-8 align-center mt-8">
         <label class="switch-wrap">
-          <input type="checkbox" id="meTagsVisible" onchange="onTagsVisibleToggle()">
+          <input type="checkbox" id="meTagsVisible">
           <span class="switch-slider"></span>
         </label>
         <span data-i18n="profile.tags_visible">公开显示我的标签</span>
@@ -1872,7 +1884,10 @@
       </div>
       <div id="vrcBind2fa" class="d-none mt-4">
         <input type="text" id="vrcBind2faCode" class="form-input" placeholder="两步验证码" data-i18n-placeholder="login.vrc_code_placeholder" aria-label="VRChat 两步验证码">
-        <button type="button" id="vrcBind2faBtn" class="btn btn-accent btn-sm mt-4" data-i18n="login.vrc_confirm">确认</button>
+        <div class="d-flex items-center gap-8 mt-4">
+          <button type="button" id="vrcBind2faBtn" class="btn btn-accent btn-sm" data-i18n="login.vrc_confirm">确认</button>
+          <button type="button" id="vrcBindResendBtn" class="btn btn-outline btn-sm" data-i18n="profile.resend_code" disabled>重发验证码</button>
+        </div>
       </div>
       <div id="vrchatBoundStatus" class="d-none mt-8">
         <div class="d-flex items-center gap-8">
@@ -2419,7 +2434,8 @@
 
 <!-- ===== 移动端底部Tab栏 (V7.00) ===== -->
 <nav id="mobileTabBar" class="mobile-tab-bar" data-i18n-aria="mobile.nav_aria">
-  <!-- 移动端「更多」溢出菜单：补齐手机端不可达的 7 个 tab（成员/群组/公告/生日/相册/收藏/地图） -->
+  <!-- 移动端「更多」溢出菜单：补齐手机端底栏未直接展示的 6 个 tab（成员/VRC/公告/生日/相册/地图）。
+       收藏为 VRC 页签内的子视图（data-view="collections"），不属于独立 tab，不在此列。 -->
   <div class="mobile-more-menu" id="mobileMoreMenu" role="menu" data-i18n-aria="mobile.more_menu_aria"></div>
   <div class="mobile-tab-bar-inner">
     <button type="button" class="mobile-tab-bar-item active" data-tab="home">
@@ -2460,28 +2476,28 @@
 <!-- ===== Scripts ===== -->
 <!-- 核心基础设施：defer 后与其余模块同批次按文档顺序执行（core 仍在最前），
      移出解析阻塞路径，首屏可先完成首次绘制（P2-21） -->
-<script defer src="/js/core.js?v=20261006c"></script>
+<script defer src="/js/core.js?v=20261011a"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
-<script defer src="/js/i18n.js?v=20261006c"></script>
-<script defer src="/js/ui.js?v=20261006c"></script>
-<script defer src="/vendor/gsap/gsap.min.js?v=20261006c"></script>
-<script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20261006c"></script>
-<script defer src="/js/motion.js?v=20261006c"></script>
-<script defer src="/js/reveal.js?v=20261006c"></script>
-<script defer src="/js/nav-scroller.js?v=20261006c"></script>
+<script defer src="/js/i18n.js?v=20261011a"></script>
+<script defer src="/js/ui.js?v=20261011a"></script>
+<script defer src="/vendor/gsap/gsap.min.js?v=20261011a"></script>
+<script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20261011a"></script>
+<script defer src="/js/motion.js?v=20261011a"></script>
+<script defer src="/js/reveal.js?v=20261011a"></script>
+<script defer src="/js/nav-scroller.js?v=20261011a"></script>
 <!-- 页面空闲冻结/解冻核心（freeze.js）：必须早于所有注册冻结回调的模块
      （theme/auth/main 及懒加载路由模块），保证它们顶层注册时 window.__freeze 已就绪 -->
-<script defer src="/js/freeze.js?v=20261006c"></script>
-<script defer src="/js/theme.js?v=20261006c"></script>
-<script defer src="/js/auth.js?v=20261006c"></script>
+<script defer src="/js/freeze.js?v=20261011a"></script>
+<script defer src="/js/theme.js?v=20261011a"></script>
+<script defer src="/js/auth.js?v=20261011a"></script>
 <!-- 路由模块懒加载器：包裹 switchTab，按需 / 空闲预载（见 loader.js）。
      当前语言包由 <head> 内联引导按偏好注入，其余语言包在切换时按需加载。 -->
-<script defer src="/js/loader.js?v=20261007a"></script>
+<script defer src="/js/loader.js?v=20261011a"></script>
 <!-- 全局命令面板（VN-9，VRCNext SmartSearch 借鉴）：依赖 core.js 的 api/esc 等 -->
-<script defer src="/js/smartsearch.js?v=20261006c"></script>
+<script defer src="/js/smartsearch.js?v=20261011a"></script>
 <!-- 引导启动：调用 initI18n / switchTab，必须在 loader.js 之后 -->
-<script defer src="/js/init.js?v=20261006c"></script>
-<script defer src="/js/main.js?v=20261006c"></script>
+<script defer src="/js/init.js?v=20261011a"></script>
+<script defer src="/js/main.js?v=20261011a"></script>
 
 <!-- ===== Event Bindings (migrated from inline handlers) ===== -->
 <script>
@@ -2879,7 +2895,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // 导致标签页内的两个按钮完全无响应。
   bindClick('markAllNotifsReadBtnTab', function() { markAllNotificationsRead(); });
   bindClick('clearAllNotifsBtnTab', function() { clearAllNotifications(); });
-  ['notifEmailToggle','notifBrowserToggle','notifSoundToggle'].forEach(function(tid) {
+  ['notifEmailToggle','notifBrowserToggle','notifSoundToggle','notifVrcToggle'].forEach(function(tid) {
     var t = byId(tid);
     if (t) t.addEventListener('change', function() {
       if (typeof toggleNotificationSetting === 'function') toggleNotificationSetting(tid.replace('notif','').replace('Toggle','').toLowerCase(), this.checked);
@@ -2938,9 +2954,18 @@ document.addEventListener('DOMContentLoaded', function() {
       removeSelfTag(parseInt(x.dataset.i, 10));
     });
   }
+  var meTagsVisible = byId('meTagsVisible');
+  if (meTagsVisible) {
+    meTagsVisible.addEventListener('change', function() { onTagsVisibleToggle(); });
+  }
+  var meAvatarVisible = byId('meAvatarVisible');
+  if (meAvatarVisible) {
+    meAvatarVisible.addEventListener('change', function() { onAvatarVisibleToggle(); });
+  }
 
   bindClick('vrcBindBtn', function() { bindVRChatWithPassword(); });
   bindClick('vrcBind2faBtn', function() { confirmVrcBind2fa(); });
+  bindClick('vrcBindResendBtn', function() { resendVrcBindCode(); });
   bindClick('vrcUnbindBtn', function() { unbindVRChat(); });
 
   // Password change

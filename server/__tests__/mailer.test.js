@@ -1,7 +1,7 @@
 /**
  * P2-4 邮件模块测试守卫。
  * 背景：项目内存在三处独立的 nodemailer transport（mailer.js / notification-service.js /
- * routes/auth.js）且环境变量命名分裂——安装向导写 SMTP_PASS，而 mailer.js 只读
+ * routes/auth_routes.js）且环境变量命名分裂——安装向导写 SMTP_PASS，而 mailer.js 只读
  * SMTP_PASSWORD，导致向导配置的站点永远无法初始化邮件（forgot-password 还因
  * require('../../mailer') 错误路径在发送步骤必然 500）。P2-4 统一收口：
  *   1) 环境变量：SMTP_PASS 优先，SMTP_PASSWORD 兼容回退；

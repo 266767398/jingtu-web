@@ -10,17 +10,43 @@ function validatePasswordStrength(pwd) {
 }
 
 function scrollToTop() {
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  // J4: 尊重系统减弱动效偏好——reduced-motion 下用 auto 直跳，避免强制平滑滚动触发多次互相打断
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
 }
 
 // 定时刷新句柄提升到模块级：空闲冻结时可由 freeze.js 注册的回调统一暂停/恢复
 let refreshTimer = null;
 let _initialRefreshTimer = null;
+// V9.6+: VRChat 官方通知（含 Boop）低频轮询句柄——无需用户打开通知面板也会自动同步
+let _vrcSyncPollTimer = null;
+
+// V9.6+: 启动 VRChat 官方通知低频轮询（5 分钟）。客户端 30s + 服务端 60s 双节流已在
+// syncVrcNotifications 与 vrc-sync 接口内生效；未绑定本人账号时后端零消耗直接返回。
+function startVrcSyncPoll() {
+  if (_vrcSyncPollTimer) return;
+  _vrcSyncPollTimer = setInterval(function () {
+    if (!currentUser) return;
+    if (window.__freeze && window.__freeze.isFrozen()) return;
+    if (typeof syncVrcNotifications === 'function') syncVrcNotifications();
+  }, 300000);
+}
+
+function stopVrcSyncPoll() {
+  if (_vrcSyncPollTimer) { clearInterval(_vrcSyncPollTimer); _vrcSyncPollTimer = null; }
+}
+
+// J3: 模块级 AudioContext 单例——只创建一次，播放结束在 onended 中 close 并置空，
+// 避免每次播放 new AudioContext() 泄漏持续存活的实例
+let _notifAudioCtx = null;
 
 function playNotificationSound() {
   if (window.__notifPrefs && window.__notifPrefs.sound === false) return;
   try {
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!_notifAudioCtx) {
+      _notifAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    const audioCtx = _notifAudioCtx;
     const oscillator = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
     oscillator.connect(gainNode);
@@ -33,6 +59,11 @@ function playNotificationSound() {
     gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
     oscillator.start(audioCtx.currentTime);
     oscillator.stop(audioCtx.currentTime + 0.3);
+    oscillator.onended = function () {
+      try {
+        if (_notifAudioCtx) { _notifAudioCtx.close(); _notifAudioCtx = null; }
+      } catch {}
+    };
   } catch {}
 }
 
@@ -90,11 +121,13 @@ async function init() {
     if (!hasUser) {
       document.getElementById('loginModePassword')?.classList.add('d-none');
       document.getElementById('loginModeVrc')?.classList.add('d-none');
+      document.getElementById('loginModeRegister')?.classList.add('d-none');
       document.getElementById('loginModeInit')?.classList.remove('d-none');
       switchLoginMode('init');
-      updateLoginTabsVisibility();
       startInitWizard();
       bindEvents();
+      // H3: 初始化向导接管登录区后隐藏 loading，避免向导与 spinner 重叠
+      if (loginLoading) loginLoading.style.display = 'none';
       return;
     }
 
@@ -118,6 +151,7 @@ async function init() {
     checkAutoLogin().then(isAutoLogged => {
       if (isAutoLogged) {
         showApp();
+        startVrcSyncPoll();
       } else {
         showLogin();
       }
@@ -174,11 +208,13 @@ async function init() {
       clearInterval(refreshTimer);
       refreshTimer = null;
       if (_initialRefreshTimer) { clearTimeout(_initialRefreshTimer); _initialRefreshTimer = null; }
+      stopVrcSyncPoll();
     } else {
       if (!refreshTimer) {
         scheduleRefresh(); // 回到前台立刻合帧刷新一次
         refreshTimer = setInterval(scheduleRefresh, 75000);
       }
+      startVrcSyncPoll();
     }
   });
 
@@ -190,6 +226,7 @@ async function init() {
         if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
         if (_initialRefreshTimer) { clearTimeout(_initialRefreshTimer); _initialRefreshTimer = null; }
         _refreshScheduled = false;
+        stopVrcSyncPoll();
         disconnectWebSocket();
         // 冻结是本页主动断连而非会话失效，避免解冻重连时被误报成「会话认证失败」
         wsEverOpened = true;
@@ -199,6 +236,7 @@ async function init() {
           scheduleRefresh(); // 解冻立即合帧刷新一次，恢复最新数据
           refreshTimer = setInterval(scheduleRefresh, 75000);
         }
+        startVrcSyncPoll();
         connectWebSocket();
       }
     });
@@ -405,10 +443,9 @@ function showOnlineUsers() {
     avatarSrc = escAttr(avatarSrc);
     const displayName = esc(u.displayName || __('main.unknown_user'));
     const isMe = u.userId === currentUser?.id;
-    const clickHandler = !isMe ? `goToProfile(${userId})` : '';
     return `
-    <div class="online-user-popup-item" style="${!isMe ? 'cursor:pointer' : ''}" onclick="${clickHandler ? `goToProfile(${userId})` : ''}">
-      <img src="${avatarSrc}" class="online-user-popup-avatar" loading="lazy" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(avatarSrc)}')">
+    <div class="online-user-popup-item" style="${!isMe ? 'cursor:pointer' : ''}"${!isMe ? ` data-action="online-user-open" data-uid="${escAttr(String(u.userId))}"` : ''}>
+      <img src="${avatarSrc}" class="online-user-popup-avatar" loading="lazy" data-avatar-fail-src="${avatarSrc}">
       <span class="online-user-popup-name">${displayName}</span>
       ${isMe ? '<span class="text-muted2 text-11">' + __('main.me') + '</span>' : ''}
       <span class="online-user-popup-dot" title="${__('main.online')}" aria-label="${__('main.online')}"></span>
@@ -427,7 +464,7 @@ function showOnlineUsers() {
     modal.innerHTML = `<div class="modal-content" style="max-width:380px">
       <h3 class="section-title">${__('main.online_users')} <span id="onlineUsersCount" class="text-accent"></span></h3>
       <div id="onlineUsersBody" class="online-users-body"></div>
-      <div class="modal-actions"><button class="btn" onclick="closeModal('onlineUsersModal')">${__('main.close')}</button></div>
+      <div class="modal-actions"><button class="btn" data-action="online-users-close">${__('main.close')}</button></div>
     </div>`;
     document.body.appendChild(modal);
   }
@@ -494,13 +531,26 @@ function bindEvents() {
   };
   document.addEventListener('click', window._mainClickHandler);
 
-  // ESC ${__('main.close')}弹窗
-  document.addEventListener('keydown', (e) => {
+  // ESC ${__('main.close')}弹窗（先移除旧监听再绑定，防止 bindEvents 重复执行叠加多个 keydown 监听器）
+  if (window._mainEscKeyHandler) document.removeEventListener('keydown', window._mainEscKeyHandler);
+  window._mainEscKeyHandler = function (e) {
     if (e.key === 'Escape') {
       closeAllModals();
       if (typeof closeLightbox === 'function') closeLightbox();
+      // M2: 视频弹层同样响应 ESC。优先走全局关闭函数（暂停播放后移除），否则直接隐藏并暂停
+      const videoOverlay = document.querySelector('.video-overlay');
+      if (videoOverlay) {
+        if (typeof window.closeProfileVideoOverlay === 'function') {
+          window.closeProfileVideoOverlay(videoOverlay);
+        } else {
+          const videoEl = videoOverlay.querySelector('video');
+          if (videoEl) videoEl.pause();
+          videoOverlay.remove();
+        }
+      }
     }
-  });
+  };
+  document.addEventListener('keydown', window._mainEscKeyHandler);
 
   // 返回顶部按钮（避免重复添加监听器）
   const scrollTopBtn = document.getElementById('scrollTopBtn');
@@ -522,14 +572,6 @@ function bindEvents() {
     if (e.target.closest('#scrollTopBtn')) scrollToTop();
   };
   document.addEventListener('click', window._backToTopClickHandler);
-
-  // 标签切换时滚动到顶部（通过 addEventListener 绑定，不覆盖 onclick）
-  const tabs = document.querySelectorAll('.tab');
-  tabs.forEach(tab => {
-    tab.addEventListener('click', function() {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
-  });
 
   // 头像文件输入监听
   const avatarFileInput = document.getElementById('meAvatarUpload');
@@ -668,7 +710,7 @@ async function globalSearchDo(query) {
         container.innerHTML = '<div class="text-muted text-12 p-12 text-center">' + __('main.no_results') + '</div>';
       } else {
         container.innerHTML = results.slice(0, 10).map(r =>
-        `<div class="search-result-item" onmousedown="searchBlurBlocked=true" onclick="searchBlurBlocked=false;switchTab('${r.type}');hideSearchResults()">
+        `<div class="search-result-item" data-action="global-search-go" data-tab-type="${escAttr(r.type)}">
           <span class="search-result-type">${r.type === 'announcements' ? '📢' : r.type === 'events' ? '📅' : '👤'}</span>
           <span class="search-result-title">${esc(r.title || r.preview || r.displayName || r.loginId || '')}</span>
           <span class="search-result-cat">${r.type === 'announcements' ? __('global.category_announce') : r.type === 'events' ? __('global.category_event') : __('global.category_member')}</span>
@@ -875,3 +917,44 @@ document.addEventListener('DOMContentLoaded', () => {
       .catch(() => {});
   }
 });
+
+// ==================== 主站内联事件迁移（CSP nonce 拦截属性型处理器） ====================
+// 在线用户弹窗 / 全局搜索跳转 —— data-action + document 级委托，
+// onmousedown 阻止搜索框 blur 隐藏结果的语义用 mousedown 委托还原。
+let _mainDelegationHandler = null;
+let _mainMousedownHandler = null;
+
+function _bindMainDelegation() {
+  if (_mainDelegationHandler) document.removeEventListener('click', _mainDelegationHandler);
+  if (_mainMousedownHandler) document.removeEventListener('mousedown', _mainMousedownHandler);
+  _mainDelegationHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    switch (action) {
+      case 'online-user-open':
+        if (typeof goToProfile === 'function') goToProfile(el.getAttribute('data-uid'));
+        break;
+      case 'online-users-close':
+        closeModal('onlineUsersModal');
+        break;
+      case 'global-search-go':
+        searchBlurBlocked = false;
+        switchTab(el.getAttribute('data-tab-type'));
+        hideSearchResults();
+        break;
+    }
+  };
+  _mainMousedownHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action="global-search-go"]') : null;
+    if (el) searchBlurBlocked = true;
+  };
+  document.addEventListener('click', _mainDelegationHandler);
+  document.addEventListener('mousedown', _mainMousedownHandler);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _bindMainDelegation);
+} else {
+  _bindMainDelegation();
+}

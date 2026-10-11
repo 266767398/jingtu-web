@@ -249,8 +249,10 @@ function switchLoginMode(mode) {
   }
   // 切换离开 VRChat 标签时重置验证码状态
   if (mode !== 'vrchat' && typeof resetVrcLoginState === 'function') resetVrcLoginState();
-  // 切换标签时清理 2FA 验证码状态（留在密码 tab 也不恢复旧验证码）
-  if (typeof resetLogin2fa === 'function') resetLogin2fa();
+  // 切换标签时清理 2FA 验证码状态（只清状态，不重新显示密码面板——
+  // resetLogin2fa 会强制重显 loginPasswordFields，导致登录页与
+  // VRChat/注册/初始化面板同屏叠加）
+  if (typeof clearLogin2faState === 'function') clearLogin2faState();
 }
 
 async function doPasswordLogin() {
@@ -282,12 +284,16 @@ function showLogin2fa(data) {
   toast(data.message || __('login.2fa_hint'), 'info');
 }
 
-function resetLogin2fa() {
+function clearLogin2faState() {
   _login2faUserId = null;
   document.getElementById('login2faArea')?.classList.add('d-none');
-  document.getElementById('loginPasswordFields')?.classList.remove('d-none');
   const codeInput = document.getElementById('login2faCode');
   if (codeInput) codeInput.value = '';
+}
+
+function resetLogin2fa() {
+  clearLogin2faState();
+  document.getElementById('loginPasswordFields')?.classList.remove('d-none');
 }
 
 async function doLogin2fa() {
@@ -376,6 +382,18 @@ function loginAvatarPlaceholder(loginId) {
   return '/api/avatar/default?name=' + encodeURIComponent(c || '');
 }
 
+// 头像预览图失败回落默认头像（原内联 onerror="this.src='/api/avatar/default'" 被 CSP 拦截，
+// 改由 JS 属性绑定；已回落后清掉自身处理器，避免默认头像自身失败时无限循环）
+function bindAvatarDefaultFallback(img) {
+  if (!img || img.dataset.avatarDefaultFb) return;
+  img.dataset.avatarDefaultFb = '1';
+  img.onerror = function () {
+    if (img.getAttribute('src') === '/api/avatar/default') return;
+    img.onerror = null;
+    img.src = '/api/avatar/default';
+  };
+}
+
 async function previewLoginAvatar(loginId) {
   const wrap = document.getElementById('loginAvatarPreview');
   const localImg = document.getElementById('loginLocalAvatar');
@@ -394,6 +412,8 @@ async function previewLoginAvatar(loginId) {
     data = null; // 限流/网络错误静默降级为占位，不干扰登录流程
   }
   wrap.style.display = 'flex';
+  bindAvatarDefaultFallback(localImg);
+  bindAvatarDefaultFallback(vrcImg);
   localImg.src = (data && data.avatarUrl) || placeholder;
   vrcImg.src = (data && data.vrchatAvatarUrl) || placeholder;
 }
@@ -499,6 +519,9 @@ async function sendVrcLoginCode() {
 function startVrcCodeCountdown() {
   const btn = document.getElementById('sendVrcCodeBtn');
   if (!btn) return;
+  // F1-45: 入口先清理旧链，防止 Enter 键连续触发导致两条 setTimeout 链并行递减、
+  // 60s 倒计时被加速到一半，按钮提前解锁抢发验证码。
+  if (_vrcCodeCountdown) { clearTimeout(_vrcCodeCountdown); _vrcCodeCountdown = null; }
   let seconds = 60;
   btn.disabled = true;
   // 文案节点可能不存在（模板改版）。原先直接 .textContent 会在定时器里抛，

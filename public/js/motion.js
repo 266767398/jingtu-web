@@ -88,19 +88,26 @@
   function beginViewTransition() {
     if (reduce) return;
     var mc = document.getElementById('mainContainer');
-    if (!mc || marked(mc, 'app-ready') === false) {
-      // 首次进入主区时只标记就绪，不做 OUT
+    if (!mc) return;
+    // 首次进入主区（页面初始 switchTab / 登录态恢复）：只标记就绪、不做 OUT。
+    // 若此时压暗却无后续 DOM 变化触发 end，mainContainer 会永久停在 opacity 0.25。
+    if (!marked(mc, 'app-ready')) {
+      mark(mc, 'app-ready');
+      return;
     }
     pendingTransition = true;
-    if (mc && !reduce) {
-      gsap.to(mc, { opacity: 0.25, y: 10, duration: 0.16, ease: 'power1.in' });
-    }
+    gsap.killTweensOf(mc);
+    gsap.to(mc, { opacity: 0.25, y: 10, duration: 0.16, ease: 'power1.in', overwrite: 'auto' });
   }
 
   function endViewTransition() {
     if (reduce) { pendingTransition = false; return; }
     var mc = document.getElementById('mainContainer');
     if (!mc) { pendingTransition = false; return; }
+    // 必须在设置恢复值前终止仍在运行的压暗补间（duration 0.16s）：gsap.set 只是
+    // 立即插入一个 0 时长补间，若压暗补间尚未结束，其下一帧插值会覆盖恢复值，
+    // 导致切 Tab 后 mainContainer 永久停在 opacity 0.25 + 下移 10px。
+    gsap.killTweensOf(mc);
     gsap.set(mc, { opacity: 1, y: 0 });
     var kids = mc.children && mc.children.length ? Array.prototype.slice.call(mc.children) : [];
     if (kids.length) {

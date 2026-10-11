@@ -5,6 +5,8 @@
  */
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const path = require('path');
 const logger = require('./logger');
 const { fail, getAvatarUrl } = require('./utils');
 const { getPool } = require('./db');
@@ -28,6 +30,14 @@ const ROLE_LABELS = {
 const AES_KEY = (() => {
   const envKey = process.env.ENCRYPT_KEY;
   if (!envKey || envKey.length !== 64) {
+    // B10: 生产环境且站点已安装（.env 已存在）时缺失 ENCRYPT_KEY 属密钥事故——
+    // fail-fast 拒绝启动，禁止静默生成临时密钥导致历史加密数据（QQ/VRChat cookie/TOTP secret）不可解密。
+    // 首次安装（.env 尚不存在）与开发/测试环境保留临时密钥逻辑，保证 setup 引导流程可用。
+    const siteInstalled = fs.existsSync(path.join(__dirname, '..', '.env'));
+    if (process.env.NODE_ENV === 'production' && siteInstalled) {
+      logger.error('auth', '🚫 ENCRYPT_KEY 未设置或长度不足 64 位十六进制，生产环境拒绝启动（站点已安装，避免密钥轮换导致历史加密数据不可解密）');
+      process.exit(1);
+    }
     logger.warn('auth', '⚠ WARNING: ENCRYPT_KEY 未设置，使用临时密钥（仅适用于 setup 初始化）');
     return require('crypto').randomBytes(32);
   }

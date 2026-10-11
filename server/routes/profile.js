@@ -214,24 +214,65 @@ router.delete('/delete', requireAuth, async (req, res) => {
     const pool = getPool();
     conn = await pool.getConnection();
     await conn.beginTransaction();
-    const [users] = await conn.query('SELECT login_id FROM users WHERE id = ? FOR UPDATE', [uid]);
+    const [users] = await conn.query('SELECT login_id, display_name FROM users WHERE id = ? FOR UPDATE', [uid]);
     if (users.length === 0) {
       await conn.rollback();
       return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
     }
     const loginId = users[0].login_id;
-    await conn.query('DELETE FROM user_like WHERE from_user_id = ? OR to_user_id = ?', [uid, uid]);
-    await conn.query('DELETE FROM member_note WHERE owner_id = ? OR target_id = ?', [uid, uid]);
-    await conn.query('DELETE FROM post_comment WHERE user_id = ?', [uid]);
-    await conn.query('DELETE FROM posts WHERE user_id = ?', [uid]);
-    await conn.query('DELETE FROM album_comment WHERE user_vrcid = ?', [loginId]);
-    await conn.query('DELETE FROM album_like WHERE user_vrcid = ?', [loginId]);
-    await conn.query('DELETE FROM album_comment WHERE photo_id IN (SELECT id FROM album_photo WHERE upload_vrcid = ?)', [String(uid)]);
-    await conn.query('DELETE FROM album_like WHERE photo_id IN (SELECT id FROM album_photo WHERE upload_vrcid = ?)', [String(uid)]);
-    await conn.query('DELETE FROM album_photo WHERE upload_vrcid = ?', [String(uid)]);
-    await conn.query('DELETE FROM event WHERE create_user_id = ?', [uid]);
-    await conn.query('DELETE FROM profiles WHERE user_id = ?', [uid]);
-    await conn.query('DELETE FROM users WHERE id = ?', [uid]);
+    // H7 修复：改为软删除。先清理该用户全部敏感关联数据（登录会话、通知、好友、私信、
+    // 群成员关系、点赞等），最后仅对 users 主记录打 deleted_at 标记并脱敏 PII，
+    // 不再物理 DELETE，保证历史引用（帖子、评论、消息展示的“已注销”占位）不悬空。
+    // 每张关联表独立 try-catch：老库无该表时跳过，不把注销流程打成 500。
+    const cleanupQueries = [
+      ['DELETE FROM sessions WHERE JSON_UNQUOTE(JSON_EXTRACT(data, \'$.userId\')) = ?', [String(uid)]],
+      ['DELETE FROM notifications WHERE user_id = ?', [uid]],
+      ['DELETE FROM user_friends WHERE user_id = ? OR friend_id = ?', [uid, uid]],
+      ['DELETE FROM messages WHERE sender_id = ? OR receiver_id = ?', [uid, uid]],
+      ['DELETE FROM chat_group_members WHERE user_id = ?', [uid]],
+      ['DELETE FROM post_like WHERE user_id = ? OR post_id IN (SELECT id FROM posts WHERE user_id = ?)', [uid, uid]],
+      ['DELETE FROM user_group_membership WHERE user_id = ?', [uid]],
+      ['DELETE FROM user_like WHERE from_user_id = ? OR to_user_id = ?', [uid, uid]],
+      ['DELETE FROM member_note WHERE owner_id = ? OR target_id = ?', [uid, uid]],
+      ['DELETE FROM post_comment WHERE user_id = ?', [uid]],
+      ['DELETE FROM posts WHERE user_id = ?', [uid]],
+      ['DELETE FROM album_comment WHERE user_vrcid = ?', [loginId]],
+      ['DELETE FROM album_like WHERE user_vrcid = ?', [loginId]],
+      ['DELETE FROM album_comment WHERE photo_id IN (SELECT id FROM album_photo WHERE upload_vrcid = ?)', [String(uid)]],
+      ['DELETE FROM album_like WHERE photo_id IN (SELECT id FROM album_photo WHERE upload_vrcid = ?)', [String(uid)]],
+      ['DELETE FROM album_photo WHERE upload_vrcid = ?', [String(uid)]],
+      ['DELETE FROM event WHERE create_user_id = ?', [uid]],
+      ['DELETE FROM profiles WHERE user_id = ?', [uid]]
+    ];
+    for (const [sql, params] of cleanupQueries) {
+      try {
+        await conn.query(sql, params);
+      } catch (e) {
+        // 表不存在等结构差异跳过；其余真实异常向上抛由外层统一回滚
+        if (e && (e.code === 'ER_NO_SUCH_TABLE' || e.code === 'ER_BAD_TABLE_ERROR')) {
+          logger.warn('profile', `[profile/delete] 关联表不存在已跳过: ${String(sql).slice(0, 60)}`);
+        } else {
+          throw e;
+        }
+      }
+    }
+    // 用户主记录软删除 + 脱敏：login_id 加 _del 后缀避免占用唯一索引/重名（注册查重仅看
+    // deleted_at IS NULL，故不影响新用户注册）；password_hash/vrchat/totp 等凭据一律清空，
+    // 保证软删除用户无法再登录（登录校验带 deleted_at IS NULL 守卫，见 auth_local_service）
+    await conn.query(
+      `UPDATE users SET
+         deleted_at = NOW(),
+         login_id = CONCAT(LEFT(login_id, 20), '_del', id),
+         display_name = CONCAT(LEFT(COALESCE(NULLIF(display_name, ''), login_id), 20), '_已注销'),
+         email = CONCAT('del_', id, '@deleted.local'),
+         password_hash = NULL,
+         totp_secret = NULL,
+         totp_enabled = 0,
+         vrchat_id = NULL, vrchat_name = NULL, vrchat_avatar_url = NULL,
+         vrchat_verified = 0, approved = 0
+       WHERE id = ?`,
+      [uid]
+    );
     await conn.commit();
     
     req.session.destroy(() => {

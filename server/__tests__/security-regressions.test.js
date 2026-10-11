@@ -9,7 +9,7 @@ const files = {
   server: read('server', 'server.js'),
   csrfMiddleware: read('server', 'middleware', 'csrf.js'),
   uploadsAuth: read('server', 'middleware', 'uploads_auth.js'),
-  authRoute: read('server', 'routes', 'auth.js'),
+  authRoute: read('server', 'routes', 'auth_routes.js'),
   localService: read('server', 'auth_local_service.js'),
   vrcService: read('server', 'auth_vrc_service.js'),
   authMiddleware: read('server', 'auth.js'),
@@ -68,6 +68,9 @@ const files = {
   themeJs: read('public', 'js', 'theme.js'),
   homeJs: read('public', 'js', 'home.js'),
   chatJs: read('public', 'js', 'chat.js'),
+  rtcJs: read('public', 'js', 'rtc.js'),
+  locationShareJs: read('public', 'js', 'location-share.js'),
+  groupManageJs: read('public', 'js', 'group-manage.js'),
   zhLang: read('public', 'js', 'languages', 'zh.js'),
   db: read('server', 'db.js'),
   compose: read('docker-compose.yml'),
@@ -145,7 +148,7 @@ describe('security regressions', () => {
   // 管理、迁移、数据库等特权路由曾可能在 CSRF 中间件外；挂载顺序必须保证先校验 CSRF 再挂路由。
   // （CSRF 实现已抽至 middleware/csrf.js：server.js 只保留挂载点，豁免清单与会话绑定断言锚定到新模块。）
   test('keeps privileged routes inside CSRF protection', () => {
-    expectBefore(files.server, 'const { csrfCleanupInterval } = setupCsrf(app);', "app.use('/api/auth', require('./routes/auth'))");
+    expectBefore(files.server, 'const { csrfCleanupInterval } = setupCsrf(app);', "app.use('/api/auth', require('./routes/auth_routes'))");
     expectBefore(files.server, 'const { csrfCleanupInterval } = setupCsrf(app);', "app.use('/api/migration', require('./routes/migration'))");
     expectBefore(files.server, 'const { csrfCleanupInterval } = setupCsrf(app);', "app.use('/api', require('./routes/database'))");
     expect(files.csrfMiddleware).toMatch(/app\.use\('\/api',\s*(?:async\s*)?\(req,\s*res,\s*next\) => \{/);
@@ -195,15 +198,35 @@ describe('security regressions', () => {
   });
 
   // VRChat 两步登录曾可能在验证码错误时先创建本地会话；必须先 verifyVrc2fa 成功后才 regenerate/buildSession。
+  // P4 重构：收尾统一走 completeVrcLogin（会话重建只在该函数内发生），
+  // 失败路径与 2FA 通过前的绑定查询路径均不得触发会话创建。
   test('rejects an invalid VRChat 2FA code before creating a session', () => {
     const inline2fa = sliceBetween(files.vrcService, 'if (loginToken && code) {', '// ══════════ 模式 A');
     expect(inline2fa).toMatch(/const vResult = await verifyVrc2fa\(code,\s*method,\s*cookie\)/);
     expect(inline2fa).toMatch(/if \(!vResult\.success\)[\s\S]*return (?:fail\(res,\s*401|res\.status\(401\)\.json)/);
-    expectBefore(inline2fa, 'const vResult = await verifyVrc2fa', 'req.session.regenerate');
-    expectBefore(inline2fa, 'if (!vResult.success)', 'req.session.regenerate');
+    // 会话重建只允许出现在统一收尾函数 completeVrcLogin 内
+    expect(inline2fa).not.toMatch(/req\.session\.regenerate/);
+    const completeLogin = sliceBetween(files.vrcService, 'function completeVrcLogin', 'function _register2faFailure');
+    expect(completeLogin).toMatch(/req\.session\.regenerate/);
+    expect(completeLogin).toMatch(/buildSession/);
     const standalone2fa = sliceBetween(files.vrcService, "router.post('/vrchat-2fa'", '// ==================== VRChat 绑定');
     expect(standalone2fa).toMatch(/const vResult = await verifyVrc2fa\(code,\s*method,\s*cookie\)/);
-    expectBefore(standalone2fa, 'const vResult = await verifyVrc2fa', 'req.session.regenerate');
+    expect(standalone2fa).not.toMatch(/req\.session\.regenerate/);
+  });
+
+  // P1（docs/12）：VRChat /auth/user 在 2FA 待验证阶段不返回 id，模式 A 必须先进入 2FA 流程，
+  // 绑定查询只能等 2FA 验证通过后（模式 B / 独立端点）执行——否则已绑定+2FA 用户会被误判"未绑定"。
+  test('2FA 用户第一步登录不落入"未绑定"误判（P1）', () => {
+    const modeA = sliceBetween(files.vrcService, '// ══════════ 模式 A', '// ==================== VRChat 独立 2FA 验证');
+    // needs2fa 分支在绑定查询之前直接返回 need2fa
+    const needs2faBranch = sliceBetween(modeA, 'if (needs2fa) {', '// 无 2FA → 按 VRChat ID 查绑定');
+    expect(needs2faBranch).toMatch(/need2fa: true/);
+    expect(needs2faBranch).not.toMatch(/未绑定/);
+    // 绑定查询只出现在 2FA 判定之后
+    expectBefore(modeA, 'if (needs2fa)', 'WHERE vrchat_id');
+    // 模式 B：验证通过拿到真实 id 后才查绑定
+    const modeB = sliceBetween(files.vrcService, 'if (loginToken && code) {', '// ══════════ 模式 A');
+    expectBefore(modeB, 'if (!vResult.user || !vResult.user.id)', 'WHERE vrchat_id');
   });
 
   // 迁移页面提交数据库凭据时曾遗漏 cookie/CSRF；统一封装必须随请求携带凭据并为写请求加 token。
@@ -241,7 +264,7 @@ describe('security regressions', () => {
     expect(files.server).toMatch(/app\.use\('\/api\/share',\s*require\('\.\/routes\/share'\)\(\)\)/);
     expect(files.shareRoute).toMatch(/module\.exports = function \(\) \{[\s\S]*const router = express\.Router\(\)/);
     expect(files.shareRoute).toMatch(/router\.post\('\/',\s*requireAuth/);
-    expect(files.shareRoute).toMatch(/crypto\.randomBytes\(6\)\.toString\('base64url'\)/);
+    expect(files.shareRoute).toMatch(/crypto\.randomBytes\(9\)\.toString\('base64url'\)/);
     expect(files.shareRoute).not.toMatch(/Math\.random\s*\(/);
     expect(files.dbInit).toMatch(/CREATE TABLE IF NOT EXISTS share_links/);
     expect(files.dbInit).toMatch(/UNIQUE KEY uk_share_code\(share_code\)/);
@@ -380,7 +403,7 @@ describe('security regressions', () => {
   // 资料写入曾零校验直落库，且 coverImage 被静默丢弃；PUT /me/profile 必须全字段校验并接收 coverImage。
   test('validates profile updates and keeps the coverImage field', () => {
     const putProfile = sliceBetween(files.usersProfileRoute, "router.put('/me/profile'", "router.post('/me/avatar'");
-    expect(putProfile).toMatch(/const \{ displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage \} = req\.body/);
+    expect(putProfile).toMatch(/const \{ displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage, selfTags, tagsVisible \} = req\.body/);
     expect(putProfile).toMatch(/!\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(birthday\)/);
     expect(putProfile).toMatch(/const isSafeUrl = \(v\) => typeof v === 'string' && v\.length <= 500 && \(/);
     expect(putProfile).toMatch(/\^https\?:\\\/\\\/\\S\+\$\/i\.test\(v\) \|\| \/\^\\\/\[A-Za-z0-9\._\\\-~\/\]\*\$\/\.test\(v\)/);
@@ -389,7 +412,7 @@ describe('security regressions', () => {
     expect(putProfile).toMatch(/prefsObj\.coverImage = coverImage/);
     expect(putProfile).toMatch(/!\/\^\[A-Za-z0-9_\]\{1,30\}\$\/\.test\(k\) \|\| \(v !== null && \(typeof v !== 'string' \|\| v\.length > 300\)\)/);
     expect(putProfile).toMatch(/JSON\.stringify\(incoming\)\.length > 65536/);
-    expect(putProfile).toMatch(/k !== 'social_links'\) return sendError\(res,\s*400,\s*ErrorCodes\.BAD_REQUEST,\s*'preferences 值类型不正确'\)/);
+    expect(putProfile).toMatch(/k !== 'social_links' && k !== 'self_tags'\) return sendError\(res,\s*400,\s*ErrorCodes\.BAD_REQUEST,\s*'preferences 值类型不正确'\)/);
   });
 
   // 前端保存封面后 GET /me/profile 曾永远读回空值；响应必须回显 preferences.coverImage。
@@ -563,7 +586,7 @@ describe('security regressions', () => {
   // ==================== P3-110~124 第六批后端 ====================
   test('P3-110/111 masks system_config & .env URL-embedded credentials on read', () => {
     expect(files.adminRoute).toMatch(/CONFIG_MASK = '__MASKED__'/);
-    expect(files.adminRoute).toMatch(/config\[row\.configKey\] = maskConfigValue\(row\.configKey, row\.configValue\)/);
+    expect(files.adminRoute).toMatch(/config\[row\.configKey\] = maskConfigValue\(row\.configKey, decryptConfigValue\(row\.configKey, row\.configValue\)\)/);
     expect(files.adminRoute).toMatch(/if \(val === CONFIG_MASK\) continue/);
     expect(files.envConfigRoute).toMatch(/config\[envKey\] = maskEnvValue\(envKey, value\)/);
     expect(files.envConfigRoute).toMatch(/userinfo/);
@@ -678,8 +701,8 @@ describe('security regressions', () => {
       expect(files.securityMiddleware).toMatch(/req\.path === '\/avatar\/user'/);
     });
 
-    test('server.js 挂载 avatar 路由时传入 authState（供 /api/avatar/user 使用系统会话）', () => {
-      expect(files.server).toMatch(/require\('\.\/routes\/avatar'\)\(authState\)/);
+    test('server.js 挂载 avatar 路由时传入 authState + getVRCCookie（/api/avatar/user 用户绑定 cookie 优先、系统会话回退）', () => {
+      expect(files.server).toMatch(/require\('\.\/routes\/avatar'\)\(authState, getVRCCookie\)/);
     });
   });
 
@@ -692,6 +715,9 @@ describe('security regressions', () => {
   //    代理成功记入 __avatarProxyCache（15min TTL），该 URL 转代理优先避免反复直连超时；
   //  · 代理失败（502）再反解直连一次；两条路都失败才落默认占位 + 60s 双 key 冷却；
   //  · assets.amlcdn.com 国内普遍被墙，保持代理优先（直连仅作失败兜底）。
+  // ▼ V9.2（2026-10-10）转向：用户反馈整屏 50+ 条 502 刷控制台。从「502 驱动前端重试」改为
+  //   「失败统一 200 占位」——sendPlaceholderOk 用于所有失败兜底（会话熔断/限速/回源失败/无存储），
+  //   <img> 正常渲染默认占位、不再 502；sendPlaceholder(502) 仅保留函数定义作兼容（无调用点）。
   describe('直连优先、代理兜底（备选链路）', () => {
     test('avatar.js 提供 sendPlaceholder：失败统一 502 + no-store 占位（不再 200）', () => {
       expect(files.avatarRoute).toMatch(/function sendPlaceholder\(res\)/);
@@ -699,15 +725,18 @@ describe('security regressions', () => {
       expect(files.avatarRoute).toMatch(/Cache-Control', 'no-store'/);
     });
 
-    test('avatar.js /user 与 /proxy 全部失败兜底均走 sendPlaceholder', () => {
-      const hits = files.avatarRoute.match(/sendPlaceholder\(res\)/g) || [];
+    test('avatar.js /user 与 /proxy 全部失败兜底均走 sendPlaceholderOk（V9.2：统一 200 占位，消除 502 控制台噪音）', () => {
+      const hits = files.avatarRoute.match(/sendPlaceholderOk\(res\)/g) || [];
       expect(hits.length).toBeGreaterThanOrEqual(6);
+      // sendPlaceholder(502) 仅保留函数定义（1 处声明），不得再有实际调用点
+      const calls = files.avatarRoute.match(/(?<!function )sendPlaceholder\(res\)/g) || [];
+      expect(calls.length).toBe(0);
       expect(files.avatarRoute).not.toMatch(/sendBuffer\(res, Buffer\.from\(DEFAULT_AVATAR_SVG\)/);
     });
 
-    test('avatar.js 限速路径返回 502 占位（前端可感知失败触发 onerror）', () => {
-      expect(files.avatarRoute).toMatch(/if \(avatarRateLimited\(clientIp\)\) return sendPlaceholder\(res\);/);
-      expect(files.avatarRoute).toMatch(/if \(userAvatarRateLimited\(clientIp\)\) return sendPlaceholder\(res\);/);
+    test('avatar.js 限速路径返回 200 占位（不再 502 刷控制台）', () => {
+      expect(files.avatarRoute).toMatch(/if \(avatarRateLimited\(clientIp\)\) return sendPlaceholderOk\(res\);/);
+      expect(files.avatarRoute).toMatch(/if \(userAvatarRateLimited\(clientIp\)\) return sendPlaceholderOk\(res\);/);
     });
 
     test('ui.js 提供 avatarDirectOf 反解代理地址（仅 VRChat CDN 白名单主机）', () => {
@@ -805,10 +834,10 @@ describe('security regressions', () => {
     });
 
     test('index.html 中 freeze.js 先于 theme/auth/main 加载（注册回调时 __freeze 已就绪）', () => {
-      expectBefore(files.indexHtml, 'js/freeze.js?v=20261006c', 'js/theme.js?v=20261006c');
-      expectBefore(files.indexHtml, 'js/freeze.js?v=20261006c', 'js/auth.js?v=20261006c');
-      expectBefore(files.indexHtml, 'js/freeze.js?v=20261006c', 'js/main.js?v=20261006c');
-      expect(files.indexHtml).toMatch(/loader\.js\?v=20261006e/);
+      expectBefore(files.indexHtml, 'js/freeze.js?v=20261011a', 'js/theme.js?v=20261011a');
+      expectBefore(files.indexHtml, 'js/freeze.js?v=20261011a', 'js/auth.js?v=20261011a');
+      expectBefore(files.indexHtml, 'js/freeze.js?v=20261011a', 'js/main.js?v=20261011a');
+      expect(files.indexHtml).toMatch(/loader\.js\?v=20261011a/);
     });
 
     test('main.js 冻结时暂停刷新轮询与断开 WebSocket，解冻恢复；轮询带冻结守卫', () => {
@@ -835,7 +864,7 @@ describe('security regressions', () => {
       expect(files.themeJs).toMatch(/window\.__freeze\.register\(\{[\s\S]*?_themeScheduleTimer[\s\S]*?config\.mode === 'auto'/);
       expect(files.homeJs).toMatch(/let _greetingTimer = null;/);
       expect(files.homeJs).toMatch(/window\.__freeze\.register\(\{[\s\S]*?_greetingTimer[\s\S]*?updateGreeting\(\);/);
-      expect(files.chatJs).toMatch(/window\.__freeze\.register\(\{[\s\S]*?stopGroupLocSweep\(\);[\s\S]*?startGroupLocSweep\(\);/);
+      expect(files.locationShareJs).toMatch(/window\.__freeze\.register\(\{[\s\S]*?stopGroupLocSweep\(\);[\s\S]*?startGroupLocSweep\(\);/);
       expect(files.authJs).toMatch(/window\._resumeLoginParticles = function/);
       expect(files.authJs).toMatch(/window\.__freeze\.register\(\{[\s\S]*?_particleAnimId[\s\S]*?_resumeLoginParticles/);
     });
@@ -847,29 +876,29 @@ describe('security regressions', () => {
   // 提供"共享声音"开关按需开启。
   describe('屏幕共享防回音回归', () => {
     test('麦克风采集统一启用回音消除（RTC_AUDIO 常量，4 处 getUserMedia 全量替换）', () => {
-      expect(files.chatJs).toMatch(/const RTC_AUDIO = \{ echoCancellation: true, noiseSuppression: true, autoGainControl: true \};/);
-      const uses = files.chatJs.match(/getUserMedia\(\{ audio: RTC_AUDIO/g) || [];
+      expect(files.rtcJs).toMatch(/const RTC_AUDIO = \{ echoCancellation: true, noiseSuppression: true, autoGainControl: true \};/);
+      const uses = files.rtcJs.match(/getUserMedia\(\{ audio: RTC_AUDIO/g) || [];
       expect(uses.length).toBeGreaterThanOrEqual(4);
-      expect(files.chatJs).not.toMatch(/getUserMedia\(\{ audio: true/);
+      expect(files.rtcJs).not.toMatch(/getUserMedia\(\{ audio: true/);
     });
 
     test('屏幕共享发送端在 offer 信令携带 screenStreamId（私聊 + 群语音房）', () => {
-      expect(files.chatJs).toMatch(/screenShare: !!\(aTrack\), screenStreamId: aTrack \? screenStream\.id : null/);
-      expect(files.chatJs).toMatch(/screenShare: false, screenStreamId: null/);
+      expect(files.rtcJs).toMatch(/screenShare: !!\(aTrack\), screenStreamId: aTrack \? screenStream\.id : null/);
+      expect(files.rtcJs).toMatch(/screenShare: false, screenStreamId: null/);
     });
 
     test('接收端 onTrack 识别桌面音频轨并默认静音（track.enabled = false）/防回音核心', () => {
-      expect(files.chatJs).toMatch(/inv\.screenStreamId && stream\.id === inv\.screenStreamId/);
-      expect(files.chatJs).toMatch(/e\.track\.enabled = !!(inv\.screenAudioEnabled)/);
-      expect(files.chatJs).toMatch(/room\.screenStreamIds\[uid\] && stream\.id === room\.screenStreamIds\[uid\]/);
-      expect(files.chatJs).toMatch(/e\.track\.enabled = !!room\.screenAudioEnabled/);
+      expect(files.rtcJs).toMatch(/inv\.screenStreamId && stream\.id === inv\.screenStreamId/);
+      expect(files.rtcJs).toMatch(/e\.track\.enabled = !!(inv\.screenAudioEnabled)/);
+      expect(files.rtcJs).toMatch(/room\.screenStreamIds\[uid\] && stream\.id === room\.screenStreamIds\[uid\]/);
+      expect(files.rtcJs).toMatch(/e\.track\.enabled = !!room\.screenAudioEnabled/);
     });
 
     test('提供"共享声音"开关（私聊 + 群）与未共享时的提示', () => {
-      expect(files.chatJs).toMatch(/rtcScreenAudioBtn/);
-      expect(files.chatJs).toMatch(/rtcGroupScreenAudioBtn/);
-      expect(files.chatJs).toMatch(/rtc\.share_screen_first/);
-      expect(files.chatJs).toMatch(/rtc\.screen_audio_tip/);
+      expect(files.rtcJs).toMatch(/rtcScreenAudioBtn/);
+      expect(files.rtcJs).toMatch(/rtcGroupScreenAudioBtn/);
+      expect(files.rtcJs).toMatch(/rtc\.share_screen_first/);
+      expect(files.rtcJs).toMatch(/rtc\.screen_audio_tip/);
     });
 
     test('中文语言包补齐 4 个防回音文案 key', () => {
@@ -880,22 +909,22 @@ describe('security regressions', () => {
     });
 
     test('桌面音频轨挂载输出 sink（无私聊/群路由则开关无声）：routeScreenAudioTrack/routeGroupScreenAudioTrack', () => {
-      expect(files.chatJs).toMatch(/function routeScreenAudioTrack\(elId, track\)/);
-      expect(files.chatJs).toMatch(/routeScreenAudioTrack\('rtcScreenAudioOut', e\.track\)/);
-      expect(files.chatJs).toMatch(/<audio id="rtcScreenAudioOut" autoplay playsinline class="rtc-hidden"><\/audio>/);
-      expect(files.chatJs).toMatch(/function routeGroupScreenAudioTrack\(uid, track\)/);
-      expect(files.chatJs).toMatch(/rtcGroupScreenAudioOut_' \+ uid/);
-      expect(files.chatJs).toMatch(/bar\.appendChild\(el\)/);
+      expect(files.rtcJs).toMatch(/function routeScreenAudioTrack\(elId, track\)/);
+      expect(files.rtcJs).toMatch(/routeScreenAudioTrack\('rtcScreenAudioOut', e\.track\)/);
+      expect(files.rtcJs).toMatch(/<audio id="rtcScreenAudioOut" autoplay playsinline class="rtc-hidden"><\/audio>/);
+      expect(files.rtcJs).toMatch(/function routeGroupScreenAudioTrack\(uid, track\)/);
+      expect(files.rtcJs).toMatch(/rtcGroupScreenAudioOut_' \+ uid/);
+      expect(files.rtcJs).toMatch(/bar\.appendChild\(el\)/);
     });
 
     test('对端停止共享时私聊按钮立即复位；群成员离开清理屏幕共享残留', () => {
       // 私聊复位分支（!inv.screenShareActive）必须同步更新按钮，否则按钮残留"共享中"
-      expect(files.chatJs).toMatch(/inv\.screenAudioEnabled = false;\s*inv\.screenAudioTracks = \[\];\s*updateScreenAudioBtn\(\);/);
+      expect(files.rtcJs).toMatch(/inv\.screenAudioEnabled = false;\s*inv\.screenAudioTracks = \[\];\s*updateScreenAudioBtn\(\);/);
       // 群成员离开：删除 screenStreamIds/screenShareBy/screenAudioTracksByUid 并移除输出元素
-      expect(files.chatJs).toMatch(/delete room\.screenStreamIds\[uid\];/);
-      expect(files.chatJs).toMatch(/delete room\.screenShareBy\[uid\];/);
-      expect(files.chatJs).toMatch(/delete room\.screenAudioTracksByUid\[uid\];/);
-      expect(files.chatJs).toMatch(/rtcGroupScreenAudioOut_' \+ uid/);
+      expect(files.rtcJs).toMatch(/delete room\.screenStreamIds\[uid\];/);
+      expect(files.rtcJs).toMatch(/delete room\.screenShareBy\[uid\];/);
+      expect(files.rtcJs).toMatch(/delete room\.screenAudioTracksByUid\[uid\];/);
+      expect(files.rtcJs).toMatch(/rtcGroupScreenAudioOut_' \+ uid/);
     });
   });
 
@@ -944,15 +973,25 @@ describe('security regressions', () => {
       expect(files.dbInit).toMatch(/UNIQUE KEY uk_vrchat_id \(vrchat_id\)/);
     });
 
-    test('黑名单增删查路由全部 requireSuperAdmin（仅超管可维护）', () => {
+    test('黑名单权限：列表登录可见（requireAuth），增删仍 requireSuperAdmin', () => {
       expect(files.adminRoute).toMatch(/require\('\.\/admin_vrc_blacklist'\)\(\)/);
-      expect(files.adminVrcBlacklistRoute).toMatch(/router\.get\('\/admin\/vrc-blacklist', requireSuperAdmin/);
+      expect(files.adminVrcBlacklistRoute).toMatch(/router\.get\('\/admin\/vrc-blacklist', requireAuth/);
       expect(files.adminVrcBlacklistRoute).toMatch(/router\.post\('\/admin\/vrc-blacklist', requireSuperAdmin/);
       expect(files.adminVrcBlacklistRoute).toMatch(/router\.delete\('\/admin\/vrc-blacklist\/:id', requireSuperAdmin/);
       expect(files.adminVrcBlacklistRoute).toMatch(/请输入用户名/);
       expect(files.adminVrcBlacklistRoute).toMatch(/该用户已在黑名单中/);
       expect(files.adminVrcBlacklistRoute).toMatch(/添加VRChat黑名单/);
       expect(files.adminVrcBlacklistRoute).toMatch(/移除VRChat黑名单/);
+    });
+
+    test('VRC 页提供公开黑名单视图（新 Tab）：加载函数常驻 group.js，增删按钮仅管理员渲染', () => {
+      expect(files.indexHtml).toMatch(/data-view="blacklist"/);
+      expect(files.indexHtml).toMatch(/id="vrcBlacklistView"/);
+      expect(files.indexHtml).toMatch(/id="vrcBlacklistViewList"/);
+      expect(files.indexHtml).toMatch(/id="blvAddBtn"/);
+      expect(files.groupJs).toMatch(/function loadVrcBlacklistView\(\)/);
+      expect(files.groupJs).toMatch(/window\.loadVrcBlacklistView = loadVrcBlacklistView/);
+      expect(files.groupJs).toMatch(/data-vrc-action="blacklist-view-remove"/);
     });
 
     test('/group/members LEFT JOIN vrc_blacklist 返回 blacklisted 标记', () => {
@@ -992,12 +1031,59 @@ describe('security regressions', () => {
       expect(files.zhLang).toMatch(/"group\.blacklisted_tooltip"/);
     });
 
-    test('黑名单样式与语言包缓存戳同步升级（i18n + loader）', () => {
-      expect(files.indexHtml).toMatch(/06-members\.css\?v=20261006e/);
-      expect(files.indexHtml).toMatch(/i18n\.js\?v=20261006c/);
-      // 语言包版本号与 HTML 引用一致，避免 Service Worker 命中旧缓存
+    test('M5 版本戳全站单一：index.html 所有 ?v= 同戳且与 i18n I18N_PACK_VERSION 一致（防漏升戳旧缓存）', () => {
+      // 版本戳以单一事实来源（scripts/bump-version.js）维护：任何一处 ?v= 分叉都会被此测试拦下
+      const stamps = Array.from(files.indexHtml.matchAll(/\?v=(\w+)/g), (m) => m[1]);
+      expect(stamps.length).toBeGreaterThan(20);
+      const uniq = Array.from(new Set(stamps));
+      expect(uniq).toEqual([uniq[0]]);
       const i18nSrc = read('public', 'js', 'i18n.js');
-      expect(i18nSrc).toMatch(/I18N_PACK_VERSION = '20261006c'/);
+      const pack = i18nSrc.match(/I18N_PACK_VERSION = '([^']+)'/);
+      expect(pack).not.toBeNull();
+      expect(pack[1]).toBe(uniq[0]);
+      // 语言包 document.write 引用同戳
+      expect(files.indexHtml).toMatch(new RegExp("languages/' \\+ detectLang\\(\\) \\+ '\\.js\\?v=" + uniq[0]));
     });
+  });
+});
+
+// ==================== M4:语言包键集合一致性（docs/12） ====================
+// 背景：6 份语言文件历史键数一致但键序漂移（各自手改插入位置不同），无法按行号校验；
+// 新增文案容易漏补语言。此处按键集合对比（与 scripts/check-lang-keys.js 同逻辑，供 CI 回归）。
+describe('语言包键集合一致性（M4）', () => {
+  const vm = require('vm');
+  const LANGS = [
+    { file: 'zh.js', varName: '_LANG_ZH' },
+    { file: 'en.js', varName: '_LANG_EN' },
+    { file: 'ja.js', varName: '_LANG_JA' },
+    { file: 'fr.js', varName: '_LANG_FR' },
+    { file: 'de.js', varName: '_LANG_DE' },
+    { file: 'ru.js', varName: '_LANG_RU' },
+  ];
+  const LANG_BASE = path.join(repoRoot, 'public', 'js', 'languages');
+
+  function loadKeys(entry) {
+    const src = fs.readFileSync(path.join(LANG_BASE, entry.file), 'utf8');
+    const sandbox = { window: {} };
+    vm.createContext(sandbox);
+    vm.runInContext(src, sandbox, { filename: entry.file });
+    return Object.keys(sandbox.window[entry.varName]);
+  }
+
+  test('6 份语言文件键集合完全一致（新增文案必须 6 语同步补齐）', () => {
+    const packs = LANGS.map((e) => ({ entry: e, keys: loadKeys(e) }));
+    const zhKeys = packs[0].keys;
+    expect(zhKeys.length).toBeGreaterThan(3000);
+    const zhSet = new Set(zhKeys);
+    const missing = [];
+    const extra = [];
+    for (const p of packs.slice(1)) {
+      const set = new Set(p.keys);
+      for (const k of zhKeys) if (!set.has(k)) missing.push(p.entry.file + ' 缺: ' + k);
+      for (const k of p.keys) if (!zhSet.has(k)) extra.push(p.entry.file + ' 多: ' + k);
+      expect(p.keys.length).toBe(zhKeys.length);
+    }
+    expect(missing).toEqual([]);
+    expect(extra).toEqual([]);
   });
 });

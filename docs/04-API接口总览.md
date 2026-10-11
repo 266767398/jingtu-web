@@ -1,6 +1,7 @@
 # 04 · API 接口总览
 
-> 默认基址 `http://<host>:3456`。完整端点清单见 `docs/archive/05-API接口全文档.md`；本文为索引级概览。
+> 默认基址 `http://<host>:3456`。完整端点清单见 [server.js 挂载表](../server/server.js) 与 [08-开发指南.md](08-开发指南.md)；
+> 旧版全量接口文档已并入本文档体系（`docs/archive/` 已清理）。本文为索引级概览。
 
 ## 1. 全局约定
 
@@ -34,8 +35,8 @@
 | 用户 | `/api/users`、`/api/profile` | 列表/生日/位置/搜索/Me 系列 / 管理员 CRUD / 导出 / 注销 |
 | 内容 | `/api/posts`、`/api/events`、`/api/event-teams`、`/api/announcements` | 动态（无编辑端点）；活动约 40 端点（签到/签核/QR/日历/iCal/批量删除/归档） |
 | 社交 | `/api/friends`、`/api/follows`、`/api/collections`、`/api/user-like`、`/api/checkin`、`/api/achievements` | 好友/关注/统一收藏馆（18+ 端点）/点赞/签到/成就 |
-| 实时 | `/api/chat`（约 25）、`/api/live`（约 15）、`/api/notifications`（约 10） | 聊天含群聊管理/媒体 100MB；通知站内 |
-| 群组/VRC | `/api/group/*`、`/api/vrc/*`、`/api/moderations` | 群组管理 + VRC lookup/world/search/avatar；审核队列（远程 block/mute 回显） |
+| 实时 | `/api/chat`（约 25）、`/api/live`（约 15）、`/api/notifications`（约 10） | 聊天含群聊管理/媒体 100MB；通知站内（会员可把 VRChat 官方通知并入：`POST /api/notifications/vrc-sync`） |
+| 群组/VRC | `/api/group/*`、`/api/vrc/*`、`/api/vrc-favorites`、`/api/moderations` | 群组管理 + VRC lookup/world/search/avatar + 官方收藏（分组/条目）；审核队列（远程 block/mute 回显） |
 | 收藏模型 | `/api/model-collections`、`/api/world-tags`、`/api/avatar-tags` | 旧模型收藏 / 标签 |
 | 权限组 | `/api/permission-groups` | 三张表权限模型（30 个 can_* 键） |
 | 运维 | `/api/admin/*` | db/backups/config/env-reload/files/logs/security/analytics/export/webhooks/activation-codes/git-status/git-update/git-restart |
@@ -50,6 +51,12 @@
 | 上传 | 10 次 / 分（3 个入口） |
 | 管理 | 30 次 / 分 |
 | 搜索 | 20 次 / 30 秒 |
+| VRChat 上游 | 全站令牌桶 40 次 / 分（排队最长 12s）；429 → `VRC_RATE_LIMITED`（retryAfter 30s，前端静默冷却后重试） |
+
+> 官方收藏接口（`/api/vrc-favorites/items`）对条目做回源富化（名字/封面/作者），带三级缓存
+> （内存 → `vrc_fav_cache` 表 → VRChat）与单请求预算（默认 18 条、并发 4）；未补齐的条目由
+> 前端「限流冷却后自动重拉」（最多 12 轮）补齐，耗尽后提供手动「重试补全」按钮。写操作
+> （增/删/改名/清空收藏）严格限定用户自己绑定的 cookie，不做系统账号兜底。
 
 计数 HybridStore：配置 `REDIS_HOST` 用 Redis 共享态，否则回退进程内 Map（单实例必守）。
 

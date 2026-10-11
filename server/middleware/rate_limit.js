@@ -14,6 +14,11 @@ const limiterConfig = {
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  // 未配置 TRUST_PROXY（默认不信任代理）时，收到 X-Forwarded-For 头（如 nginx 反代模板
+  // 无条件注入）会让 express-rate-limit v8 抛 ERR_ERL_UNEXPECTED_X_FORWARDED_FOR 500。
+  // 且诸如 PHP 边缘直连的畸形头同样命中。此处显式关闭该校验以「忽略」不可信转发头：
+  // req.ip 仍取 socket 地址（trust proxy=false），伪造 X-Forwarded-For 无法绕过限流。
+  validate: { xForwardedForHeader: false },
   message: {
     error: '请求过于频繁，请稍后再试',
     retryAfter: 900

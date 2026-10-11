@@ -41,7 +41,7 @@ function renderWorldFavorites() {
       <div class="empty-state">
         <div class="empty-icon">🌐</div>
         <div>${__('favorites.no_worlds')}</div>
-        <button class="btn-primary mt-3" onclick="openWorldSearch('favorites')">${__('favorites.search_world')}</button>
+        <button class="btn-primary mt-3" data-action="fav-search-worlds">${__('favorites.search_world')}</button>
       </div>`;
     return;
   }
@@ -51,7 +51,7 @@ function renderWorldFavorites() {
       ${worldFavorites.map(w => `
         <div class="favorite-card" data-id="${w.id}" data-world-id="${w.world_id}">
           <div class="favorite-card-img">
-            <img src="${escAttr(w.image_url || '/img/world-placeholder.png')}" alt="${escAttr(w.world_name)}" loading="lazy" onerror="this.src='/img/world-placeholder.png'">
+            <img src="${escAttr(w.image_url || '/img/world-placeholder.png')}" alt="${escAttr(w.world_name)}" loading="lazy" data-img-src-fallback="/img/world-placeholder.png">
             ${w.is_recommended ? '<span class="recommend-badge">⭐</span>' : ''}
           </div>
           <div class="favorite-card-info">
@@ -59,8 +59,8 @@ function renderWorldFavorites() {
             <div class="favorite-card-id">${w.world_id}</div>
           </div>
           <div class="favorite-card-actions">
-            <button class="btn-icon" onclick="addWorldToVrc('${escJsStr(w.world_id)}')" data-i18n-tip="${__('favorites.add_to_vrc')}">🎮</button>
-            <button class="btn-icon btn-danger" onclick="removeWorldFavorite(${w.id})" data-i18n-tip="${__('favorites.remove')}">🗑️</button>
+            <button class="btn-icon" data-action="fav-world-add-vrc" data-world-id="${escAttr(w.world_id)}" data-i18n-tip="${__('favorites.add_to_vrc')}">🎮</button>
+            <button class="btn-icon btn-danger" data-action="fav-world-remove" data-fav-id="${escAttr(String(w.id))}" data-i18n-tip="${__('favorites.remove')}">🗑️</button>
           </div>
         </div>
       `).join('')}
@@ -76,7 +76,7 @@ function renderAvatarFavorites() {
       <div class="empty-state">
         <div class="empty-icon">🧑‍🦰</div>
         <div>${__('favorites.no_avatars')}</div>
-        <button class="btn-primary mt-3" onclick="openAvatarSearch()">${__('favorites.search_avatar')}</button>
+        <button class="btn-primary mt-3" data-action="fav-avatar-search">${__('favorites.search_avatar')}</button>
       </div>`;
     return;
   }
@@ -86,7 +86,7 @@ function renderAvatarFavorites() {
       ${avatarFavorites.map(a => `
         <div class="favorite-card" data-id="${a.id}" data-avatar-id="${a.avatar_id}">
           <div class="favorite-card-img">
-            <img src="${escAttr(proxyAvatar(a.image_url) || '/img/avatar-placeholder.png')}" alt="${escAttr(a.avatar_name)}" loading="lazy" onerror="this.src='/img/avatar-placeholder.png'">
+            <img src="${escAttr(proxyAvatar(a.image_url) || '/img/avatar-placeholder.png')}" alt="${escAttr(a.avatar_name)}" loading="lazy" data-img-src-fallback="/img/avatar-placeholder.png">
             ${a.is_recommended ? '<span class="recommend-badge">⭐</span>' : ''}
           </div>
           <div class="favorite-card-info">
@@ -94,8 +94,8 @@ function renderAvatarFavorites() {
             <div class="favorite-card-id">${a.avatar_id}</div>
           </div>
           <div class="favorite-card-actions">
-            <button class="btn-icon" onclick="switchToAvatar('${escJsStr(a.avatar_id)}')" data-i18n-tip="${__('favorites.switch_avatar')}">✨</button>
-            <button class="btn-icon btn-danger" onclick="removeAvatarFavorite(${a.id})" data-i18n-tip="${__('favorites.remove')}">🗑️</button>
+            <button class="btn-icon" data-action="fav-avatar-switch" data-avatar-id="${escAttr(a.avatar_id)}" data-i18n-tip="${__('favorites.switch_avatar')}">✨</button>
+            <button class="btn-icon btn-danger" data-action="fav-avatar-remove" data-fav-id="${escAttr(String(a.id))}" data-i18n-tip="${__('favorites.remove')}">🗑️</button>
           </div>
         </div>
       `).join('')}
@@ -202,8 +202,8 @@ function renderAvatarSearchResults(avatars) {
     return;
   }
   container.innerHTML = avatars.map(a => `
-    <div class="world-search-item" onclick="selectAvatar('${escJsStr(a.id)}', '${escJsStr(a.name)}', '${escJsStr(a.imageUrl || '')}')">
-      <img src="${escAttr(proxyAvatar(a.thumbnailImageUrl || a.imageUrl) || '/img/avatar-placeholder.png')}" class="world-search-thumb" alt="${escAttr(a.name)}" loading="lazy" onerror="this.src='/img/avatar-placeholder.png'">
+    <div class="world-search-item" data-action="fav-avatar-select" data-avatar-id="${escAttr(a.id)}" data-avatar-name="${escAttr(a.name)}" data-avatar-image="${escAttr(a.imageUrl || '')}">
+      <img src="${escAttr(proxyAvatar(a.thumbnailImageUrl || a.imageUrl) || '/img/avatar-placeholder.png')}" class="world-search-thumb" alt="${escAttr(a.name)}" loading="lazy" data-img-src-fallback="/img/avatar-placeholder.png">
       <div class="world-search-info">
         <div class="world-search-name">${esc(a.name)}</div>
         <div class="world-search-author">${__('vrc.by_author')} ${esc(a.authorName || __('unknown'))}</div>
@@ -251,3 +251,54 @@ function loadFavoritesPage() {
   switchFavoritesTab('worlds');
   loadFavorites();
 }
+
+// ==================== 收藏夹内联事件迁移（CSP nonce 拦截属性型处理器） ====================
+// 空态搜索按钮 / 世界·头像卡片操作按钮 / 搜索选中项 / 图片 fallback 兜底
+// 统一改为 data-action + document 级委托（本文件已归档，不参与运行，仅保持迁移一致性）。
+let _favoritesHandler = null;
+let _favoritesImgErrHandler = null;
+function _bindFavorites() {
+  if (_favoritesHandler) document.removeEventListener('click', _favoritesHandler);
+  if (_favoritesImgErrHandler) document.removeEventListener('error', _favoritesImgErrHandler, true);
+  _favoritesHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    switch (action) {
+      case 'fav-search-worlds':
+        openWorldSearch('favorites');
+        break;
+      case 'fav-world-add-vrc':
+        addWorldToVrc(el.getAttribute('data-world-id'));
+        break;
+      case 'fav-world-remove':
+        removeWorldFavorite(parseInt(el.getAttribute('data-fav-id'), 10));
+        break;
+      case 'fav-avatar-search':
+        openAvatarSearch();
+        break;
+      case 'fav-avatar-switch':
+        switchToAvatar(el.getAttribute('data-avatar-id'));
+        break;
+      case 'fav-avatar-remove':
+        removeAvatarFavorite(parseInt(el.getAttribute('data-fav-id'), 10));
+        break;
+      case 'fav-avatar-select':
+        selectAvatar(
+          el.getAttribute('data-avatar-id'),
+          el.getAttribute('data-avatar-name'),
+          el.getAttribute('data-avatar-image')
+        );
+        break;
+    }
+  };
+  _favoritesImgErrHandler = function (e) {
+    var t = e.target;
+    if (!t || t.tagName !== 'IMG' || !t.dataset.imgSrcFallback || t.dataset.srcFbDone) return;
+    t.dataset.srcFbDone = '1';
+    t.src = t.dataset.imgSrcFallback;
+  };
+  document.addEventListener('click', _favoritesHandler);
+  document.addEventListener('error', _favoritesImgErrHandler, true);
+}
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', _bindFavorites); } else { _bindFavorites(); }

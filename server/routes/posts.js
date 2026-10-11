@@ -654,7 +654,7 @@ router.post('/:id/like', requireAuth, async (req, res) => {
     const postId = parseInt(req.params.id);
     const userId = req.session.userId;
 
-    const [posts] = await getPool().query(`SELECT id, user_id, like_count FROM posts WHERE id = ?`, [postId]);
+    const [posts] = await getPool().query(`SELECT id, user_id, content, like_count FROM posts WHERE id = ?`, [postId]);
     if (!posts.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '动态不存在');
 
     // P3-120：原 check-then-act（先 SELECT 判已有再 INSERT/DELETE）在并发下会
@@ -696,11 +696,17 @@ router.post('/:id/like', requireAuth, async (req, res) => {
     // 新增点赞时通知被点赞用户
     if (liked && posts[0].user_id && posts[0].user_id !== userId) {
       if (notificationService) {
+        // M14 修复：通知正文取自 posts 表真实内容并剥离 HTML 标签，
+        // 不再信任客户端提交的 req.body.content（可被伪造注入）
+        const postText = String(posts[0].content || '')
+          .replace(/<[^>]*>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
         notificationService.notifyUser(
           posts[0].user_id,
           'like',
           `${req.session.displayName} 赞了你的动态`,
-          `「${req.body.content?.slice(0, 50) || ''}」`,
+          `「${postText.slice(0, 50)}」`,
           { targetType: 'post', targetId: postId, postId }
         );
       }

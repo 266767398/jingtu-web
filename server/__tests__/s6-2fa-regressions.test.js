@@ -53,7 +53,7 @@ jest.mock('../vrc', () => ({
 
 const auth = require('../auth');
 const totp = require('../totp');
-const authRouter = require('../routes/auth');
+const authRouter = require('../routes/auth_routes');
 
 function mockQueryBySql(routes) {
   mockPool.query.mockImplementation((sql, params) => {

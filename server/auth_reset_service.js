@@ -1,7 +1,7 @@
 /**
  * 境途同游 V5.2 — 密码找回业务层
  * 密码重置三路由（forgot-password / verify-reset-code / reset-password）业务，
- * registerResetRoutes(router) 由 routes/auth.js 原位委托注册，保持挂载顺序不变。
+ * registerResetRoutes(router) 由 routes/auth_routes.js 原位委托注册，保持挂载顺序不变。
  */
 const crypto = require('crypto');
 const { fail, ok, getPool, handleError, sendError, ErrorCodes } = require('./utils');

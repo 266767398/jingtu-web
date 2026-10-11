@@ -2,7 +2,8 @@
   RewriteEngine On
 </IfModule>
 
-# 禁止访问敏感文件
+# 禁止访问敏感文件（O9：授权指令统一风格 —— 敏感名单一律 Require all denied 全拒；
+# start-node.php 的白名单见文末 Require ip，两段互不重叠、各自自成授权上下文）
 <FilesMatch "^\.">
   Require all denied
 </FilesMatch>
@@ -13,18 +14,19 @@
 # 禁止目录列表
 Options -Indexes
 
-# 安全头
-<IfModule mod_headers.c>
-  Header always set X-Content-Type-Options "nosniff"
-  Header always set X-Frame-Options "DENY"
-  Header always set Referrer-Policy "strict-origin-when-cross-origin"
-</IfModule>
+# O9：安全响应头（X-Frame-Options / Content-Security-Policy / X-Content-Type-Options /
+# Referrer-Policy / HSTS）已由 Node（server/server.js 安全头中间件，含面板路径豁免）
+# 统一设置；此处刻意不再 Header 重复添加，避免双份头与豁免冲突
+# （与 deploy/nginx/jingtu.conf 注释同一口径）。下方仅保留纯静态资源缓存头。
 
 # PWA Service Worker 缓存
 <FilesMatch "sw\.js$">
   Header set Cache-Control "no-cache, no-store, must-revalidate"
 </FilesMatch>
 
+# 本机专用启动辅助：仅允许回环地址访问（O9：最小必要保留）。
+# ⚠️ 勿把 Require all denied 与 Require ip 写进同一授权段：Apache 2.4 同段多条 Require
+# 默认按 RequireAny（或）组合，「拒绝或放行」会退化成全放行；此处单段单指令无歧义。
 <Files "start-node.php">
   Require ip 127.0.0.1 ::1
 </Files>

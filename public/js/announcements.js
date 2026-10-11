@@ -37,7 +37,7 @@ function renderAnnouncements(list) {
     return;
   }
   container.innerHTML = list.map(a => `
-    <div class="anno-card ${a.pinned ? 'pinned' : ''}" onclick="showAnnouncementDetail('${escJsStr(String(a.id))}')">
+    <div class="anno-card ${a.pinned ? 'pinned' : ''}" data-action="anno-detail" data-anno-id="${escAttr(String(a.id))}">
       ${a.pinned ? '<div class="anno-pin-badge">' + __('announcements.pin') + '</div>' : ''}
       <div class="anno-title">${esc(a.title)}</div>
       <div class="anno-meta">
@@ -66,8 +66,8 @@ async function showAnnouncementDetail(id) {
       const adminActions = document.getElementById('evtDetAdminActions');
       adminActions.style.display = isAdmin ? 'flex' : 'none';
       adminActions.innerHTML = isAdmin ? `
-        <button class="btn btn-sm btn-white-glass" onclick="editAnnouncement('${escJsStr(String(a.id))}')">${__('announcements.edit')}</button>
-        <button class="btn btn-sm btn-danger ml-6" onclick="deleteAnnouncement('${escJsStr(String(a.id))}')">${__('announcements.delete')}</button>
+        <button class="btn btn-sm btn-white-glass" data-action="anno-edit" data-anno-id="${escAttr(String(a.id))}">${__('announcements.edit')}</button>
+        <button class="btn btn-sm btn-danger ml-6" data-action="anno-del" data-anno-id="${escAttr(String(a.id))}">${__('announcements.delete')}</button>
       ` : '';
       hideEl('evtDetSignBar');
       hideEl('evtDetCheckinBar');
@@ -166,3 +166,29 @@ async function saveAnnounce() {
   if (!title || !content) { toast(__('announcements.title_content_required'), 'error'); return; }
   try { const res = await api('/api/announcements', { method: 'POST', body: { title, content, pinned, visibility } }); if (res.ok) { toast(__('announcements.created'), 'success'); closeModal('announceModal'); loadAnnouncements(); } } catch (err) { if (isApiHandledError(err)) return; toast(__('announcements.create_failed'), 'error'); }
 }
+
+// ==================== 公告页内联事件迁移（CSP nonce 拦截属性型处理器） ====================
+// 公告卡片 / 详情弹窗编辑删除按钮
+// 统一改为 data-action + document 级委托，天然覆盖重渲染时序。
+let _announcementsHandler = null;
+function _bindAnnouncements() {
+  if (_announcementsHandler) document.removeEventListener('click', _announcementsHandler);
+  _announcementsHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    switch (action) {
+      case 'anno-detail':
+        showAnnouncementDetail(el.getAttribute('data-anno-id'));
+        break;
+      case 'anno-edit':
+        editAnnouncement(el.getAttribute('data-anno-id'));
+        break;
+      case 'anno-del':
+        deleteAnnouncement(el.getAttribute('data-anno-id'));
+        break;
+    }
+  };
+  document.addEventListener('click', _announcementsHandler);
+}
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', _bindAnnouncements); } else { _bindAnnouncements(); }

@@ -26,7 +26,7 @@ const MIGRATED_ROUTES = [
   'admin', 'album', 'announcements', 'backups', 'collections',
   'config', 'db-recover', 'events', 'files', 'follows', 'friends', 'groups',
   'logs', 'migration', 'moderations', 'notifications', 'permission_groups',
-  'posts', 'profile', 'security', 'setup', 'share', 'users', 'vrc_system',
+  'posts', 'profile', 'security_routes', 'setup', 'share', 'users', 'vrc_system',
   'webhooks'
 ];
 
@@ -63,7 +63,7 @@ describe('P2-6 已迁移路由静态守卫', () => {
     expect(src).not.toMatch(/res\.json\(\s*\{\s*success:\s*true/);
   });
 
-  // P2-4 auth 路由按域拆分：原 routes/auth.js 的 ok 包络守卫随实现迁移到三个 service。
+  // P2-4 auth 路由按域拆分：原 routes/auth_routes.js 的 ok 包络守卫随实现迁移到三个 service。
   test.each(['auth_local_service.js', 'auth_vrc_service.js', 'auth_reset_service.js'])('%s：引入 ok 且不再直接写 success:true 平铺', (name) => {
     const src = fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
     expect(src).toMatch(/const\s*\{[^}]*\bok\b[^}]*\}\s*=\s*require\('\.\/utils'\)/);

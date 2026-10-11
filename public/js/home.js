@@ -404,7 +404,7 @@ function updateGreeting() {
   const av = document.getElementById('homeWelcomeAvatar');
   if (av) {
     if (currentUser && currentUser.avatarUrl) {
-      av.innerHTML = '<img src="' + escAttr(currentUser.avatarUrl) + '" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,\'' + escJsStr(currentUser.avatarUrl) + '\')">';
+      av.innerHTML = '<img class="home-welcome-avatar-img" src="' + escAttr(currentUser.avatarUrl) + '" alt="" data-avatar-fail-src="' + escAttr(currentUser.avatarUrl) + '">';
     } else {
       av.textContent = '👤';
     }
@@ -459,7 +459,7 @@ async function loadHomeUpcomingEvents() {
       const statusBadge = status === 'ongoing'
         ? `<span class="event-countdown ongoing">${__('events.ongoing')}</span>`
         : `<span class="event-countdown upcoming">${__('events.upcoming')}</span>`;
-      return `<div class="event-card" onclick="switchTab('events')" style="cursor:pointer">
+      return `<div class="event-card" data-action="home-goto-tab" data-tab="events" style="cursor:pointer">
         <div class="event-time">📅 ${fmtDate(eventDate)}</div>
         <div style="font-weight:700;font-size:15px;margin-bottom:4px">${esc(e.title || e.event_title || '')}</div>
         <div class="flex-row gap-6 items-center">
@@ -495,8 +495,8 @@ async function loadHomeLatestPosts() {
       const avatar = (p.user && p.user.avatarUrl) || p.avatarUrl || p.authorAvatar || '/api/avatar/default';
       const name = esc((p.user && p.user.name) || p.authorName || p.author_name || __('unknown_user'));
       const content = esc((p.content || '').substring(0, 100));
-      return `<div class="post-mini-item" onclick="switchTab('posts')">
-        <img class="post-mini-avatar" src="${escAttr(avatar || '/api/avatar/default')}" alt="" onerror="window.__avatarFail&&window.__avatarFail(this,'${escJsStr(avatar || '/api/avatar/default')}')" loading="lazy">
+      return `<div class="post-mini-item" data-action="home-goto-tab" data-tab="posts">
+        <img class="post-mini-avatar" src="${escAttr(avatar || '/api/avatar/default')}" alt="" data-avatar-fail-src="${escAttr(avatar || '/api/avatar/default')}" loading="lazy">
         <div class="post-mini-body">
           <div class="post-mini-author">${name}</div>
           <div class="post-mini-content">${content}${(p.content || '').length > 100 ? '...' : ''}</div>
@@ -527,8 +527,8 @@ async function loadHomeFeaturedPhotos() {
       const src = p.thumbnail || p.url;
       const alt = esc(p.caption || __('home.photo_alt'));
       const eager = i < 3 ? 'eager' : 'lazy';
-      return '<a class="featured-photo" href="javascript:void(0)" onclick="switchTab(\'album\')">'
-        + '<img src="' + escAttr(src) + '" alt="' + alt + '" loading="' + eager + '" onerror="this.src=\'/assets/group-avatar.svg\'">'
+      return '<a class="featured-photo" href="javascript:void(0)" data-action="home-goto-tab" data-tab="album">'
+        + '<img src="' + escAttr(src) + '" alt="' + alt + '" loading="' + eager + '" data-img-src-fallback="/assets/group-avatar.svg">'
         + '</a>';
     }).join('');
   } catch (err) {
@@ -557,3 +557,32 @@ let _greetingTimer = null;
     });
   }
 })();
+
+// ==================== 首页内联事件迁移（CSP nonce 拦截属性型处理器） ====================
+// 即将开始活动 / 最新动态 / 精选照片 卡片跳 Tab；精选照片 fallback 兜底
+// 统一改为 data-action + document 级委托，天然覆盖重渲染与懒加载时序。
+let _homeHandler = null;
+let _homeImgErrHandler = null;
+function _bindHome() {
+  if (_homeHandler) document.removeEventListener('click', _homeHandler);
+  if (_homeImgErrHandler) document.removeEventListener('error', _homeImgErrHandler, true);
+  _homeHandler = function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+    if (!el) return;
+    var action = el.getAttribute('data-action');
+    switch (action) {
+      case 'home-goto-tab':
+        if (typeof switchTab === 'function') switchTab(el.getAttribute('data-tab'));
+        break;
+    }
+  };
+  _homeImgErrHandler = function (e) {
+    var t = e.target;
+    if (!t || t.tagName !== 'IMG' || !t.dataset.imgSrcFallback || t.dataset.srcFbDone) return;
+    t.dataset.srcFbDone = '1';
+    t.src = t.dataset.imgSrcFallback;
+  };
+  document.addEventListener('click', _homeHandler);
+  document.addEventListener('error', _homeImgErrHandler, true);
+}
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', _bindHome); } else { _bindHome(); }

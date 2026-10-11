@@ -426,7 +426,7 @@ module.exports = function setupVrcAuth() {
     if (!rows.length) return;
     const row = rows[0];
 
-    const avatarUrl = userObj.currentAvatarThumbnailImageUrl || userObj.profilePicOverrideThumbnail || row.avatar_url || '';
+    const avatarUrl = userObj.currentAvatarThumbnailImageUrl || userObj.profilePicOverrideThumbnail || userObj.iconUrl || row.avatar_url || '';
     const displayName = userObj.displayName || row.display_name || '';
     const worldNameFinal = worldName || row.world_name || '';
 

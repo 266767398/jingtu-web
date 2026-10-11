@@ -66,10 +66,10 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         const searchOut = await vrcFetch(`/users?search=${encoded}&n=5&apiKey=${VRC_API_KEY}`, vrcCookie);
         if (!searchOut.ok) return sendVrcError(res, { status: searchOut.status }, '查询 VRChat 用户');
         const users = Array.isArray(searchOut.data) ? searchOut.data : [];
-        return res.json({ users: users.map(u => ({ id: u.id, displayName: u.displayName, avatarUrl: u.currentAvatarThumbnailImageUrl || u.userIcon || '' })) });
+        return res.json({ users: users.map(u => ({ id: u.id, displayName: u.displayName, avatarUrl: u.currentAvatarThumbnailImageUrl || u.userIcon || u.iconUrl || '' })) });
       }
       const user = direct.data;
-      res.json({ user: { id: user.id, displayName: user.displayName, avatarUrl: user.currentAvatarThumbnailImageUrl || user.userIcon || '' } });
+      res.json({ user: { id: user.id, displayName: user.displayName, avatarUrl: user.currentAvatarThumbnailImageUrl || user.userIcon || user.iconUrl || '' } });
     } catch (e) { handleError(res, e, 'groups/vrc-lookup'); }
   });
 

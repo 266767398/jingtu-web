@@ -34,15 +34,15 @@ async function showProfile() {
         tagsVisible: !!data.tagsVisible
       });
       updateUserUI();
-      // 填充表单
-      document.getElementById('meDisplayName').value = currentUser.displayName || '';
-      document.getElementById('meLoginId').value = currentUser.loginId || '';
-      document.getElementById('meQQ').value = currentUser.qq || '';
-      document.getElementById('meBirthday').value = currentUser.birthday ? currentUser.birthday.substring(0, 10) : '';
-      document.getElementById('meLocation').value = currentUser.location || '';
-      document.getElementById('meLocationVisible').checked = !!currentUser.locationVisible;
-      document.getElementById('meBio').value = currentUser.bio || '';
-      document.getElementById('meMotto').value = currentUser.motto || '';
+      // 填充表单（M10: DOM 直取统一空值守卫，元素未挂载时跳过赋值）
+      const displayNameEl = document.getElementById('meDisplayName'); if (displayNameEl) displayNameEl.value = currentUser.displayName || '';
+      const loginIdEl = document.getElementById('meLoginId'); if (loginIdEl) loginIdEl.value = currentUser.loginId || '';
+      const qqEl = document.getElementById('meQQ'); if (qqEl) qqEl.value = currentUser.qq || '';
+      const birthdayEl = document.getElementById('meBirthday'); if (birthdayEl) birthdayEl.value = currentUser.birthday ? currentUser.birthday.substring(0, 10) : '';
+      const locationEl = document.getElementById('meLocation'); if (locationEl) locationEl.value = currentUser.location || '';
+      const locationVisibleEl = document.getElementById('meLocationVisible'); if (locationVisibleEl) locationVisibleEl.checked = !!currentUser.locationVisible;
+      const bioEl = document.getElementById('meBio'); if (bioEl) bioEl.value = currentUser.bio || '';
+      const mottoEl = document.getElementById('meMotto'); if (mottoEl) mottoEl.value = currentUser.motto || '';
       // 渲染 VRChat 绑定状态
       renderVRChatBindStatus();
       // S-6: 渲染两步验证（TOTP）设置状态（仅超管显示设置卡片）
@@ -232,7 +232,7 @@ async function loadMyEvents() {
         const evtTime = e.eventTime ? new Date(e.eventTime) : null;
         const cls = evtTime && evtTime < now ? 'text-muted2' : 'text-green';
         const label = evtTime && evtTime < now ? __('events.status_ended') : __('events.status_ongoing_or_not_started');
-        return `<div class="me-event-item" onclick="window.showEventDetail&&showEventDetail(${e.id})">
+        return `<div class="me-event-item" data-action="profile-open-event" data-evt-id="${e.id}">
           <span class="mee-time">${fmtDate(e.eventTime)}</span>
           <span class="mee-title">${esc(e.title)}</span>
           <span class="mee-status ${cls}">${label}</span>
@@ -297,14 +297,27 @@ async function switchToVRchatAvatar() {
 // ==================== 头像显示设置（是否显示 + 显示哪种） §11.8.8 ====================
 // 与上传/切换头像解耦：本组函数只改「显示开关」与「选用哪种头像」。
 
+// 头像来源预览图失败回落默认头像（原内联 onerror="this.src='/api/avatar/default'" 被 CSP 拦截，
+// 改由 JS 属性绑定；已回落后清掉自身处理器，避免默认头像自身失败时无限循环）
+// 命名避开 auth.js 的同名全局函数 bindAvatarDefaultFallback（后者先加载，同名覆盖会静默失效）
+function bindAvatarPrefFallback(img) {
+  if (!img || img.dataset.avatarDefaultFb) return;
+  img.dataset.avatarDefaultFb = '1';
+  img.onerror = function () {
+    if (img.getAttribute('src') === '/api/avatar/default') return;
+    img.onerror = null;
+    img.src = '/api/avatar/default';
+  };
+}
+
 function renderAvatarPref() {
   const vis = document.getElementById('meAvatarVisible');
   if (vis) vis.checked = !!currentUser.avatarVisible;
 
   const custImg = document.getElementById('prefCustomImg');
   const vrcImg = document.getElementById('prefVrcImg');
-  if (custImg) custImg.src = currentUser.customAvatarPath || '/api/avatar/default';
-  if (vrcImg) vrcImg.src = currentUser.vrchatAvatarUrl || '/api/avatar/default';
+  if (custImg) { bindAvatarPrefFallback(custImg); custImg.src = currentUser.customAvatarPath || '/api/avatar/default'; }
+  if (vrcImg) { bindAvatarPrefFallback(vrcImg); vrcImg.src = currentUser.vrchatAvatarUrl || '/api/avatar/default'; }
 
   // 状态文案：是否已设置该种头像
   const custStatus = document.getElementById('prefCustomStatus');
@@ -329,12 +342,19 @@ function selectAvatarPref(type) {
   saveAvatarPref({ avatarType: type });
 }
 
-// 头像来源选择（原内联 onclick 迁移到委托）
+// 头像来源选择 / 我的事件列表（原内联 onclick 迁移到委托）
 document.addEventListener('click', function (e) {
   const item = e.target.closest('.avatar-pref-item');
-  if (!item) return;
-  const type = item.dataset.type;
-  if (type) selectAvatarPref(type);
+  if (item) {
+    const type = item.dataset.type;
+    if (type) selectAvatarPref(type);
+    return;
+  }
+  const evtItem = e.target.closest('[data-action="profile-open-event"]');
+  if (evtItem) {
+    const id = evtItem.getAttribute('data-evt-id');
+    if (id && typeof window.showEventDetail === 'function') window.showEventDetail(Number(id));
+  }
 });
 
 function onAvatarVisibleToggle() {
@@ -372,6 +392,7 @@ async function saveAvatarPref(patch) {
 
 // ==================== VRChat 绑定（密码验证） ====================
 let _vrcBindTemp = null; // 存储2FA临时状态
+let _vrcBindResendCd = null; // 重发验证码倒计时定时器
 
 /**
  * 从服务器回拉一次权威的 VRChat 绑定字段，覆盖到 currentUser。
@@ -424,6 +445,7 @@ async function bindVRChatWithPassword() {
         showEl('vrcLookupResult');
         document.getElementById('vrcBind2faCode').value = '';
         document.getElementById('vrcBind2faCode').focus();
+        startVrcBindResendCountdown();
       } else if (data.success) {
         // 绑定成功（无需2FA）
         if (data.user) Object.assign(currentUser, data.user);
@@ -440,6 +462,7 @@ async function bindVRChatWithPassword() {
         const bindUsername2 = document.getElementById('vrchatInputId')?.value?.trim();
         if (bindUsername2) localStorage.setItem('jingtu_vrc_user', bindUsername2);
         localStorage.setItem('jingtu_vrc_bound', '1');
+        resetVrcBindResend();
         updateUserUI();
         renderVRChatBindStatus();
         toast(__('profile.bind_success'), 'success');
@@ -493,6 +516,7 @@ async function confirmVrcBind2fa() {
         document.getElementById('vrcBind2fa').classList.add('d-none');
         document.getElementById('vrcBind2faCode').value = '';
         _vrcBindTemp = null;
+        resetVrcBindResend();
         updateUserUI();
         renderVRChatBindStatus();
         toast(__('profile.bind_success'), 'success');
@@ -508,6 +532,69 @@ async function confirmVrcBind2fa() {
   finally {
     if (btn) { btn.disabled = false; btn.textContent = __('profile.send_code'); }
   }
+}
+
+// 重发绑定验证码：复用现有 bindToken 重新触发邮件验证码（绑定不设时间限制）
+async function resendVrcBindCode() {
+  const token = _vrcBindTemp?.bindToken;
+  if (!token) { toast(__('profile.enter_code'), 'error'); return; }
+
+  const btn = document.getElementById('vrcBindResendBtn');
+  if (btn) { btn.disabled = true; btn.textContent = __('auth.sending'); }
+
+  try {
+    const res = await api('/api/auth/vrchat-bind-verify', {
+      method: 'POST',
+      body: { bindToken: token, resend: true }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.bindToken) _vrcBindTemp.bindToken = data.bindToken;
+      toast(data.message || __('profile.code_resent'), 'success');
+      document.getElementById('vrcBind2faCode').value = '';
+      document.getElementById('vrcBind2faCode').focus();
+    } else {
+      const err = await res.json();
+      if (err.expired || err.code === '2FA_LOCKED') {
+        // 会话已失效 → 退回第一步重新输入账号密码
+        _vrcBindTemp = null;
+        document.getElementById('vrcBind2fa').classList.add('d-none');
+      }
+      toast(errText(err) || __('profile.verify_failed'), 'error');
+    }
+  } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.verify_failed_msg') + ': ' + err.message, 'error'); }
+  finally {
+    startVrcBindResendCountdown();
+  }
+}
+
+// 重发验证码 5 秒冷却：绑定不做长时间限制，最多5秒防连点
+function startVrcBindResendCountdown() {
+  const btn = document.getElementById('vrcBindResendBtn');
+  if (!btn) return;
+  if (_vrcBindResendCd) { clearTimeout(_vrcBindResendCd); _vrcBindResendCd = null; }
+  let seconds = 5;
+  btn.disabled = true;
+  btn.textContent = __('profile.resend_cooldown', { n: seconds });
+  const update = () => {
+    if (seconds <= 0) {
+      btn.disabled = false;
+      btn.textContent = __('profile.resend_code');
+      _vrcBindResendCd = null;
+      return;
+    }
+    btn.textContent = __('profile.resend_cooldown', { n: seconds });
+    seconds--;
+    _vrcBindResendCd = setTimeout(update, 1000);
+  };
+  update();
+}
+
+// 清理重发状态（绑定成功后调用）
+function resetVrcBindResend() {
+  if (_vrcBindResendCd) { clearTimeout(_vrcBindResendCd); _vrcBindResendCd = null; }
+  const btn = document.getElementById('vrcBindResendBtn');
+  if (btn) { btn.disabled = true; btn.textContent = __('profile.resend_code'); }
 }
 
 async function unbindVRChat() {
@@ -543,16 +630,19 @@ function renderVRChatBindStatus() {
     bindForm.classList.add('d-none');
     boundStatus.classList.remove('d-none');
 
-    // 填充绑定账号信息
-    document.getElementById('vrchatBoundName').textContent = currentUser.vrchatName || currentUser.vrchatId;
-    document.getElementById('vrchatBoundId').textContent = currentUser.vrchatId;
-    document.getElementById('vrchatBoundAvatar').src = proxyAvatar(currentUser.vrchatAvatarUrl) || '/assets/group-avatar.svg';
-    document.getElementById('vrchatBoundProfileLink').href = `https://vrchat.com/home/user/${currentUser.vrchatId}`;
+    // 填充绑定账号信息（J6: 各处 getElementById 判空后再赋值，页面结构不完整也不抛 TypeError）
+    const boundNameEl = document.getElementById('vrchatBoundName'); if (boundNameEl) boundNameEl.textContent = currentUser.vrchatName || currentUser.vrchatId;
+    const boundIdEl = document.getElementById('vrchatBoundId'); if (boundIdEl) boundIdEl.textContent = currentUser.vrchatId;
+    const boundAvatarEl = document.getElementById('vrchatBoundAvatar'); if (boundAvatarEl) boundAvatarEl.src = proxyAvatar(currentUser.vrchatAvatarUrl) || '/assets/group-avatar.svg';
+    const boundProfileLinkEl = document.getElementById('vrchatBoundProfileLink'); if (boundProfileLinkEl) boundProfileLinkEl.href = `https://vrchat.com/home/user/${currentUser.vrchatId}`;
 
-    if (currentUser.vrchatVerified) {
-      document.getElementById('vrchatBoundVerified').classList.remove('d-none');
-    } else {
-      document.getElementById('vrchatBoundVerified').classList.add('d-none');
+    const boundVerifiedEl = document.getElementById('vrchatBoundVerified');
+    if (boundVerifiedEl) {
+      if (currentUser.vrchatVerified) {
+        boundVerifiedEl.classList.remove('d-none');
+      } else {
+        boundVerifiedEl.classList.add('d-none');
+      }
     }
   } else {
     // 未绑定

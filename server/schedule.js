@@ -1,10 +1,12 @@
 const schedule = require('node-schedule');
 const dbMod = require('./db');
 const { getPool } = require('./utils');
-const { vrchatGetUser, vrchatResolveOnlineStatuses, vrcBacklog } = require('./vrc');
+const { vrchatGetUser, vrchatResolveOnlineStatuses, vrcBacklog, resolveTrustLevelFromTags } = require('./vrc');
+const { getCachedWorld } = require('./world_cache');
 const cacheService = require('./cache_service');
 const logger = require('./logger');
 const { scanAvatarModels } = require('./routes/collections');
+const { syncRosterFromVrc } = require('./routes/groups_helpers');
 
 const jobs = [];
 let notificationService = null;
@@ -179,6 +181,10 @@ function startSchedule() {
   // 群组规模阈值：成员数 <= 此值时每轮刷新全员（实时性强、无游标滞后）；
   // 超过时才启用游标分批，避免大群单次打爆 VRChat API。
   const FULL_REFRESH_THRESHOLD = 80;
+  // 名册兜底同步冷却：与手动「同步 VRChat」按用户冷却（5 分钟）保持一致。
+  // 冷却窗口内若一直无人手动点同步，定时任务在窗口结束后由系统账号兜底同步一次成员名册
+  // （头像/名字/新成员加入），保证玩家信息在无人操作时也会自动更新。
+  const ROSTER_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
 
   jobs.push(schedule.scheduleJob('0 * * * * *', async () => {
     if (!_getVRCCookie) return;
@@ -195,7 +201,7 @@ function startSchedule() {
       // 仅取真实 VRChat 成员（vrchat_id 非空），NULL/空的直接排除，
       // 既不浪费 API 额度，也避免探活/刷新时对非法 ID 抛错导致整轮被静默跳过。
       const [members] = await pool.query(
-        `SELECT vrchat_id, vrchat_name FROM group_roster WHERE is_member=1 AND vrchat_id IS NOT NULL AND vrchat_id != ''`
+        `SELECT vrchat_id, vrchat_name, display_name, avatar_url FROM group_roster WHERE is_member=1 AND vrchat_id IS NOT NULL AND vrchat_id != ''`
       );
       if (members.length === 0) return;
 
@@ -213,6 +219,60 @@ function startSchedule() {
       } catch (e) {
         logger.warn('schedule', '⚠️ [定时任务] 系统 VRChat 查询异常，本轮将仅应用群友共享状态', e.message);
         systemCookieUsable = false;
+      }
+
+      // ── 名册兜底同步（V8.2）──
+      // 手动「同步 VRChat」按用户冷却（5 分钟）窗口内若一直没人点同步，窗口结束后
+      // 由系统账号兜底同步一次成员名册（头像/名字/新成员加入/离开），确保玩家信息
+      // 在无人手动操作时也会自动更新。判定基准用 group_sync_log 里最近一次 full 成功
+      // 同步的 created_at——synced_at 会被下方在线状态刷新每轮写回，不能当名册时间戳。
+      // 与手动同步共用 GET_LOCK 互斥：正在手动同步/其它实例执行时本轮让路（幂等）。
+      if (systemCookieUsable) {
+        let rosterLockConn = null;
+        try {
+          const [fullSync] = await pool.query(
+            `SELECT MAX(created_at) AS last_full_sync FROM group_sync_log WHERE sync_type='full' AND success=1`
+          );
+          const lastFullSync = fullSync && fullSync[0] && fullSync[0].last_full_sync
+            ? new Date(fullSync[0].last_full_sync).getTime() : 0;
+          if (!lastFullSync || Date.now() - lastFullSync > ROSTER_SYNC_COOLDOWN_MS) {
+            const rosterLockName = 'group_members_sync:' + VRC_GROUP_ID;
+            const sqliteMode = process.env.JINGTU_DB_ENGINE === 'sqlite';
+            if (!sqliteMode) {
+              try {
+                rosterLockConn = await pool.getConnection();
+                const [lockRows] = await rosterLockConn.query('SELECT GET_LOCK(?, 0) AS got', [rosterLockName]);
+                if (!(lockRows && lockRows[0] && Number(lockRows[0].got) === 1)) {
+                  try { rosterLockConn.release(); } catch (_) {}
+                  rosterLockConn = null;
+                  logger.info('schedule', '⏭️ [定时任务] 名册兜底同步被手动同步占锁，本轮让路');
+                }
+              } catch (le) {
+                if (rosterLockConn) { try { rosterLockConn.release(); } catch (_) {} rosterLockConn = null; }
+                logger.warn('schedule', '⚠️ [定时任务] 名册兜底 GET_LOCK 查询失败，本轮跳过', le.message);
+              }
+            }
+            if (sqliteMode || rosterLockConn) {
+              const r = await syncRosterFromVrc({
+                pool,
+                groupId: VRC_GROUP_ID,
+                vrcCookie,
+                broadcast: async () => { await forceRosterBroadcast(VRC_GROUP_ID); },
+              });
+              logger.info('schedule', `🔄 [定时任务] 名册兜底同步完成: 共 ${r.total} 人，新加入 ${r.joined}，离开 ${r.left}，更新 ${r.updated}`);
+            }
+            if (rosterLockConn) {
+              try { await rosterLockConn.query('SELECT RELEASE_LOCK(?)', [rosterLockName]); } catch (_) {}
+              try { rosterLockConn.release(); } catch (_) {}
+            }
+          }
+        } catch (e2) {
+          logger.warn('schedule', '⚠️ [定时任务] 名册兜底同步异常（非致命）:', e2.message);
+          if (rosterLockConn) {
+            try { await rosterLockConn.query('SELECT RELEASE_LOCK(?)', ['group_members_sync:' + VRC_GROUP_ID]); } catch (_) {}
+            try { rosterLockConn.release(); } catch (_) {}
+          }
+        }
       }
 
       // 本批成员：小群组每轮刷新全员；大群组按游标轮转环形覆盖（避免第51名之后永远不刷新）。
@@ -277,6 +337,8 @@ function startSchedule() {
         [idsToProcess]
       );
       const existingMap = new Map(existingRows.map(r => [r.vrchat_id, r]));
+      // F-24: 世界名进程内去重缓存（同一轮/跨轮复用，配合 world_cache 24h DB 缓存）
+      const worldNameMemo = new Map();
 
       for (const m of toProcess) {
         let info = onlineMap.get(m.vrchat_id);
@@ -318,10 +380,22 @@ function startSchedule() {
         // 网页端在线 vs 游戏内在线：info.isInGame 由解析器按 location!=='web' 计算。
         const isInGame = info.isInGame;
         const location = info.location || '';
-        let worldName = info.worldId || '';
-        if (location && !worldName) {
-          const parts = location.split(':');
-          if (parts[0]) worldName = parts[0];
+        // F-24: worldId（wrld_xxx）不能直接当名称写库——玩家所在世界应展示地图名。
+        // 先取 worldId（VRChat user.worldId 或 location 首段），再经 world_cache
+        // （24h DB 缓存 + single-flight 回源）解析真实世界名；回源失败/隐私不可见时
+        // 降级保留 worldId，前端仍可据此生成 vrchat.com 官网世界页链接。
+        const worldId = info.worldId || (location && location !== 'web' ? String(location).split(':')[0] : '') || '';
+        let worldName = worldId;
+        if (worldId && /^wrld_[0-9a-fA-F-]+$/.test(worldId)) {
+          if (worldNameMemo.has(worldId)) {
+            worldName = worldNameMemo.get(worldId);
+          } else {
+            try {
+              const w = await getCachedWorld(worldId, vrcCookie || null);
+              worldName = (w && w.name) ? w.name : worldId;
+            } catch (e) { /* 世界名解析失败：保持 worldId 降级显示 */ }
+            worldNameMemo.set(worldId, worldName);
+          }
         }
 
         const prev = existingMap.get(m.vrchat_id) || {};
@@ -416,20 +490,20 @@ function startSchedule() {
         }
       }
 
-      // ── 信任等级补充查询（P2-44）──
-      // VRChat 好友列表 API（/auth/user/friends）不返回 trustLevel，
-      // 只有 /users/{id} 个人资料接口才返回。本步骤对缺少 trust_level 的成员
-      // 逐个调用 vrchatGetUser 获取完整资料，补充写入 DB。
+      // ── 信任等级 + 头像联合补充查询（P2-44 / F-24）──
+      // VRChat 不直接暴露 trustLevel 字段：信任等级编码在用户 tags 的 system_trust_* 中
+      //（VRCX computeTrustLevel 同款推断）。/users/{id} 对好友与非好友均返回 tags 与
+      // currentAvatarThumbnailImageUrl，因此本步骤对「缺信任等级 或 缺头像」的成员
+      // 逐个调用 vrchatGetUser 推断并补充写入 DB（同时解决群成员头像长期缺项）。
       // 每轮最多处理 TRUST_ENRICH_BATCH 个成员，避免触发 429 限流。
       try {
         const TRUST_ENRICH_BATCH = 20; 
-        // P2-56：只补「信任等级缺失」的成员，且用 trust_checked_at 去重——
-        // 隐私墙成员（非好友）调用 /users/{id} 永远拿不到 trustLevel，
-        // 若不标记会导致每轮都重复查询这同一批人，占满 20 个名额，
-        // 使真正能查到 trustLevel 的好友成员永远轮不上。12 小时后再重试。
+        // P2-56：只补「信任等级缺失 或 头像缺失」的成员，且用 trust_checked_at 去重——
+        // 无 tags/无头像的成员（隐私墙/404/删号）若不标记会导致每轮都重复查询同一批人，
+        // 占满 20 个名额，使真正能补的成员永远轮不上。12 小时后再重试。
         const [missingTrust] = await pool.query(
           `SELECT vrchat_id FROM group_roster WHERE is_member=1
-           AND (trust_level='' OR trust_level IS NULL)
+           AND ((trust_level='' OR trust_level IS NULL) OR (avatar_url='' OR avatar_url IS NULL))
            AND (trust_checked_at IS NULL OR trust_checked_at < NOW() - INTERVAL 12 HOUR)
            ORDER BY trust_checked_at IS NOT NULL, synced_at ASC
            LIMIT ?`,
@@ -447,11 +521,14 @@ function startSchedule() {
               // P2-56: vrchatGetUser 返回 {status, data, ...}，数据在 resp.data，
               // 此前误写成 resp.trustLevel（顶层永远 undefined），导致补充查询从未写入。
               const userData = resp && resp.status === 200 ? resp.data : null;
-              if (userData && (userData.trustLevel || userData.currentAvatarThumbnailImageUrl || userData.profilePicOverrideThumbnail)) {
-                const tl = userData.trustLevel;
+              if (userData && (Array.isArray(userData.tags) || userData.currentAvatarThumbnailImageUrl || userData.iconUrl || userData.profilePicOverrideThumbnail)) {
+                // F-24: 从 tags 推断信任等级（VRCX 同款），替代不存在的 userData.trustLevel
+                const tl = resolveTrustLevelFromTags(userData.tags);
                 const tlCn = ({ negative:'恶劣玩家', visitor:'游客', new:'新用户', user:'用户', known:'常驻玩家', trusted:'信任', vetted:'审核', veteran:'资深玩家', legend:'资深玩家' })[tl] || tl;
-                // P2-51: /users/{id} 返回完整资料，顺带补全头像字段（friends API 不返回头像）
-                const avatarUrl = userData.currentAvatarThumbnailImageUrl || '';
+                // P2-51: /users/{id} 返回完整资料，顺带补全头像字段（friends API 不返回头像）。
+                // V9.3: currentAvatarThumbnailImageUrl 已被 VRChat 弃用（2025 个人资料体系改版），
+                // 新字段 iconUrl（个人资料图标）对非好友/隐私受限成员也始终返回，作为头像来源。
+                const avatarUrl = userData.currentAvatarThumbnailImageUrl || userData.iconUrl || '';
                 const profilePic = userData.profilePicOverrideThumbnail || '';
                 await pool.query(
                   `UPDATE group_roster SET trust_level=?, trust_level_cn=?, avatar_url=?, profile_pic_override_thumbnail=?, trust_checked_at=NOW() WHERE vrchat_id=?`,

@@ -59,6 +59,12 @@ jest.mock('../utils', () => ({
       : Math.min(maxSize, Math.max(minSize, parseInt(req.query[sizeParam], 10) || defaultSize));
     return { page, pageSize, offset: (page - 1) * pageSize };
   },
+  // V9.6: set-avatar 改用 sendVrcError 包装上游错误（围绕用户未绑定/上游拒绝给出可读文案）
+  sendVrcError(res, upstream, action) {
+    const status = upstream && upstream.status ? upstream.status : 502;
+    const detail = (upstream && upstream.data && (upstream.data.error && upstream.data.error.message || upstream.data.error)) || (upstream && upstream.message) || '';
+    return res.status(status).json({ success: false, error: `${action}失败`, detail, code: 'VRC_UPSTREAM_ERROR' });
+  },
   escapeLike: (s) => String(s || '').replace(/[%_!]/g, (m) => '!' + m),
   handleError(res, error) {
     const status = error.statusCode || error.status || 500;

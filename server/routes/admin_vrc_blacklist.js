@@ -5,13 +5,13 @@
  */
 const express = require('express');
 const { ok, getPool, handleError, sendError, ErrorCodes, logOper } = require('../utils');
-const { requireSuperAdmin } = require('../auth');
+const { requireAuth, requireSuperAdmin } = require('../auth');
 
 module.exports = function createAdminVrcBlacklistRouter() {
   const router = express.Router();
 
-  // ==================== 黑名单列表（超管） ====================
-  router.get('/admin/vrc-blacklist', requireSuperAdmin, async (req, res) => {
+  // ==================== 黑名单列表（所有登录用户可见，维护仍仅超管） ====================
+  router.get('/admin/vrc-blacklist', requireAuth, async (req, res) => {
     try {
       const [rows] = await getPool().query(
         `SELECT b.id, b.vrchat_id AS vrchatId, b.username, b.url, b.reason,

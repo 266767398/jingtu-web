@@ -76,17 +76,42 @@ DB_USER=$(prompt DB_USER "数据库用户名" "jingtu_user")
 DB_PASS=$(prompt_secret DB_PASS "数据库密码")
 # P3-21 ①：DB_PASS 必填——非交互环境下 prompt_secret 返回空串，
 # 空密码生成的 MYSQL_PASSWORD= 会让应用连库必失败，直接终止而非带病部署。
-if [ -z "$DB_PASS" ]; then
-  err "数据库密码不能为空（DB_PASS）。"
-  exit 1
-fi
-# P4-sweep：DB_PASS 仅允许可打印字符——拒绝反斜杠（MySQL 按转义序列解析，会造成
-# 实际存储密码与 .env 不一致）、换行/控制字符（可向 .env 注入额外键污染配置）。
-if printf '%s' "$DB_PASS" | grep -Eq '[\\\x00-\x1F]' || ! printf '%s' "$DB_PASS" | grep -Eq '^[[:print:]]+$'; then
-  err "数据库密码含非法字符（不允许反斜杠、换行与控制字符，建议字母+数字+符号）。"
+# P4-sweep / O6：DB_PASS 与 MYSQL_ROOT_PASSWORD 共用同一白名单校验——
+# 拒绝反斜杠（MySQL 按转义序列解析，会造成实际存储密码与 .env 不一致）、
+# 换行/回车/分号（可向 .env / MYSQL_CNF / SQL 注入额外键或语句）与控制字符。
+# 校验用 bash 原生 case/[[ ]] 对整个字符串匹配：grep 按行拆分会漏检内部换行。
+validate_db_secret() {
+  # $1=变量名（用于报错信息） $2=密码值
+  local name="$1" val="$2"
+  if [ -z "$val" ]; then
+    err "$name 不能为空。"
+    return 1
+  fi
+  case "$val" in
+    *';'*|*'\'*|*$'\n'*|*$'\r'*)
+      err "$name 含非法字符（不允许反斜杠、换行、回车与分号，建议字母+数字+符号）。"
+      return 1
+      ;;
+  esac
+  if [[ "$val" =~ [[:cntrl:]] ]]; then
+    err "$name 含控制字符（不允许，建议字母+数字+符号）。"
+    return 1
+  fi
+  if ! printf '%s' "$val" | grep -Eq '^[[:print:]]+$'; then
+    err "$name 含非可打印字符（建议字母+数字+符号）。"
+    return 1
+  fi
+  return 0
+}
+if ! validate_db_secret "数据库密码（DB_PASS）" "$DB_PASS"; then
   exit 1
 fi
 MYSQL_ROOT_PASSWORD=$(prompt_secret MYSQL_ROOT_PASSWORD "MySQL root 密码（留空则跳过自动建库）")
+# O6：MYSQL_ROOT_PASSWORD 与 DB_PASS 共用同一白名单校验——留空 = 跳过自动建库（合法分支）；
+# 一旦提供就必须通过校验，拒绝换行/分号等破坏性字符（该值会原样写入 MYSQL_CNF 与 SQL，防配置注入）。
+if [ -n "$MYSQL_ROOT_PASSWORD" ] && ! validate_db_secret "MySQL root 密码（MYSQL_ROOT_PASSWORD）" "$MYSQL_ROOT_PASSWORD"; then
+  exit 1
+fi
 PORT=$(prompt PORT "站点端口（Node 监听）" "3456")
 REPO_URL=${REPO_URL:-""}
 
@@ -440,13 +465,16 @@ else
 fi
 
 # ---------- 健康探测（P1-17：探活通过才宣布部署完成） ----------
-info "健康探测 http://127.0.0.1:${PORT}/api/health/live（最长约 30s）..."
+# O5：探测端点统一为 /api/health/ready（就绪 = 进程存活 + DB SELECT 1 成功），
+# 与下方完成提示、docs/03-部署与运维.md「以 ready 为就绪标准」保持语义一致；
+# live 仅代表进程存活，探活通过即宣布部署完成会造成「进程在但库没连上」的假阳性。
+info "健康探测 http://127.0.0.1:${PORT}/api/health/ready（最长约 30s）..."
 health_ok=0
 for _i in $(seq 1 15); do
   if command -v curl >/dev/null 2>&1; then
-    curl -fsS "http://127.0.0.1:${PORT}/api/health/live" >/dev/null 2>&1 && { health_ok=1; break; }
+    curl -fsS "http://127.0.0.1:${PORT}/api/health/ready" >/dev/null 2>&1 && { health_ok=1; break; }
   else
-    node -e "require('http').get('http://127.0.0.1:${PORT}/api/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))" && { health_ok=1; break; }
+    node -e "require('http').get('http://127.0.0.1:${PORT}/api/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))" && { health_ok=1; break; }
   fi
   sleep 2
 done

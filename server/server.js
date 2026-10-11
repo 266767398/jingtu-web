@@ -138,13 +138,34 @@ const CORS_ORIGINS = process.env.CORS_ORIGINS
 if (Array.isArray(CORS_ORIGINS) && CORS_ORIGINS.length === 0) {
   logger.warn('[server]', 'CORS_ORIGINS 未设置，将拒绝所有跨域请求（仅同源可用）。如需跨域请在 .env 限定具体域名。');
 }
-app.use(cors({
-  origin(origin, cb) {
-    if (!origin) return cb(null, true); 
-    if (Array.isArray(CORS_ORIGINS) && CORS_ORIGINS.includes(origin)) return cb(null, true);
-    return cb(null, false); 
-  },
-  credentials: true
+// M11 修复：无 Origin 的请求（同源/非浏览器客户端）不再一律放行，而是按同源处理——
+// 校验请求 Host 是否命中白名单域名（与有 Origin 时的白名单校验对齐）；
+// 白名单未配置（deny-all 模式）时视为仅同源可用，保持同源浏览器请求不受影响。
+const CORS_HOSTS = CORS_ORIGINS
+  .map((o) => { try { return new URL(o).host.toLowerCase(); } catch (e) { return null; } })
+  .filter(Boolean);
+function isRequestHostAllowed(req) {
+  const host = String(req.headers.host || '').toLowerCase().trim();
+  if (!host) return false;
+  if (CORS_HOSTS.includes(host)) return true;
+  // Host 可省略默认端口（80/443），去掉端口再做一次匹配
+  const hostNoPort = host.replace(/:\d+$/, '');
+  return CORS_HOSTS.some((h) => h === hostNoPort || h.replace(/:\d+$/, '') === hostNoPort);
+}
+// cors 包的 options 也可传入「按请求动态返回配置」的函数：(req, cb) => cb(null, options)，
+// 借此在回调内拿到完整 req 读取 Host；origin 为 false 时 cors 不会下发任何跨域头（拒绝），
+// 为 true 时才按白名单反射并输出 Access-Control-Allow-Credentials。
+app.use(cors((req, cb) => {
+  const requestOrigin = req.headers.origin;
+  let allow = false;
+  if (requestOrigin) {
+    // 带 Origin：严格白名单精确匹配
+    allow = Array.isArray(CORS_ORIGINS) && CORS_ORIGINS.includes(requestOrigin);
+  } else {
+    // 无 Origin：按同源处理，校验 Host 是否命中白名单域名；deny-all 模式下放行同源请求
+    allow = CORS_HOSTS.length === 0 || isRequestHostAllowed(req);
+  }
+  cb(null, { origin: allow, credentials: true });
 }));
 
 // 启用 Gzip/Brotli 压缩（对静态资源和API响应生效）
@@ -328,6 +349,7 @@ const avatarDefaultLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   message: { ok: false, error: 'RATE_LIMITED', msg: '请求过于频繁' }
 });
 app.get('/api/avatar/default', avatarDefaultLimiter, (req, res) => {
@@ -527,7 +549,7 @@ const {
 } = setupVrcAuth();
 
 // ==================== 权限路由 ====================
-app.use('/api/auth', require('./routes/auth'));
+app.use('/api/auth', require('./routes/auth_routes'));
 app.use('/api/profile', require('./routes/profile'));
 
 // 权限组系统路由
@@ -575,18 +597,24 @@ app.get('/api/health', (req, res) => {
   if (req.session?.userId) {
     req.session.touch();
   }
+  const vrcCookieExpireDays = getVRCCookieExpireDays();
+  const vrcCookieSoftExpired = !!(vrcCookieExpireDays > 0 && authState.cookieSetAt && Date.now() - authState.cookieSetAt > vrcCookieExpireDays * 86400000);
+  const pipelineHealth = typeof global.__getVrcPipelineStatus === 'function' ? global.__getVrcPipelineStatus() : null;
+  // 头像加固：登录态存在但会话实际不可用（cookie 软性过期 / pipeline 服务端拒绝）→ 管理面板醒目告警
+  const systemVrcStale = !!(authState.loggedIn && (vrcCookieSoftExpired || (pipelineHealth && pipelineHealth.sessionRejected)));
   res.json({
     status: 'ok',
     systemVrcLogin: authState.loggedIn,
+    systemVrcStale,
     systemVrcUser: authState.loggedIn ? { id: authState.userId, displayName: authState.displayName } : null,
     // V8.2: 系统 VRChat cookie 软性过期配置与剩余有效期（供管理面板展示）
-    vrcCookieExpireDays: getVRCCookieExpireDays(),
+    vrcCookieExpireDays: vrcCookieExpireDays,
     vrcCookieSetAt: authState.cookieSetAt || null,
-    vrcCookieExpiresAt: (getVRCCookieExpireDays() && authState.cookieSetAt)
-      ? new Date(authState.cookieSetAt + getVRCCookieExpireDays() * 86400000).toISOString()
+    vrcCookieExpiresAt: (vrcCookieExpireDays && authState.cookieSetAt)
+      ? new Date(authState.cookieSetAt + vrcCookieExpireDays * 86400000).toISOString()
       : null,
     // F-28: Pipeline 实时连接状态 + 最近一次服务端拒绝原因（诊断 1006 重连循环）
-    pipeline: typeof global.__getVrcPipelineStatus === 'function' ? global.__getVrcPipelineStatus() : null,
+    pipeline: pipelineHealth,
     // F-29: 自动重登凭据是否已配置（前端据此渲染「保存/清除凭据」按钮状态）
     vrcAutoReloginConfigured: hasVRCCredentials(),
     // F-30: 自动重登熔断/退避状态（前端据此展示防封禁退避横幅）
@@ -659,10 +687,11 @@ app.post('/api/admin/group-image', requireAdminCompat, groupImgUpload.single('im
 
 
 // ==================== 通知系统 API（已提取到独立模块） ====================
-const notificationsRouter = require('./routes/notifications')(authState, notificationService);
+// V9.6: 传入 getVRCCookieUserOnly —— VRChat 通知联动只同步会员自己绑定的账号，绝不降级系统账号
+const notificationsRouter = require('./routes/notifications')(authState, notificationService, getVRCCookieUserOnly);
 app.use('/api', notificationsRouter);
 app.use('/api', require('./routes/logs'));
-app.use('/api', require('./routes/security'));
+app.use('/api', require('./routes/security_routes'));
 app.use('/api', require('./routes/setup'));
 app.use('/api/system', require('./routes/db-recover'));
 app.use('/api/migration', require('./routes/migration'));
@@ -676,9 +705,10 @@ app.use('/api', require('./routes/export'));
 app.use('/api', require('./routes/analytics'));
 app.use('/api', require('./routes/webhooks'));
 app.use('/api/share', require('./routes/share')());
-app.use('/api/avatar', require('./routes/avatar')(authState));
+app.use('/api/avatar', require('./routes/avatar')(authState, getVRCCookie));
 // 统一收藏系统 (V8.2)：合并模型收藏馆与收藏夹（含由孤儿 model-collections 模块迁移而来的 VRCX 匿名搜索）
-app.use('/api/collections', require('./routes/collections')(getVRCCookie));
+// V9.6: 传入 getVRCCookieUserOnly —— set-avatar（切换穿戴）是「代表当前用户」的写操作，绝不回退系统账号
+app.use('/api/collections', require('./routes/collections')(getVRCCookie, getVRCCookieUserOnly));
 
 // F-20 VRChat 官方收藏（与站内收藏系统并存，直接操作 VRChat 账号内的官方收藏）
 app.use('/api/vrc-favorites', require('./routes/vrc_favorites')(getVRCCookie, getVRCCookieUserOnly));
@@ -784,7 +814,8 @@ app.use((err, req, res, next) => {
     return fail(res, 403, '安全校验失败，请刷新页面后重试');
   }
   logger.error('[server]', '服务器错误:', err.message, err.stack);
-  fail(res, 500, process.env.NODE_ENV === 'development' ? err.message : '服务器内部错误');
+  // B6: 错误响应一律使用安全静态文案，err.message/stack 仅写日志（不随 NODE_ENV 透传）
+  fail(res, 500, '服务器内部错误');
 });
 
 // ==================== WebSocket 在线状态 + 通知推送 ====================
@@ -901,7 +932,56 @@ if (require.main === module) {
 }
 
 // ==================== 初始化 ====================
+
+// 单实例锁（V9.4）——根治双进程抢端口导致的间歇 502：
+// 背景：ServBay 等进程守护会在服务重启时贪心拉起 server.js，与手动重启赛跑，
+// 后到实例要么抢到端口让前者空转、要么自身空转，任意时刻都可能出现两个进程。
+// 这里用「独占锁文件 + 旧 pid 存活探测」保证任意时刻只有一个实例在初始化：
+// 后来者发现锁被存活实例持有 → 打印原因并立即退出，绝不空转。
+const LOCK_FILE = path.join(__dirname, 'data', 'server.lock');
+function acquireSingleInstance() {
+  const claim = () => {
+    const fd = fs.openSync(LOCK_FILE, 'wx');
+    fs.writeSync(fd, String(process.pid));
+    fs.closeSync(fd);
+    return true;
+  };
+  try {
+    return claim();
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+    let oldPid = 0;
+    try { oldPid = parseInt(fs.readFileSync(LOCK_FILE, 'utf8'), 10) || 0; } catch (e2) {}
+    if (oldPid && oldPid !== process.pid) {
+      let alive = true;
+      try { process.kill(oldPid, 0); }
+      catch (k) { alive = !(k && k.code === 'ESRCH'); } // ESRCH=旧进程已死可接管；EPERM=存活（跨会话）按存活处理
+      if (alive) return false; // 旧实例仍在运行 → 本进程是多余实例
+    }
+    // 锁文件残留（旧进程已死 / pid 已失效）：接管锁继续启动
+    try { fs.unlinkSync(LOCK_FILE); } catch (e3) {}
+    return claim();
+  }
+}
+function releaseSingleInstance() {
+  try {
+    const cur = parseInt(fs.readFileSync(LOCK_FILE, 'utf8'), 10) || 0;
+    if (cur === process.pid) fs.unlinkSync(LOCK_FILE);
+  } catch (e) {
+    // 忽略
+  }
+}
+
 async function init() {
+  // 单实例锁：后到实例立即退出（守护贪心拉起 / 手动重启赛跑的都算后到者）
+  if (!acquireSingleInstance()) {
+    logger.error('[server]', `检测到已有 server.js 实例运行（锁文件 ${LOCK_FILE} 被存活进程持有），本进程退出以避免双进程抢端口`);
+    process.exit(1);
+  }
+  // 进程退出（正常/SIGTERM/SIGINT/未捕获异常）时释放锁；kill -9 残留由 acquireSingleInstance 兜底接管
+  process.on('exit', releaseSingleInstance);
+  process.on('SIGINT', () => process.exit(0));
+  process.on('SIGTERM', () => process.exit(0));
   try {
     const initDatabase = require('./db_init');
     await initDatabase();
@@ -951,6 +1031,15 @@ async function init() {
     logger.error('[init]', '数据库初始化失败，服务将以降级模式启动（部分功能不可用）:', e.message); 
   }
   // 无论初始化是否成功，都启动 HTTP 服务
+  // V9.4 兜底：极端情况下锁抢赢但端口仍被占用（如旧实例已持有 socket），
+  // 直接退出而非空转，避免「无监听端口但进程活着」的僵尸实例。
+  server.on('error', (e) => {
+    if (e && e.code === 'EADDRINUSE') {
+      logger.error('[server]', `端口 ${PORT} 已被占用，本进程退出以避免双进程抢端口`);
+      process.exit(1);
+    }
+    throw e;
+  });
   server.listen(PORT, '0.0.0.0', () => {
     logger.info('[server]', `境途同游 V8.2 已启动: http://localhost:${PORT}`);
     logger.info('[server]', `局域网访问: http://<本机IP>:${PORT}`);

@@ -9,6 +9,16 @@ const mailer = require('./mailer');
 const wsService = require('./ws_service');
 const logger = require('./logger');
 
+// F1-45: 邮件/通知正文进入 HTML 前必须转义，防止用户名/内容注入可执行标记
+function escapeHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 class NotificationService {
   static SETTINGS_CACHE_TTL_MS = 60 * 60 * 1000; 
   static SETTINGS_CACHE_MAX = 5000;
@@ -178,14 +188,14 @@ class NotificationService {
             <h1 style="margin:0;font-size:20px;">境途同游</h1>
           </div>
           <div style="border:1px solid #eee;border-top:none;padding:20px;">
-            <h2 style="color:#333;margin:0 0 15px;">${title}</h2>
-            <p style="color:#666;line-height:1.6;">${message.replace(/\n/g, '<br>')}</p>
+            <h2 style="color:#333;margin:0 0 15px;">${escapeHtml(title)}</h2>
+            <p style="color:#666;line-height:1.6;">${escapeHtml(message).replace(/\n/g, '<br>')}</p>
           </div>
           <div style="text-align:center;color:#999;font-size:12px;padding:15px;border-top:1px solid #eee;">
             <p>这是一封自动发送的通知邮件，请勿回复。</p>
           </div>
         </div>`;
-      const result = mailer.sendEmail(user.email, `【境途同游】${title}`, html, `${message}\n\n-- 境途同游团队`);
+      const result = mailer.sendEmail(user.email, `【境途同游】${escapeHtml(title)}`, html, `${escapeHtml(message)}\n\n-- 境途同游团队`);
       if (!result.success) {
         logger.warn('notify', '⚠️ 发送邮件通知失败:', result.error);
       }

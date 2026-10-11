@@ -13,7 +13,7 @@ const express = require('express');
 const logger = require('../logger');
 const { getPool, handleError, sendError, ErrorCodes } = require('../utils');
 const { requireAuth } = require('../auth');
-const { vrchatGetUserPublicAvatars, vrchatGetUser } = require('../vrc');
+const { vrchatGetUserPublicAvatars, vrchatGetUser, resolveTrustLevelFromTags } = require('../vrc');
 const { parseVrcLocation, vrcWithFallback } = require('./groups_helpers');
 
 module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
@@ -236,16 +236,18 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     if (!user) return { data: vrcData, ok: false, cookie: null, displayName: '' };
 
     vrcData.displayName = user.displayName || '';
-    vrcData.avatarUrl = user.currentAvatarThumbnailImageUrl || user.profilePicOverrideThumbnail || '';
+    // V9.3: /users/{id} 已不再返回 currentAvatar*（VRChat 个人资料体系改版后废弃），
+    // iconUrl（个人资料图标）对非好友/隐私受限成员也始终返回，作为头像兜底。
+    vrcData.avatarUrl = user.currentAvatarThumbnailImageUrl || user.profilePicOverrideThumbnail || user.iconUrl || '';
     vrcData.profilePicOverrideThumbnail = user.profilePicOverrideThumbnail || '';
     vrcData.userIcon = user.userIcon || '';
     vrcData.bio = user.bio || '';
     vrcData.bioLinks = Array.isArray(user.bioLinks) ? user.bioLinks : [];
     vrcData.status = user.status || '';
     vrcData.statusDescription = user.statusDescription || '';
-    vrcData.trustLevel = user.trustLevel || '';
-    vrcData.trustLevelCn = TRUST_CN[user.trustLevel] || user.trustLevel || '';
-    vrcData.trustRank = TRUST_RANK[(user.trustLevel || '').toLowerCase()] || 0;
+    vrcData.trustLevel = user.trustLevel || resolveTrustLevelFromTags(user.tags) || '';
+    vrcData.trustLevelCn = TRUST_CN[vrcData.trustLevel] || vrcData.trustLevel || '';
+    vrcData.trustRank = TRUST_RANK[(vrcData.trustLevel || '').toLowerCase()] || 0;
     vrcData.developerType = user.developerType || 'none';
     vrcData.developerTypeCn = DEV_CN[user.developerType] || DEV_CN['none'];
     vrcData.platform = user.last_platform || '';

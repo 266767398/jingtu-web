@@ -11,7 +11,7 @@
  *   description: 管理后台相关接口
  */
 const express = require('express');
-const { ok, getPool, handleError, logOper, sendError, ErrorCodes, paginate, escapeLike } = require('../utils');
+const { ok, getPool, handleError, logOper, sendError, ErrorCodes, paginate, escapeLike, encryptCookie, decryptCookie } = require('../utils');
 const { requireAdminCompat, requireRole } = require('../auth');
 const logger = require('../logger');
 const settings = require('../settings');
@@ -34,7 +34,9 @@ module.exports = function (groupId, vrcCookieCfg) {
       res.json({ expireDays: days, options: VALID_EXPIRE });
     } catch (e) { handleError(res, e, '[admin/vrc-cookie-expire:get]'); }
   });
-  router.put('/vrc-cookie-expire', requireAdminCompat, async (req, res) => {
+  // B11: 全局 VRChat cookie 有效期是站点级敏感配置，仅超级管理员可写（与全局配置粒度一致）；
+  // 读取仍对普通管理员开放
+  router.put('/vrc-cookie-expire', requireRole('super_admin'), async (req, res) => {
     try {
       const days = parseInt(req.body.expireDays, 10);
       if (!VALID_EXPIRE.includes(days)) {
@@ -161,6 +163,12 @@ module.exports = function (groupId, vrcCookieCfg) {
   const CONFIG_MASK = '__MASKED__';
   const SENSITIVE_KEY_RE = /(PASSWORD|SECRET|KEY|TOKEN|CREDENTIAL)/i;
   const SENSITIVE_INLINE_RE = /(password|passwd|secret|token|api_?key|credential|client_secret)=([^\s&]*)/gi;
+  // M16 修复：这些配置键落库时用 ENCRYPT_KEY 对称加密（enc: 前缀密文），读取时先解密再掩码
+  const SENSITIVE_CONFIG_KEYS = ['rtc_turn_credential', 'rtc_turn_secret', 'webhook_secret'];
+  function decryptConfigValue(key, value) {
+    if (SENSITIVE_CONFIG_KEYS.includes(key)) return decryptCookie(value) || value;
+    return value;
+  }
   function maskConfigValue(key, value) {
     if (!value || typeof value !== 'string') return value;
     if (SENSITIVE_KEY_RE.test(key)) return CONFIG_MASK;
@@ -178,7 +186,7 @@ module.exports = function (groupId, vrcCookieCfg) {
     try {
       const [rows] = await getPool().query(`SELECT config_key AS configKey, config_value AS configValue FROM system_config`);
       const config = { groupId };
-      for (const row of rows) config[row.configKey] = maskConfigValue(row.configKey, row.configValue);
+      for (const row of rows) config[row.configKey] = maskConfigValue(row.configKey, decryptConfigValue(row.configKey, row.configValue));
       res.json(config);
     } catch (e) { handleError(res, e, '[admin/config]'); }
   });
@@ -188,12 +196,24 @@ module.exports = function (groupId, vrcCookieCfg) {
       // 前端 saveSystemConfig 发送的是 { config: {...} }，兼容顶层直传两种形态，
       // 否则历史上会静默变成 no-op（改了不入库）。
       const incoming = (req.body && req.body.config && typeof req.body.config === 'object') ? req.body.config : req.body;
-      const allowedKeys = ['site_name', 'hero_title', 'hero_subtitle', 'hero_description', 'hero_bg_url', 'hero_bg_color', 'hero_bg_overlay_opacity', 'hero_accent_color', 'hero_badge_text', 'hero_show_stats', 'hero_show_badge', 'hero_animation', 'posts_per_page', 'post_max_images', 'post_max_videos', 'post_video_max_size_mb', 'vrcGroupUrl', 'kookUrl', 'oopzUrl', 'req_max_upload_mb', 'req_max_body_mb', 'req_max_other_mb', 'hide_forgot_password', 'media_provider_mirrors', 'media_provider_mirror_first', 'media_provider_timeout_ms', 'rtc_turn_urls', 'rtc_turn_username', 'rtc_turn_credential'];
+      const allowedKeys = ['site_name', 'hero_title', 'hero_subtitle', 'hero_description', 'hero_bg_url', 'hero_bg_color', 'hero_bg_overlay_opacity', 'hero_accent_color', 'hero_badge_text', 'hero_show_stats', 'hero_show_badge', 'hero_animation', 'posts_per_page', 'post_max_images', 'post_max_videos', 'post_video_max_size_mb', 'vrcGroupUrl', 'kookUrl', 'oopzUrl', 'req_max_upload_mb', 'req_max_body_mb', 'req_max_other_mb', 'hide_forgot_password', 'media_provider_mirrors', 'media_provider_mirror_first', 'media_provider_timeout_ms', 'rtc_turn_urls', 'rtc_turn_username', 'rtc_turn_credential', 'rtc_turn_secret', 'webhook_secret'];
       for (const key of allowedKeys) {
         if (incoming[key] !== undefined) {
           const val = typeof incoming[key] === 'string' ? incoming[key] : String(incoming[key]);
           // P3-110：占位符视为「未修改」，跳过写入以保留数据库原值
           if (val === CONFIG_MASK) continue;
+          // M16 修复：敏感配置键（rtc_turn_credential/rtc_turn_secret/webhook_secret）
+          // 一律用 ENCRYPT_KEY 加密后落库，杜绝凭据明文持久化
+          if (SENSITIVE_CONFIG_KEYS.includes(key)) {
+            if (!val) {
+              await getPool().query(`INSERT INTO system_config (config_key, config_value) VALUES (?, '') ON DUPLICATE KEY UPDATE config_value = ''`, [key]);
+            } else {
+              const enc = encryptCookie(val);
+              if (!enc) return sendError(res, 500, ErrorCodes.INTERNAL_ERROR, '配置加密失败，请检查 ENCRYPT_KEY 配置');
+              await getPool().query(`INSERT INTO system_config (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?`, [key, enc, enc]);
+            }
+            continue;
+          }
           await getPool().query(`INSERT INTO system_config (config_key, config_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE config_value = ?`, [key, val, val]);
         }
       }

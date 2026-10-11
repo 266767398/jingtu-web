@@ -38,6 +38,11 @@ async function checkAndUnlock(userId, type, data) {
         progress = data.value !== undefined ? data.value : data;
       }
       
+      // F1-45: 调用方可能传入对象/字符串等非数值（曾见签到把对象整传导致 '[object Object]'），
+      // 入库前统一归一化；非法值按 0 处理避免写入脏数据。
+      progress = Number(progress);
+      if (!Number.isFinite(progress)) progress = 0;
+      
       if (progress >= achievement.condition_value) {
         // P2-161: 并发幂等——积分只在「本调用将 is_unlocked 0→1 翻转成功」时发放。
         // 条件 UPDATE（AND is_unlocked=0）原子翻转：并发调用下仅一方 affectedRows=1，获得加分权。

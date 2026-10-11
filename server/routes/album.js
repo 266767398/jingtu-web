@@ -202,6 +202,7 @@ module.exports = function (authStateRef, notificationService) {
      */
   router.get('/album/photos', async (req, res) => {
     try {
+      const uid = getUserId(req);
       const { pageSize, offset } = paginate(req, { fixedSize: 40 });
       const cateId = parseInt(req.query.cate) || 0;
       const albumId = parseInt(req.query.album) || 0;
@@ -211,6 +212,9 @@ module.exports = function (authStateRef, notificationService) {
       if (sort === 'most_liked') orderBy = 'p.like_count DESC, p.create_time DESC';
       let where = 'p.is_recycle=0';
       const params = [];
+      // F1-45: members_only 照片仅成员（已登录）可见；匿名只能看 public
+      if (!uid) where += " AND p.visibility='public'";
+      else where += " AND p.visibility IN ('public','members_only')";
       if (cateId > 0) { where += ' AND p.cate_id=?'; params.push(cateId); }
       // 前端相册详情页传 ?album=<cateId>，此前被静默忽略导致返回全量照片
       if (albumId > 0) { where += ' AND p.cate_id=?'; params.push(albumId); }
@@ -579,10 +583,12 @@ module.exports = function (authStateRef, notificationService) {
 // 之前曾被前端误调（404），此处补齐兜底接口，避免历史残留脚本再次踩坑。
 router.get('/album/featured', async (req, res) => {
   try {
+    const uid = getUserId(req);
     const { pageSize: limit } = paginate(req, { sizeParam: 'limit', defaultSize: 12, maxSize: 30 });
+    const visCond = uid ? "p.visibility IN ('public','members_only')" : "p.visibility='public'";
     const [rows] = await getPool().query(
       `SELECT p.id, p.cate_id AS cateId, p.event_id AS eventId, p.photo_path AS url, p.thumb_path AS thumbnail, p.photo_desc AS caption, p.upload_vrcid AS uploader, p.upload_name AS uploaderName, p.like_count AS likes, p.media_type AS mediaType, p.file_size AS fileSize, p.create_time AS createTime
-       FROM album_photo p WHERE p.is_recycle = 0
+       FROM album_photo p WHERE p.is_recycle = 0 AND ${visCond}
        ORDER BY p.like_count DESC, p.create_time DESC LIMIT ?`,
       [limit]
     );
@@ -592,12 +598,14 @@ router.get('/album/featured', async (req, res) => {
 
 router.get('/album/search', async (req, res) => {
   try {
+    const uid = getUserId(req);
     const q = req.query.q ? req.query.q.trim() : '';
     if (!q || q.length < 2) return res.json({ photos: [], total: 0 });
     const like = '%' + escapeLike(q) + '%';
+    const visCond = uid ? "visibility IN ('public','members_only')" : "visibility='public'";
     const [rows] = await getPool().query(
-      `SELECT id, photo_path, thumb_path, photo_desc, media_type, file_size, cate_id, event_id, upload_name, upload_time, is_recycle, recycle_time
-       FROM album_photo WHERE photo_desc LIKE ? ESCAPE '!' AND is_recycle = 0 ORDER BY upload_time DESC LIMIT 20`,
+      `SELECT id, photo_path, thumb_path, photo_desc, media_type, file_size, cate_id, event_id, upload_name, create_time, is_recycle, recycle_time
+       FROM album_photo WHERE photo_desc LIKE ? ESCAPE '!' AND is_recycle = 0 AND ${visCond} ORDER BY create_time DESC LIMIT 20`,
       [like]
     );
     const photos = rows.map(p => ({

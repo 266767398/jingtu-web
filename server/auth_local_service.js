@@ -3,7 +3,7 @@
  * 覆盖 /init 引导、/preview 登录头像预览、/login 本地登录、/logout、
  * /session 会话查询、/change-password 修改密码。路由注册、限流/鉴权
  * 中间件与业务实现同文件维护，新增本地认证端点只改本文件。
- * routes/auth.js 通过 registerLocalRoutes(router) 原位委托注册。
+ * routes/auth_routes.js 通过 registerLocalRoutes(router) 原位委托注册。
  */
 const crypto = require('crypto');
 const fs = require('fs');
@@ -16,7 +16,7 @@ const { buildSession, sessionUser } = require('./auth_session');
 const activationCodes = require('./activation_code_service');
 const totp = require('./totp');
 
-// 路由注册委托：routes/auth.js 原位调用，六个端点连中间件一并注册
+// 路由注册委托：routes/auth_routes.js 原位调用，六个端点连中间件一并注册
 function registerLocalRoutes(router) {
 /**
  * @swagger
@@ -214,11 +214,12 @@ router.post('/register', registerLimiter, async (req, res) => {
       return fail(res, 400, msgMap[consume.reason] || '注册失败，请稍后重试', { code: consume.reason || 'REGISTER_FAILED' });
     }
 
-    // 建号 + 激活码消耗均成功：写操作日志（保留激活码原文，已作废仅作排查留痕）
+    // 建号 + 激活码消耗均成功：写操作日志（H4 修复：激活码仅记前4位+掩码，不落原文，
+    // 避免操作日志泄露可复用的激活码，已作废码留痕仅用于粗粒度排查）
     const user = { id: createdUserId, login_id: trimmedUsername, display_name: trimmedUsername, vrchat_id: null, vrchat_name: null, vrchat_verified: 0, role: 'member', avatar_type: 'none', vrchat_avatar_url: null, custom_avatar_path: null };
     try {
       await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '用户注册', ?)`,
-        [trimmedUsername, `激活码注册: ${trimmedUsername}，激活码 ${consume.code} 已消耗作废`]);
+        [trimmedUsername, `激活码注册: ${trimmedUsername}，激活码 ${String(consume.code).slice(0, 4)}**** 已消耗作废`]);
     } catch {}
     req.session.regenerate(async (err) => {
       if (err) { handleError(res, err, 'auth'); return; }
@@ -652,10 +653,15 @@ router.post('/change-password', passwordResetLimiter, requireAuth, async (req, r
       [users] = await getPool().query(`SELECT password_hash FROM users WHERE id = ? AND deleted_at IS NULL`, [req.session.userId]);
     } catch (e) {
       if (e.code === 'ER_BAD_FIELD_ERROR') {
-        [users] = await getPool().query(`SELECT password_hash FROM users WHERE id = ?`, [req.session.userId]);
+        // B8: 回退查询同样补软删复核——主查询因 deleted_at 列缺失回退时，
+        // 用 SELECT *（不引用缺失列）取回记录后二次核验 deleted_at，与 login 路径口径一致
+        [users] = await getPool().query(`SELECT * FROM users WHERE id = ?`, [req.session.userId]);
       } else {
         throw e;
       }
+    }
+    if (users.length > 0 && users[0].deleted_at && !Number.isNaN(new Date(users[0].deleted_at).getTime())) {
+      return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
     }
     if (users.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
     // AUTH-7：未设置密码（password_hash=NULL）时拒绝免旧密码设密——统一走邮箱重置流程，
