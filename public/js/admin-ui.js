@@ -33,7 +33,10 @@
     stats: loadAdminAnalytics,
     monitor: loadVrcMonitor,
     'user-backup': initUserBackupPanel,
-    'system-backup': initSystemBackupPanel
+    'system-backup': initSystemBackupPanel,
+    files: function () { if (typeof loadAdminFiles === 'function') loadAdminFiles(); },
+    security: function () { if (typeof loadAdminSecurity === 'function') loadAdminSecurity(); },
+    webhooks: function () { if (typeof loadAdminWebhooks === 'function') loadAdminWebhooks(); }
   };
 
   var _panelLoaded = {};

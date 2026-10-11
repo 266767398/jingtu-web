@@ -736,7 +736,7 @@ td code{font-size:11.5px}
     <tr><td class="f">好友/关注</td><td><span class="tag ok">✅</span></td><td class="muted">好友增删/状态/列表、关注流</td></tr>
     <tr><td class="f">管理后台</td><td><span class="tag ok">✅</span></td><td class="muted">超管：用户管理/配置/内容管理/操作日志</td></tr>
     <tr><td class="f">运维后台（网页版）</td><td><span class="tag ok">✅ 独立面板</span></td><td class="muted">端口 3457，仅本机（07-运维后台使用说明）</td></tr>
-    <tr><td class="f">DB/备份/文件/安全/分析/导出/Webhook/分享</td><td><span class="tag warn">部分无 UI</span></td><td class="muted">管理员接口族</td></tr>
+    <tr><td class="f">DB/备份/文件/安全/分析/导出/Webhook/分享</td><td><span class="tag ok">备份/文件/安全/分析/Webhook/分享 有 UI</span></td><td class="muted">管理员接口族（DB/导出待接线）</td></tr>
     <tr><td class="f">地图</td><td><span class="tag ok">✅</span></td><td class="muted">Leaflet CDN 瓦片地图</td></tr>
   </table>
 
@@ -955,7 +955,7 @@ app.use('/api', 404 + error handler)</pre>
     <h3 class="sub">2.1 index.html 静态脚本栈（顺序即硬依赖）</h3>
     <div class="panel">
       <div class="panel-head">
-        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261011a</span></h4>
+        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261011b</span></h4>
       </div>
       <div class="tbl-scroll" style="max-height:560px"><table class="tbl">
         <thead><tr><th>#</th><th>脚本</th><th>模式</th><th>版本戳</th><th>作用</th></tr></thead>
@@ -1064,7 +1064,7 @@ app.use('/api', 404 + error handler)</pre>
         <tbody id="symBody"></tbody>
       </table></div>
     </div>
-    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261011a）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261011a</code>。</div>
+    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261011b）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261011b</code>。</div>
   </section>
 <section id="checklist">
     <div class="section-head">
@@ -1239,23 +1239,23 @@ const TOOLS=[
 ];
 const DBHOT=[['1','users','28'],['2','event','13'],['3','album_photo','11'],['4','group_roster','9'],['5','posts','9'],['6','notifications','9'],['7','permission_groups','3'],['8','user_like','3'],['9','user_friends','7'],['10','event_sign','6'],['11','user_group_membership','6'],['12','sys_oper_log','5'],['13','announcement','5'],['14','post_comment','3'],['15','group_permission_entries','3']];
 const STACK=[
- ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261011a','语言包×6（detectLang 动态注入）'],
- ['2','/js/seo.js','head 内同步（非 defer）','20261011a','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
- ['3','/js/core.js','defer','20261011a','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
- ['4','/js/i18n.js','defer','20261011a','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261011a\''],
- ['5','/js/ui.js','defer','20261011a','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
- ['6','gsap.min.js','defer','20261011a','动效库'],
- ['7','ScrollTrigger.min.js','defer','20261011a','滚动触发'],
- ['8','/js/motion.js','defer','20261011a','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
- ['9','/js/reveal.js','defer','20261011a','滚动揭示（IntersectionObserver；motion 启用后让位）'],
- ['10','/js/nav-scroller.js','defer','20261011a','顶部标签滑动'],
- ['11','/js/freeze.js','defer','20261011a','__freeze 空闲冻结'],
- ['12','/js/theme.js','defer','20261011a','主题 V5.5（模式/明暗/强调色/时间自动）'],
- ['13','/js/auth.js','defer','20261011a','登录/注册/2FA/VRC 登录/自动登录'],
- ['14','/js/loader.js','defer','20261011a','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP'],
- ['15','/js/smartsearch.js','defer','20261011a','Ctrl+K 命令面板'],
- ['16','/js/init.js','defer','20261011a','初始化向导（main 未初始化分支调用）'],
- ['17','/js/main.js','defer','20261011a','入口调度/WS/轮询/通知']
+ ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261011b','语言包×6（detectLang 动态注入）'],
+ ['2','/js/seo.js','head 内同步（非 defer）','20261011b','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
+ ['3','/js/core.js','defer','20261011b','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
+ ['4','/js/i18n.js','defer','20261011b','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261011b\''],
+ ['5','/js/ui.js','defer','20261011b','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
+ ['6','gsap.min.js','defer','20261011b','动效库'],
+ ['7','ScrollTrigger.min.js','defer','20261011b','滚动触发'],
+ ['8','/js/motion.js','defer','20261011b','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
+ ['9','/js/reveal.js','defer','20261011b','滚动揭示（IntersectionObserver；motion 启用后让位）'],
+ ['10','/js/nav-scroller.js','defer','20261011b','顶部标签滑动'],
+ ['11','/js/freeze.js','defer','20261011b','__freeze 空闲冻结'],
+ ['12','/js/theme.js','defer','20261011b','主题 V5.5（模式/明暗/强调色/时间自动）'],
+ ['13','/js/auth.js','defer','20261011b','登录/注册/2FA/VRC 登录/自动登录'],
+ ['14','/js/loader.js','defer','20261011b','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP'],
+ ['15','/js/smartsearch.js','defer','20261011b','Ctrl+K 命令面板'],
+ ['16','/js/init.js','defer','20261011b','初始化向导（main 未初始化分支调用）'],
+ ['17','/js/main.js','defer','20261011b','入口调度/WS/轮询/通知']
 ];
 const FMM=[
  ['core.js','静','—','传输层/工具/弹窗/图片兜底/全局错误日志/VRC 重登引导','`__` toast esc','/api/csrf-token'],

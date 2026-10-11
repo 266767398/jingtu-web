@@ -834,10 +834,10 @@ describe('security regressions', () => {
     });
 
     test('index.html 中 freeze.js 先于 theme/auth/main 加载（注册回调时 __freeze 已就绪）', () => {
-      expectBefore(files.indexHtml, 'js/freeze.js?v=20261011a', 'js/theme.js?v=20261011a');
-      expectBefore(files.indexHtml, 'js/freeze.js?v=20261011a', 'js/auth.js?v=20261011a');
-      expectBefore(files.indexHtml, 'js/freeze.js?v=20261011a', 'js/main.js?v=20261011a');
-      expect(files.indexHtml).toMatch(/loader\.js\?v=20261011a/);
+      expectBefore(files.indexHtml, 'js/freeze.js?v=20261011b', 'js/theme.js?v=20261011b');
+      expectBefore(files.indexHtml, 'js/freeze.js?v=20261011b', 'js/auth.js?v=20261011b');
+      expectBefore(files.indexHtml, 'js/freeze.js?v=20261011b', 'js/main.js?v=20261011b');
+      expect(files.indexHtml).toMatch(/loader\.js\?v=20261011b/);
     });
 
     test('main.js 冻结时暂停刷新轮询与断开 WebSocket，解冻恢复；轮询带冻结守卫', () => {

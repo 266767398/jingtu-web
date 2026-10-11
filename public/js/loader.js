@@ -36,7 +36,7 @@ var ROUTE_MODULES = [
   'members.js', 'home.js', 'group.js', 'announcements.js', 'events.js',
   'vrc.js', 'geo.js', 'map.js', 'chat.js', 'rtc.js', 'location-share.js', 'group-manage.js', 'album.js',
   'admin-users.js', 'admin-perms.js', 'admin-vrc.js', 'admin-ui.js',
-  'admin-model-collections.js', 'admin-activation.js', 'posts.js', 'friends.js', 'follows.js',
+  'admin-model-collections.js', 'admin-activation.js', 'admin-files.js', 'admin-security.js', 'admin-webhooks.js', 'posts.js', 'friends.js', 'follows.js',
   'birthday.js', 'profile.js', 'profile-page.js',
   'checkin.js', 'checkin-extra.js', 'achievements.js', 'collections.js', 'vrc_favorites.js'
 ];
@@ -64,7 +64,7 @@ var TAB_MODULES = {
   friends: ['friends.js'],
   follows: ['follows.js'],
   'profile-user': ['profile.js', 'profile-page.js'],
-  admin: ['admin-users.js', 'admin-activation.js', 'admin-perms.js', 'admin-vrc.js', 'admin-model-collections.js', 'admin-ui.js']
+  admin: ['admin-users.js', 'admin-activation.js', 'admin-perms.js', 'admin-vrc.js', 'admin-model-collections.js', 'admin-files.js', 'admin-security.js', 'admin-webhooks.js', 'admin-ui.js']
   // notifications 由 ui.js 提供，无需额外模块
 };
 
