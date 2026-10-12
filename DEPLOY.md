@@ -115,7 +115,7 @@ docker compose pull && docker compose up -d --build   # 升级
    需置于用户目录 `1001` 下）：`db_data/ uploads/ backups/ logs/ assets/ data/`。
    compose 内 `init` 一次性容器（root + busybox）启动时自动创建目录并 `chown 1000:1000`
    （与 `node:22-slim` 的 node 用户 uid 一致），**无需手动建目录/授权**。
-5. 镜像源走 DaoCloud（`docker.m.daocloud.io`），规避飞牛内置加速器失效问题。
+5. 镜像源走国内加速 `docker.1ms.run`（1Panel 官方维护，2026-10 实测可用），规避飞牛内置加速器失效问题。
 
 > 换存储空间后旧数据（`/vol1/docker/volumes/jingtu_*`）默认不迁移；`docker-compose.fnos.yml`
 > 专为飞牛场景编写，通用 Linux / 宝塔部署仍用下方 `docker-compose.yml` / `docker-compose.standalone.yml`。

@@ -218,7 +218,7 @@ document.addEventListener('click', function (e) {
   const btn = t.closest('button[data-show-detail]');
   if (btn && btn.dataset.showDetail) { showMemberDetail(btn.dataset.showDetail); return; }
   const clickArea = t.closest('.member-card-click');
-  if (clickArea && clickArea.dataset.memberId) goToProfile(clickArea.dataset.memberId);
+  if (clickArea && clickArea.dataset.memberId && typeof goToProfile === 'function') goToProfile(clickArea.dataset.memberId);
 });
 
 // ==================== 站内用户名片本地缓存（localStorage） ====================
@@ -1625,7 +1625,7 @@ function _bindMembersDelegation() {
       case 'member-profile':
         e.preventDefault();
         closeModal('memberModal');
-        goToProfile(uid);
+        if (typeof goToProfile === 'function') goToProfile(uid);
         break;
       case 'close-notes':
         closeModal('memberNotesModal');

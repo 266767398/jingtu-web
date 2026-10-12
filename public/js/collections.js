@@ -122,6 +122,9 @@
     const ratingHtml = it.kind === 'avatar_model'
       ? `<span class="coll-card-rating">⭐ ${Number(it.rating_avg || 0).toFixed(1)} (${it.rating_count || 0})</span>`
       : '';
+    const recBadgeHtml = (it.kind === 'world' || it.kind === 'avatar_model' || it.kind === 'avatar_favorite') && (Number(it.recommend_up || 0) > 0 || Number(it.recommend_down || 0) > 0)
+      ? `<span class="coll-card-rec" title="${it.recommend_up} 人推荐 / ${it.recommend_down} 人不推荐">👍 ${it.recommend_up}${Number(it.recommend_down || 0) > 0 ? ' · 👎 ' + it.recommend_down : ''}</span>`
+      : '';
     const isMine = state.scope !== 'public';
     const actionBtns = [];
     if (isMine) {
@@ -142,13 +145,13 @@
     }
 
     return `<div class="coll-card status-${statusClass}" data-id="${it.id}">
-      <div class="coll-card-thumb${it.kind === 'world' ? ' coll-card-thumb--landscape' : ''}" style="background-image:url('${esc(thumb)}')"></div>
+      <div class="coll-card-thumb${it.kind === 'world' ? ' coll-card-thumb--landscape' : ''}" style="background-image:url(${escCssUrl(thumb)})"></div>
       <div class="coll-card-body">
         <div class="coll-card-title">${esc(it.name || it.target_id)}</div>
         <div class="coll-card-author">${esc(it.author || '')}</div>
         ${meta ? `<div class="coll-card-meta">${meta}</div>` : ''}
         <div class="coll-card-foot flex-row justify-between align-center">
-          <div class="flex-row gap-4 align-center">${ratingHtml}${pubBadges}</div>
+          <div class="flex-row gap-4 align-center">${ratingHtml}${recBadgeHtml}${pubBadges}</div>
         </div>
         <div class="coll-card-actions flex-row gap-4 flex-wrap mt-4">${actionBtns.join('')}</div>
       </div>
@@ -425,6 +428,10 @@
     const pubInfoHtml = (state.scope === 'public')
       ? `<div class="coll-detail-pubinfo mt-8">${it.show_author ? ('🌟 ' + __('collections.pub_by') + ' <b>' + esc(it.owner_name || __('collections.anon')) + '</b> ' + __('collections.pub_by_suffix')) : '🕶️ ' + __('collections.pub_anon')}</div>`
       : '';
+    // 推荐指数：多少人推荐 / 多少人踩 + 平均推荐指数（推荐占比换算 0~5）
+    const recHtml = (it.kind === 'world' || it.kind === 'avatar_model' || it.kind === 'avatar_favorite')
+      ? buildRecommendHtml(it)
+      : '';
     const folderSel = isMineDetail ? `<div class="mt-8"><label>${__('collections.folder')}</label>
       <select id="collDetailFolder" class="search-box">${folderOptions(it.folder_id)}</select></div>` : '';
     const notesEl = isMineDetail ? `<div class="mt-8"><label>${__('collections.notes')}</label>
@@ -443,7 +450,7 @@
 
     body.innerHTML = `
       <div class="coll-detail flex-row gap-12">
-        <div class="coll-detail-thumb" style="background-image:url('${esc(it.thumbnail || (window.__defaultAvatar || ''))}')"></div>
+        <div class="coll-detail-thumb" style="background-image:url(${escCssUrl(it.thumbnail || (window.__defaultAvatar || ''))})"></div>
         <div class="coll-detail-info flex-1">
           <table class="coll-detail-table">${rows.map(r => `<tr><th>${esc(r[0])}</th><td>${esc(r[1])}</td></tr>`).join('')}</table>
           ${tagHtml}
@@ -452,10 +459,16 @@
           ${folderSel}
           ${notesEl}
           ${worldTagEditHtml}
+          ${recHtml}
           ${actions}
           ${pubHintHtml}
         </div>
       </div>`;
+    // 绑定推荐/不推荐投票
+    const recUpBtn = $('collRecUp');
+    const recDownBtn = $('collRecDown');
+    if (recUpBtn) recUpBtn.addEventListener('click', () => voteRecommend(it, 1));
+    if (recDownBtn) recDownBtn.addEventListener('click', () => voteRecommend(it, -1));
     // 绑定详情内操作
     const setBtn = $('collDetailSetAvatar');
     if (setBtn) setBtn.addEventListener('click', async () => {
@@ -515,6 +528,49 @@
         it.worldTags = [];
       } catch (e) { toast(e.message, 'error'); }
     });
+  }
+
+  // ============ 推荐指数（多少人推荐 / 多少人踩 + 平均指数 0~5） ============
+  function buildRecommendHtml(it) {
+    const up = Number(it.recommend_up || 0);
+    const down = Number(it.recommend_down || 0);
+    const total = up + down;
+    const pct = total > 0 ? Math.round((up / total) * 100) : 0;
+    const avg = total > 0 ? ((up / total) * 5) : null;           // 平均指数 0~5
+    const my = Number(it.my_recommend || 0);
+    const avgTxt = avg == null ? '--' : avg.toFixed(1);
+    return `
+      <div class="coll-detail-rec mt-8">
+        <div class="coll-detail-rec-head">
+          <span class="coll-detail-rec-title">💡 ${__('rec.title', '推荐指数')}</span>
+          <span class="coll-detail-rec-meta">${total > 0 ? `${up} 人推荐 · ${down} 人不推荐 · 平均 ${avgTxt}/5` : __('rec.no_vote', '还没有人推荐，来投出第一票吧')}</span>
+        </div>
+        <div class="coll-detail-rec-bar" title="${up} 人推荐 / ${total} 人投票">
+          <i style="width:${pct}%"></i>
+        </div>
+        <div class="coll-detail-rec-actions mt-4">
+          <button type="button" class="btn btn-xs ${my === 1 ? 'btn-accent' : 'btn-outline'}" id="collRecUp">👍 ${__('rec.up', '推荐')}${up ? ' · ' + up : ''}</button>
+          <button type="button" class="btn btn-xs ${my === -1 ? 'btn-danger' : 'btn-outline'}" id="collRecDown">👎 ${__('rec.down', '不推荐')}${down ? ' · ' + down : ''}</button>
+        </div>
+      </div>`;
+  }
+
+  // 提交推荐/不推荐（后端 upsert 覆盖：同用户对同一目标只算一票，换边即覆盖）
+  async function voteRecommend(it, vote) {
+    try {
+      const r = await api('/api/collections/' + encodeURIComponent(it.id) + '/recommend', {
+        method: 'POST',
+        body: JSON.stringify({ vote: vote })
+      });
+      it.recommend_up = r.recommend_up;
+      it.recommend_down = r.recommend_down;
+      it.my_recommend = r.my_recommend;
+      renderDetail(it);
+      const voted = vote === 1 ? __('rec.ok_up', '已推荐') : __('rec.ok_down', '已标记不推荐');
+      toast(voted, 'success');
+      const listItem = (state.items || []).find(x => String(x.id) === String(it.id));
+      if (listItem) { listItem.recommend_up = r.recommend_up; listItem.recommend_down = r.recommend_down; }
+    } catch (e) { toast(e.message || __('rec.fail', '推荐操作失败'), 'error'); }
   }
 
   // 构建__('auto_collections_74')按钮：
@@ -620,7 +676,7 @@
       }
       box.innerHTML = results.map(r => `
         <div class="coll-search-result" data-id="${esc(r.id)}" data-name="${esc(r.name)}">
-          <div class="coll-search-thumb" style="background-image:url('${esc(r.thumbnailImageUrl || r.imageUrl || (window.__defaultAvatar || ''))}')"></div>
+          <div class="coll-search-thumb" style="background-image:url(${escCssUrl(r.thumbnailImageUrl || r.imageUrl || (window.__defaultAvatar || ''))})"></div>
           <div class="coll-search-info">
             <div class="coll-search-name">${esc(r.name || r.id)}</div>
             <div class="coll-search-author">${esc(r.authorName || '')}</div>
@@ -702,7 +758,7 @@
     const tags = Array.isArray(w.tags) ? w.tags.slice(0, 4).map(t => `<span class="coll-card-tag">${esc(t)}</span>`).join('') : '';
     return `
       <div class="coll-card" data-wid="${esc(w.id)}">
-        <div class="coll-card-thumb coll-card-thumb--landscape" style="background-image:url('${esc(thumb)}')"></div>
+        <div class="coll-card-thumb coll-card-thumb--landscape" style="background-image:url(${escCssUrl(thumb)})"></div>
         <div class="coll-card-body">
           <div class="coll-card-title">${esc(w.name || w.id)}</div>
           <div class="coll-card-sub">${esc(w.authorName || '')}</div>

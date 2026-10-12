@@ -135,6 +135,7 @@ function renderUsersAdmin(users) {
     return;
   }
   container.innerHTML = filtered.map(u => {
+    const isSelf = !!(currentUser && currentUser.id && String(currentUser.id) === String(u.id));
     const name = esc(u.displayName || u.loginId);
     const loginId = esc(u.loginId);
     const avatarSrc = escAttr(u.avatarUrl || '/api/avatar/default');
@@ -149,13 +150,15 @@ function renderUsersAdmin(users) {
     if (u.banned) statusLabel = __('admin.banned');
     else if (u.approved) statusLabel = __('admin.approved');
     const approveBtn = !u.approved ? `<button class="btn btn-sm btn-accent" data-user-action="approve" data-user-id="${id_esc}">${__('admin.approve')}</button>` : '';
-    const banBtn = !u.banned
+    const banBtn = !isSelf && !u.banned
       ? `<button class="btn btn-sm btn-danger" data-user-action="ban" data-user-id="${id_esc}">${__('admin.ban')}</button>`
-      : `<button class="btn btn-sm" data-user-action="unban" data-user-id="${id_esc}">${__('admin.unban')}</button>`;
+      : (!isSelf && u.banned
+        ? `<button class="btn btn-sm" data-user-action="unban" data-user-id="${id_esc}">${__('admin.unban')}</button>`
+        : '');
     const editBtn = `<button class="btn btn-sm" data-user-action="edit" data-user-id="${id_esc}" data-user-name="${name_attr}" data-user-role="${role_esc}">✏️ ${__('edit')}</button>`;
     const pwdBtn = `<button class="btn btn-sm" data-user-action="reset-pwd" data-user-id="${id_esc}">🔑 ${__('admin.reset_pwd')}</button>`;
     const historyBtn = `<button class="btn btn-sm" data-user-action="login-history" data-user-id="${id_esc}">📜 ${__('admin_users.login_history')}</button>`;
-    const delBtn = `<button class="btn btn-sm btn-danger" data-user-action="delete" data-user-id="${id_esc}">${__('delete')}</button>`;
+    const delBtn = !isSelf ? `<button class="btn btn-sm btn-danger" data-user-action="delete" data-user-id="${id_esc}">${__('delete')}</button>` : '';
     return `<div class="admin-user-card">
       <img src="${avatarSrc}" class="admin-user-avatar" alt="${name}" loading="lazy" data-avatar-fail-src="${escAttr(u.avatarUrl || '/api/avatar/default')}">
       <div class="admin-user-info">
@@ -256,12 +259,15 @@ function showAddUserModal() {
 }
 
 async function createUser() {
+  const submitBtn = document.getElementById('addUserModalSubmitBtn');
+  if (submitBtn && submitBtn.disabled) return;
   const loginId = document.getElementById('newUserLoginId')?.value?.trim();
   const password = document.getElementById('newUserPassword')?.value;
   const displayName = document.getElementById('newUserDisplayName')?.value?.trim();
   const role = document.getElementById('newUserRole')?.value || 'member';
   const email = document.getElementById('newUserEmail')?.value?.trim();
   if (!loginId || !password) { toast(__('admin.fill_login_pwd'), 'error'); return; }
+  if (submitBtn) submitBtn.disabled = true;
   const errorEl = document.getElementById('addUserError');
   try {
     const res = await api('/api/admin/users', {
@@ -290,6 +296,8 @@ async function createUser() {
     if (isApiHandledError(err)) return;
     if (errorEl) { errorEl.textContent = err.message || __('admin_users.create_failed'); errorEl.classList.remove('d-none'); }
     else { toast(__('admin_users.create_failed') + ': ' + err.message, 'error'); }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
@@ -365,6 +373,8 @@ async function generateCodes() {
         wrapEl.classList.remove('d-none');
       }
       toast(__('admin_users.codes_generated', { count: _generatedCodes.length }), 'success');
+      // P4: 生成成功后同步刷新激活码管理面板列表（旧版需手动点刷新才能看到新码）
+      if (typeof loadActivationCodesPanel === 'function') loadActivationCodesPanel();
       return;
     }
     const errData = await res.json().catch(() => ({}));
@@ -604,15 +614,20 @@ async function loadAdminMgrList(page) {
     return;
   }
   mgrSection.style.display = 'block';
+  // P4: 管理员面板独立挂接行内按钮委托，不依赖 loadUsersAdmin 间接兜底
+  initAdminUsersEventDelegates();
   adminMgrCurrentPage = page || 1;
   const search = document.getElementById('adminMgrSearch')?.value?.trim() || '';
   const role = document.getElementById('adminMgrRoleFilter')?.value || '';
+  // P4: 管理员面板只应列管理员；未选具体角色时默认 admin,super_admin，
+  // 避免把普通成员误列进来（旧版误显示为"管理员"）。
+  const roleParam = role || 'admin,super_admin';
   
   try {
     const params = new URLSearchParams();
     params.set('page', adminMgrCurrentPage);
     params.set('pageSize', '20');
-    params.set('role', role);
+    params.set('role', roleParam);
     if (search) params.set('search', search);
     
     const res = await api('/api/admin/users?' + params.toString(), { method: 'GET' });
@@ -646,8 +661,9 @@ function renderAdminMgrList(users, totalPages) {
     const loginId = esc(u.loginId);
     const avatarSrc = escAttr(u.avatarUrl || '/api/avatar/default');
     const id_esc = esc(String(u.id) || '');
-    let roleLabel = __('members.role_admin');
+    let roleLabel = __('members.role_member');
     if (u.role === 'super_admin') roleLabel = __('members.role_super_admin');
+    else if (u.role === 'admin') roleLabel = __('members.role_admin');
     const isSelf = currentUser && currentUser.id == u.id;
     const name_attr = escAttr(u.displayName || u.loginId);
     const role_attr = escAttr(u.role);
@@ -683,6 +699,8 @@ function showAddAdminModal() {
 }
 
 async function createAdmin() {
+  const submitBtn = document.getElementById('addAdminModalSubmitBtn');
+  if (submitBtn && submitBtn.disabled) return;
   const loginId = document.getElementById('newAdminLoginId')?.value?.trim();
   const displayName = document.getElementById('newAdminDisplayName')?.value?.trim();
   const password = document.getElementById('newAdminPassword')?.value;
@@ -690,6 +708,7 @@ async function createAdmin() {
   const email = document.getElementById('newAdminEmail')?.value?.trim();
   
   if (!loginId || !password) { toast(__('admin.fill_login_pwd'), 'error'); return; }
+  if (submitBtn) submitBtn.disabled = true;
   
   const errorEl = document.getElementById('addAdminError');
   try {
@@ -700,6 +719,12 @@ async function createAdmin() {
     if (res.ok) {
       toast(__('admin.admin_created'), 'success');
       closeModal('addAdminModal');
+      // P4: 创建成功后清空表单，与 createUser 行为一致
+      document.getElementById('newAdminLoginId').value = '';
+      document.getElementById('newAdminPassword').value = '';
+      document.getElementById('newAdminDisplayName').value = '';
+      document.getElementById('newAdminRole').value = 'admin';
+      const emailEl = document.getElementById('newAdminEmail'); if (emailEl) emailEl.value = '';
       loadAdminMgrList(1);
     } else {
       const errData = await res.json().catch(() => ({}));
@@ -712,6 +737,8 @@ async function createAdmin() {
     if (isApiHandledError(err)) return;
     if (errorEl) { errorEl.textContent = err.message || __('admin.create_failed'); errorEl.classList.remove('d-none'); }
     else { toast(__('admin.create_failed') + ': ' + err.message, 'error'); }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
@@ -723,8 +750,8 @@ document.addEventListener('click', function (e) {
     if (action === 'download-backup') { downloadBackup(actEl.getAttribute('data-filename')); return; }
     if (action === 'delete-backup') { deleteBackup(actEl.getAttribute('data-filename')); return; }
   }
-  if (e.target.closest('#adminAddBtn')) { showAddAdminModal(); return; }
-  if (e.target.closest('#adminRefreshBtn')) { loadAdminMgrList(1); return; }
+  if (e.target && e.target.closest && e.target.closest('#adminAddBtn')) { showAddAdminModal(); return; }
+  if (e.target && e.target.closest && e.target.closest('#adminRefreshBtn')) { loadAdminMgrList(1); return; }
 });
 
 function showEditAdmin(userId, displayName, role, email) {

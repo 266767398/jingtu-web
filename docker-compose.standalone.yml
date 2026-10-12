@@ -25,8 +25,8 @@
 
 services:
   db:
-    # P4：默认走 DaoCloud 国内加速源（docker.m.daocloud.io），国内机器无需配 daemon.json
-    image: docker.m.daocloud.io/library/mysql:8.0
+    # P4：默认走国内加速源 docker.1ms.run（1Panel 官方维护，实测可用），国内机器无需配 daemon.json
+    image: docker.1ms.run/library/mysql:8.0
     container_name: jingtu-db
     restart: unless-stopped
     environment:

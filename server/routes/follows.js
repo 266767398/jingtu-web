@@ -211,9 +211,14 @@ module.exports = function (notificationService) {
   // ==================== GET /api/follows/counts/:userId ====================
   router.get('/counts/:userId', requireAuth, async (req, res) => {
     try {
+      const me = req.session.userId;
       const userId = parseInt(req.params.userId);
       if (!userId || isNaN(userId)) {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
+      }
+      // N3: 计数与列表同口径——非本人且非好友一律 403，防通过「计数接口」绕过隐私闸枚举关系图谱
+      if (!(await canViewFollowList(me, userId))) {
+        return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权查看该用户的关注数据');
       }
       const pool = getPool();
       const [c1] = await pool.query(

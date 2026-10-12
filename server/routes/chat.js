@@ -201,20 +201,26 @@ router.post('/groups', requireChatAuth, async (req, res) => {
       await conn.query(
         `INSERT IGNORE INTO chat_group_members (group_id, user_id) VALUES (?, ?)`, [grp.insertId, uid]);
       // 添加其他成员（先校验 memberIds 均为存在的用户，过滤无效 id，避免 INSERT IGNORE 静默丢弃难排查）
-      let invalidMemberIds = [];
+      // N2 加固：① 成员数上限 200，防超大数组拖垮 IN 查询；② 不再返回无效 id 明细，
+      // 仅返回无效计数（前端未消费具体 id，明细会向攻击者暴露「某用户是否存在」的枚举 oracle）
+      let invalidMemberCount = 0;
       if (memberIds && Array.isArray(memberIds) && memberIds.length) {
         const validInts = [];
+        const seen = new Set();
         for (const mid of memberIds) {
           const midInt = parseInt(mid);
-          if (midInt && midInt !== uid) validInts.push(midInt);
+          if (midInt && midInt !== uid && !seen.has(midInt) && validInts.length < 200) {
+            seen.add(midInt);
+            validInts.push(midInt);
+          }
         }
         if (validInts.length) {
           const [existRows] = await conn.query(
-            `SELECT id FROM users WHERE id IN (?)`, [validInts]);
+            `SELECT id FROM users WHERE id IN (?) AND deleted_at IS NULL`, [validInts]);
           const existing = new Set(existRows.map(r => r.id));
-          const toAdd = validInts.filter(id => existing.has(id));
-          invalidMemberIds = validInts.filter(id => !existing.has(id));
-          for (const id of toAdd) {
+          invalidMemberCount = validInts.length - existing.size;
+          for (const id of validInts) {
+            if (!existing.has(id)) continue;
             await conn.query(
               `INSERT IGNORE INTO chat_group_members (group_id, user_id) VALUES (?, ?)`, [grp.insertId, id]);
           }
@@ -223,7 +229,7 @@ router.post('/groups', requireChatAuth, async (req, res) => {
       await conn.commit();
       const resp = { ok: true, groupId: grp.insertId, name: groupName, isPublic: !!isPublicBool };
       if (isPublicBool === 0) resp.inviteCode = inviteCodeVal;
-      if (invalidMemberIds.length) resp.invalidMemberIds = invalidMemberIds;
+      if (invalidMemberCount) resp.invalidMemberCount = invalidMemberCount;
       res.json(resp);
     } catch (e2) { await conn.rollback(); throw e2; } finally { conn.release(); }
   } catch (e) { handleError(res, e, '[chat/groups-create]'); }

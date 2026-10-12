@@ -2962,7 +2962,7 @@ textarea,
 
 /* 豁免：底部 .form-actions 里的取消按钮（带 data-modal-close）保持文档流，不吸附到右上角 */
 .modal .form-actions [data-modal-close] {
-  position: static;
+  position: relative;
   margin-left: auto;
 }
 

@@ -203,6 +203,9 @@ function showApp() {
     // 既会往隐藏的 #tab-home 里塞卡片，又会白打一次必然 401 的请求。
     if (typeof checkinModule !== 'undefined') checkinModule.init();
     if (typeof achievementsModule !== 'undefined') achievementsModule.init();
+    // 登录后自动同步 VRChat 官方收藏（地图/模型/好友/分组）到本地库，
+    // 由顶部同步状态栏展示进度；下次访问命中快照秒开、零回源。
+    if (typeof window.maybeStartVrcFavSync === 'function') window.maybeStartVrcFavSync();
   } catch {}
 }
 

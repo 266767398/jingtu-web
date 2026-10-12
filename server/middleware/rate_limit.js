@@ -95,6 +95,19 @@ const uploadsStaticLimiter = rateLimit({
   }
 });
 
+// N1 加固：/api/auth/init 首装引导——无超管时处于「可抢占首装」窗口（攻击者抢在
+// 站主之前创建 super_admin 即劫持站点）。按 IP 收紧到 60 分钟 3 次，仅影响
+// 常规运营节奏（一次性初始化），压制度非常低；已初始化后本路由自然拒绝，不误伤。
+const initLimiter = rateLimit({
+  ...limiterConfig,
+  max: 3,
+  store: hybridStore('rate-init'),
+  message: {
+    error: '初始化请求过于频繁，请稍后再试',
+    retryAfter: 3600
+  }
+});
+
 const createCustomLimiter = ({ name, ...options }) => {
   return rateLimit({
     ...limiterConfig,
@@ -109,5 +122,6 @@ module.exports = {
   uploadLimiter,
   passwordResetLimiter,
   uploadsStaticLimiter,
+  initLimiter,
   createCustomLimiter
 };

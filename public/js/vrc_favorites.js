@@ -59,11 +59,12 @@
     }, 1000);
   }
 
-  async function loadGroups() {
+  async function loadGroups(force) {
     try {
-      const d = await api('/api/vrc-favorites/groups?n=100');
+      const d = await api('/api/vrc-favorites/groups?n=100' + (force ? '&refresh=1' : ''));
       state.groups = d.groups || [];
       renderGroups();
+      if (force) showCachedHint(d.cached, false);
     } catch (e) {
       const msg = String((e && e.message) || '');
       if (e && (e.code === 'VRC_RATE_LIMITED' || e.code === 'VRC_RATE_TIMEOUT' || /rate[_ ]?limit|429|too many|排队/i.test(msg))) {
@@ -72,6 +73,21 @@
       }
       toast(__('vrcfav.load_groups_fail', '收藏分组加载失败：') + msg, 'error');
     }
+  }
+
+  // 快照缓存命中提示：本地已同步的数据秒开展示，提示用户可点「刷新」获取最新
+  function showCachedHint(cached, isItems) {
+    let el = $('vrcfavCacheHint');
+    const list = $(isItems ? 'vrcfavList' : 'vrcfavGroupList');
+    if (!list) return;
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'vrcfavCacheHint';
+      list.parentNode.insertBefore(el, list.nextSibling);
+    }
+    if (!cached) { el.style.display = 'none'; return; }
+    el.innerHTML = `<div class="text-gray text-13 py-2" style="opacity:.85">⚡ ${esc(__('vrcfav.cached_hint', '已加载本地同步数据（快速秒开）· 点击右上角「刷新」可获取 VRChat 最新'))}</div>`;
+    el.style.display = '';
   }
 
   function groupsOfKind() {
@@ -134,7 +150,7 @@ function appendItems(items) {
   list.innerHTML += items.map(cardHtml).join('');
 }
 
-async function loadItems(reset) {
+async function loadItems(reset, force) {
     // P3-63: 「最新请求优先」——快速切换 kind/分组时不再直接丢弃二次加载，
     // 而是用请求序号确保只有最新请求的结果能渲染/落库
     const my = ++state.loadSeq;
@@ -149,12 +165,14 @@ async function loadItems(reset) {
       params.set('n', String(state.pageSize));
       params.set('offset', String(state.offset));
       if (state.group) params.set('tag', state.group);
+      if (force) params.set('refresh', '1');
       // 后端对收藏条目做名字/缩略图回源富化，冷启动耗时更高，放宽超时
       const d = await api('/api/vrc-favorites/items?' + params.toString(), { timeout: 20000 });
       if (my !== state.loadSeq) return; // 已有更新的请求发出，丢弃本次陈旧结果
       state.items = d.items || [];
       state.fillOffset = reset ? 0 : state.offset; // J7: 补全目标页固定为当前展示列表的起点页
       state.hasMore = (d.items || []).length >= state.pageSize;
+      showCachedHint(d.cached, true);
       renderItems();
       renderLoadMore();
       scheduleFillIncomplete();
@@ -549,7 +567,15 @@ async function loadItems(reset) {
     if (addInput) addInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') addFavorite(); });
 
     const refreshBtn = $('vrcfavRefreshBtn');
-    if (refreshBtn) refreshBtn.addEventListener('click', () => { loadGroups(); loadItems(true); });
+    if (refreshBtn) refreshBtn.addEventListener('click', () => {
+      // 手动刷新：绕过本地快照回源 VRChat 实时拉取，并同时触发后台同步作业，
+      // 让后续访问/其他页面也命中最新快照（省 API、秒开）
+      if (typeof window.vrcSync !== 'undefined' && window.vrcSync.startFavSync) {
+        window.vrcSync.startFavSync({ startMsg: '正在重新同步 VRChat 收藏（地图/模型/群组/好友）...' });
+      }
+      loadGroups(true);
+      loadItems(true, true);
+    });
     const refreshGroupsBtn = $('vrcfavRefreshGroupsBtn');
     if (refreshGroupsBtn) refreshGroupsBtn.addEventListener('click', loadGroups);
 

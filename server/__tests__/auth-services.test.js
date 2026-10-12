@@ -43,6 +43,7 @@ jest.mock('../mailer', () => mockMailer);
 jest.mock('../middleware/rate_limit', () => ({
   passwordResetLimiter: (req, res, next) => next(),
   registerLimiter: (req, res, next) => next(),
+  initLimiter: (req, res, next) => next(),
   createCustomLimiter: () => (req, res, next) => next()
 }));
 jest.mock('../activation_code_service', () => mockActivation);

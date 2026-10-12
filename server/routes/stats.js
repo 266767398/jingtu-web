@@ -80,6 +80,25 @@ module.exports = function createStatsRouter() {
         getPool().query('SELECT COUNT(*) as count FROM group_roster WHERE is_member=1 AND is_online=1')
       ]);
 
+      // 站点展示信息（hero 区 + 页脚链接）：只暴露非敏感的展示字段，
+      // 供首页 loadHeroStats / loadSocialLinks 读取，主页管理与网站信息保存后立即生效。
+      const SITE_DISPLAY_KEYS = [
+        'site_name', 'hero_title', 'hero_subtitle', 'hero_description',
+        'hero_bg_url', 'hero_bg_color', 'hero_bg_overlay_opacity', 'hero_accent_color',
+        'hero_badge_text', 'hero_show_badge', 'hero_show_stats', 'hero_animation',
+        'vrcGroupUrl', 'kookUrl', 'oopzUrl'
+      ];
+      let siteConfig = {};
+      try {
+        const [cfgRows] = await getPool().query(
+          `SELECT config_key, config_value FROM system_config WHERE config_key IN (${SITE_DISPLAY_KEYS.map(() => '?').join(',')})`,
+          SITE_DISPLAY_KEYS
+        );
+        for (const row of cfgRows) siteConfig[row.config_key] = row.config_value || '';
+      } catch (e) {
+        logger.error('[public/stats] site-config', e.message);
+      }
+
       res.json({
         totalUsers: memberRes[0].count,
         totalPhotos: photoRes[0].count,
@@ -88,7 +107,24 @@ module.exports = function createStatsRouter() {
         // 与 /api/stats 保持同一语义：本站实时在线（WebSocket 名单），
         // 而不是 VRChat 群成员在游戏里的在线状态。
         onlineCount: wsService.onlineUsers.size,
-        vrcOnlineCount: onlineRes[0].count
+        vrcOnlineCount: onlineRes[0].count,
+        // hero 展示配置（首页直接消费）
+        site_name: siteConfig.site_name,
+        hero_title: siteConfig.hero_title,
+        hero_subtitle: siteConfig.hero_subtitle,
+        hero_description: siteConfig.hero_description,
+        hero_bg_url: siteConfig.hero_bg_url,
+        hero_bg_color: siteConfig.hero_bg_color,
+        hero_bg_overlay_opacity: siteConfig.hero_bg_overlay_opacity,
+        hero_accent_color: siteConfig.hero_accent_color,
+        hero_badge_text: siteConfig.hero_badge_text,
+        hero_show_badge: siteConfig.hero_show_badge,
+        hero_show_stats: siteConfig.hero_show_stats,
+        hero_animation: siteConfig.hero_animation,
+        // 页脚社群链接
+        vrcGroupUrl: siteConfig.vrcGroupUrl,
+        kookUrl: siteConfig.kookUrl,
+        oopzUrl: siteConfig.oopzUrl
       });
     } catch (e) {
       logger.error('[public/stats]', e.message, e.stack);

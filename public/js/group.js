@@ -670,11 +670,19 @@ function setupGroupSearch() {
 }
 
 // ==================== 刷新在线状态 ====================
+function vrcTaskBarShow(text) {
+  if (typeof window.vrcSync !== 'undefined' && window.vrcSync.showTask) { try { window.vrcSync.showTask(text); } catch (e) {} }
+}
+function vrcTaskBarDone(text, opts) {
+  if (typeof window.vrcSync !== 'undefined' && window.vrcSync.taskDone) { try { window.vrcSync.taskDone(text, opts); } catch (e) {} }
+}
+
 async function refreshGroupStatus() {
   if (groupStatusRefreshing) return;
   groupStatusRefreshing = true;
   const btn = document.getElementById('refreshGroupBtn');
   if (btn) { btn.disabled = true; btn.textContent = __('group.refreshing'); }
+  vrcTaskBarShow(__('group.refreshing'));
 
   try {
     // 刷新在线状态：服务端走 /auth/user/friends 全量解析（好友不截断，非好友回退≤25 人），
@@ -686,15 +694,20 @@ async function refreshGroupStatus() {
         const errData = await res.json();
         if (errData.code === 'VRC_SYSTEM_OFFLINE' || errData.code === 'VRC_NOT_LOGGED_IN') {
           toast(__('group.bind_first'), 'warn');
+          vrcTaskBarDone(__('group.bind_first'), { err: true });
         } else if (errData.code === 'SYNC_COOLDOWN') {
           toast(errData.detail || __('group.refresh_cooldown'), 'warn');
+          vrcTaskBarDone(errData.detail || __('group.refresh_cooldown'), { err: true });
         } else {
           toast(errText(errData) || __('group.refresh_failed'), 'error');
+          vrcTaskBarDone(errText(errData) || __('group.refresh_failed'), { err: true });
         }
-      } catch { toast(__('group.refresh_failed'), 'error'); }
+      } catch { toast(__('group.refresh_failed'), 'error'); vrcTaskBarDone(__('group.refresh_failed'), { err: true }); }
       return;
     }
     const data = await res.json();
+    // 顶部状态栏同时透出结果（复用收藏同步状态条），避免列表深处的用户看不到反馈
+    vrcTaskBarDone(__('group.refresh_done', {online: data.online, offline: data.offline, total: data.total}), { keepMs: 5000 });
     toast(__('group.refresh_done', {online: data.online, offline: data.offline, total: data.total}), 'success');
 
     await loadGroupMembers();
@@ -704,6 +717,7 @@ async function refreshGroupStatus() {
     if (typeof updateGroupBadge === 'function') updateGroupBadge(data.online);
   } catch (err) {
     if (!isApiHandledError(err)) toast(__('group.refresh_retry'), 'error');
+    if (!isApiHandledError(err)) vrcTaskBarDone(__('group.refresh_retry'), { err: true });
   } finally {
     // 恢复只写一处。原先早退、catch、函数末尾各抄了一份，
     // 任何一条新增的 return 路径漏抄，按钮就永久禁用、刷新功能报废。
@@ -719,6 +733,7 @@ async function syncGroupMembers() {
   if (btn.disabled) return; // 已在同步中，忽略重复点击
   btn.disabled = true;
   btn.textContent = __('group.syncing');
+  vrcTaskBarShow(__('group.syncing'));
 
   try {
     // 全量同步要串行拉多页 VRChat 数据，几十秒是常态。
@@ -730,23 +745,28 @@ async function syncGroupMembers() {
         const errData = await res.json();
         if (errData.code === 'VRC_SYSTEM_OFFLINE' || errData.code === 'VRC_NOT_LOGGED_IN') {
           toast(__('group.bind_first'), 'warn');
+          vrcTaskBarDone(__('group.bind_first'), { err: true });
         } else if (errData.code === 'SYNC_COOLDOWN') {
           toast(errData.detail || __('group.sync_cooldown'), 'warn');
+          vrcTaskBarDone(errData.detail || __('group.sync_cooldown'), { err: true });
         } else {
           toast(errText(errData) || __('group.sync_failed'), 'error');
+          vrcTaskBarDone(errText(errData) || __('group.sync_failed'), { err: true });
         }
-      } catch { toast(__('group.sync_failed_vrc'), 'error'); }
+      } catch { toast(__('group.sync_failed_vrc'), 'error'); vrcTaskBarDone(__('group.sync_failed_vrc'), { err: true }); }
       return;
     }
     const data = await res.json();
     let msg = `${__('group.sync_done', {n: data.total})}`;
     if (data.joined > 0) msg += `，${__('group.new_joined', {n: data.joined})}`;
     if (data.left > 0) msg += `，${__('group.left_count', {n: data.left})}`;
+    vrcTaskBarDone(msg, { keepMs: 6000 });
     toast(msg, 'success');
     await loadGroupMembers();
     await loadGroupStats();
   } catch (err) {
     if (!isApiHandledError(err)) toast(__('group.sync_failed_vrc'), 'error');
+    if (!isApiHandledError(err)) vrcTaskBarDone(__('group.sync_failed_vrc'), { err: true });
   } finally {
     // 放在 finally：之前 catch 分支里 loadGroupMembers() 等再抛一次，
     // 或者中途 return，都可能绕过末尾那两行，把按钮永久留在 disabled 状态。

@@ -209,7 +209,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
       // 方案 B：加载群友共享的在线状态（最近 15 分钟内上报，好友视角可信）
       const [sharedRows] = await pool.query(
-        `SELECT vrchat_id, is_online, vrchat_status, world_name, location, last_login, updated_at
+        `SELECT vrchat_id, is_online, vrchat_status, world_name, location, last_login, status_description, trust_level, updated_at
          FROM group_presence_share WHERE updated_at >= NOW() - INTERVAL 15 MINUTE`
       );
       const sharedMap = new Map();
@@ -233,6 +233,8 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
             displayName: m.vrchat_name || '',
             avatarUrl: m.avatar_url || '',
             status: s.vrchat_status || 'offline',
+            statusDescription: s.status_description || '',
+            trustLevel: s.trust_level || '',
             location: s.location || '',
             worldId: s.world_name || '',
             isOnline: !!s.is_online,
@@ -325,12 +327,14 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
           const f = friendMap.get(vid);
           if (!f) continue; // 只上报本群中"我的好友"
           await pool.query(
-            `INSERT INTO group_presence_share (vrchat_id, is_online, vrchat_status, world_name, location, last_login, source_vrchat_id, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+            `INSERT INTO group_presence_share (vrchat_id, is_online, vrchat_status, world_name, location, last_login, source_vrchat_id, status_description, trust_level, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
              ON DUPLICATE KEY UPDATE is_online=VALUES(is_online), vrchat_status=VALUES(vrchat_status),
                world_name=VALUES(world_name), location=VALUES(location), last_login=VALUES(last_login),
-               source_vrchat_id=VALUES(source_vrchat_id), updated_at=NOW()`,
-            [vid, f.isOnline ? 1 : 0, f.status || 'offline', f.worldId || '', f.location || '', toSqlDatetime(f.last_login), sourceVid]
+               source_vrchat_id=VALUES(source_vrchat_id), status_description=VALUES(status_description),
+               trust_level=VALUES(trust_level), updated_at=NOW()`,
+            [vid, f.isOnline ? 1 : 0, f.status || 'offline', f.worldId || '', f.location || '', toSqlDatetime(f.last_login), sourceVid,
+             f.statusDescription || '', f.trustLevel || '']
           );
           shared++;
         }

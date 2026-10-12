@@ -101,6 +101,7 @@
 .coll-card-tag { font-size: var(--font-size-10); background: var(--card2); color: var(--text3); border-radius: 8px; padding: 1px 6px; }
 .coll-card-foot { margin-top: auto; padding-top: 6px; }
 .coll-card-rating { font-size: 12px; color: #f5a623; }
+.coll-card-rec { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; color: var(--green); background: rgba(74,222,128,.12); border-radius: 6px; padding: 1px 6px; cursor: default; }
 .coll-badge.public { font-size: 11px; background: #e6f7ec; color: #1a9c54; border-radius: 8px; padding: 1px 6px; }
 .coll-card-actions { border-top: 1px solid var(--border); padding-top: 8px; }
 .coll-card-btn {
@@ -154,6 +155,16 @@
 .coll-detail-pubinfo { font-size: 13px; color: var(--text); background: var(--hover); border-radius: 8px; padding: 6px 10px; }
 .coll-detail-pubinfo b { color: var(--accent); }
 .coll-badge.pubby { background: rgba(124,92,252,.12); color: #7c5cfc; border: 1px solid rgba(124,92,252,.3); }
+
+/* 推荐指数（多少人推荐 / 踩 + 平均 0~5） */
+.coll-detail-rec { background: color-mix(in srgb, var(--accent) 5%, var(--card)); border: 1px solid rgba(124,92,252,.22); border-radius: 12px; padding: 10px 12px; }
+.coll-detail-rec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.coll-detail-rec-title { font-weight: 700; color: var(--text); }
+.coll-detail-rec-meta { color: var(--text2); }
+.coll-detail-rec-bar { height: 6px; border-radius: 3px; background: rgba(248,113,113,.45); overflow: hidden; margin-top: 6px; }
+.coll-detail-rec-bar i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--green), #4ade80); transition: width .4s ease; }
+.coll-detail-rec-actions { display: flex; gap: 6px; }
+.coll-detail-rec-actions .btn { min-width: 84px; }
 
 @media (max-width: 768px) {
   #vrcCollectionsView .coll-layout,

@@ -23,8 +23,9 @@ function filterActivationCodes(kw, status) {
   else if (status === 'revoked') list = list.filter(function (c) { return c.revoked; });
   else if (status === 'expired') list = list.filter(isActivationCodeExpired);
   if (kw) {
+    kw = kw.toUpperCase();
     list = list.filter(function (c) {
-      return c.code.indexOf(kw) !== -1
+      return String(c.code || '').toUpperCase().indexOf(kw) !== -1
         || String(c.note || '').toUpperCase().indexOf(kw) !== -1
         || String(c.created_by || '').toUpperCase().indexOf(kw) !== -1;
     });
@@ -149,11 +150,15 @@ function renderActivationCodes() {
 function revokeActivationCode(code) {
   const reason = prompt(__('admin.activation.revoke_reason_prompt'), '');
   if (reason === null) return;
+  if (!String(reason || '').trim()) {
+    toast(__('admin.activation.revoke_reason_required'), 'warn');
+    return;
+  }
   showConfirm(__('admin.activation.revoke_confirm', { code: code }), async function () {
     try {
       const res = await api('/api/admin/activation-codes/revoke', {
         method: 'POST',
-        body: { code: code, reason: reason }
+        body: { code: code, reason: String(reason).trim() }
       });
       if (res.ok) {
         const data = await res.json();

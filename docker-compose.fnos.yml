@@ -43,7 +43,7 @@ services:
   # 一次性初始化：以 root 创建 /vol3/1001/jingtu 各数据目录并 chown 给 1000:1000
   # （node:22-slim 镜像中 node 用户的 uid/gid 均为 1000），确保 app 容器可写。
   init:
-    image: docker.m.daocloud.io/library/busybox:1.36
+    image: docker.1ms.run/library/busybox:1.36
     container_name: jingtu-init
     restart: "no"
     user: "0:0"
@@ -57,8 +57,8 @@ services:
       - jingtu-net
 
   db:
-    # 国内镜像源（DaoCloud）：绕开飞牛失效的内置加速器 docker.fnnas.com（401 Unauthorized）
-    image: docker.m.daocloud.io/library/mysql:8.0
+    # 国内镜像源（docker.1ms.run，1Panel 官方维护）：绕开飞牛失效的内置加速器 docker.fnnas.com（401 Unauthorized）
+    image: docker.1ms.run/library/mysql:8.0
     container_name: jingtu-db
     restart: unless-stopped
     # MySQL 8 关闭需冲刷 InnoDB 缓冲（大库可能超默认 10s）；给足宽限避免被 SIGKILL
@@ -107,8 +107,8 @@ services:
     build:
       context: "https://gitee.com/htmcwy_0/jingtu-web.git#jingtu-web"
       args:
-        # 国内镜像源（DaoCloud）：绕开飞牛失效的内置加速器 docker.fnnas.com（401 Unauthorized）
-        NODE_IMAGE: docker.m.daocloud.io/library/node:22-slim
+        # 国内镜像源（docker.1ms.run，1Panel 官方维护）：绕开飞牛失效的内置加速器 docker.fnnas.com（401 Unauthorized）
+        NODE_IMAGE: docker.1ms.run/library/node:22-slim
     image: jingtu-web:latest
     container_name: jingtu-web
     restart: unless-stopped

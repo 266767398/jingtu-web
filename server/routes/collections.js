@@ -64,10 +64,18 @@ async function refreshAggregates(pool, targetId, kind) {
   const tagHeat = row.tag_heat || 0;
   const ratingAvg = rcSum > 0 ? (rsum / rcSum) : 0;
   const heat = computeHeat(ratingAvg, rcSum, favSum, collectorCount, tagHeat);
+  // 推荐指数按目标全局聚合（collection_recommends 为同一目标跨副本投票）
+  const [rec] = await pool.query(
+    `SELECT SUM(vote=1) AS up, SUM(vote=-1) AS down FROM collection_recommends WHERE target_id=? AND kind=?`,
+    [targetId, kind]
+  );
+  const up = Number(rec[0] && rec[0].up) || 0;
+  const down = Number(rec[0] && rec[0].down) || 0;
   await pool.query(
-    `UPDATE collections SET collector_count = ?, favorite_count = ?, rating_count = ?, rating_avg = ?, heat = ?
+    `UPDATE collections SET collector_count = ?, favorite_count = ?, rating_count = ?, rating_avg = ?, heat = ?,
+       recommend_up = ?, recommend_down = ?
      WHERE target_id = ? AND kind = ?`,
-    [collectorCount, favSum, rcSum, ratingAvg.toFixed(2), heat, targetId, kind]
+    [collectorCount, favSum, rcSum, ratingAvg.toFixed(2), heat, up, down, targetId, kind]
   );
 }
 
@@ -184,9 +192,12 @@ async function backfillWorldDetail(it, cookie) {
     const w = await getCachedWorld(it.target_id, cookie);
     if (!w || !w.id) return;
     const tags = Array.isArray(w.tags) ? w.tags : [];
+    const thumb = (w.imageUrl || w.thumbnailImageUrl || (w.thumbnail && w.thumbnail.url) || '');
+    // 补缩略图：此前记录缺图的世界（收藏时未带图/回源失败）打开详情后即刻上屏
     await pool.query(
       `UPDATE collections SET description=?, world_type=?, platform=?, unity_package_url=?, asset_url=?,
-         tags=?, content_rating=?, status='valid', last_checked_at=NOW()
+         tags=?, content_rating=?, status='valid', last_checked_at=NOW(),
+         thumbnail=IF(thumbnail IS NULL OR thumbnail='', ?, thumbnail)
        WHERE id=?`,
       [
         w.description || '',
@@ -196,6 +207,7 @@ async function backfillWorldDetail(it, cookie) {
         w.assetUrl || '',
         JSON.stringify(tags),
         tags.some(t => /sex|nsfw|18\+/i.test(t)) ? '18+' : 'all',
+        thumb,
         it.id
       ]
     );
@@ -586,7 +598,7 @@ router.get('/:id', requireAuth, async (req, res) => {
     if (it.kind === 'avatar_model' && (!it.platform || !it.unity_version || it.tags == null || it.status === 'unknown')) {
       await backfillAvatarDetail(it, req.vrcCookie || null);
       backfilled = true;
-    } else if (it.kind === 'world' && (!it.world_type || it.tags == null || !it.description)) {
+    } else if (it.kind === 'world' && (!it.world_type || it.tags == null || !it.description || !it.thumbnail)) {
       await backfillWorldDetail(it, req.vrcCookie || null);
       backfilled = true;
     } else if (it.kind === 'avatar_favorite' && !(it.name || '')) {
@@ -606,6 +618,14 @@ router.get('/:id', requireAuth, async (req, res) => {
     }
     if (it.thumbnail) it.thumbnail = proxyThumb(it.thumbnail);
     it.public_duplicate = !!Number(it.public_duplicate);
+    // 推荐指数：当前用户对该目标的投票（1=推荐 -1=不推荐 0=未投票）
+    it.recommend_up = Number(it.recommend_up) || 0;
+    it.recommend_down = Number(it.recommend_down) || 0;
+    const [myVote] = await pool.query(
+      `SELECT vote FROM collection_recommends WHERE target_id=? AND kind=? AND user_id=? LIMIT 1`,
+      [it.target_id, it.kind, uid]
+    );
+    it.my_recommend = myVote.length ? Number(myVote[0].vote) : 0;
     // V9.7 安全：公开收藏对非本人可见，但剥离私有字段，避免把 notes/分组/BOOTH 链接等
     // 私密信息泄漏给浏览公开发现页的其他用户（前端公开视角本就不渲染这些，现后端也不再下发）。
     if (it.user_id !== uid) {
@@ -908,6 +928,41 @@ router.post('/:id/rate', requireAuth, async (req, res) => {
     await refreshAggregates(pool, cur[0].target_id, cur[0].kind);
     ok(res, { rating_avg: agg[0].avg, rating_count: agg[0].cnt });
   } catch (e) { handleError(res, e, 'collections.rate'); }
+});
+
+// ============ 推荐指数（按目标全局投票，1=推荐 / -1=不推荐） ============
+// 与 1-5 星评分不同：推荐面向目标对象（世界/模型/好友）本身而非某一条收藏副本，
+// 同一用户对同一目标无论持有多少副本只投一票；聚合写入该目标全部副本的
+// recommend_up / recommend_down，公开发现页与我的收藏页共用同一指数。
+router.post('/:id/recommend', requireAuth, async (req, res) => {
+  try {
+    const pool = getPool();
+    const uid = req.session.userId;
+    const id = Number(req.params.id);
+    const vote = Number(req.body.vote);
+    if (vote !== 1 && vote !== -1)
+      return res.status(400).json({ success: false, error: { code: ErrorCodes.BAD_REQUEST, message: '推荐投票仅支持 1（推荐）/ -1（不推荐）' } });
+    const [cur] = await pool.query(`SELECT * FROM collections WHERE id=?`, [id]);
+    if (!cur.length) return res.status(404).json({ success: false, error: { code: ErrorCodes.NOT_FOUND, message: '收藏不存在' } });
+    const targetId = cur[0].target_id;
+    const kind = cur[0].kind;
+    // 幂等 upsert：再次投票覆盖原先的推荐/不推荐（不支持取消，与社区推荐语义一致）
+    await pool.query(
+      `INSERT INTO collection_recommends (target_id, kind, user_id, vote) VALUES (?,?,?,?)
+       ON DUPLICATE KEY UPDATE vote=VALUES(vote), updated_at=NOW()`,
+      [targetId, kind, uid, vote]
+    );
+    await refreshAggregates(pool, targetId, kind);
+    const [agg] = await pool.query(
+      `SELECT SUM(vote=1) AS up, SUM(vote=-1) AS down FROM collection_recommends WHERE target_id=? AND kind=?`,
+      [targetId, kind]
+    );
+    ok(res, {
+      recommend_up: Number(agg[0].up) || 0,
+      recommend_down: Number(agg[0].down) || 0,
+      my_recommend: vote
+    });
+  } catch (e) { handleError(res, e, 'collections.recommend'); }
 });
 
 // ============ 复制模型到游戏内 (仅 avatar_model, 需本人 cookie) ============

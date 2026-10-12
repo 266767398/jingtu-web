@@ -767,8 +767,10 @@ function showModal(id) {
     requestAnimationFrame(() => requestAnimationFrame(() => modal.classList.add('show')));
     // 锁定背景滚动，避免弹窗背后内容滚动露底
     if (typeof lockBodyScroll === 'function') lockBodyScroll('modal:' + id);
-    // 焦点管理：移动到弹窗内第一个可聚焦元素
-    const focusable = modal.querySelector('input, button, select, textarea, [tabindex]:not([tabindex="-1"])');
+    // 焦点管理：优先聚焦表单输入（input/select/textarea），
+    // 而不是 X 关闭按钮——否则回车会误触发关闭弹窗而非提交。
+    const inputs = modal.querySelector('input, select, textarea:not([type="hidden"])');
+    const focusable = inputs || modal.querySelector('button:not([data-modal-close]), [tabindex]:not([tabindex="-1"])');
     if (focusable) setTimeout(() => focusable.focus(), 100);
   }
 }
@@ -903,6 +905,15 @@ function promptVrcReLogin(detail) {
       setTimeout(function () {
         const el = document.getElementById('vrchatBindForm') || document.getElementById('vrchatBoundStatus');
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // 已记住 VRChat 账号密码 → 直接自动发送验证码并弹出验证码输入框，免手动重输
+        if (typeof reloginVRChat === 'function') {
+          let hasCreds = false;
+          try {
+            const c = JSON.parse(localStorage.getItem('jingtu_vrc_creds') || 'null');
+            hasCreds = !!(c && c.username && c.password);
+          } catch (e) {}
+          if (hasCreds) reloginVRChat();
+        }
       }, 350);
     });
 }

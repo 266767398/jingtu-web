@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { fail, ok, getPool, handleError, sendError, ErrorCodes, getAvatarUrl } = require('./utils');
-const { passwordResetLimiter, registerLimiter, createCustomLimiter } = require('./middleware/rate_limit');
+const { passwordResetLimiter, registerLimiter, initLimiter, createCustomLimiter } = require('./middleware/rate_limit');
 const { hashPassword, verifyPassword, validatePasswordStrength, requireAuth, requireSuperAdmin } = require('./auth');
 const logger = require('./logger');
 const { buildSession, sessionUser } = require('./auth_session');
@@ -52,7 +52,7 @@ router.get('/init', async (req, res) => {
   }
 });
 
-router.post('/init', async (req, res) => {
+router.post('/init', initLimiter, async (req, res) => {
   try {
     const ENV_PATH = path.join(__dirname, '..', '.env');
     // 先确认是否已有超级管理员：已存在则直接拒绝，且「绝不」在此生成/轮换 .env 的

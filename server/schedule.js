@@ -320,7 +320,7 @@ function startSchedule() {
 
       // 方案 B：加载群友共享的在线状态（最近 15 分钟内上报，好友视角可信）
       const [sharedRows] = await pool.query(
-        `SELECT vrchat_id, is_online, vrchat_status, world_name, location, last_login, updated_at
+        `SELECT vrchat_id, is_online, vrchat_status, world_name, location, last_login, status_description, trust_level, updated_at
          FROM group_presence_share WHERE updated_at >= NOW() - INTERVAL 15 MINUTE`
       );
       const sharedMap = new Map();
@@ -351,6 +351,8 @@ function startSchedule() {
             displayName: m.display_name || m.vrchat_name || '',
             avatarUrl: m.avatar_url || '',
             status: s.vrchat_status || 'offline',
+            statusDescription: s.status_description || '',
+            trustLevel: s.trust_level || '',
             location: s.location || '',
             worldId: s.world_name || '',
             isOnline: !!s.is_online,
@@ -465,8 +467,10 @@ function startSchedule() {
           ageVerificationStatus: info.ageVerificationStatus || '',
           profilePicOverrideThumbnail: info.profilePicOverrideThumbnail || '',
           userIcon: info.userIcon || '',
-          trustLevel: info.trustLevel || '',
-          statusDescription: info.statusDescription || '',
+          // 空值不覆盖非空旧值——共享态链路此前缺字段且用 '' 无条件覆盖，
+          // 导致群成员的 status_description/trust_level 被定时任务清空（自定义状态与信任光环丢失）。
+          trustLevel: info.trustLevel || prev.trust_level || '',
+          statusDescription: info.statusDescription || prev.status_description || '',
         });
         touched++;
       }

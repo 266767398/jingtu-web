@@ -133,8 +133,16 @@ describe('列表 / 状态 / 计数', () => {
     expect(res.body).toEqual({ following: false, followedBy: false });
   });
 
-  test('GET /counts/:userId', async () => {
+  test('GET /counts/:userId 非好友 → 403（隐私闸与列表同口径）', async () => {
+    mockPool.query.mockResolvedValueOnce([[]]); // friend check: 非好友
+    const res = await request(buildApp()).get('/api/follows/counts/2');
+    expect(res.status).toBe(403);
+    expectCode(res, 'FORBIDDEN');
+  });
+
+  test('GET /counts/:userId 好友 → 200', async () => {
     mockPool.query
+      .mockResolvedValueOnce([[{ 1: 1 }]])      // friend check: 已互加好友
       .mockResolvedValueOnce([[{ following: 5 }]])
       .mockResolvedValueOnce([[{ followers: 3 }]]);
     const res = await request(buildApp()).get('/api/follows/counts/2');

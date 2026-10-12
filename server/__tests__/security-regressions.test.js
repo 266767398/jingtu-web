@@ -1,4 +1,4 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -461,9 +461,10 @@ describe('security regressions', () => {
     const countLimiters = (source) => (source.match(/rateLimit\(\{/g) || []).length;
     const countStores = (source) => (source.match(/store:\s*hybridStore\(/g) || []).length;
     // P3-13（2026-09-15）为 /api/jtt 新增 jttLimiter，security 中间件 limiter 数 5→6
+    // N1（2026-10-12）为 /api/auth/init 新增 initLimiter，limiter 数 6→7
     expect(countLimiters(files.securityMiddleware)).toBe(6);
     expect(countStores(files.securityMiddleware)).toBe(countLimiters(files.securityMiddleware));
-    expect(countLimiters(files.rateLimitMiddleware)).toBe(6);
+    expect(countLimiters(files.rateLimitMiddleware)).toBe(7);
     expect(countStores(files.rateLimitMiddleware)).toBe(countLimiters(files.rateLimitMiddleware));
     expect(files.chatRoute).toMatch(/joinGroupLimiter = rateLimit\(\{[\s\S]*?store: hybridStore\('chat-join-group'\)/);
     // createCustomLimiter 必须注入默认 store，且放在调用方 options 之前，允许显式覆盖
@@ -834,10 +835,14 @@ describe('security regressions', () => {
     });
 
     test('index.html 中 freeze.js 先于 theme/auth/main 加载（注册回调时 __freeze 已就绪）', () => {
-      expectBefore(files.indexHtml, 'js/freeze.js?v=20261012a', 'js/theme.js?v=20261012a');
-      expectBefore(files.indexHtml, 'js/freeze.js?v=20261012a', 'js/auth.js?v=20261012a');
-      expectBefore(files.indexHtml, 'js/freeze.js?v=20261012a', 'js/main.js?v=20261012a');
-      expect(files.indexHtml).toMatch(/loader\.js\?v=20261012a/);
+      // 版本戳以 scripts/bump-version.js 维护单一事实源，此处从 index.html 动态取主戳，
+      // 避免每次升戳都要同步硬编码断言（2026-10-12 曾因漏改 20261012a→b 误报）
+      const mainStamp = (files.indexHtml.match(/loader\.js\?v=(\w+)/) || [])[1];
+      expect(mainStamp).toBeTruthy();
+      expectBefore(files.indexHtml, `js/freeze.js?v=${mainStamp}`, `js/theme.js?v=${mainStamp}`);
+      expectBefore(files.indexHtml, `js/freeze.js?v=${mainStamp}`, `js/auth.js?v=${mainStamp}`);
+      expectBefore(files.indexHtml, `js/freeze.js?v=${mainStamp}`, `js/main.js?v=${mainStamp}`);
+      expect(files.indexHtml).toMatch(new RegExp(`loader\\.js\\?v=${mainStamp}`));
     });
 
     test('main.js 冻结时暂停刷新轮询与断开 WebSocket，解冻恢复；轮询带冻结守卫', () => {

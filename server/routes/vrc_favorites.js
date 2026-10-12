@@ -109,6 +109,150 @@ function pruneFavCacheIfDue() {
   } catch (e) { /* 清理失败不影响主流程 */ }
 }
 
+// ============ 收藏快照缓存（登录自动同步 + 收藏页秒开） ============
+// 背景：官方收藏页每次打开都要拉分组 + 逐条回源富化（受 40/min 令牌桶限制，慢且易失败）。
+// 方案：把「分组 + 各类型条目列表（已富化）」落库为 vrc_fav_snapshot，读取命中直接返回（零回源）；
+// 登录/进入 VRC 页签时后台同步刷新（POST /sync），顶部状态栏展示进度；手动「刷新」强制重拉。
+const SNAP_SCOPES = ['groups', 'items:world', 'items:avatar', 'items:friend'];
+// 快照新鲜阈值：10 分钟内直接命中，不触发任何回源
+const SNAP_FRESH_MS = 10 * 60 * 1000;
+// 快照超过 30 分钟：仍先返回缓存（不阻塞渲染），同时顺带触发一次后台同步补鲜
+const SNAP_OLDER_MS = 30 * 60 * 1000;
+// 后台同步单作业（进程内 single-flight），前端轮询 /sync-status 读取
+const favSync = {
+  running: false,
+  startedAt: 0,
+  step: '',        // 'groups' | 'items:world' | ...
+  stepLabel: '',   // 中文步骤标签
+  stepIndex: 0,
+  stepTotal: 0,
+  lastAt: 0,
+  lastError: ''
+};
+
+function snapScopeOfType(type) { return 'items:' + (type || 'world'); }
+
+async function snapGet(scope) {
+  try {
+    const pool = getPool();
+    const [rows] = await pool.query(
+      `SELECT payload, item_count, fetched_at FROM vrc_fav_snapshot WHERE scope=? LIMIT 1`, [scope]
+    );
+    const r = rows && rows[0];
+    if (!r) return null;
+    let payload = null;
+    try { payload = typeof r.payload === 'string' ? JSON.parse(r.payload) : r.payload; } catch (e) { payload = null; }
+    if (!Array.isArray(payload)) return null;
+    return { payload, itemCount: r.item_count || payload.length, fetchedAt: r.fetched_at };
+  } catch (e) { return null; }
+}
+
+async function snapSet(scope, payload) {
+  if (!Array.isArray(payload)) return;
+  try {
+    const pool = getPool();
+    await pool.query(
+      `INSERT INTO vrc_fav_snapshot (scope, payload, item_count, fetched_at) VALUES (?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE payload=VALUES(payload), item_count=VALUES(item_count), fetched_at=NOW()`,
+      [scope, JSON.stringify(payload), payload.length]
+    );
+  } catch (e) { /* 快照写入失败不影响主流程 */ }
+}
+
+async function snapInvalidate(scopeLike) {
+  try {
+    const pool = getPool();
+    await pool.query(`DELETE FROM vrc_fav_snapshot WHERE scope LIKE ?`, [scopeLike]);
+  } catch (e) { /* 静默 */ }
+}
+
+function snapAgeMs(snap) {
+  if (!snap || !snap.fetchedAt) return Infinity;
+  const t = new Date(snap.fetchedAt).getTime();
+  if (isNaN(t)) return Infinity;
+  return Date.now() - t;
+}
+
+function favSyncProgress() {
+  return {
+    running: favSync.running,
+    startedAt: favSync.startedAt,
+    step: favSync.step,
+    stepLabel: favSync.stepLabel,
+    stepIndex: favSync.stepIndex,
+    stepTotal: favSync.stepTotal,
+    lastAt: favSync.lastAt,
+    lastError: favSync.lastError
+  };
+}
+
+// 后台同步收藏快照（分组 + 三类条目）。single-flight：已有作业在跑时直接返回当前作业状态。
+// 单步骤失败不中断整体（VRChat 限流/单类型异常只影响该类型），下次登录/刷新自动补齐。
+// 收藏条目：VRChat 官方接口不按 type 服务端过滤，整批分页抓全后按类型切分落快照，
+// 避免同一批数据为三类各回源一次（既省 API 又保证 >100 条的用户也能全量入库）。
+async function startFavSync(cookie) {
+  if (favSync.running) return favSync;
+  favSync.running = true;
+  favSync.startedAt = Date.now();
+  favSync.lastError = '';
+  const itemSteps = [
+    { scope: 'items:world', label: '地图', type: 'world' },
+    { scope: 'items:avatar', label: '模型', type: 'avatar' },
+    { scope: 'items:friend', label: '好友', type: 'friend' }
+  ];
+  const steps = [{ scope: 'groups', label: '收藏分组' }, ...itemSteps];
+  favSync.stepTotal = steps.length;
+  const byType = { world: [], avatar: [], friend: [] };
+  try {
+    for (let i = 0; i < steps.length; i++) {
+      const s = steps[i];
+      favSync.stepIndex = i + 1;
+      favSync.step = s.scope;
+      favSync.stepLabel = s.label;
+      try {
+        if (s.scope === 'groups') {
+          const upstream = await vrchatGetFavoriteGroups(cookie, 100, 0);
+          if (upstream.status >= 200 && upstream.status < 300) {
+            const groups = Array.isArray(upstream.data) ? upstream.data : [];
+            await snapSet('groups', groups);
+          }
+        } else {
+          // 首次进条目步骤时整批分页抓全（上限 600 条，防止异常大收藏刷爆令牌桶）
+          const rawTotal = byType.world.length + byType.avatar.length + byType.friend.length;
+          if (rawTotal === 0) {
+            let offset = 0;
+            while (offset < 600) {
+              const upstream = await vrchatGetFavorites(cookie, 100, offset, null);
+              if (upstream.status < 200 || upstream.status >= 300) break;
+              const page = Array.isArray(upstream.data) ? upstream.data : [];
+              if (!page.length) break;
+              for (const it of page) {
+                if (it && it.type && byType[it.type]) byType[it.type].push(it);
+              }
+              if (page.length < 100) break;
+              offset += page.length;
+            }
+          }
+          const items = byType[s.type] || [];
+          const enriched = await enrichFavoriteItems(items, cookie);
+          await snapSet(s.scope, enriched);
+        }
+      } catch (e) {
+        if (e && e.code === 'VRC_RATE_TIMEOUT') throw e;
+        favSync.lastError = String((e && e.message) || e || '');
+      }
+    }
+    pruneFavCacheIfDue();
+    favSync.lastAt = Date.now();
+  } finally {
+    favSync.running = false;
+    favSync.step = '';
+    favSync.stepLabel = '';
+    favSync.stepIndex = 0;
+  }
+  return favSync;
+}
+
 // P1-34: single-flight 防惊群——TTL 缓存只挡先后请求，挡不住同时 miss 的并发请求；
 // 同一目标的并发富化共享一次回源（世界一层另有 world_cache 去重，此处覆盖 avatar/friend）。
 const favMetaInflight = new Map();
@@ -295,14 +439,23 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
   // ============ 分组（Favorite Groups） ============
 
   // 列出官方收藏分组（全类型混合返回，前端按 type 归类）
+  // 快照优先：命中缓存直接返回（零回源）；快照较旧时顺带后台同步补鲜，不阻塞响应。
   router.get('/groups', requireAuth, async (req, res) => {
     if (!req.vrcCookieRead) return fail(res, 400, '暂无可用的 VRChat 登录态，请先绑定或配置 VRChat 账号', { code: ErrorCodes.NEED_BIND });
     try {
+      if (req.query.refresh !== '1') {
+        const snap = await snapGet('groups');
+        if (snap) {
+          if (snapAgeMs(snap) > SNAP_OLDER_MS) startFavSync(req.vrcCookieRead).catch(() => {});
+          return ok(res, { groups: snap.payload, cached: true });
+        }
+      }
       const n = clampInt(req.query.n, 50, 1, MAX_PAGE);
       const offset = clampInt(req.query.offset, 0, 0, 10000);
       const upstream = await vrchatGetFavoriteGroups(req.vrcCookieRead, n, offset);
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '获取收藏分组');
       const groups = Array.isArray(upstream.data) ? upstream.data : [];
+      await snapSet('groups', groups);
       ok(res, { groups });
     } catch (e) { handleError(res, e, 'vrcfav.groups'); }
   });
@@ -319,6 +472,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
     try {
       const upstream = await vrchatUpdateFavoriteGroup(req.vrcCookieWrite, type, name, ownerUserId, displayName);
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '重命名收藏分组');
+      await snapInvalidate('groups%');
       ok(res, { group: upstream.data });
     } catch (e) { handleError(res, e, 'vrcfav.group.rename'); }
   });
@@ -333,6 +487,8 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
     try {
       const upstream = await vrchatClearFavoriteGroup(req.vrcCookieWrite, type, name, ownerUserId);
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '清空收藏分组');
+      await snapInvalidate('items:%');
+      await snapInvalidate('groups%');
       ok(res);
     } catch (e) { handleError(res, e, 'vrcfav.group.clear'); }
   });
@@ -340,6 +496,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
   // ============ 收藏条目（Favorites） ============
 
   // 列出收藏条目（type 可选过滤；tag 为分组名过滤）
+  // 快照优先：已同步的列表直接返回（零回源、零富化等待）；refresh=1 或分组过滤/翻页时走实时路径。
   router.get('/items', requireAuth, async (req, res) => {
     if (!req.vrcCookieRead) return fail(res, 400, '暂无可用的 VRChat 登录态，请先绑定或配置 VRChat 账号', { code: ErrorCodes.NEED_BIND });
     try {
@@ -348,6 +505,15 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       const n = clampInt(req.query.n, 50, 1, MAX_PAGE);
       const offset = clampInt(req.query.offset, 0, 0, 10000);
       const tag = (req.query.tag || '').trim() || null;
+      // 仅「首页 + 无分组过滤」命中快照；分组过滤/翻页语义不同，直接实时拉取
+      if (offset === 0 && !tag && req.query.refresh !== '1') {
+        const scope = snapScopeOfType(type || 'world');
+        const snap = await snapGet(scope);
+        if (snap) {
+          if (snapAgeMs(snap) > SNAP_OLDER_MS) startFavSync(req.vrcCookieRead).catch(() => {});
+          return ok(res, { items: snap.payload, cached: true });
+        }
+      }
       let upstream;
       try {
         upstream = await vrchatGetFavorites(req.vrcCookieRead, n, offset, tag);
@@ -367,6 +533,8 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       // 前端渲染卡片标题与图片需要名字/缩略图，尽力回源富化（带缓存与并发上限）
       items = await enrichFavoriteItems(items, req.vrcCookieRead);
       pruneFavCacheIfDue();
+      // 首页全量列表顺带写回快照，供下次秒开（仅无分组过滤时）
+      if (offset === 0 && !tag) await snapSet(snapScopeOfType(type || 'world'), items);
       ok(res, { items });
     } catch (e) { handleError(res, e, 'vrcfav.items'); }
   });
@@ -383,6 +551,9 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
     try {
       const upstream = await vrchatAddFavorite(req.vrcCookieWrite, type, favoriteId, [tag]);
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '添加收藏');
+      // 快照失效：下个请求实时重拉，避免列表与官方不一致
+      await snapInvalidate(snapScopeOfType(type) + '%');
+      await snapInvalidate('groups%');
       ok(res, { favorite: upstream.data });
     } catch (e) {
       // 目标已在收藏中：上游 400 "already in favorites" 转 409 便于前端识别
@@ -400,6 +571,9 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
     try {
       const upstream = await vrchatRemoveFavorite(req.vrcCookieWrite, req.params.id);
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '移除收藏');
+      // 快照失效：无法预知类型，全部条目快照失效，下个请求实时重拉
+      await snapInvalidate('items:%');
+      await snapInvalidate('groups%');
       ok(res);
     } catch (e) { handleError(res, e, 'vrcfav.item.remove'); }
   });
@@ -422,6 +596,34 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       }
       handleError(res, e, 'vrcfav.detail');
     }
+  });
+
+  // ============ 收藏快照同步（顶部状态栏驱动） ============
+
+  // 触发后台同步：登录/进入 VRC 页签时由前端调用。内部 single-flight，
+  // 已有作业运行时立即返回当前状态（不会叠加请求）；调用方随后轮询 /sync-status。
+  // 注意：任务在后台执行（不 await 全程，避免请求被拖到上游限流超时），立即响应。
+  router.post('/sync', requireAuth, async (req, res) => {
+    if (!req.vrcCookieRead) return fail(res, 400, '暂无可用的 VRChat 登录态，请先绑定或配置 VRChat 账号', { code: ErrorCodes.NEED_BIND });
+    try {
+      if (favSync.running) return ok(res, { running: true, startedAt: favSync.startedAt });
+      startFavSync(req.vrcCookieRead).catch(() => {});
+      ok(res, { running: true, startedAt: Date.now() });
+    } catch (e) { handleError(res, e, 'vrcfav.sync'); }
+  });
+
+  // 同步进度与快照概览（顶部状态栏轮询）：作业进度 + 各 scope 条目数与上次拉取时间
+  router.get('/sync-status', requireAuth, async (req, res) => {
+    try {
+      const perScope = {};
+      for (const scope of SNAP_SCOPES) {
+        const snap = await snapGet(scope);
+        perScope[scope] = snap
+          ? { count: snap.itemCount, fetchedAt: snap.fetchedAt }
+          : { count: 0, fetchedAt: null };
+      }
+      ok(res, { sync: favSyncProgress(), perScope });
+    } catch (e) { handleError(res, e, 'vrcfav.sync-status'); }
   });
 
   return router;

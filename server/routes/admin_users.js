@@ -70,10 +70,18 @@ module.exports = function createAdminUsersRouter() {
       let where = ['u.deleted_at IS NULL'];
       const params = [];
       if (search) { where.push('(u.login_id LIKE ? ESCAPE \'!\' OR u.display_name LIKE ? ESCAPE \'!\' OR u.vrchat_name LIKE ? ESCAPE \'!\')'); params.push(`%${escapeLike(search)}%`, `%${escapeLike(search)}%`, `%${escapeLike(search)}%`); }
-      if (roleFilter) { where.push('u.role = ?'); params.push(roleFilter); }
+      if (roleFilter) {
+        // P4: 支持逗号分隔多角色（如 admin,super_admin），管理员面板据此只列管理员
+        const roles = roleFilter.split(',').map(s => s.trim()).filter(Boolean);
+        if (roles.length > 0) {
+          where.push(`u.role IN (${roles.map(() => '?').join(',')})`);
+          params.push(...roles);
+        }
+      }
       if (statusFilter === 'banned') { where.push('u.banned = 1'); }
       else if (statusFilter === 'pending') { where.push('u.approved = 0 AND u.banned = 0'); }
       else if (statusFilter === 'active') { where.push('u.banned = 0'); }
+      else if (statusFilter === 'approved') { where.push('u.approved = 1 AND u.banned = 0'); }
       const w = where.join(' AND ');
       const [count] = await getPool().query(`SELECT COUNT(*) as total FROM users u WHERE ${w}`, params);
       const [rows] = await getPool().query(

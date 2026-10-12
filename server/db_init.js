@@ -344,6 +344,8 @@ async function initDatabase() {
         location VARCHAR(500) DEFAULT '',
         last_login DATETIME,
         source_vrchat_id VARCHAR(100),
+        status_description VARCHAR(500) DEFAULT '',
+        trust_level VARCHAR(50) DEFAULT '',
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_updated (updated_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
@@ -523,6 +525,34 @@ async function initDatabase() {
         PRIMARY KEY (target_id),
         INDEX idx_vrc_type(type),
         INDEX idx_vrc_fetched_at(fetched_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // VRChat 官方收藏快照缓存（登录自动同步 + 收藏页秒开读取）。
+      // scope 区分分组与各类型条目列表：groups / items:world / items:avatar / items:friend。
+      // payload 为已富化的列表 JSON（含 name/thumbnailImageUrl/authorName），读取时零回源。
+      `CREATE TABLE IF NOT EXISTS vrc_fav_snapshot (
+        scope VARCHAR(40) NOT NULL COMMENT 'groups|items:world|items:avatar|items:friend',
+        payload JSON NOT NULL COMMENT '快照数据（已富化条目/分组列表）',
+        item_count INT NOT NULL DEFAULT 0 COMMENT '条目数',
+        fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (scope)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // 收藏推荐指数（按 target 聚合的社区推荐/不推荐投票）。
+      // 与 collection_ratings（1-5 星、按 collection 副本计）不同：推荐按目标对象全局计，
+      // 同一用户对同一世界/模型/好友只能投一票，聚合写入 collections.recommend_up/down。
+      `CREATE TABLE IF NOT EXISTS collection_recommends (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        target_id VARCHAR(100) NOT NULL COMMENT 'VRChat 目标 ID',
+        kind VARCHAR(20) NOT NULL DEFAULT '' COMMENT 'avatar_model|world|avatar_favorite',
+        user_id INT NOT NULL COMMENT '投票用户',
+        vote TINYINT NOT NULL DEFAULT 1 COMMENT '1=推荐 -1=不推荐',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_target_user (target_id, kind, user_id),
+        INDEX idx_target (target_id, kind),
+        INDEX idx_user (user_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
       // 用户标签表 — routes/users.js 的 /tags 系列接口依赖此表（同样从未创建过）。
@@ -1435,6 +1465,20 @@ async function initDatabase() {
       }
     }
 
+    // V?source: 群友共享状态补列（P2-62 自定义状态/信任等级经共享态链路写回 group_roster，
+    // 原表缺列导致 schedule 定时任务用空串覆盖 status_description/trust_level，
+    // 表现为群成员自定义在线状态与信任光环丢失）
+    const presenceShareCols = [
+      `ALTER TABLE group_presence_share ADD COLUMN status_description VARCHAR(500) DEFAULT ''`,
+      `ALTER TABLE group_presence_share ADD COLUMN trust_level VARCHAR(50) DEFAULT ''`,
+    ];
+    for (const sql of presenceShareCols) {
+      try { await holder.pool.query(sql); } catch (e) {
+        if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME') { /* column exists */ }
+        else { logger.warn('db-init', '  ⚠️ presence share migration:', e.message); }
+      }
+    }
+
     // V9.5: F-18 审核远程动作结果落库（供审核队列回显 block/mute 是否成功、支持撤销）
     const moderationCols = [
       `ALTER TABLE moderations ADD COLUMN remote_result VARCHAR(500) DEFAULT ''`,
@@ -2060,6 +2104,8 @@ async function initDatabase() {
         collector_count INT NOT NULL DEFAULT 0 COMMENT '本站收藏用户数',
         rating_avg DECIMAL(3,2) NOT NULL DEFAULT 0.00 COMMENT '社区平均评分',
         rating_count INT NOT NULL DEFAULT 0 COMMENT '社区评分人数',
+        recommend_up INT NOT NULL DEFAULT 0 COMMENT '社区推荐人数（按 target 聚合）',
+        recommend_down INT NOT NULL DEFAULT 0 COMMENT '社区不推荐人数（按 target 聚合）',
         heat INT NOT NULL DEFAULT 0 COMMENT '社区热度',
         visibility ENUM('private','public') NOT NULL DEFAULT 'private' COMMENT '可见性',
         public_key VARCHAR(100) GENERATED ALWAYS AS (CASE WHEN visibility='public' THEN target_id ELSE NULL END) STORED COMMENT '公开态全站唯一键(P2-159)',
@@ -2091,6 +2137,18 @@ async function initDatabase() {
       await holder.pool.query(`ALTER TABLE collections ADD COLUMN \`show_author\` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '公开时是否显示公开者名字'`);
     } catch (e) {
       if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ collections.show_author migration:', e.message);
+    }
+
+    // 推荐指数聚合列迁移（幂等，重复列忽略）
+    try {
+      await holder.pool.query(`ALTER TABLE collections ADD COLUMN \`recommend_up\` INT NOT NULL DEFAULT 0 COMMENT '社区推荐人数'`);
+    } catch (e) {
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ collections.recommend_up migration:', e.message);
+    }
+    try {
+      await holder.pool.query(`ALTER TABLE collections ADD COLUMN \`recommend_down\` INT NOT NULL DEFAULT 0 COMMENT '社区不推荐人数'`);
+    } catch (e) {
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ collections.recommend_down migration:', e.message);
     }
 
     // P2-159: 公开收藏全站唯一约束迁移（生成列 public_key：仅 visibility='public' 时非空）。

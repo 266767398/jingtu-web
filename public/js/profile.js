@@ -1,10 +1,40 @@
 // ==================== 个人中心模块 ====================
 let profileLoading = false;
 
+// ==================== 个人中心侧边导航（tab-me） ====================
+let meSidebarBound = false;
+function initMeSidebar() {
+  const nav = document.querySelector('.me-sidenav');
+  if (!nav) return;
+  if (!meSidebarBound) {
+    meSidebarBound = true;
+    nav.addEventListener('click', (e) => {
+      const item = e.target.closest('.me-sidenav-item');
+      if (!item) return;
+      const id = item.getAttribute('data-me-target');
+      if (!id) return;
+      nav.querySelectorAll('.me-sidenav-item').forEach(b => b.classList.toggle('active', b === item));
+      document.querySelectorAll('#tab-me .me-content > .card').forEach(sec => {
+        sec.classList.toggle('me-sec-active', sec.id === id);
+      });
+      // 移动端横向导航：切换后滚到对应区块，避免内容区意外停留上方
+      const target = document.getElementById(id);
+      if (target && window.innerWidth <= 768) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+  // 每次进入 tab-me 都应用当前高亮项（默认第一个区块）
+  const active = nav.querySelector('.me-sidenav-item.active');
+  const id = active ? active.getAttribute('data-me-target') : 'avatarPrefCard';
+  document.querySelectorAll('#tab-me .me-content > .card').forEach(sec => {
+    sec.classList.toggle('me-sec-active', sec.id === id);
+  });
+}
+
 async function showProfile() {
   if (!currentUser || profileLoading) return;
   profileLoading = true;
   try {
+    initMeSidebar();
     const res = await api('/api/users/me/profile', { method: 'GET' });
     if (res.ok) {
       const data = await res.json();
@@ -393,6 +423,9 @@ async function saveAvatarPref(patch) {
 // ==================== VRChat 绑定（密码验证） ====================
 let _vrcBindTemp = null; // 存储2FA临时状态
 let _vrcBindResendCd = null; // 重发验证码倒计时定时器
+// 本地记住的 VRChat 账号密码（重新登录免输入，仅勾选「记住」时保存）
+const VRC_CREDS_KEY = 'jingtu_vrc_creds';
+let _vrcReloginActive = false; // 重新登录流程标记（失败时回落显示绑定表单）
 
 /**
  * 从服务器回拉一次权威的 VRChat 绑定字段，覆盖到 currentUser。
@@ -462,6 +495,8 @@ async function bindVRChatWithPassword() {
         const bindUsername2 = document.getElementById('vrchatInputId')?.value?.trim();
         if (bindUsername2) localStorage.setItem('jingtu_vrc_user', bindUsername2);
         localStorage.setItem('jingtu_vrc_bound', '1');
+        _vrcReloginActive = false;
+        saveVrcCredsIfChecked();
         resetVrcBindResend();
         updateUserUI();
         renderVRChatBindStatus();
@@ -473,6 +508,10 @@ async function bindVRChatWithPassword() {
     } else {
       const err = await res.json();
       toast(errText(err) || __('profile.bind_failed'), 'error');
+      // 重新登录流程失败（密码错误/账号失效等）→ 回落显示绑定表单，便于用户重输密码
+      if (_vrcReloginActive) {
+        showVrcReloginForm();
+      }
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.bind_failed') + ': ' + err.message, 'error'); }
   finally {
@@ -513,6 +552,8 @@ async function confirmVrcBind2fa() {
         const bindUsername = document.getElementById('vrchatInputId')?.value?.trim();
         if (bindUsername) localStorage.setItem('jingtu_vrc_user', bindUsername);
         localStorage.setItem('jingtu_vrc_bound', '1');
+        _vrcReloginActive = false;
+        saveVrcCredsIfChecked();
         document.getElementById('vrcBind2fa').classList.add('d-none');
         document.getElementById('vrcBind2faCode').value = '';
         _vrcBindTemp = null;
@@ -527,8 +568,9 @@ async function confirmVrcBind2fa() {
     } else {
       const err = await res.json();
       toast(errText(err) || __('profile.verify_failed'), 'error');
+      if (_vrcReloginActive) showVrcReloginForm();
     }
-  } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.verify_failed_msg') + ': ' + err.message, 'error'); }
+  } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.verify_failed_msg') + ': ' + err.message, 'error'); if (_vrcReloginActive) showVrcReloginForm(); }
   finally {
     if (btn) { btn.disabled = false; btn.textContent = __('profile.send_code'); }
   }
@@ -597,6 +639,60 @@ function resetVrcBindResend() {
   if (btn) { btn.disabled = true; btn.textContent = __('profile.resend_code'); }
 }
 
+// 绑定成功时按「记住账号密码」勾选状态保存/清除本地凭据
+function saveVrcCredsIfChecked() {
+  const cb = document.getElementById('rememberVrcCreds');
+  const username = document.getElementById('vrchatInputId')?.value?.trim();
+  const password = document.getElementById('vrchatBindPwd')?.value;
+  try {
+    if (cb && cb.checked && username && password) {
+      localStorage.setItem(VRC_CREDS_KEY, JSON.stringify({ username, password }));
+    } else {
+      localStorage.removeItem(VRC_CREDS_KEY);
+    }
+  } catch (e) { /* localStorage 不可用时忽略 */ }
+}
+
+// 重新登录失败回落：显示绑定表单，预填记住的用户名，聚焦密码框
+function showVrcReloginForm() {
+  const bindForm = document.getElementById('vrchatBindForm');
+  const boundStatus = document.getElementById('vrchatBoundStatus');
+  if (bindForm) bindForm.classList.remove('d-none');
+  if (boundStatus) boundStatus.classList.add('d-none');
+  const idInput = document.getElementById('vrchatInputId');
+  const savedUser = (() => { try { const c = JSON.parse(localStorage.getItem(VRC_CREDS_KEY) || 'null'); return c && c.username; } catch (e) { return null; } })();
+  if (idInput && !idInput.value) idInput.value = savedUser || localStorage.getItem('jingtu_vrc_user') || '';
+  const pwdInput = document.getElementById('vrchatBindPwd');
+  if (pwdInput) { pwdInput.value = ''; pwdInput.focus(); }
+  toast(__('profile.vrc_relogin_enter_pwd'), 'info');
+}
+
+// 重新登录 VRChat：已记住账号密码则直接发送验证码并弹出验证码输入框；未记住则显示表单预填用户名
+async function reloginVRChat() {
+  let creds = null;
+  try { creds = JSON.parse(localStorage.getItem(VRC_CREDS_KEY) || 'null'); } catch (e) { creds = null; }
+  const idInput = document.getElementById('vrchatInputId');
+  const pwdInput = document.getElementById('vrchatBindPwd');
+  const bindForm = document.getElementById('vrchatBindForm');
+  const boundStatus = document.getElementById('vrchatBoundStatus');
+  const bind2fa = document.getElementById('vrcBind2fa');
+  if (idInput && creds && creds.username) idInput.value = creds.username;
+  if (pwdInput && creds && creds.password) pwdInput.value = creds.password;
+
+  if (creds && creds.username && creds.password) {
+    // 有记住的账号密码 → 隐藏已绑定卡片，自动发送验证码，随后显示验证码输入框
+    _vrcReloginActive = true;
+    if (bindForm) bindForm.classList.add('d-none');
+    if (boundStatus) boundStatus.classList.add('d-none');
+    if (bind2fa) bind2fa.classList.add('d-none');
+    await bindVRChatWithPassword();
+  } else {
+    // 未记住密码 → 显示绑定表单预填用户名，仅需输入密码
+    _vrcReloginActive = true;
+    showVrcReloginForm();
+  }
+}
+
 async function unbindVRChat() {
   showConfirm(__('profile.vrc_unbind_confirm'), async () => {
     try {
@@ -608,6 +704,8 @@ async function unbindVRChat() {
         // V6.9: 清除浏览器缓存的 VRChat 绑定状态和用户名
         localStorage.removeItem('jingtu_vrc_user');
         localStorage.removeItem('jingtu_vrc_bound');
+        localStorage.removeItem(VRC_CREDS_KEY);
+        _vrcReloginActive = false;
         updateUserUI();
         renderVRChatBindStatus();
         toast(__('profile.vrc_unbound'), 'info');
@@ -649,6 +747,13 @@ function renderVRChatBindStatus() {
     statusEl.innerHTML = '<span class="text-13 text-muted2">' + __('profile.not_bound') + '</span>';
     bindForm.classList.remove('d-none');
     boundStatus.classList.add('d-none');
+    // 本地已记住凭据 → 默认勾选「记住账号密码」，提示可快捷重新登录
+    const rememberCb = document.getElementById('rememberVrcCreds');
+    if (rememberCb) {
+      let hasCreds = false;
+      try { const c = JSON.parse(localStorage.getItem(VRC_CREDS_KEY) || 'null'); hasCreds = !!(c && c.username && c.password); } catch (e) {}
+      rememberCb.checked = hasCreds;
+    }
   }
 }
 
@@ -866,3 +971,7 @@ async function submitNameChangeRequest() {
 }
 
 // 兼容旧调用 — 新绑定方式使用密码验证
+
+// 侧边导航自启动：profile.js 为懒加载模块，加载即代表进入个人中心页面结构已就绪，
+// 顶层调用一次（hoisting 保证 initMeSidebar 已定义），后续 showProfile 每次进入再矫正高亮。
+if (typeof initMeSidebar === 'function') { try { initMeSidebar(); } catch (e) {} }

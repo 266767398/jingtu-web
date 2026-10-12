@@ -29,7 +29,6 @@
     live: loadAdminLive,
     content: loadAdminContent,
     home: loadAdminSiteInfo,
-    siteinfo: loadAdminSiteInfo,
     stats: loadAdminAnalytics,
     monitor: loadVrcMonitor,
     'user-backup': initUserBackupPanel,
@@ -498,8 +497,9 @@
       var turnUrls = document.getElementById('cfgTurnUrls');
       var turnUser = document.getElementById('cfgTurnUsername');
       var turnCred = document.getElementById('cfgTurnCredential');
-      if (siteName) siteName.value = cfg.site_name || '';
-      if (siteSlogan) siteSlogan.value = cfg.hero_title || '';
+      // 站点名称优先取 hero_title（首页大标题），兜底 site_name
+      if (siteName) siteName.value = cfg.hero_title || cfg.site_name || '';
+      if (siteSlogan) siteSlogan.value = cfg.hero_subtitle || '';
       if (siteWelcome) siteWelcome.value = cfg.hero_description || '';
       if (vrc) vrc.value = cfg.vrcGroupUrl || '';
       if (kook) kook.value = cfg.kookUrl || '';
@@ -530,8 +530,10 @@
       toast(__('admin_vrc.super_admin_setting'), 'error');
       return;
     }
+    // 语义映射：站点名称 → hero_title（首页大标题）+ site_name；站点标语 → hero_subtitle；欢迎语 → hero_description
+    var siteNameVal = val('cfgHomeSiteName');
     var payload = {
-      site_name: val('cfgHomeSiteName'), hero_title: val('cfgSiteSlogan'), hero_description: val('cfgSiteWelcome'),
+      site_name: siteNameVal, hero_title: siteNameVal, hero_subtitle: val('cfgSiteSlogan'), hero_description: val('cfgSiteWelcome'),
       vrcGroupUrl: val('cfgVrcGroupUrl'), kookUrl: val('cfgKookUrl'), oopzUrl: val('cfgOopzUrl')
     };
     api('/api/admin/config', { method: 'PUT', body: JSON.stringify(payload) })

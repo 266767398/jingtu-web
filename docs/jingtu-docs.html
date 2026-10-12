@@ -317,8 +317,8 @@ td code{font-size:11.5px}
   <div class="stats">
     <div class="stat"><b>8</b><span>全局中间件</span></div>
     <div class="stat"><b class="v">59</b><span>活跃路由文件</span></div>
-    <div class="stat"><b class="g">30</b><span>懒加载模块</span></div>
-    <div class="stat"><b class="a">47</b><span>前端文件</span></div>
+    <div class="stat"><b class="g">33</b><span>懒加载模块</span></div>
+    <div class="stat"><b class="a">50</b><span>前端文件（public/js）</span></div>
     <div class="stat"><b>93</b><span>DB 表（MySQL）</span></div>
     <div class="stat"><b class="v">11</b><span>API 接口族</span></div>
     <div class="stat"><b class="g">6</b><span>安全防线</span></div>
@@ -361,7 +361,7 @@ td code{font-size:11.5px}
   <h3 style="margin:26px 0 10px;font-size:15px">目录结构</h3>
   <pre><span class="k">jingtu-web/</span>
 ├── <span class="k">public/</span>           # 前端：index/setup/migration/starting + 28 CSS + 56 JS（含 6 语言包）
-├── <span class="k">server/</span>           # server.js · db.js(双引擎) · auth 域(4 service) · vrc* · schedule.js
+├── <span class="k">server/</span>           # server.js · db.js(双引擎) · auth 域(4 service) · vrc* · schedule.js + tasks.js（定时任务）
 │                     # middleware/(8 文件) · routes/(59 活跃 + _archive/4) · 服务模块
 ├── <span class="k">assets/</span>           # 初始资源（群组头像/横幅缺省图等）
 ├── <span class="k">uploads/</span>          # 用户上传（不纳入版本控制）
@@ -420,7 +420,7 @@ td code{font-size:11.5px}
       <h3><span class="ic" style="background:var(--green)"></span>前端加载</h3>
       <ul>
         <li><b>index.html</b>：Tab 式单页（非 URL 路由）</li>
-        <li><b>loader.js</b>：按需懒加载 <b>30 个业务模块</b></li>
+        <li><b>loader.js</b>：按需懒加载 <b>33 个业务模块</b></li>
         <li><b>main.js</b>：交错刷新（30 秒首刷 / 75 秒轮换）</li>
         <li><b>i18n</b>：6 语言包</li>
         <li><b>PWA</b>：Manifest + sw.js</li>
@@ -446,11 +446,14 @@ td code{font-size:11.5px}
   </div>
 
   <div class="card" style="margin-top:16px">
-    <h3><span class="ic" style="background:var(--cyan)"></span>定时任务（schedule.js，随服务启动）</h3>
+    <h3><span class="ic" style="background:var(--cyan)"></span>定时任务（schedule.js + tasks.js，随服务启动）</h3>
     <div class="kv">
       <span class="k">缓存预热</span><span class="k">回收站清理</span><span class="k">活动归档</span><span class="k">邀请过期</span>
-      <span class="k">Token/活动提醒</span><span class="k">VRChat 在线状态 30s</span><span class="k">在线名册 5min</span>
+      <span class="k">Token/活动提醒</span><span class="k">VRChat 在线状态 60s</span><span class="k">在线名册缓存 5min</span>
+      <span class="k">好友/世界/会话/头像历史 diff</span><span class="k">模型收藏失效检测</span>
+      <span class="k">会话/文件/通知清理</span><span class="k">备份/备份清理/分享链接清理</span>
       <span class="k" style="color:var(--amber)">数据备份 每日 02:30</span>
+      <span class="k" style="color:var(--amber)">地图死坐标清扫 每 10 分钟</span><span class="k">每日统计 0 点</span>
     </div>
     <p style="margin-top:10px;font-size:12.8px;color:var(--dim)">备份以 <code>auto_</code> 前缀命名，保留天数可配（默认 7 天）；与 03-部署与运维 §3 联动。</p>
   </div>
@@ -529,8 +532,8 @@ td code{font-size:11.5px}
     <div class="card">
       <h3><span class="ic" style="background:var(--violet)"></span>Docker 镜像加速</h3>
       <ul>
-        <li><b>项目已内置</b>：基础镜像 <code>docker.m.daocloud.io/library/node:22-slim</code>，MySQL <code>…/mysql:8.0</code></li>
-        <li>验证可用源（2026-10-06）：<code>docker.m.daocloud.io</code> · <code>docker.xuanyuan.me</code> · <code>docker.1ms.run</code></li>
+        <li><b>项目已内置</b>：基础镜像 <code>docker.1ms.run/library/node:22-slim</code>，MySQL <code>…/mysql:8.0</code></li>
+        <li>验证可用源（2026-10-12）：<code>docker.1ms.run</code> · <code>hub.rat.dev</code></li>
         <li>阿里云个人加速器已停止同步、网易/中科大老站已关停，勿用</li>
         <li>registry-mirrors 只对 docker.io 生效，GHCR 等不适用</li>
         <li>飞牛用户直接按 <code>docker-compose.fnos.yml</code> 顶部注释操作即可</li>
@@ -749,7 +752,7 @@ td code{font-size:11.5px}
         <li>VRChat 凭据：QQ 用 AES-256-CBC、Cookie 用 <b>AES-256-GCM</b>（ENCRYPT_KEY 64hex）</li>
         <li>绑定三步限流 + 2FA 失败计数防爆破</li>
       </ul>
-      <p style="margin-top:10px;font-size:12.5px;color:var(--red)">已知缺陷（详见 12-审计问题清单）：P1 2FA 用户第一步登录误判未绑定 · P2 绑定临时 token 无过期 · P3 session 双 cookie 字段冗余</p>
+      <p style="margin-top:10px;font-size:12.5px;color:var(--green)">✅ P1/P2/P3 已于 2026-10-09 全部修复（详见 19-审计问题清单-2026-10-09.md）</p>
     </div>
     <div class="card">
       <h3><span class="ic" style="background:var(--green)"></span>安全中间件（6 道防线）</h3>
@@ -781,7 +784,7 @@ td code{font-size:11.5px}
       <h2>总览 · 入口 → 模块 → 服务 → 契约</h2>
       <span class="sp"></span>
     </div>
-    <p class="section-sub">一句话架构：<code>server.js</code> 是唯一入口 —— 全局 8 件中间件 + 59 个路由文件（其中 12 个为 admin/groups/users 三棵树的子路由）+ 2 个共享工具；前端是无框架单页，<code>index.html</code> 17 个静态脚本 + <code>loader.js</code> 懒加载 30 个业务模块，靠 <code>window.*</code> 契约跨模块链接。</p>
+    <p class="section-sub">一句话架构：<code>server.js</code> 是唯一入口 —— 全局 8 件中间件 + 59 个路由文件（其中 12 个为 admin/groups/users 三棵树的子路由）+ 2 个共享工具；前端是无框架单页，<code>index.html</code> 17 个静态脚本 + <code>loader.js</code> 懒加载 33 个业务模块，靠 <code>window.*</code> 契约跨模块链接。</p>
     <div class="panel">
       <div class="panel-head">
         <h4>架构总览 <span class="pill">对应文档 §〇 mermaid flowchart</span></h4>
@@ -802,7 +805,7 @@ td code{font-size:11.5px}
       <h2>交互模块地图</h2>
       <span class="sp"></span>
     </div>
-    <p class="section-sub">全部节点 = 后端 8 中间件 + 59 路由 + 服务层 + 前端 47 文件。力导向布局；点击节点看依赖（fan-out）与被依赖（fan-in），双击聚焦，滚轮缩放 / 拖拽平移，支持按分组筛选与名称搜索。</p>
+    <p class="section-sub">全部节点 = 后端 8 中间件 + 59 路由 + 服务层 + 前端 50 文件。力导向布局；点击节点看依赖（fan-out）与被依赖（fan-in），双击聚焦，滚轮缩放 / 拖拽平移，支持按分组筛选与名称搜索。</p>
     <div class="toolbar" id="mapToolbar">
       <div class="searchbox">
         <input id="mapSearch" type="text" placeholder="搜索模块名，如 auth / posts / loader …">
@@ -955,7 +958,7 @@ app.use('/api', 404 + error handler)</pre>
     <h3 class="sub">2.1 index.html 静态脚本栈（顺序即硬依赖）</h3>
     <div class="panel">
       <div class="panel-head">
-        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261011b</span></h4>
+        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261012b</span></h4>
       </div>
       <div class="tbl-scroll" style="max-height:560px"><table class="tbl">
         <thead><tr><th>#</th><th>脚本</th><th>模式</th><th>版本戳</th><th>作用</th></tr></thead>
@@ -966,24 +969,25 @@ app.use('/api', 404 + error handler)</pre>
     <h3 class="sub">2.2 loader.js 三张表（懒加载唯一事实来源）</h3>
     <div class="codeblock">
       <button class="copybtn" onclick="copyPre(this)">复制</button>
-      <pre><span style="color:#2fd4ff">ROUTE_MODULES</span> = 30 个：members home group announcements events vrc geo map chat album
+      <pre><span style="color:#2fd4ff">ROUTE_MODULES</span> = 33 个：members home group announcements events vrc geo map chat rtc location-share group-manage album
                   admin-users admin-perms admin-vrc admin-ui admin-model-collections admin-activation
+                  admin-files admin-security admin-webhooks
                   posts friends follows birthday profile profile-page
                   checkin checkin-extra achievements collections vrc_favorites
 <span style="color:#2fd4ff">TAB_MODULES</span>：home→home ｜ members→members ｜ me→admin-users+profile+profile-page
                   vrc→group+members+map+vrc+collections+vrc_favorites ｜ map→geo+map+vrc
-                  admin→admin-users+admin-activation+admin-perms+admin-vrc+admin-model-collections+admin-ui
-                  announcements events album chat birthday(+events) posts friends follows profile-user 各 1~2 个
+                  admin→admin-users+admin-activation+admin-perms+admin-vrc+admin-model-collections+admin-files+admin-security+admin-webhooks+admin-ui
+                  announcements events album chat→chat+rtc+location-share+group-manage birthday(+events) posts friends follows profile-user 各 1~2 个
 <span style="color:#2fd4ff">DISABLED_FEATURES</span>：new Set(['live'])  （唯一事实来源，路由已归档 routes/_archive/live.js）</pre>
     </div>
     <div class="callout">
-      <b>版本戳链：</b>懒加载模块不再写死 <code>?v=</code>，统一继承 <code>loader.js</code> 自身 <code>&lt;script&gt;</code> 标签的戳（<code>_assetVer</code>）——只改 loader 的戳即可让全部 30 个模块失效（P2-85）。<b>switchTab 三层包裹：</b>ui.js 原始实现 → motion.js（beginViewTransition）→ loader.js（先 <code>_ensureTabModules</code> 再渲染；渲染抛错则全量加载重试一次；渲染后按 <code>TAB_SEO_MAP</code> 调 <code>SITE_SEO.setPageSeo</code>）。
+      <b>版本戳链：</b>懒加载模块不再写死 <code>?v=</code>，统一继承 <code>loader.js</code> 自身 <code>&lt;script&gt;</code> 标签的戳（<code>_assetVer</code>）——只改 loader 的戳即可让全部 33 个模块失效（P2-85）。<b>switchTab 三层包裹：</b>ui.js 原始实现 → motion.js（beginViewTransition）→ loader.js（先 <code>_ensureTabModules</code> 再渲染；渲染抛错则全量加载重试一次；渲染后按 <code>TAB_SEO_MAP</code> 调 <code>SITE_SEO.setPageSeo</code>）。
     </div>
 
-    <h3 class="sub">2.3 前端模块矩阵（47 文件）</h3>
+    <h3 class="sub">2.3 前端模块矩阵（50 文件）</h3>
     <div class="panel">
       <div class="panel-head">
-        <h4>public/js / <span id="fmmCount" class="pill">47</span></h4>
+        <h4>public/js / <span id="fmmCount" class="pill">50</span></h4>
         <input id="fmmSearch" placeholder="筛选模块 / 职责 / API…" style="flex:1;min-width:200px;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;font-size:12.5px;outline:none">
         <div id="fmmChips"></div>
       </div>
@@ -1064,7 +1068,7 @@ app.use('/api', 404 + error handler)</pre>
         <tbody id="symBody"></tbody>
       </table></div>
     </div>
-    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261011b）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261011b</code>。</div>
+    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261012b）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261012b</code>。</div>
   </section>
 <section id="checklist">
     <div class="section-head">
@@ -1166,7 +1170,8 @@ const SERVICES=[
  ['server/vrc.js','VRChat API 客户端','原语 + 限流/退避，系统与用户链路共用'],
  ['server/security_alert.js','安全告警','登录失败/2FA 失败计数落库，security.js 路由读取'],
  ['server/utils.js','fail/ok/ErrorCodes/encryptCookie/errText','全后端响应契约'],
- ['server/notification-service.js','通知 + WS 推送','构造注入 9 个路由'],
+['server/upload_validation.js','零依赖（M7 新增）：FILE_SIGNATURES/DANGEROUS_EXTENSIONS/SAFE_EXTENSIONS/verifyFileSignature/isSafeFile/validateUploadFile','security.js re-export + utils.js secureUpload 直接调用，解除原延迟 require 环'],
+['server/notification-service.js','通知 + WS 推送','构造注入 9 个路由'],
  ['server/webhooks.js','Webhook 事件分发','webhooks 路由 + 业务侧事件源']
 ];
 const TOPO=[
@@ -1239,23 +1244,23 @@ const TOOLS=[
 ];
 const DBHOT=[['1','users','28'],['2','event','13'],['3','album_photo','11'],['4','group_roster','9'],['5','posts','9'],['6','notifications','9'],['7','permission_groups','3'],['8','user_like','3'],['9','user_friends','7'],['10','event_sign','6'],['11','user_group_membership','6'],['12','sys_oper_log','5'],['13','announcement','5'],['14','post_comment','3'],['15','group_permission_entries','3']];
 const STACK=[
- ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261011b','语言包×6（detectLang 动态注入）'],
- ['2','/js/seo.js','head 内同步（非 defer）','20261011b','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
- ['3','/js/core.js','defer','20261011b','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
- ['4','/js/i18n.js','defer','20261011b','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261011b\''],
- ['5','/js/ui.js','defer','20261011b','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
- ['6','gsap.min.js','defer','20261011b','动效库'],
- ['7','ScrollTrigger.min.js','defer','20261011b','滚动触发'],
- ['8','/js/motion.js','defer','20261011b','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
- ['9','/js/reveal.js','defer','20261011b','滚动揭示（IntersectionObserver；motion 启用后让位）'],
- ['10','/js/nav-scroller.js','defer','20261011b','顶部标签滑动'],
- ['11','/js/freeze.js','defer','20261011b','__freeze 空闲冻结'],
- ['12','/js/theme.js','defer','20261011b','主题 V5.5（模式/明暗/强调色/时间自动）'],
- ['13','/js/auth.js','defer','20261011b','登录/注册/2FA/VRC 登录/自动登录'],
- ['14','/js/loader.js','defer','20261011b','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP'],
- ['15','/js/smartsearch.js','defer','20261011b','Ctrl+K 命令面板'],
- ['16','/js/init.js','defer','20261011b','初始化向导（main 未初始化分支调用）'],
- ['17','/js/main.js','defer','20261011b','入口调度/WS/轮询/通知']
+ ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261012b','语言包×6（detectLang 动态注入）'],
+ ['2','/js/seo.js','head 内同步（非 defer）','20261012b','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
+ ['3','/js/core.js','defer','20261012b','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
+ ['4','/js/i18n.js','defer','20261012b','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261012b\''],
+ ['5','/js/ui.js','defer','20261012b','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
+ ['6','gsap.min.js','defer','20261012b','动效库'],
+ ['7','ScrollTrigger.min.js','defer','20261012b','滚动触发'],
+ ['8','/js/motion.js','defer','20261012b','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
+ ['9','/js/reveal.js','defer','20261012b','滚动揭示（IntersectionObserver；motion 启用后让位）'],
+ ['10','/js/nav-scroller.js','defer','20261012b','顶部标签滑动'],
+ ['11','/js/freeze.js','defer','20261012b','__freeze 空闲冻结'],
+ ['12','/js/theme.js','defer','20261012b','主题 V5.5（模式/明暗/强调色/时间自动）'],
+ ['13','/js/auth.js','defer','20261012b','登录/注册/2FA/VRC 登录/自动登录'],
+ ['14','/js/loader.js','defer','20261012b','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP'],
+ ['15','/js/smartsearch.js','defer','20261012b','Ctrl+K 命令面板'],
+ ['16','/js/init.js','defer','20261012b','初始化向导（main 未初始化分支调用）'],
+ ['17','/js/main.js','defer','20261012b','入口调度/WS/轮询/通知']
 ];
 const FMM=[
  ['core.js','静','—','传输层/工具/弹窗/图片兜底/全局错误日志/VRC 重登引导','`__` toast esc','/api/csrf-token'],
@@ -1301,7 +1306,10 @@ const FMM=[
  ['admin-perms.js','懒','admin','权限只读检视 + 权限组管理','currentUser `__`','/api/permissions-view /api/permission-groups'],
  ['admin-vrc.js','懒','admin','VRC 系统状态/登录/黑名单/改名审核/操作日志/Git 更新','currentUser','/api/admin/* /api/name-change/* /api/vrc-credentials-status'],
  ['admin-model-collections.js','懒','admin','模型收藏馆后台：统计/失效/用户详情/删除/扫描','`__`','/api/collections/admin/* /api/admin/users'],
- ['admin-ui.js','懒','admin','后台导航 + 面板懒加载调度 + 内容/直播管理 + 站点配置','`_ensureTabModules` `__`','/api/admin/config /api/admin/content /api/admin/live /api/admin/analytics/dashboard /api/ops/start'],
+['admin-files.js','懒','admin','文件中转站：列举/下载/重命名/删除/建目录/按时限清理','showConfirm `showInput`','/api/admin/files*'],
+['admin-security.js','懒','admin','安全告警四张统计卡（登录失败/可疑请求/限流/CSRF）','api `__`','/api/admin/security/alerts/stats'],
+['admin-webhooks.js','懒','admin','Webhook 列表/新建/编辑/测试发送/删除/事件类型','showConfirm `__`','/api/admin/webhooks*'],
+['admin-ui.js','懒','admin','后台导航 + 面板懒加载调度 + 内容/直播管理 + 站点配置','`_ensureTabModules` `__`','/api/admin/config /api/admin/content /api/admin/live /api/admin/analytics/dashboard /api/ops/start'],
  ['db-recover.js','独','—','DB 恢复页','`__` fetch','/api/setup/state /api/system/db-recover'],
  ['setup.js','独','—','安装配置向导 6 步','`__` fetch','/api/setup/*'],
  ['live.js','禁','live（禁用）','直播（已停用，ui.js 分支防御调用）','`__`','/api/live']

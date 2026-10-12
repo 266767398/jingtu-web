@@ -14,6 +14,7 @@ const {
   getAvatarUrl, currentRole, hasRole
 } = require('../auth');
 const { fail, ok, getPool, validateFields, handleError, sendError, ErrorCodes, paginate, logOper, escapeLike, proxyVrcAvatar } = require('../utils');
+const { passwordResetLimiter } = require('../middleware/rate_limit');
 const logger = require('../logger');
 
 // B-2/P2-14：敏感操作（重置密码/改角色）要求当前管理员二次密码确认
@@ -994,21 +995,26 @@ router.get('/:userId/photos', requireAuth, async (req, res) => {
 // ==================== 按域拆出的子路由（P2-66 god-route 拆分）：标签 / 备注 ====================
 router.use(require('./users_tags_notes'));
 
-router.post('/me/change-password', requireAuth, async (req, res) => {
+router.post('/me/change-password', passwordResetLimiter, requireAuth, async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
     if (!oldPassword || !newPassword) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入旧密码和新密码');
     let users;
     try {
-      [users] = await getPool().query('SELECT password_hash FROM users WHERE id = ? AND deleted_at IS NULL', [req.session.userId]);
+      [users] = await getPool().query('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL', [req.session.userId]);
     } catch (e) {
       if (e.code === 'ER_BAD_FIELD_ERROR') {
-        [users] = await getPool().query('SELECT password_hash FROM users WHERE id = ?', [req.session.userId]);
+        [users] = await getPool().query('SELECT * FROM users WHERE id = ?', [req.session.userId]);
       } else {
         throw e;
       }
     }
     if (users.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
+    // 回退查询（deleted_at 列缺失时）同样补软删复核：与 /auth/change-password 口径一致，
+    // 防止混合 schema 下软删账户持会话继续改密。
+    if (users[0].deleted_at && !Number.isNaN(new Date(users[0].deleted_at).getTime())) {
+      return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
+    }
     if (users[0].password_hash) {
       const valid = await verifyPassword(oldPassword, users[0].password_hash);
       if (!valid) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '旧密码错误');
