@@ -1610,6 +1610,8 @@ window._LANG_FR = {
   "album.uploader": "<b>Uploader</b>",
   "album.video": "<b>Video</b>",
   "auth.code_sent": "<b>Autorisation</b>.code_sent",
+  "auth.code_resent": "Un nouveau code de vérification a été envoyé à votre e-mail",
+  "auth.session_expired_relogin": "Session de connexion expirée, veuillez vous reconnecter",
   "auth.cooldown": "{n} secondes avant de pouvoir réenvoyer le code d'authentification",
   "auth.enter_account_pwd": "<b>Autorisation</b>.enter_account_pwd",
   "auth.avatar_local": "Local",

@@ -1610,6 +1610,8 @@ window._LANG_JA = {
   "album.uploader": "アップローダー",
   "album.video": "ビデオ",
   "auth.code_sent": "验证码が送信されました",
+  "auth.code_resent": "验证码を再送信しました",
+  "auth.session_expired_relogin": "ログインセッションの有効期限が切れました。再ログインしてください",
   "auth.cooldown": "{n} 秒後可重新发送",
   "auth.enter_account_pwd": "<br>请输入账号和密码<br>",
   "auth.avatar_local": "ローカル",

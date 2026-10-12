@@ -103,7 +103,7 @@ router.get('/list', requireAuth, async (req, res) => {
     const [rows] = await getPool().query(
       `SELECT u.id, u.login_id AS loginId, u.display_name, u.vrchat_id, u.vrchat_name, u.role, u.avatar_type,
               u.custom_avatar_path, u.vrchat_avatar_url,
-              u.location, u.lat, u.lng, u.location_visible AS locationVisible, u.preferences,
+              u.location, u.lat, u.lng, u.location_visible AS locationVisible, u.location_updated_at AS locationUpdatedAt, u.preferences,
               COALESCE(l.likeCount, 0) AS likeCount,
               tr.trust_level AS trustLevel, tr.trust_level_cn AS trustLevelCn,
               ra.profile_pic_override_thumbnail AS roster_override_pic,
@@ -150,6 +150,10 @@ router.get('/list', requireAuth, async (req, res) => {
           }
         } catch (_) { selfTags = []; }
       }
+      // P3-XX：坐标按新鲜度窗口出站——开启过共享但已超 5 分钟未更新的成员，
+      // 不再暴露旧坐标（成员页徽章仍按 locationVisible 展示，不受影响）
+      const locFresh = !!(u.locationVisible && u.locationUpdatedAt &&
+        new Date(u.locationUpdatedAt).getTime() >= Date.now() - (5 * 60 * 1000));
       return {
         id: u.id,
         loginId: u.loginId,
@@ -162,10 +166,12 @@ router.get('/list', requireAuth, async (req, res) => {
         // 优先用 group_roster 最近一次同步的头像；前端再按 /api/avatar/user 兜底（见 members.js）。
         avatarUrl: getAvatarUrl(u),
         profilePicOverrideThumbnail: proxyVrcAvatar(u.roster_override_pic || ''),
-        location: u.locationVisible ? u.location : null,
-        lat: u.locationVisible ? parseFloat(u.lat) : null,
-        lng: u.locationVisible ? parseFloat(u.lng) : null,
+        location: locFresh ? u.location : null,
+        lat: locFresh ? parseFloat(u.lat) : null,
+        lng: locFresh ? parseFloat(u.lng) : null,
         locationVisible: !!u.locationVisible,
+        // P3-XX：随成员列表下发最后更新时间，地图据此过滤关闭共享后残留的死坐标
+        locationUpdatedAt: u.locationUpdatedAt,
         selfTags,
         likeCount: parseInt(u.likeCount) || 0,
         trustLevel: u.trustLevel || '',
@@ -434,6 +440,9 @@ router.get('/birthdays', requireAuth, async (req, res) => {
  *         description: 未登录
  */
 // ==================== 全员位置（需要放在 /:id 通配路由之前） ====================
+// P3-XX：出站坐标新鲜度窗口（5 分钟）——只下发近 5 分钟内更新过的坐标，避免
+// 「点过共享 → 直接关页」留下的死坐标以固定位置永远钉在他人地图上。
+const LOCATION_FRESH_WINDOW_MS = 5 * 60 * 1000;
 router.get('/all/locations', requireAuth, async (req, res) => {
   try {
     const [rows] = await getPool().query(
@@ -443,7 +452,15 @@ router.get('/all/locations', requireAuth, async (req, res) => {
        WHERE location_visible = 1 AND lat IS NOT NULL AND lng IS NOT NULL AND deleted_at IS NULL`
     );
 
-    const markers = rows.map(u => ({
+    // 只出站近 5 分钟内更新过的坐标（MySQL/SQLite 双引擎通用，不依赖数据库方言，
+    // 统一在 JS 层按最后更新时间过滤）；无时间戳的行视为不可信，一并排除。
+    const cutoff = Date.now() - LOCATION_FRESH_WINDOW_MS;
+    const freshRows = rows.filter(u => {
+      if (!u.location_updated_at) return false;
+      return new Date(u.location_updated_at).getTime() >= cutoff;
+    });
+
+    const markers = freshRows.map(u => ({
       id: u.id,
       // displayName 与全站命名保持一致；保留 name 兼容旧前端缓存
       displayName: u.display_name,

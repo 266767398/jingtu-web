@@ -57,6 +57,16 @@ describe('P3-93 tasks 定时清理任务', () => {
     expect(sql).toBe('DELETE FROM share_links WHERE expires_at < NOW()');
   });
 
+  test('cleanupStaleLocations 只关闭超时未更新的共享坐标并清坐标', async () => {
+    poolMock.query.mockResolvedValue([{ affectedRows: 2 }]);
+    await tasks.cleanupStaleLocations();
+    const [sql, params] = poolMock.query.mock.calls[0];
+    expect(sql).toMatch(/UPDATE\s+users\s+SET\s+location_visible\s*=\s*0,\s*lat\s*=\s*NULL,\s*lng\s*=\s*NULL/i);
+    expect(sql).toMatch(/location_visible\s*=\s*1\s+AND\s+lat\s+IS\s+NOT\s+NULL/i);
+    expect(sql).toMatch(/location_updated_at\s*IS\s+NULL\s+OR\s+location_updated_at\s*<\s*\?/);
+    expect(params[0]).toBeInstanceOf(Date);
+  });
+
   test('generateDailyStats 范围查询使用北京时间上/下界并写入缓存与告警', async () => {
     poolMock.query
       .mockResolvedValueOnce([{ 0: { count: 3 } }])

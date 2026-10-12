@@ -24,7 +24,8 @@ const router = express.Router();
 
 router.get('/admin/webhooks', requireAdminCompat, async (req, res) => {
   try {
-    const webhooks = await getWebhooks();
+    // 管理列表需要包含「已停用」的 webhook，否则前端无法重新启用/删除
+    const webhooks = await getWebhooks(null, true);
     // M12 修复：列表接口不返回 secret 原文，仅返回前4位+**** 掩码
     res.json({ webhooks: webhooks.map(w => ({ ...w, secret: maskWebhookSecret(w.secret) })) });
   } catch (e) {

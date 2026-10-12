@@ -52,17 +52,27 @@ function main() {
     console.error('❌ 版本戳格式应为 YYYYMMDD + 字母（如 20261010a）');
     process.exit(1);
   }
-  const pages = htmlFiles();
-  const allText = pages.map((f) => fs.readFileSync(path.join(pubDir, f), 'utf8')).join('\n');
+  // 全域覆盖范围：
+  //  - public/*.html（CSS/JS/语言包 document.write 的 ?v=）
+  //  - public/css/style.css（@import 子样式表也带 ?v=，历史实测漏过多次导致子样式改不动）
+  //  - server/routes/share.js（服务端渲染的分享页 CSS 引用）
+  //  - public/js/i18n.js（I18N_PACK_VERSION）
+  const pageFiles = htmlFiles().map((f) => path.join(pubDir, f));
+  const cssEntry = path.join(pubDir, 'css', 'style.css');
+  const shareRoute = path.join(root, 'server', 'routes', 'share.js');
+  const allFiles = [...pageFiles, cssEntry, shareRoute];
+  const allText = allFiles.map((p) => {
+    try { return fs.readFileSync(p, 'utf8'); } catch (e) { return ''; }
+  }).join('\n');
   const stamp = arg || autoStamp(allText);
   const oldStamps = allStamps(allText);
 
   let replaced = 0;
-  for (const f of pages) {
-    const p = path.join(pubDir, f);
-    const html = fs.readFileSync(p, 'utf8');
+  for (const p of allFiles) {
+    let html;
+    try { html = fs.readFileSync(p, 'utf8'); } catch (e) { continue; }
     const next = html.replace(/v=20\d{6}[a-z]/g, function (m) { replaced++; return 'v=' + stamp; });
-    fs.writeFileSync(p, next, 'utf8');
+    if (next !== html) fs.writeFileSync(p, next, 'utf8');
   }
 
   const i18n = fs.readFileSync(i18nPath, 'utf8');
@@ -70,7 +80,7 @@ function main() {
   fs.writeFileSync(i18nPath, nextI18n, 'utf8');
 
   console.log('新版本戳: ' + stamp);
-  console.log('覆盖页面: ' + pages.join(', '));
+  console.log('覆盖文件: ' + allFiles.map((p) => path.relative(root, p)).join(', '));
   console.log('替换 ?v= 共 ' + replaced + ' 处；旧戳（本次统一覆盖）: ' + Array.from(oldStamps).join(', '));
   console.log('i18n.js I18N_PACK_VERSION 已同步。');
 }

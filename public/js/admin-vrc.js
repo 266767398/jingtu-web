@@ -192,7 +192,8 @@ function showNameReviewModal() {
 }
 
 async function loadNameChangeRequests() {
-  if (!currentUser || currentUser.role !== 'super_admin') {
+  // 后端 /api/name-change 系列为 requireAdminCompat（admin+），前端不可再拦死普通管理员
+  if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'super_admin')) {
     toast(__('admin_vrc.name_review_denied'), 'error');
     return;
   }
@@ -252,7 +253,7 @@ async function reviewNameChange(requestId, action) {
 }
 
 async function updateNameReviewPreview() {
-  if (!currentUser || currentUser.role !== 'super_admin') return;
+  if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'super_admin')) return;
   try {
     const res = await api('/api/name-change/pending', { method: 'GET' });
     if (res.ok) {
@@ -286,10 +287,46 @@ function onOperLogFilter() {
   loadOperLog(1);
 }
 
+// 操作日志类型下拉：index.html 里静态写死了十几个老类型，实际 oper_type 有 60+ 种，
+// 类型筛选形同虚设。后端已有 /api/admin/oper-log-types（按出现次数取前 50），
+// 首次进入日志面板时拉取并合并进下拉，保留当前选中值不打断操作。
+let operLogTypesLoaded = false;
+
+function populateOperLogTypes(types) {
+  const sel = document.getElementById('operLogTypeFilter');
+  if (!sel) return;
+  const prev = sel.value;
+  const seen = new Set();
+  Array.from(sel.options).forEach(o => { if (o.value) seen.add(o.value); });
+  (types || []).forEach(t => {
+    if (t && !seen.has(t)) {
+      seen.add(t);
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t;
+      sel.appendChild(opt);
+    }
+  });
+  sel.value = prev;
+}
+
+async function loadOperLogTypes() {
+  if (operLogTypesLoaded) return;
+  operLogTypesLoaded = true;
+  try {
+    const res = await api('/api/admin/oper-log-types', { method: 'GET' });
+    if (res.ok) {
+      const d = await res.json();
+      populateOperLogTypes(d.types || []);
+    }
+  } catch {}
+}
+
 async function loadOperLog(page) {
   const container = document.getElementById('operLog');
   if (!container) return;
   initVrcEventDelegates();
+  loadOperLogTypes();
   operLogCurrentPage = page || 1;
   container.innerHTML = '<div class="skeleton-card-list" style="margin:4px"></div><div class="skeleton-card-list" style="margin:4px"></div>';
   try {

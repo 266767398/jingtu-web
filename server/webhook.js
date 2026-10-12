@@ -167,12 +167,16 @@ function isMaskedSecret(s) {
   return typeof s === 'string' && s.endsWith('****');
 }
 
-async function getWebhooks(eventType = null) {
+// P3-89: 管理列表需要能看到「已停用」的 webhook（否则前端无法重新启用/删除），
+// 通过 includeDisabled=true 返回全部记录；事件触发（带 eventType）始终只取 enabled=1。
+async function getWebhooks(eventType = null, includeDisabled = false) {
   try {
     const pool = getPool();
-    const query = eventType 
+    const query = eventType
       ? 'SELECT * FROM webhooks WHERE enabled = 1 AND FIND_IN_SET(?, events)'
-      : 'SELECT * FROM webhooks WHERE enabled = 1';
+      : includeDisabled
+        ? 'SELECT * FROM webhooks'
+        : 'SELECT * FROM webhooks WHERE enabled = 1';
     const params = eventType ? [eventType] : [];
     const [rows] = await pool.query(query, params);
     // 内存中解密 secret 供签名校验使用

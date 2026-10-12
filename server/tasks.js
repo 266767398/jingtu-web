@@ -228,6 +228,29 @@ async function cleanupExpiredShareLinks() {
   }
 }
 
+// P3-XX：清扫地图「死坐标」——点过共享后直接关页（不发 location:stop）的用户
+// location_visible 恒为 1、坐标永远不过期；定时把超 10 分钟未更新的坐标复位为
+// 不可见并清空，让 /all/locations 与 /list 的下一次出站不再携带死坐标。
+// 双引擎通用：cutoff 以 JS Date 传参数（不用 NOW() - INTERVAL 方言）。
+async function cleanupStaleLocations() {
+  try {
+    const pool = getPool();
+    const staleBefore = new Date(Date.now() - 10 * 60 * 1000);
+    const [result] = await pool.query(
+      `UPDATE users SET location_visible = 0, lat = NULL, lng = NULL, location_updated_at = NULL
+       WHERE location_visible = 1 AND lat IS NOT NULL
+         AND (location_updated_at IS NULL OR location_updated_at < ?)`,
+      [staleBefore]
+    );
+    if (result.affectedRows > 0) {
+      logger.info('tasks', `[task] 清扫地图死坐标: ${result.affectedRows} 个`);
+    }
+  } catch (e) {
+    logger.error('tasks', '[task] 清扫地图死坐标失败:', e);
+    await alertThrottled('cleanupStaleLocations', '任务执行失败', `清扫地图死坐标失败: ${e.message}`);
+  }
+}
+
 function startTasks() {
   // §P3-90: 幂等——二次调用先停止并清空已注册任务，避免全部 CronJob 重复注册任务翻倍
   stopTasks();
@@ -253,6 +276,8 @@ function startTasks() {
   jobs.push(new CronJob('30 2 * * *', guard('runAutoBackup', runAutoBackup), null, true, 'Asia/Shanghai'));
   jobs.push(new CronJob('0 3 * * *', guard('cleanupExpiredBackups', cleanupExpiredBackups), null, true, 'Asia/Shanghai'));
   jobs.push(new CronJob('0 3 * * *', guard('cleanupExpiredShareLinks', cleanupExpiredShareLinks), null, true, 'Asia/Shanghai'));
+  // P3-XX：地图死坐标清扫（每 10 分钟），与 5 分钟出站窗口互为冗余
+  jobs.push(new CronJob('*/10 * * * *', guard('cleanupStaleLocations', cleanupStaleLocations), null, true, 'Asia/Shanghai'));
   jobs.push(new CronJob('0 0 * * *', guard('generateDailyStats', generateDailyStats), null, true, 'Asia/Shanghai'));
 
   for (const job of jobs) {
@@ -288,5 +313,6 @@ module.exports = {
   cleanupExpiredNotifications,
   cleanupExpiredBackups,
   cleanupExpiredShareLinks,
+  cleanupStaleLocations,
   runAutoBackup
 };

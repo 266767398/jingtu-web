@@ -141,6 +141,44 @@ describe('map module regressions', () => {
     expect(locationsRoute).toMatch(/res\.json\(\{\s*markers,\s*count:/);
   });
 
+  // 防止 /all/locations 返回「关页不点停止共享」留下的死坐标：坐标必须在近 5 分钟内更新过，
+  // 否则关闭浏览器却仍开着 location_visible 的用户会以旧坐标永远钉在他人地图上（死位置）。
+  // 过滤放在 JS 层（双引擎兼容，不用 MySQL INTERVAL 方言），SQL 保持 location_visible=1 不变。
+  test('/all/locations filters out stale coordinates so dead markers are not served', () => {
+    const route = usersRoute();
+    const locationsRoute = route.slice(route.indexOf("router.get('/all/locations'"), route.indexOf("router.get('/search'"));
+    expect(locationsRoute).toMatch(/5\s*\*\s*60\s*\*\s*1000|LOCATION_FRESH_WINDOW/);
+    expect(locationsRoute).toMatch(/\.filter\(u\s*=>/);
+    expect(locationsRoute).toMatch(/new Date\(u\.location_updated_at\)\.getTime\(\)\s*>=\s*cutoff/);
+    expect(locationsRoute).not.toMatch(/WHERE\s+location_visible\s*=\s*1[\s\S]*INTERVAL/);
+  });
+
+  // 防止成员列表不带最后更新时间：地图 updateMapMarkers 无法判断 membersCache 里的
+  // 坐标是否过期，会把关闭共享前留下的旧坐标当成「正在共享」重新钉上地图。
+  test('/list returns locationUpdatedAt so the map can drop stale member pins', () => {
+    const route = usersRoute();
+    expect(route).toMatch(/u\.location_updated_at\s+AS\s+locationUpdatedAt/);
+    expect(route).toMatch(/locationUpdatedAt:\s*u\.locationUpdatedAt/);
+    const listRoute = route.slice(route.indexOf("router.get('/list'"), route.indexOf("router.get('/all/locations'"));
+    expect(listRoute).toMatch(/location_updated_at\s+AS\s+locationUpdatedAt/);
+  });
+
+  // 防止把「死坐标」重新建标/续命：带时间戳的过期坐标一律不建、已建则立即清除；
+  // 离开/刷新页面时尽力广播 location:stop，让服务端清库并通知其他在线端。
+  test('map drops stale timestamped data and broadcasts stop on unload', () => {
+    const source = mapJs();
+    expect(source).toMatch(/function\s+isStaleLocationData\s*\(/);
+    const staleFn = extractFunction(source, 'isStaleLocationData');
+    expect(staleFn).toMatch(/userData\.locationUpdatedAt\s*\?\s*new\s+Date\(userData\.locationUpdatedAt\)\.getTime\(\)/);
+    expect(staleFn).toMatch(/LOCATION_STALE_TIMEOUT/);
+    expect(staleFn).toMatch(/return\s+false;/);
+    expect(source).toMatch(/isStaleLocationData\(userData,\s*Date\.now\(\)\)/);
+    expect(source).toMatch(/removeLocationMarker\(uid\)/);
+    expect(source).toMatch(/addEventListener\(['"]beforeunload['"]/);
+    expect(source).toMatch(/sendLocationStopViaWS\(\)/);
+    expect(source).toMatch(/!isStaleLocationData\(m\)/);
+  });
+
   // 防止 PUT /me/location 接受 NaN/越界坐标，或更新坐标时不记录更新时间。
   test('PUT /me/location validates coordinates and records a timestamp', () => {
     // P2-66：/me/location 是 users_profile.js 的末条路由，原结束锚点 /:userId/photos 留在壳内，
@@ -387,8 +425,9 @@ describe('P2-71/72/73/76 config & deploy hygiene guard', () => {
     const tasks = extractFunction(readServer('tasks.js'), 'startTasks');
     const cronJobs = (tasks.match(/new CronJob\(/g) || []).length;
     const tzPinned = (tasks.match(/null, true, 'Asia\/Shanghai'\)/g) || []).length;
-    // P3-51：新增 cleanupExpiredShareLinks 定时任务（0 3 * * *）后，任务数 6→7
-    expect(cronJobs).toBe(7);
+    // P3-51：新增 cleanupExpiredShareLinks 定时任务（0 3 * * *）后，任务数 6→7；
+    // P3-XX：新增 cleanupStaleLocations（地图死坐标清扫）后 7→8
+    expect(cronJobs).toBe(8);
     expect(tzPinned).toBe(cronJobs);
   });
 });
@@ -526,6 +565,39 @@ describe('P2-68 eslint gate and lint-discovered fixes', () => {
     expect(sec).toContain('rateLimitStub.MemoryStore');
     expect(sec).not.toContain('_exitTimer');
     expect(sec).not.toContain('process.exit(0)');
+  });
+});
+
+describe('admin config save-loop regressions', () => {
+  const adminRoute = () => readServer('routes', 'admin.js');
+  const adminVrc = () => readRepo('public', 'js', 'admin-vrc.js');
+
+  const allowedKeys = () => {
+    const src = adminRoute();
+    const m = src.match(/const allowedKeys = \[([\s\S]*?)\];/);
+    if (!m) throw new Error('allowedKeys array not found in admin.js');
+    return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+  };
+  const frontendConfigKeys = () => {
+    const fn = extractFunction(adminVrc(), 'saveSystemConfig');
+    const block = (fn.match(/const config = \{([\s\S]*?)\n\s*\};/) || [])[1] || '';
+    return [...block.matchAll(/^\s*(\w+):/gm)].map((x) => x[1]);
+  };
+
+  // 前端 saveSystemConfig() 发出的每个配置键，后端 PUT /admin/config 的
+  // allowedKeys 白名单都必须接受；否则保存被静默丢弃、页面重载回旧值
+  // （症状即「数值/开关改了没生效」）。此守卫保证前后端配置键集同步，防复发。
+  test('前端 saveSystemConfig 发送的每个配置键后端都必须接受', () => {
+    const allowed = new Set(allowedKeys());
+    const missing = frontendConfigKeys().filter((k) => !allowed.has(k));
+    expect(missing).toEqual([]);
+  });
+
+  test('系统设置基础键（注册/审核/公告/邮箱/上传/视频）可被保存', () => {
+    const allowed = new Set(allowedKeys());
+    for (const k of ['allow_register', 'require_approval', 'site_notice', 'contact_email', 'max_photo_upload', 'max_video_size_mb']) {
+      expect(allowed.has(k)).toBe(true);
+    }
   });
 });
 

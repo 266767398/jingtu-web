@@ -656,7 +656,7 @@ const albumRouter = require('./routes/album')(authState, notificationService);
 app.use('/api', albumRouter);
 
 // ==================== 群组图片上传（type 白名单防路径穿越） ====================
-const GROUP_IMG_TYPES = ['image', 'avatar', 'banner', 'logo', 'cover'];
+const GROUP_IMG_TYPES = ['image', 'avatar', 'banner', 'logo', 'cover', 'hero'];
 const groupImgUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => { if (!fs.existsSync(ASSETS_DIR)) fs.mkdirSync(ASSETS_DIR, { recursive: true }); cb(null, ASSETS_DIR); },

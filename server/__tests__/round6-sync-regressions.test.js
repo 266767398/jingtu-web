@@ -344,6 +344,24 @@ describe('长耗时接口的前端超时与按钮恢复', () => {
     expect(offenders).toEqual([]);
   });
 
+  test('map.js 瞬时定位错误保持共享并重试，仅权限被拒才结束会话', () => {
+    // 根因：地图侧 watch 错误回调无条件 stopLocationTracking()，导致切回标签页、
+    // 进室内 GPS 失锁等瞬时故障直接把整段共享掐断并误弹"停止位置追踪"；
+    // chat 侧 location-share.js 早已是"瞬时故障重试、权限被拒才停"的口径。
+    const mapSrc = js('map.js');
+    expect(/function _handleLocationError/.test(mapSrc)).toBe(true);
+    const errFn = mapSrc.slice(mapSrc.indexOf('function _handleLocationError'));
+    // 通过 geoErrorKey 区分永久/瞬时（不直接判 err.code，非安全上下文 code 也是 1）
+    expect(/geoErrorKey\(err\)/.test(errFn)).toBe(true);
+    // 仅权限被拒 / 非安全上下文才结束会话
+    expect(/'geo\.permission_denied'\s*\|\|\s*key\s*===\s*'geo\.insecure_context'/.test(errFn)).toBe(true);
+    // 瞬时分支走重挂 watch，而不是 stopLocationTracking
+    expect(/scheduleLocationWatchRetry\(\)/.test(errFn)).toBe(true);
+    expect(/function scheduleLocationWatchRetry/.test(mapSrc)).toBe(true);
+    // 重挂去重 + 会话停止后不再重试
+    expect(/_locationRetryTimer \|\| !locationTrackingActive\) return/.test(mapSrc)).toBe(true);
+  });
+
   test('通过 FormData 提交的接口必须自己判 res.ok', () => {
     // apiForm() 只对 401/403/429/5xx 抛错，400（内容超长、文件类型不支持等）
     // 会正常 resolve。不判 ok 就会在服务端已经拒绝的情况下弹"发布成功"。

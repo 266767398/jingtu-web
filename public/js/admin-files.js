@@ -52,14 +52,19 @@
     } else {
       listEl.innerHTML = items.map((f) => {
         const rel = f.path || f.name || '';
+        const isDir = !!f.isDir || f.type === 'DIR';
+        const icon = isDir ? '📁' : '📄';
+        const dwnBtn = isDir
+          ? ''
+          : '<button type="button" class="btn btn-sm btn-outline" data-f-download="' + escAttr(rel) + '">⬇️ ' + __('auto_admin_files_16') + '</button>';
         return '<div class="admin-user-card">' +
-          '<span class="admin-user-avatar" style="display:flex;align-items:center;justify-content:center;font-size:18px">📄</span>' +
+          '<span class="admin-user-avatar" style="display:flex;align-items:center;justify-content:center;font-size:18px">' + icon + '</span>' +
           '<div class="admin-user-info">' +
           '<div class="admin-user-name">' + esc(rel) + '</div>' +
           '<div class="admin-user-meta">' + esc(f.sizeFormatted || (f.size + ' B')) + ' · ' + __('auto_admin_files_20') + ': ' + esc(f.type || 'FILE') + ' · ' + __('auto_admin_files_21') + ': ' + esc(fmtDate(f.modifiedAt)) + '</div>' +
           '</div>' +
           '<div class="admin-user-actions">' +
-          '<button type="button" class="btn btn-sm btn-outline" data-f-download="' + escAttr(rel) + '">⬇️ ' + __('auto_admin_files_16') + '</button>' +
+          dwnBtn +
           '<button type="button" class="btn btn-sm btn-outline" data-f-rename="' + escAttr(rel) + '">✏️ ' + __('auto_admin_files_17') + '</button>' +
           '<button type="button" class="btn btn-sm btn-danger" data-f-del="' + escAttr(rel) + '">🗑 ' + __('auto_admin_files_18') + '</button>' +
           '</div></div>';

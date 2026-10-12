@@ -511,6 +511,11 @@
   }
 
   window.saveRtcTurn = function () {
+    // 后端 PUT /api/admin/config 是 requireRole('super_admin')，前端必须先拦，否则普通管理员点了只看到 403
+    if (!currentUser || currentUser.role !== 'super_admin') {
+      toast(__('admin_vrc.super_admin_setting'), 'error');
+      return;
+    }
     var payload = {
       rtc_turn_urls: val('cfgTurnUrls'), rtc_turn_username: val('cfgTurnUsername'), rtc_turn_credential: val('cfgTurnCredential')
     };
@@ -520,6 +525,11 @@
   };
 
   window.saveSiteInfo = function () {
+    // 同上：主页信息写入同样走 requireRole('super_admin') 的配置接口
+    if (!currentUser || currentUser.role !== 'super_admin') {
+      toast(__('admin_vrc.super_admin_setting'), 'error');
+      return;
+    }
     var payload = {
       site_name: val('cfgHomeSiteName'), hero_title: val('cfgSiteSlogan'), hero_description: val('cfgSiteWelcome'),
       vrcGroupUrl: val('cfgVrcGroupUrl'), kookUrl: val('cfgKookUrl'), oopzUrl: val('cfgOopzUrl')
@@ -551,14 +561,52 @@
           return '<div class="stat-card"><div class="stat-value">' + (k[1] != null ? k[1] : '-') + '</div><div class="stat-label">' + k[0] + '</div></div>';
         }).join('');
         if (charts) {
+          // metrics.js 的 successRate 已是带百分号字符串（如 "98.5%"），此处不可再追加 '%'
           charts.innerHTML = __('auto_admin_ui_74') +
-            __('auto_admin_ui_75') + (p.successRate != null ? p.successRate + '%' : '-') + '</b></div>' +
+            __('auto_admin_ui_75') + (p.successRate != null ? p.successRate : '-') + '</b></div>' +
             __('auto_admin_ui_76') + (p.maxResponseTime != null ? p.maxResponseTime : '-') + '</b></div>' +
             __('auto_admin_ui_77') + (p.slowRequests != null ? p.slowRequests : '-') + '</b></div>' +
             __('auto_admin_ui_78') + (ch.enabled ? __('admin_ui.yes') : __('auto_admin_ui_79')) + '</b></div></div>';
+          // 时间范围筛选：adminStatsRange 之前只是摆设，没有任何读取 / 传参动作；
+          // 现在按所选天数拉取每日注册趋势渲染成表，切换范围即重新加载。
+          var rangeEl = document.getElementById('adminStatsRange');
+          var days = rangeEl ? parseInt(rangeEl.value, 10) || 7 : 7;
+          renderDailyStats(days, charts);
         }
       })
       .catch(function () { grid.innerHTML = __('auto_admin_ui_80'); });
+  }
+
+  // 拉取 /api/admin/analytics/users?days=N，将每日注册数渲染为图表区下方的趋势表
+  function renderDailyStats(days, charts) {
+    api('/api/admin/analytics/users?days=' + encodeURIComponent(days))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!charts) return;
+        var rows = (d && d.dailyRegistrations) || [];
+        var wrap = document.createElement('div');
+        wrap.className = 'mt-12';
+        wrap.innerHTML = '<div class="text-13 font-600 mb-4">近 ' + days + ' 天注册趋势:</div>';
+        if (!rows.length) {
+          wrap.innerHTML += '<div class="text-muted2 text-13">该范围内暂无注册数据</div>';
+          charts.appendChild(wrap);
+          return;
+        }
+        var table = document.createElement('table');
+        table.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px';
+        table.innerHTML = '<thead><tr>' +
+          '<th style="padding:6px;text-align:left;border-bottom:1px solid var(--border)">日期</th>' +
+          '<th style="padding:6px;text-align:right;border-bottom:1px solid var(--border)">注册数</th>' +
+          '</tr></thead><tbody>' +
+          rows.map(function (r) {
+            return '<tr><td style="padding:6px;text-align:left;border-bottom:1px dashed var(--border)">' + esc(r.date || '-') + '</td>' +
+              '<td style="padding:6px;text-align:right;border-bottom:1px dashed var(--border)">' + (r.count != null ? r.count : 0) + '</td></tr>';
+          }).join('') +
+          '</tbody>';
+        wrap.appendChild(table);
+        charts.appendChild(wrap);
+      })
+      .catch(function () {});
   }
 
   // VRC 状态监控

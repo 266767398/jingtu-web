@@ -834,10 +834,10 @@ describe('security regressions', () => {
     });
 
     test('index.html 中 freeze.js 先于 theme/auth/main 加载（注册回调时 __freeze 已就绪）', () => {
-      expectBefore(files.indexHtml, 'js/freeze.js?v=20261011b', 'js/theme.js?v=20261011b');
-      expectBefore(files.indexHtml, 'js/freeze.js?v=20261011b', 'js/auth.js?v=20261011b');
-      expectBefore(files.indexHtml, 'js/freeze.js?v=20261011b', 'js/main.js?v=20261011b');
-      expect(files.indexHtml).toMatch(/loader\.js\?v=20261011b/);
+      expectBefore(files.indexHtml, 'js/freeze.js?v=20261012a', 'js/theme.js?v=20261012a');
+      expectBefore(files.indexHtml, 'js/freeze.js?v=20261012a', 'js/auth.js?v=20261012a');
+      expectBefore(files.indexHtml, 'js/freeze.js?v=20261012a', 'js/main.js?v=20261012a');
+      expect(files.indexHtml).toMatch(/loader\.js\?v=20261012a/);
     });
 
     test('main.js 冻结时暂停刷新轮询与断开 WebSocket，解冻恢复；轮询带冻结守卫', () => {
@@ -1043,6 +1043,21 @@ describe('security regressions', () => {
       expect(pack[1]).toBe(uniq[0]);
       // 语言包 document.write 引用同戳
       expect(files.indexHtml).toMatch(new RegExp("languages/' \\+ detectLang\\(\\) \\+ '\\.js\\?v=" + uniq[0]));
+    });
+
+    test('M5 版本戳延伸：style.css 的 @import 子样式与分享页 share.js 的 CSS 引用必须同主戳（防子样式/分享页旧缓存）', () => {
+      const mainStamp = (files.indexHtml.match(/loader\.js\?v=(\w+)/) || [])[1];
+      expect(mainStamp).toBeTruthy();
+      const styleCss = read('public', 'css', 'style.css');
+      const importStamps = Array.from(
+        styleCss.matchAll(/@import\s+url\(\s*['"]?[\w.-]+\.css\?v=([^'")\s]+)/g),
+        (m) => m[1]
+      );
+      expect(importStamps.length).toBeGreaterThan(5);
+      for (const s of importStamps) expect(s).toBe(mainStamp);
+      const shareStamps = Array.from(files.shareRoute.matchAll(/\?v=([^'"\s>]+)/g), (m) => m[1]);
+      expect(shareStamps.length).toBeGreaterThan(0);
+      for (const s of shareStamps) expect(s).toBe(mainStamp);
     });
   });
 });

@@ -59,7 +59,7 @@ const auth = require('../auth');
 const authSession = require('../auth_session');
 const { verifyVrc2fa } = require('../auth_vrc_service');
 const authRouter = require('../routes/auth_routes');
-const { vrchatVerifyTwoFactor, vrchatGetCurrentUserResult, vrchatBasicLogin } = require('../vrc');
+const { vrchatVerifyTwoFactor, vrchatGetCurrentUserResult, vrchatBasicLogin, vrchatRequest } = require('../vrc');
 
 // ─────────────────────────── 工具 ───────────────────────────
 function mockQueryBySql(routes) {
@@ -603,5 +603,53 @@ describe('P2-148 auth_vrc_service 2FA', () => {
     const r6 = await request(app).post('/api/auth/vrchat-login').send({ loginToken: token, code: '000000', method: 'totp' });
     expect(r6.status).toBe(400);
     expect(r6.body.error).toContain('过期');
+  });
+
+  // 模式 C：重发验证码 —— 仅携带 loginToken，复用第一步会话，免重新输入账号密码
+  test('/vrchat-login 模式 C：仅 loginToken 重发邮箱验证码（复用第一步 cookie）', async () => {
+    vrchatBasicLogin.mockResolvedValue({
+      status: 200,
+      data: { id: 'usr_1', displayName: 'V', requiresTwoFactorAuth: ['emailOtp'], currentAvatarThumbnailImageUrl: '' },
+      cookie: 'auth=x',
+      needs2fa: true
+    });
+    vrchatRequest.mockClear().mockResolvedValue({ status: 200, data: {} });
+    const app = createApp();
+    const step1 = await request(app).post('/api/auth/vrchat-login').send({ username: 'u', password: 'p' });
+    expect(step1.status).toBe(200);
+    expect(step1.body.need2fa).toBe(true);
+    const token = step1.body.loginToken;
+
+    const res = await request(app).post('/api/auth/vrchat-login').send({ loginToken: token });
+    expect(res.status).toBe(200);
+    expect(res.body.need2fa).toBe(true);
+    expect(res.body.message).toContain('重新发送');
+    const emailotpCall = vrchatRequest.mock.calls.find((c) => c[1] && c[1].includes('/twofactorauth/emailotp?'));
+    expect(emailotpCall).toBeTruthy();
+    expect(emailotpCall[3]).toBe('auth=x');
+  });
+
+  test('/vrchat-login 模式 C：TOTP 身份验证器无需重发 → 400', async () => {
+    vrchatBasicLogin.mockResolvedValue({
+      status: 200,
+      data: { id: 'usr_1', displayName: 'V', requiresTwoFactorAuth: ['totp'], currentAvatarThumbnailImageUrl: '' },
+      cookie: 'auth=x',
+      needs2fa: true
+    });
+    const app = createApp();
+    const step1 = await request(app).post('/api/auth/vrchat-login').send({ username: 'u', password: 'p' });
+    const token = step1.body.loginToken;
+    const res = await request(app).post('/api/auth/vrchat-login').send({ loginToken: token });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('无需重发');
+  });
+
+  test('/vrchat-login 模式 C：loginToken 失效 → expired:true 提示重新登录', async () => {
+    const res = await request(createApp())
+      .post('/api/auth/vrchat-login')
+      .send({ loginToken: 'nope' });
+    expect(res.status).toBe(400);
+    expect(res.body.expired).toBe(true);
+    expect(res.body.error).toContain('过期');
   });
 });

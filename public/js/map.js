@@ -351,12 +351,29 @@ function mapAvatarSrc(url, uid) {
   return window.__avatarFailCached(proxied) ? '/api/avatar/default' : proxied;
 }
 
+// P3-XX：判断坐标数据是否「死坐标」。带时间戳（HTTP 快照 / 成员列表 / WS 广播都带
+// timestamp 或 locationUpdatedAt）且距今超过 LOCATION_STALE_TIMEOUT 的数据不建标、
+// 已建即清；不带时间戳的历史调用按最新处理（保持兼容）。
+function isStaleLocationData(userData, now) {
+  if (!userData) return false;
+  const ts = userData.timestamp ||
+    (userData.locationUpdatedAt ? new Date(userData.locationUpdatedAt).getTime() : null);
+  if (!ts) return false;
+  return now - ts > LOCATION_STALE_TIMEOUT;
+}
+
 function upsertLocationMarker(userData) {
   if (!mapInstance) return;
   const uid = userData.id;
   const lng = parseFloat(userData.lng);
   const lat = parseFloat(userData.lat);
   if (isNaN(lng) || isNaN(lat)) return;
+  // 死坐标：关闭共享/直接关页后残留的旧坐标，只清不建——
+  // 否则 /all/locations 快照、成员列表会把它一遍遍钉回地图上（不是实时共享）。
+  if (isStaleLocationData(userData, Date.now())) {
+    removeLocationMarker(uid);
+    return;
+  }
   // 设备/接口返回的是 WGS-84，国内在线瓦片为 GCJ-02，绘制前转换以避免偏移
   const disp = (window.GEO && window.GEO.wgs84ToGcj02) ? window.GEO.wgs84ToGcj02(lng, lat) : [lng, lat];
   const glng = disp[0], glat = disp[1];
@@ -464,7 +481,9 @@ function updateMapMarkers() {
     }
     return;
   }
-  const visibleMembers = window.membersCache.filter(m => m.lat && m.lng && m.locationVisible);
+  // P3-XX：成员列表坐标同样按新鲜度过滤——locationVisible 恒为 1 但长时间未更新的
+  // 成员（关页不点停止共享）不在地图上钉死位置
+  const visibleMembers = window.membersCache.filter(m => m.lat && m.lng && m.locationVisible && !isStaleLocationData(m));
   const countEl = document.getElementById('mapCount');
   if (countEl) countEl.textContent = __('members.visible_positions', {n: visibleMembers.length});
 
@@ -479,7 +498,8 @@ function updateMapMarkers() {
       displayName: m.displayName,
       avatarUrl: m.avatarUrl,
       lat, lng,
-      location: m.location || ''
+      location: m.location || '',
+      locationUpdatedAt: m.locationUpdatedAt
     });
   });
 
@@ -514,6 +534,9 @@ function toggleLocationTracking() {
 
 // 是否已经拿到第一个有效坐标（用于把"共享成功"提示推迟到真正定位成功之后）
 let _locationFirstFixDone = false;
+// 瞬时定位错误后的 watch 重挂去重句柄 + 错误 toast 节流（GPS 长期失锁时避免刷屏）
+let _locationRetryTimer = null;
+let _lastLocationErrorToastAt = 0;
 
 async function startLocationTracking() {
   if (!currentUser) { toast(__('please_login'), 'error'); return; }
@@ -542,29 +565,8 @@ async function startLocationTracking() {
   }
 
   locationWatchId = navigator.geolocation.watchPosition(
-    (position) => {
-      const lat = position.coords.latitude;
-      const lng = position.coords.longitude;
-      sendLocationViaWS(lat, lng, position.coords.accuracy);
-      // 首次拿到坐标才算真正共享成功
-      if (!_locationFirstFixDone) {
-        _locationFirstFixDone = true;
-        toast(__('map.tracking_on'), 'success');
-        // 原先调的是 loadMemberLocations()，全站根本没有这个函数 ——
-        // ReferenceError 直接中断回调，其他成员的位置永远拉不下来，
-        // 表现为"共享成功了但地图上什么都没有"。正确的函数名是 fetchRealtimeLocations。
-        fetchRealtimeLocations();
-      }
-    },
-    (err) => {
-      console.warn('[map] 定位失败:', err.message);
-      // 以前只在 err.code === 1（拒绝授权）时提示，超时和定位不可用两种失败
-      // 完全静默，用户只会看到按钮变成"停止共享"却永远没有标记出现。
-      // 现在统一走 toastGeoError：它会先排除"非安全上下文"这种同样是 code 1
-      // 却根本没弹过窗的情况，避免提示用户去授权一个从没出现过的弹窗。
-      toastGeoError(err);
-      stopLocationTracking();
-    },
+    _handleLocationSuccess,
+    _handleLocationError,
     { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 }
   );
 
@@ -576,7 +578,61 @@ async function startLocationTracking() {
   toast(__('map.locating'), 'info');
 }
 
+// watchPosition 成功回调：上报坐标；首个有效坐标到达后才提示"共享成功"并
+// 拉取其他成员位置（原先误调不存在的 loadMemberLocations，见 startLocationTracking）
+function _handleLocationSuccess(position) {
+  const lat = position.coords.latitude;
+  const lng = position.coords.longitude;
+  sendLocationViaWS(lat, lng, position.coords.accuracy);
+  if (!_locationFirstFixDone) {
+    _locationFirstFixDone = true;
+    toast(__('map.tracking_on'), 'success');
+    fetchRealtimeLocations();
+  }
+}
+
+// watchPosition 错误回调：统一走 toastGeoError（先排除非安全上下文，避免误导用户授权）。
+// 权限被拒（permission_denied / insecure_context）是永久性失败 → 结束共享会话；
+// 超时 / 位置暂不可用是瞬时失败 → 保持"正在共享"，短暂退避后重挂 watch 重试，
+// 否则切回标签页、进室内 GPS 失锁等场景会把整段共享掐断并误弹"停止位置追踪"。
+// 与 location-share.js 的容错口径保持一致。
+function _handleLocationError(err) {
+  console.warn('[map] 定位失败:', err && err.message ? err.message : err);
+  const key = geoErrorKey(err);
+  if (key === 'geo.permission_denied' || key === 'geo.insecure_context') {
+    toastGeoError(err);
+    stopLocationTracking();
+    return;
+  }
+  // 瞬时错误：toast 节流（15s 内最多弹一次），避免 GPS 长期失锁时刷屏
+  const now = Date.now();
+  if (!_lastLocationErrorToastAt || now - _lastLocationErrorToastAt > 15000) {
+    _lastLocationErrorToastAt = now;
+    toastGeoError(err);
+  }
+  scheduleLocationWatchRetry();
+}
+
+// 瞬时定位错误后的 watch 重挂：去重防叠加（同一时间只排一次），会话已停则不再重试
+function scheduleLocationWatchRetry() {
+  if (_locationRetryTimer || !locationTrackingActive) return;
+  _locationRetryTimer = setTimeout(() => {
+    _locationRetryTimer = null;
+    if (!locationTrackingActive) return;
+    if (locationWatchId !== null) {
+      navigator.geolocation.clearWatch(locationWatchId);
+      locationWatchId = null;
+    }
+    locationWatchId = navigator.geolocation.watchPosition(
+      _handleLocationSuccess,
+      _handleLocationError,
+      { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 }
+    );
+  }, 3000);
+}
+
 function stopLocationTracking() {
+  if (_locationRetryTimer) { clearTimeout(_locationRetryTimer); _locationRetryTimer = null; }
   if (locationWatchId !== null) {
     navigator.geolocation.clearWatch(locationWatchId);
     locationWatchId = null;
@@ -626,6 +682,14 @@ if (window.__freeze && typeof window.__freeze.register === 'function') {
     }
   });
 }
+
+// P3-XX：离开/刷新页面时尽力广播 location:stop——服务端 stopLocation 会清库并通知其他
+// 在线端移除标记，避免「点过共享 → 直接关页」留下死坐标（与 location-share.js 的
+// group 停止口径一致；beforeunload 无法 await PUT，落库兜底靠 cleanupStaleLocations 定时任务）。
+window.addEventListener('beforeunload', () => {
+  if (!locationTrackingActive) return;
+  sendLocationStopViaWS();
+});
 
 function updateMyLocationMarker(lat, lng) {
   if (!mapInstance) return;

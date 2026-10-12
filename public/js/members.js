@@ -638,15 +638,29 @@ async function submitUserReport() {
 }
 
 // 管理员：加载审核队列（容器存在时渲染，缺失则安全跳过）
-async function loadModerationQueue(status) {
+// 后端默认 20 条/页（最多 50），此前前端不带 page 参数，超 20 条的旧举报永远看不到；
+// 这里维护 status+page 状态并渲染分页条。
+let modQueueStatus = 'pending';
+let modQueuePage = 1;
+
+async function loadModerationQueue(status, page) {
   const box = document.getElementById('moderationQueue');
   if (!box) return;
+  if (status) {
+    if (status !== modQueueStatus) { modQueueStatus = status; modQueuePage = 1; }
+  }
+  if (page) modQueuePage = page;
   try {
-    const res = await api('/api/moderations?status=' + (status || 'pending'));
+    const params = new URLSearchParams();
+    params.set('status', modQueueStatus);
+    params.set('page', modQueuePage);
+    params.set('pageSize', '50');
+    const res = await api('/api/moderations?' + params.toString());
     if (!res.ok) return;
     const data = await res.json();
     if (!data.items || !data.items.length) {
       box.innerHTML = '<p class="text-muted2">' + __('members.report_queue_empty') + '</p>';
+      renderModerationPagination(null);
       return;
     }
     box.innerHTML = data.items.map(it => {
@@ -664,7 +678,32 @@ async function loadModerationQueue(status) {
         <div class="moderation-actions">${actionsHtml}</div>
       </div>`;
     }).join('');
+    renderModerationPagination(data);
   } catch {}
+}
+
+function renderModerationPagination(data) {
+  const el = document.getElementById('moderationPagination');
+  if (!el) return;
+  const total = (data && data.total) || 0;
+  const pageSize = (data && data.pageSize) || 50;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (!data || totalPages <= 1) { el.innerHTML = ''; return; }
+  let html = '';
+  if (modQueuePage > 1) {
+    html += `<button class="btn btn-xs btn-outline" data-action="mod-page" data-value="1" title="${__('admin_users.title_first_page')}">&laquo;</button>`;
+    html += `<button class="btn btn-xs btn-outline" data-action="mod-page" data-value="${modQueuePage - 1}">&lsaquo;</button>`;
+  }
+  const start = Math.max(1, modQueuePage - 2);
+  const end = Math.min(totalPages, modQueuePage + 2);
+  for (let p = start; p <= end; p++) {
+    html += `<button class="btn btn-xs ${p === modQueuePage ? 'btn-accent' : 'btn-outline'}" data-action="mod-page" data-value="${p}">${p}</button>`;
+  }
+  if (modQueuePage < totalPages) {
+    html += `<button class="btn btn-xs btn-outline" data-action="mod-page" data-value="${modQueuePage + 1}">&rsaquo;</button>`;
+    html += `<button class="btn btn-xs btn-outline" data-action="mod-page" data-value="${totalPages}" title="${__('admin_users.title_last_page')}">&raquo;</button>`;
+  }
+  el.innerHTML = html;
 }
 
 async function resolveModeration(id, action) {
@@ -1614,6 +1653,9 @@ function _bindMembersDelegation() {
         break;
       case 'mod-revert':
         revertModeration(el.getAttribute('data-mod-id'));
+        break;
+      case 'mod-page':
+        loadModerationQueue(null, parseInt(el.getAttribute('data-value'), 10) || 1);
         break;
       case 'vrc-goto-collections':
         window.__vrcPendingView = 'collections';

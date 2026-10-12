@@ -1766,6 +1766,8 @@ window._LANG_EN = {
   "album.uploader": "Uploader",
   "album.video": "Video",
   "auth.code_sent": "Code sent",
+  "auth.code_resent": "Verification code resent to your email",
+  "auth.session_expired_relogin": "Login session expired, please log in again",
   "auth.cooldown": "{n} seconds to resend",
   "auth.enter_account_pwd": "Enter account and password",
   "auth.avatar_local": "Local",

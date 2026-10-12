@@ -95,10 +95,11 @@
       if (!box) return;
       box.classList.remove('d-none');
       if (matches.length === 0) { box.innerHTML = `<div class="text-muted2 text-13">${__('model_coll.no_user_match')}</div>`; return; }
+      // /api/admin/users 返回 camelCase（displayName/loginId/vrchatName），不可用 snake_case 字段
       box.innerHTML = matches.map(u => `
         <div class="admin-user-row" data-mc-user-id="${u.id}" style="cursor:pointer">
-          <span>${esc(u.display_name || u.login_id)}</span>
-          <span class="text-13 text-muted2">${esc(u.login_id || '')} ${u.vrchat_name ? '· ' + esc(u.vrchat_name) : ''}</span>
+          <span>${esc(u.displayName || u.loginId)}</span>
+          <span class="text-13 text-muted2">${esc(u.loginId || '')} ${u.vrchatName ? '· ' + esc(u.vrchatName) : ''}</span>
         </div>`).join('');
     } catch (e) { if (isApiHandledError(e)) return; toast(e.message, 'error'); }
   }

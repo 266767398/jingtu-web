@@ -82,6 +82,9 @@
     if (whEditId) {
       if (titleEl) titleEl.textContent = __('auto_admin_wh_28');
       urlEl.value = '';
+      // 编辑时必须清空密钥输入框：否则上次把玩时残留的字符会在保存时被
+      // collectWhForm 当新密钥提交，直接顶掉已加密入库的原密钥。
+      secretEl.value = '';
       secretEl.placeholder = __('auto_admin_wh_30');
       const w = whList.find((x) => String(x.id) === String(whEditId));
       if (w) {

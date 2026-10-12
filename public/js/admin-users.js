@@ -5,67 +5,49 @@ let adminUserCurrentPage = 1;
 let adminUsersLoading = false;
 
 function initAdminUsersEventDelegates() {
-  const container = document.getElementById('adminUsersSection');
-  if (!container || container._userDelegateInit) return;
-  container._userDelegateInit = true;
-  
-  container.addEventListener('click', (e) => {
-    const el = e.target.closest('[data-user-action], [data-action]');
-    if (!el) return;
-    
-    if (el.hasAttribute('data-user-action')) {
-      const action = el.dataset.userAction;
-      const userId = el.dataset.userId;
-      const userName = el.dataset.userName;
-      const userRole = el.dataset.userRole;
-      const userEmail = el.dataset.userEmail;
-      
-      switch (action) {
-        case 'approve':
-          approveUser(userId);
-          break;
-        case 'ban':
-          banUser(userId);
-          break;
-        case 'unban':
-          unbanUser(userId);
-          break;
-        case 'edit':
-          showEditUser(userId, userName, userRole);
-          break;
-        case 'reset-pwd':
-          showResetPwd(userId);
-          break;
-        case 'delete':
-          deleteUser(userId);
-          break;
-        case 'login-history':
-          viewLoginHistory(userId);
-          break;
-        case 'edit-admin':
-          showEditAdmin(userId, userName, userRole, userEmail);
-          break;
-        case 'delete-admin':
-          deleteAdmin(userId);
-          break;
+  // 用户管理（#adminUsersSection）与管理员管理（#adminManageSection）位于
+  // 两个相互独立的 admin-panel section，为父子不相关，事件无法跨容器冒泡。
+  // 因此在 loadUsersAdmin / loadAdminMgrList 调本函数时对两个容器分别挂委托，
+  // 否则管理员面板的行「编辑/删除」与分页按钮会点了没反应。
+  const bind = (container) => {
+    if (!container || container._userDelegateInit) return;
+    container._userDelegateInit = true;
+    container.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-user-action], [data-action]');
+      if (!el) return;
+
+      if (el.hasAttribute('data-user-action')) {
+        const action = el.dataset.userAction;
+        const userId = el.dataset.userId;
+        const userName = el.dataset.userName;
+        const userRole = el.dataset.userRole;
+        const userEmail = el.dataset.userEmail;
+
+        switch (action) {
+          case 'approve': approveUser(userId); break;
+          case 'ban': banUser(userId); break;
+          case 'unban': unbanUser(userId); break;
+          case 'edit': showEditUser(userId, userName, userRole); break;
+          case 'reset-pwd': showResetPwd(userId); break;
+          case 'delete': deleteUser(userId); break;
+          case 'login-history': viewLoginHistory(userId); break;
+          case 'edit-admin': showEditAdmin(userId, userName, userRole, userEmail); break;
+          case 'delete-admin': deleteAdmin(userId); break;
+        }
+      } else if (el.hasAttribute('data-action')) {
+        const action = el.dataset.action;
+        const value = parseInt(el.dataset.value);
+
+        switch (action) {
+          case 'load-users': loadUsersAdmin(value); break;
+          case 'load-oper-log': loadOperLog(value); break;
+          case 'load-admin-mgr': loadAdminMgrList(value); break;
+        }
       }
-    } else if (el.hasAttribute('data-action')) {
-      const action = el.dataset.action;
-      const value = parseInt(el.dataset.value);
-      
-      switch (action) {
-        case 'load-users':
-          loadUsersAdmin(value);
-          break;
-        case 'load-oper-log':
-          loadOperLog(value);
-          break;
-        case 'load-admin-mgr':
-          loadAdminMgrList(value);
-          break;
-      }
-    }
-  });
+    });
+  };
+  bind(document.getElementById('adminUsersSection'));
+  bind(document.getElementById('adminManageSection'));
 }
 
 async function loadUsersAdmin(page) {
@@ -479,7 +461,9 @@ async function resetUserPassword() {
 
 // ==================== 系统备份 ====================
 async function createBackup() {
-  if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'super_admin')) {
+  // 后端 POST /api/admin/backups/create 为 requireSuperAdmin（备份含全库 PII），
+  // 前端必须同门槛拦截，避免普通管理员看到可点却 403
+  if (!currentUser || currentUser.role !== 'super_admin') {
     toast(__('permission_denied'), 'error');
     return;
   }
@@ -564,6 +548,11 @@ function downloadBackup(encodedFilename) {
 }
 
 async function deleteBackup(encodedFilename) {
+  // 后端 DELETE /api/admin/backups/:filename 为 requireSuperAdmin
+  if (!currentUser || currentUser.role !== 'super_admin') {
+    toast(__('permission_denied'), 'error');
+    return;
+  }
   const filename = decodeURIComponent(encodedFilename);
   if (!confirm(__('admin.backup_delete_confirm', {filename}))) return;
   try {

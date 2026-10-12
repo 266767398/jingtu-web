@@ -200,6 +200,34 @@ router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
       return;
     }
 
+    // ══════════ 模式 C：有 loginToken、无 code → 重发验证码══════════
+    // 复用第一步（模式 A）建立的 2FA 会话，免重新输入账号密码；
+    // 仅邮箱类验证（emailOtp/otp）可重发，TOTP 身份验证器不产生邮件验证码。
+    if (loginToken && !code) {
+      const state = loginTokens.get(loginToken);
+      if (!state || state.expireAt < Date.now()) {
+        if (state) loginTokens.delete(loginToken);
+        return fail(res, 400, '登录会话已过期，请重新登录', { expired: true });
+      }
+      const emailMethods = (state.methods || []).filter((m) => m === 'emailOtp' || m === 'otp');
+      if (emailMethods.length === 0) {
+        return sendError(res, 400, ErrorCodes.BAD_REQUEST, '当前验证方式无需重发验证码');
+      }
+      try {
+        await vrchatRequest('POST', `/auth/twofactorauth/emailotp?apiKey=${VRC_API_KEY}`, {}, state.cookie);
+      } catch (e) {
+        logger.warn('auth', '[vrchat-login] 重发邮件验证码失败', e.message);
+      }
+      // 顺延会话有效期，给用户完整输入窗口
+      state.expireAt = Date.now() + 5 * 60 * 1000;
+      return res.json({
+        need2fa: true,
+        loginToken,
+        methods: state.methods,
+        message: '验证码已重新发送到您的邮箱，请输入验证码'
+      });
+    }
+
     // ══════════ 模式 A：无 loginToken →第一步登录══════════
     if (!username || !password) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入VRChat用户名和密码');
 

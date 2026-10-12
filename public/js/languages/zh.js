@@ -1573,6 +1573,8 @@ window._LANG_ZH = {
   "album.uploader": "上传者",
   "album.video": "视频",
   "auth.code_sent": "验证码已发送",
+  "auth.code_resent": "验证码已重新发送到您的邮箱",
+  "auth.session_expired_relogin": "登录会话已过期，请重新登录",
   "auth.cooldown": "{n} 秒后可重新发送",
   "auth.enter_account_pwd": "请输入账号和密码",
   "auth.avatar_local": "本地",

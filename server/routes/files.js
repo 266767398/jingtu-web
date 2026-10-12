@@ -92,6 +92,7 @@ router.get('/admin/files', requireAdminCompat, async (req, res) => {
     }
 
     const files = [];
+    const dirs = [];
     // §35: 改用 fs.promises 异步 API；walkDir 增加 maxDepth 限制递归深度
     const walkDir = async (dir, prefix = '', depth = 0) => {
       if (depth > WALK_MAX_DEPTH) return;
@@ -101,6 +102,17 @@ router.get('/admin/files', requireAdminCompat, async (req, res) => {
         const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
 
         if (entry.isDirectory()) {
+          // 目录也进列表（否则“新建目录”后前端永远看不到它），type 标记 DIR
+          dirs.push({
+            name: entry.name,
+            path: relPath,
+            size: 0,
+            sizeFormatted: '-',
+            type: 'DIR',
+            isDir: true,
+            createdAt: (fs.existsSync(fullPath) ? fs.statSync(fullPath).birthtime : new Date()).toISOString(),
+            modifiedAt: (fs.existsSync(fullPath) ? fs.statSync(fullPath).mtime : new Date()).toISOString()
+          });
           await walkDir(fullPath, relPath, depth + 1);
         } else {
           const stat = await fs.promises.stat(fullPath);
@@ -125,8 +137,8 @@ router.get('/admin/files', requireAdminCompat, async (req, res) => {
     const totalSize = files.reduce((sum, f) => sum + f.size, 0);
 
     res.json({
-      files,
-      total: files.length,
+      files: dirs.concat(files),
+      total: files.length + dirs.length,
       totalSize: totalSize < 1024 * 1024
         ? `${(totalSize / 1024).toFixed(1)} KB`
         : `${(totalSize / 1024 / 1024).toFixed(2)} MB`,
@@ -147,6 +159,20 @@ router.delete('/admin/files/:filepath', requireAdminCompat, async (req, res) => 
 
     if (!fs.existsSync(fullPath)) {
       return sendError(res, 404, ErrorCodes.NOT_FOUND, '文件不存在');
+    }
+
+    const stat = await fs.promises.stat(fullPath);
+    if (stat.isDirectory()) {
+      // 目录仅允许删除空目录（非递归 rmdir），避免误删目录内用户内容
+      try {
+        await fs.promises.rmdir(fullPath);
+      } catch (e) {
+        if (e && (e.code === 'ENOTEMPTY' || e.code === 'EEXIST' || e.code === 'EPERM')) {
+          return sendError(res, 400, ErrorCodes.BAD_REQUEST, '目录非空，无法删除');
+        }
+        throw e;
+      }
+      return ok(res, {message: '目录已删除'});
     }
 
     // §35: 异步 unlink

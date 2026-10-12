@@ -234,7 +234,7 @@ async function createPermGroup() {
 
 // 编辑权限组弹窗
 async function showEditPermGroup(id) {
-  const g = pgGroupsCache.find(x => x.id === id);
+  const g = pgGroupsCache.find(x => x.id === Number(id));
   if (!g) return;
   document.getElementById('epgId').value = g.id;
   document.getElementById('epgName').value = g.name;
@@ -279,7 +279,7 @@ async function savePermGroup() {
 
 // 删除权限组
 async function deletePermGroup(id) {
-  const g = pgGroupsCache.find(x => x.id === id);
+  const g = pgGroupsCache.find(x => x.id === Number(id));
   showConfirm(__('admin_perms.delete_group_confirm_full', {name: g ? g.name : id, warn: __('admin_perms.delete_group_warn')}), async () => {
     try {
       const res = await api(`/api/permission-groups/groups/${id}`, { method: 'DELETE' });
@@ -414,3 +414,42 @@ async function removeUserFromGroup(userId, groupId) {
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_perms.op_failed'), 'error'); }
 }
+
+// ========== 权限组管理事件委托 ==========
+// renderPermGroups / filterPermGroupUsers / showEditPermGroupPerms / showUserGroupMgmt
+// 生成的 data-action 按钮此前没有任何一处消费，全部「点了没反应」。
+// 权限组卡片/用户列表位于 #tab-admin 内，而权限编辑/用户归属弹窗挂在 body 层，
+// 所以委托挂 document（click 处理按钮、change 处理权限开关），dispatch 到对应函数。
+document.addEventListener('click', function (e) {
+  const actEl = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
+  if (!actEl) return;
+  const action = actEl.getAttribute('data-action');
+  switch (action) {
+    case 'perm-group-delete':
+      deletePermGroup(actEl.getAttribute('data-group-id'));
+      break;
+    case 'perm-group-edit':
+      showEditPermGroup(actEl.getAttribute('data-group-id'));
+      break;
+    case 'perm-group-edit-perms':
+      showEditPermGroupPerms(actEl.getAttribute('data-group-id'), actEl.getAttribute('data-group-name'));
+      break;
+    case 'perm-user-group-mgmt':
+      showUserGroupMgmt(actEl.getAttribute('data-user-id'), actEl.getAttribute('data-user-name'));
+      break;
+    case 'perm-remove-group':
+      removeUserFromGroup(actEl.getAttribute('data-user-id'), actEl.getAttribute('data-group-id'));
+      break;
+    case 'perm-add-group':
+      addUserToGroup(actEl.getAttribute('data-user-id'), actEl.getAttribute('data-group-id'));
+      break;
+  }
+});
+
+// 权限开关是 checkbox：开关在 click 之后才触发 change，若并入 click 会读到旧值
+// 造成反相，因此单独用 change 事件处理 perm-toggle-group-perm。
+document.addEventListener('change', function (e) {
+  const el = e.target && e.target.closest ? e.target.closest('[data-action="perm-toggle-group-perm"]') : null;
+  if (!el) return;
+  toggleGroupPerm(el.getAttribute('data-group-id'), el.getAttribute('data-perm-key'), el.checked);
+});

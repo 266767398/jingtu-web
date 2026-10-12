@@ -117,3 +117,57 @@ describe('后台面板补全：文件/安全/Webhook 接线闭合', () => {
     for (const k of needed) expect(zhSet.has(k)).toBe(true);
   });
 });
+
+describe('激活码管理面板接线闭合', () => {
+  test('admin-nav 出现激活码管理入口（data-target="activation"）', () => {
+    const nav = (html.match(/<nav class="admin-nav" id="adminNav">([\s\S]*?)<\/nav>/) || [])[1] || '';
+    expect(nav).toMatch(/data-target="activation"/);
+  });
+
+  test('index.html 存在 activation 面板容器与约定 id', () => {
+    expect(html).toMatch(/data-panel="activation"/);
+    expect(html).toMatch(/id="activationCodesSection"/);
+    expect(html).toMatch(/id="activationCodesList"/);
+  });
+
+  test('loader.js 登记 admin-activation.js', () => {
+    expect(loaderJs).toContain('admin-activation.js');
+  });
+
+  test('admin-ui.js PANEL_LOADERS 映射 activation 懒加载入口', () => {
+    const block = (adminUiJs.match(/PANEL_LOADERS\s*=\s*\{([\s\S]*?)\n\s*\};/) || [])[1] || '';
+    expect(block).toMatch(/^\s*activation:/m);
+  });
+
+  test('admin-activation.js 存在且暴露约定入口函数', () => {
+    const pth = path.join(JS_DIR, 'admin-activation.js');
+    expect(fs.existsSync(pth)).toBe(true);
+    const src = read(pth);
+    for (const fn of ['loadActivationCodesPanel', 'initActivationPanelEvents']) {
+      expect(src).toMatch(new RegExp('function\\s+' + fn + '\\s*\\('));
+    }
+  });
+
+  test('CSP 兼容：激活码面板不得使用内联 onclick', () => {
+    expect(read(path.join(JS_DIR, 'admin-activation.js'))).not.toMatch(/onclick\s*=/);
+  });
+
+  test('admin.activation.* i18n 键在 zh 齐全且 6 语言键集同构', () => {
+    const langKeys = {};
+    for (const e of LANGS) {
+      const sandbox = { window: {} };
+      vm.createContext(sandbox);
+      vm.runInContext(read(path.join(JS_DIR, 'languages', e.file)), sandbox, { filename: e.file });
+      langKeys[e.file] = Object.keys(sandbox.window[e.varName] || {});
+    }
+    const zhKeys = langKeys['zh.js'];
+    const zhSet = new Set(zhKeys);
+    expect(zhSet.has('admin.activation.stat_total')).toBe(true);
+    expect(zhSet.has('admin.activation.exported_n')).toBe(true);
+    for (const e of LANGS) {
+      const set = new Set(langKeys[e.file]);
+      expect(zhKeys.filter((k) => !set.has(k))).toEqual([]);
+      expect(langKeys[e.file].filter((k) => !zhSet.has(k))).toEqual([]);
+    }
+  });
+});

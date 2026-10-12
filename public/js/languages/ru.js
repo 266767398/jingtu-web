@@ -1641,6 +1641,8 @@ window._LANG_RU = {
   "album.uploader": "Автор",
   "album.video": "Видео",
   "auth.code_sent": "Код отправлен",
+  "auth.code_resent": "Код подтверждения отправлен повторно на вашу почту",
+  "auth.session_expired_relogin": "Сеанс входа истёк, войдите снова",
   "auth.cooldown": "Ожидайте {n} секунд перед повторной отправкой",
   "auth.enter_account_pwd": "Введите аккаунт и пароль",
   "auth.avatar_local": "Локальный",

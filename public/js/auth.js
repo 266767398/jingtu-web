@@ -156,11 +156,15 @@ function updateLoginTabsVisibility() {
   // 标签栏始终显示
   const tabBar = document.querySelector('.login-tab-bar');
   if (tabBar) tabBar.style.display = 'flex';
-  // 预填 VRChat 缓存用户名
+  // 预填 VRChat 缓存用户名（本地记忆→勾选记住；仅会话记忆→不勾选）
   const cachedVrcUser = localStorage.getItem('jingtu_vrc_user');
-  if (cachedVrcUser) {
+  const sessionVrcUser = sessionStorage.getItem(VRC_USER_SESSION_KEY);
+  const prefillUser = cachedVrcUser || sessionVrcUser || '';
+  if (prefillUser) {
     const vrcInput = document.getElementById('loginVrcUser');
-    if (vrcInput) vrcInput.value = cachedVrcUser;
+    if (vrcInput) vrcInput.value = prefillUser;
+    const rememberBox = document.getElementById('rememberVrcLogin');
+    if (rememberBox) rememberBox.checked = !!cachedVrcUser;
   }
 }
 function showApp() {
@@ -447,6 +451,22 @@ function loadVrcUser() {
   return localStorage.getItem(VRC_USER_KEY) || '';
 }
 
+// V6.8.1 起不缓存密码（安全）：仅按"记住账号 1 周"勾选状态持久化用户名。
+// 未勾选 → 仅本次会话预填（sessionStorage），关闭页面即清空。
+const VRC_USER_SESSION_KEY = 'jingtu_vrc_user_session';
+
+function persistVrcUser(username) {
+  if (!username) return;
+  const remember = document.getElementById('rememberVrcLogin');
+  if (remember && !remember.checked) {
+    sessionStorage.setItem(VRC_USER_SESSION_KEY, username);
+    localStorage.removeItem(VRC_USER_KEY);
+    return;
+  }
+  localStorage.setItem(VRC_USER_KEY, username);
+  sessionStorage.removeItem(VRC_USER_SESSION_KEY);
+}
+
 // ==================== VRChat 登录（两步内联流程） ====================
 let _vrcLoginTemp = null; // 存储 loginToken
 let _vrcCodeCountdown = null; // 倒计时定时器
@@ -459,7 +479,7 @@ async function sendVrcLoginCode() {
   const btn = document.getElementById('sendVrcCodeBtn');
   if (btn) { btn.disabled = true; btn.querySelector('.login-btn-text').textContent = __('auth.sending'); }
 
-  if (vrchatUser) localStorage.setItem('jingtu_vrc_user', vrchatUser);
+  if (vrchatUser) persistVrcUser(vrchatUser);
 
   try {
     const res = await api('/api/auth/vrchat-login', { 
@@ -553,7 +573,7 @@ async function doVrcLoginConfirm() {
       currentUser = _vrcLoginTemp.data.user;
       await ensureCsrf();
       const vrcUser = document.getElementById('loginVrcUser')?.value.trim();
-      if (vrcUser) localStorage.setItem('jingtu_vrc_user', vrcUser);
+      if (vrcUser) persistVrcUser(vrcUser);
       localStorage.setItem('jingtu_vrc_bound', '1');
       toast(__('auth.vrc_login_ok'), 'success');
       showApp();
@@ -577,7 +597,7 @@ async function doVrcLoginConfirm() {
         currentUser = data.user;
         await ensureCsrf();
         const vrcUser = document.getElementById('loginVrcUser')?.value.trim();
-        if (vrcUser) localStorage.setItem('jingtu_vrc_user', vrcUser);
+        if (vrcUser) persistVrcUser(vrcUser);
         localStorage.setItem('jingtu_vrc_bound', '1');
         toast(__('auth.vrc_login_ok'), 'success');
         showApp();
@@ -613,6 +633,60 @@ function resetVrcLoginState() {
   document.getElementById('vrcLoginNo2faMsg')?.classList.add('d-none');
   const codeInput = document.getElementById('loginVrcCode');
   if (codeInput) codeInput.value = '';
+}
+
+// 发送/重发验证码统一入口：验证码输入步骤已持有 loginToken 且为邮箱类验证 → 重发，
+// 否则走首次发送（账号+密码）。避免重发时还要手动重输账号密码。
+function onSendVrcCodeClick() {
+  const inCodeStep = _vrcLoginTemp && _vrcLoginTemp.loginToken && _vrcLoginTemp.method !== 'totp';
+  if (inCodeStep) resendVrcLoginCode();
+  else sendVrcLoginCode();
+}
+
+// 重发验证码：仅携带 loginToken 调后端，复用第一步会话（服务端暂存 VRChat cookie），
+// 无需重新提交账号密码；密码始终不落本地存储（安全）。
+async function resendVrcLoginCode() {
+  const token = _vrcLoginTemp?.loginToken;
+  const btn = document.getElementById('sendVrcCodeBtn');
+  const setBtn = (disabled, text) => {
+    if (btn) { btn.disabled = disabled; btn.querySelector('.login-btn-text').textContent = text; }
+  };
+  setBtn(true, __('auth.sending'));
+  try {
+    const res = await api('/api/auth/vrchat-login', {
+      method: 'POST',
+      body: { loginToken: token }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.need2fa) {
+        const methods = Array.isArray(data.methods) ? data.methods : [];
+        const method = methods.includes('emailOtp') ? 'emailOtp' : (methods.includes('totp') ? 'totp' : 'otp');
+        _vrcLoginTemp = { loginToken: data.loginToken || token, method };
+        const codeInput = document.getElementById('loginVrcCode');
+        if (codeInput) { codeInput.value = ''; codeInput.focus(); }
+        toast(data.message || __('auth.code_resent'), 'success');
+        startVrcCodeCountdown();
+      } else {
+        setBtn(false, __('auth.resend'));
+        toast(errText(data) || __('auth.vrc_login_ok'), 'success');
+      }
+    } else {
+      const err = await res.json().catch(() => ({}));
+      if (err.expired) {
+        resetVrcLoginState();
+        toast(__('auth.session_expired_relogin'), 'error');
+        const userInput = document.getElementById('loginVrcUser');
+        if (userInput) { userInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); userInput.focus(); }
+      } else if (!err.code || !VRC_BUSINESS_CODES.has(err.code)) {
+        setBtn(false, __('auth.resend'));
+        toast(errText(err) || __('auth.vrc_login_failed'), 'error');
+      }
+    }
+  } catch (err) {
+    if (!isApiHandledError(err)) toast(__('auth.network_error') + ': ' + err.message, 'error');
+    setBtn(false, __('auth.resend'));
+  }
 }
 
 function togglePwd(inputId, btnId) {

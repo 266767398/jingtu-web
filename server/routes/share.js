@@ -192,8 +192,8 @@ module.exports = function () {
 <meta property="og:title" content="${esc(typeLabel)}分享 · 境途同游">
 <meta property="og:type" content="website">
 <meta name="description" content="来自境途同游社群的${esc(typeLabel)}分享">
-<link rel="stylesheet" href="/css/01-variables.css?v=20261006c">
-<link rel="stylesheet" href="/css/share-page.css?v=20261006c">
+<link rel="stylesheet" href="/css/01-variables.css?v=20261012a">
+<link rel="stylesheet" href="/css/share-page.css?v=20261012a">
 </head>
 <body class="share-page">
 <main class="sp-card">

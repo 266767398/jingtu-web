@@ -1610,6 +1610,8 @@ window._LANG_DE = {
   "album.uploader": "<b>Uploader</b>",
   "album.video": "<b>Video</b>",
   "auth.code_sent": "<b>Autorisierung</b>.code_sent",
+  "auth.code_resent": "Verifizierungscode erneut an Ihre E-Mail gesendet",
+  "auth.session_expired_relogin": "Anmeldesitzung abgelaufen, bitte erneut anmelden",
   "auth.cooldown": "{n} Sekunden nach dem Wiederholen",
   "auth.enter_account_pwd": "<b>Autorisierung</b>.enter_account_pwd",
   "auth.avatar_local": "Lokal",

@@ -3,7 +3,9 @@
 #vrcCollectionsView .coll-layout,
 #vrcFavoritesView .coll-layout {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  /* P3-XX：侧栏 220px 固定过窄，官方收藏分组名（最长 32 字符）被截成省略号；
+     改为 240~300px 自适应，容纳完整分组名与计数徽章 */
+  grid-template-columns: minmax(240px, 300px) 1fr;
   gap: 16px;
   align-items: start;
 }
