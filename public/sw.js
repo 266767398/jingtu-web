@@ -1,5 +1,5 @@
-// 境途同游 — Service Worker v2.21 (20261013: 提升 CACHE 版本，配合金色主题/个人主页布局/头像修复，版本戳 20261012f 全量失效重载)
-const CACHE = 'jingtu-v2.21';
+// 境途同游 — Service Worker v2.22 (20261013: 提升 CACHE 版本，配合 VRC tab emoji 去重等 UI 修复，版本戳 20261013a 全量失效重载)
+const CACHE = 'jingtu-v2.22';
 const STATIC_ASSETS = [
   '/',
   '/offline.html',
