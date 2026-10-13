@@ -175,13 +175,14 @@ describe('security regressions', () => {
     expect(swaggerSrc).toMatch(/app\.get\('\/api-docs\.json',\s*guard,/);
   });
 
-  // 注册限流 key 曾直接使用请求方可控的 email 原文——攻击者靠大小写/空格变换分裂
-  // 无限 key 绕过 15 分钟 5 次注册上限。key 必须归一化（trim+lowercase+长度钳制），
-  // 无 email 时回退纯 IP 维度（对齐 security.js 登录限流口径）。
-  test('registerLimiter normalizes email key and falls back to IP (P2-168)', () => {
-    expect(files.rateLimitMiddleware).toMatch(/keyGenerator:\s*normalizeRegisterKey/);
-    expect(files.rateLimitMiddleware).toMatch(/String\(req\.body\?\.email \|\| ''\)\.trim\(\)\.toLowerCase\(\)\.slice\(0,\s*254\)/);
-    expect(files.rateLimitMiddleware).toMatch(/email \? `email:\$\{email\}` : ipKey\(req\)/);
+  // 注册限流按用户需求收紧为：同一 IP 1 分钟最多 5 次注册请求。
+  // 此前用 email 拆分 key，攻击者靠大小写/空格变换可分裂无限 key 绕过上限；
+  // 现统一按 IP 维度计数（对齐 security.js 登录限流口径），无 email 也无绕过面。
+  test('registerLimiter limits per IP 5 per minute (P2-168)', () => {
+    expect(files.rateLimitMiddleware).toMatch(/windowMs:\s*1 \* 60 \* 1000/);
+    expect(files.rateLimitMiddleware).toMatch(/max:\s*5/);
+    expect(files.rateLimitMiddleware).toMatch(/keyGenerator:\s*ipKey/);
+    expect(files.rateLimitMiddleware).toMatch(/retryAfter:\s*60/);
   });
 
   // 运行时可变配置曾只钳下限不设上限：'1e999'→Infinity 写进缓存后 mbToBytes 返回 0，

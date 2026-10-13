@@ -29,25 +29,18 @@ const limiterConfig = {
 // loginBruteForceLimiter），且 bruteForceLimiter.check 的 key 拼入用户可控的 req.path，
 // 一旦未来接上可把每个路径拆成独立桶绕过次数限制——一并删除，避免死代码误复用。
 
-// P2-168：注册限流 key 归一化——email 原文由请求方任意控制，直接拼入 key 时
-// 攻击者靠大小写变换/前后空格即可分裂出无限 key，绕过 15 分钟 5 次注册上限。
-// 归一化口径与 security.js loginBruteForceLimiter 对齐：trim + lowercase，并钳制
-// 长度上限防止超长字符串滥用；无 email（当前注册表单为 username+激活码）时
-// 回退纯 IP 维度（换用户名无法绕过 IP 计数）。
-const normalizeRegisterKey = (req) => {
-  const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 254);
-  return email ? `email:${email}` : ipKey(req);
-};
-
 const registerLimiter = rateLimit({
   ...limiterConfig,
+  windowMs: 1 * 60 * 1000,
   max: 5,
   store: hybridStore('rate-register'),
   message: {
-    error: '注册请求过于频繁，请稍后再试',
-    retryAfter: 900
+    error: '注册请求过于频繁，请 1 分钟后再试',
+    retryAfter: 60
   },
-  keyGenerator: normalizeRegisterKey
+  // 注册按 IP 维度限流（用户需求：同一 IP 1 分钟最多 5 次注册请求），
+  // 不再使用 email 拆分 key，避免伪造 email 分裂计数绕过。
+  keyGenerator: ipKey
 });
 
 const apiLimiter = rateLimit({

@@ -109,18 +109,15 @@ function pruneFavCacheIfDue() {
   } catch (e) { /* 清理失败不影响主流程 */ }
 }
 
-// ============ 收藏快照缓存（登录自动同步 + 收藏页秒开） ============
+// ============ 收藏快照缓存（首次官方同步 + 刷新重拉，之后只读本地秒开） ============
 // 背景：官方收藏页每次打开都要拉分组 + 逐条回源富化（受 40/min 令牌桶限制，慢且易失败）。
 // 方案：把「分组 + 各类型条目列表（已富化）」落库为 vrc_fav_snapshot，读取命中直接返回（零回源）；
-// 登录/进入 VRC 页签时后台同步刷新（POST /sync），顶部状态栏展示进度；手动「刷新」强制重拉。
+// 同步策略 V11：登录/刷新【只读本地快照】，仅首次（本地无数据）自动拉官方一次；
+// 之后只有手动点击「刷新/重新同步」/群组同步/在线状态刷新才从官方拉取（force=refresh 或 POST /sync）。
 const SNAP_SCOPES = ['groups', 'items:world', 'items:avatar', 'items:friend'];
 // V9.8 安全：快照按用户隔离。scope 加 `u{userId}:` 前缀，杜绝跨用户缓存泄露
 //（此前 scope 为全局固定值，用户 A 登录会读到用户 B 的官方收藏快照）。
 function userSnapScope(uid, scope) { return 'u' + Number(uid) + ':' + scope; }
-// 快照新鲜阈值：10 分钟内直接命中，不触发任何回源
-const SNAP_FRESH_MS = 10 * 60 * 1000;
-// 快照超过 30 分钟：仍先返回缓存（不阻塞渲染），同时顺带触发一次后台同步补鲜
-const SNAP_OLDER_MS = 30 * 60 * 1000;
 // 后台同步单作业（进程内 single-flight），前端轮询 /sync-status 读取
 const favSync = {
   running: false,
@@ -167,13 +164,6 @@ async function snapInvalidate(scopeLike) {
     const pool = getPool();
     await pool.query(`DELETE FROM vrc_fav_snapshot WHERE scope LIKE ?`, [scopeLike]);
   } catch (e) { /* 静默 */ }
-}
-
-function snapAgeMs(snap) {
-  if (!snap || !snap.fetchedAt) return Infinity;
-  const t = new Date(snap.fetchedAt).getTime();
-  if (isNaN(t)) return Infinity;
-  return Date.now() - t;
 }
 
 function favSyncProgress() {
@@ -443,7 +433,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
   // ============ 分组（Favorite Groups） ============
 
   // 列出官方收藏分组（全类型混合返回，前端按 type 归类）
-  // 快照优先：命中缓存直接返回（零回源）；快照较旧时顺带后台同步补鲜，不阻塞响应。
+  // 同步策略 V11：命中本地快照直接返回（零回源）；仅 refresh=1（手动刷新）或本地无快照（首次）才拉官方。
   router.get('/groups', requireAuth, async (req, res) => {
     if (!req.vrcCookieRead) return fail(res, 400, '暂无可用的 VRChat 登录态，请先绑定或配置 VRChat 账号', { code: ErrorCodes.NEED_BIND });
     try {
@@ -451,7 +441,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       if (req.query.refresh !== '1') {
         const snap = await snapGet(gscope);
         if (snap) {
-          if (snapAgeMs(snap) > SNAP_OLDER_MS) startFavSync(req.vrcCookieRead, req.session.userId).catch(() => {});
+          // 命中本地快照即返回，不自动拉官方（仅手动刷新才回源）
           return ok(res, { groups: snap.payload, cached: true });
         }
       }
@@ -501,7 +491,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
   // ============ 收藏条目（Favorites） ============
 
   // 列出收藏条目（type 可选过滤；tag 为分组名过滤）
-  // 快照优先：已同步的列表直接返回（零回源、零富化等待）；refresh=1 或分组过滤/翻页时走实时路径。
+  // 同步策略 V11：命中本地快照直接返回（零回源、零富化等待）；仅 refresh=1（手动刷新）或本地无快照（首次）走实时路径。
   router.get('/items', requireAuth, async (req, res) => {
     if (!req.vrcCookieRead) return fail(res, 400, '暂无可用的 VRChat 登录态，请先绑定或配置 VRChat 账号', { code: ErrorCodes.NEED_BIND });
     try {
@@ -515,7 +505,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
         const scope = userSnapScope(req.session.userId, snapScopeOfType(type || 'world'));
         const snap = await snapGet(scope);
         if (snap) {
-          if (snapAgeMs(snap) > SNAP_OLDER_MS) startFavSync(req.vrcCookieRead, req.session.userId).catch(() => {});
+          // 命中本地快照即返回，不自动拉官方（仅手动刷新才回源）
           return ok(res, { items: snap.payload, cached: true });
         }
       }

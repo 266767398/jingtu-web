@@ -1,7 +1,10 @@
-// VRChat 收藏同步状态栏（V10.1）
-// 顶部全局状态条：登录/进入站点后自动把 VRChat 官方收藏（地图/模型/好友/分组）
-// 快照同步到本地库（POST /api/vrc-favorites/sync，后台执行），同步期间在此条展示进度；
-// 收藏页读取走快照零回源、秒开。手动「刷新」、群组同步/在线状态刷新也在此条透出。
+// VRChat 收藏同步状态栏（V11.0）
+// 顶部全局状态条。同步策略：
+//  · 登录/刷新网站：只加载本站本地数据库快照（零回源、秒开），绝不自动拉官方；
+//  · 仅当本地没有任何数据（首次绑定 VRChat 的新玩家）才自动拉取官方一次，
+//    之后所有访问都走本地快照；
+//  · 只有手动点击「刷新/重新同步」或群组同步/在线状态刷新时才从 VRChat 官方拉取。
+// 手动拉取期间在此条展示进度（POST /api/vrc-favorites/sync，后台执行）。
 (function () {
   'use strict';
   if (window.__vrcSyncLoaded) return;
@@ -200,17 +203,53 @@
   }
   bindBar();
 
-  // 登录/会话恢复后自动同步（由 auth.js showApp 调用）
+  // 登录/会话恢复后调用（由 auth.js showApp 调用）。
+  // 同步策略 V11：页面加载/刷新【只读本地库快照】，绝不自动拉官方；
+  // 仅当本地没有任何数据（首次绑定 VRChat 的新玩家）时才自动拉官方一次。
+  // 之后只有手动点击「刷新/重新同步」或群组刷新才从官方拉取。
   window.maybeStartVrcFavSync = function () {
     try {
       if (typeof currentUser === 'undefined' || !currentUser) return;
       if (!currentUser.id || !currentUser.vrchatId) return;
       // 会话恢复场景 nextTick 避免与首屏渲染抢时间片
       setTimeout(function () {
-        try { startFavSync(); } catch (e) {}
+        try { checkLocalThenMaybeFirstSync(); } catch (e) {}
       }, 600);
     } catch (e) {}
   };
+
+  // 查询本地库快照状态：有本地数据 → 仅展示「本地数据已就绪」；无本地数据（首次）→ 拉一次官方
+  async function checkLocalThenMaybeFirstSync() {
+    try {
+      const d = await window.apiJson('/api/vrc-favorites/sync-status', { silent: true, timeout: 9000 });
+      const sync = d.sync || {};
+      const ps = d.perScope || {};
+      const w = ps['items:world'] || {}, a = ps['items:avatar'] || {}, f = ps['items:friend'] || {};
+      const total = (w.count || 0) + (a.count || 0) + (f.count || 0);
+      // 上次同步时间：优先取进程内 lastAt（本进程内同步过），否则取各快照最新拉取时间（DB 可靠值）
+      let lastAt = sync.lastAt || 0;
+      if (!lastAt) {
+        [w, a, f, ps.groups || {}].forEach(s => {
+          const t = s.fetchedAt ? new Date(s.fetchedAt).getTime() : 0;
+          if (t > lastAt) lastAt = t;
+        });
+      }
+      // 本地已有同步数据：只加载本地，不拉官方（刷新网站不重新拉取官方数据）
+      if (lastAt > 0 || total > 0) {
+        showResult(
+          __('vrcsync.local_ready', { w: w.count || 0, a: a.count || 0, f: f.count || 0 }) +
+          ' · 上次同步 ' + fmtTime(lastAt) +
+          ' <button type="button" class="btn btn-xs btn-outline vrc-sync-reload" data-act="resync">🔄 ' + __('vrcsync.resync_btn') + '</button>',
+          { done: true, keepMs: 8000 }
+        );
+        return;
+      }
+      // 本地无任何数据（首次绑定/从未同步）：自动拉一次官方，之后只走本地快照
+      startFavSync({ startMsg: __('vrcsync.first_sync') });
+    } catch (e) {
+      // 状态查询失败：静默（不打断登录流程，刷新只加载本地数据）
+    }
+  }
 
   window.vrcSync = {
     startFavSync: startFavSync,

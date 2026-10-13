@@ -203,8 +203,8 @@ function showApp() {
     // 既会往隐藏的 #tab-home 里塞卡片，又会白打一次必然 401 的请求。
     if (typeof checkinModule !== 'undefined') checkinModule.init();
     if (typeof achievementsModule !== 'undefined') achievementsModule.init();
-    // 登录后自动同步 VRChat 官方收藏（地图/模型/好友/分组）到本地库，
-    // 由顶部同步状态栏展示进度；下次访问命中快照秒开、零回源。
+    // 登录/刷新只加载本地快照数据：仅当本地无数据（首次）才自动同步 VRChat 官方收藏，
+    // 之后只有手动点「刷新/重新同步」才从官方拉取（由 vrc_sync.js 决定时机）。
     if (typeof window.maybeStartVrcFavSync === 'function') window.maybeStartVrcFavSync();
   } catch {}
 }
@@ -344,12 +344,24 @@ async function doLogin2fa() {
   }
 }
 
-// 激活码注册：提交用户名/密码/激活码，后端校验消耗激活码并建立会话，成功后直接进入应用
+// 激活码注册：提交用户名/密码/确认密码/激活码，后端校验消耗激活码并建立会话，成功后直接进入应用
 async function doRegister() {
   const username = document.getElementById('regUsername')?.value?.trim();
   const password = document.getElementById('regPassword')?.value || '';
+  const password2 = document.getElementById('regPassword2')?.value || '';
   const activationCode = document.getElementById('regActivationCode')?.value?.trim() || '';
-  if (!username || !password || !activationCode) { toast(__('register.fill_all'), 'error'); return; }
+  if (!username || !password || !password2 || !activationCode) { toast(__('register.fill_all'), 'error'); return; }
+  if (password !== password2) {
+    toast(__('register.pwd_mismatch'), 'error');
+    const matchEl = document.getElementById('regPwdMatch');
+    if (matchEl) { matchEl.textContent = __('ui.pwd_not_match'); matchEl.style.color = 'var(--red)'; }
+    return;
+  }
+  // 前端密码强度预检（与后端 validatePasswordStrength 口径一致：8位+小写+大写+数字）
+  if (password.length < 8 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password)) {
+    toast(__('register.pwd_weak'), 'error');
+    return;
+  }
   const regBtn = document.getElementById('registerBtn');
   const btnText = regBtn?.querySelector('.login-btn-text');
   if (regBtn) regBtn.disabled = true;
@@ -376,8 +388,20 @@ async function doRegister() {
   } catch (err) {
     if (!isApiHandledError(err)) toast(__('auth.network_error') + ': ' + err.message, 'error');
   } finally {
-    if (regBtn) regBtn.disabled = false;
-    if (btnText) btnText.textContent = __('register.submit_btn');
+    // 注册冷却：无论成功与否，按钮进入 10 秒倒计时防连点刷接口
+    if (regBtn) regBtn.disabled = true;
+    let cooldown = 10;
+    const tick = () => {
+      if (btnText) btnText.textContent = __('register.submit_btn') + ' (' + cooldown + 's)';
+      if (cooldown <= 0) {
+        if (regBtn) regBtn.disabled = false;
+        if (btnText) btnText.textContent = __('register.submit_btn');
+      } else {
+        cooldown--;
+        setTimeout(tick, 1000);
+      }
+    };
+    tick();
   }
 }
 

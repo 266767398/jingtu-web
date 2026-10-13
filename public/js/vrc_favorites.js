@@ -573,7 +573,7 @@ async function loadItems(reset, force) {
       // 手动刷新：绕过本地快照回源 VRChat 实时拉取，并同时触发后台同步作业，
       // 让后续访问/其他页面也命中最新快照（省 API、秒开）
       if (typeof window.vrcSync !== 'undefined' && window.vrcSync.startFavSync) {
-        window.vrcSync.startFavSync({ startMsg: '正在重新同步 VRChat 收藏（地图/模型/群组/好友）...' });
+        window.vrcSync.startFavSync({ startMsg: __('vrcsync.resyncing') });
       }
       loadGroups(true);
       loadItems(true, true);
