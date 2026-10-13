@@ -198,11 +198,14 @@ function isEntryExpired(entry) {
  * beforeMark 是可选钩子：在标记 used 前执行（如建号事务）。钩子抛错时
  * 激活码不会被消耗，返回 { ok:false, reason:'BEFORE_HOOK_FAILED', error }。
  *
+ * options 可选：{ displayName? } 记录激活人显示名（后台使用日志展示用）；
+ * 不传时回退为 username，保证旧调用语义不变。
+ *
  * @returns {Promise<{ok:true, code:string, entry:object}
  *           |{ok:false, reason:string, error?:Error, used_by?:string, used_at?:string}>}
  *   reason: INVALID_FORMAT / NOT_FOUND / ALREADY_USED / REVOKED / BEFORE_HOOK_FAILED / WRITE_FAILED / LOCK_TIMEOUT / FILE_CORRUPT
  */
-async function validateAndConsume(code, username, beforeMark) {
+async function validateAndConsume(code, username, beforeMark, options) {
   const normalized = normalizeCode(code);
   if (!CODE_PATTERN.test(normalized)) return { ok: false, reason: 'INVALID_FORMAT' };
   return withProcessMutex(() => withFileLock(async () => {
@@ -221,6 +224,10 @@ async function validateAndConsume(code, username, beforeMark) {
     }
     entry.used = true;
     entry.used_by = username;
+    // 使用日志：记录激活账号（loginId）与显示名；未提供显示名时回退为账号名
+    entry.used_display_name = (options && options.displayName && String(options.displayName).trim())
+      ? String(options.displayName).trim().slice(0, 60)
+      : username;
     entry.used_at = new Date().toISOString();
     try {
       await writeData(data);
@@ -362,6 +369,48 @@ async function importCodes(incoming, operator) {
   }));
 }
 
+/**
+ * 彻底删除激活码条目（超管处置误生成/泄露码等场景；物理删除，不可恢复）
+ *
+ * 与消耗/作废同一把锁、同样的原子写。删除前把条目写入同目录审计附加文件
+ * activation-codes.deleted.json（留证），避免"删了就查无对证"。
+ *
+ * @param {string} code 要删除的激活码（自动归一化大写去空格）
+ * @param {string} operator 操作者（超管 login_id / displayName）
+ * @param {string} reason 删除原因（必填）
+ * @returns {Promise<{ok:true, entry:object}
+ *           |{ok:false, reason:'INVALID_FORMAT'|'NOT_FOUND'|'WRITE_FAILED'|'REASON_REQUIRED', ...}>}
+ */
+async function deleteCode(code, operator, reason) {
+  const normalized = normalizeCode(code);
+  if (!CODE_PATTERN.test(normalized)) return { ok: false, reason: 'INVALID_FORMAT' };
+  const reasonStr = String(reason || '').trim();
+  if (!reasonStr) return { ok: false, reason: 'REASON_REQUIRED' };
+  return withProcessMutex(() => withFileLock(async () => {
+    const data = readData();
+    const idx = data.codes.findIndex(c => c.code === normalized);
+    if (idx === -1) return { ok: false, reason: 'NOT_FOUND' };
+    const entry = data.codes[idx];
+    // 删除前留证
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      const auditFile = path.join(DATA_DIR, 'activation-codes.deleted.json');
+      const audit = (() => { try { return JSON.parse(fs.readFileSync(auditFile, 'utf8')); } catch { return { version: 1, entries: [] }; } })();
+      if (!audit || !Array.isArray(audit.entries)) audit.entries = [];
+      audit.entries.push({
+        ...entry,
+        deleted_at: new Date().toISOString(),
+        deleted_by: String(operator || 'unknown'),
+        delete_reason: reasonStr
+      });
+      fs.writeFileSync(auditFile, JSON.stringify(audit, null, 2) + '\n', { mode: 0o600 });
+    } catch (e) { return { ok: false, reason: 'WRITE_FAILED', error: e }; }
+    data.codes.splice(idx, 1);
+    try { await writeData(data); } catch (e) { return { ok: false, reason: 'WRITE_FAILED', error: e.cause || e }; }
+    return { ok: true, entry };
+  }));
+}
+
 function getCodeFilePath() {
   return DATA_FILE;
 }
@@ -373,6 +422,7 @@ module.exports = {
   checkCode,
   listCodes,
   revokeCode,
+  deleteCode,
   setFilePath,
   getCodeFilePath,
   normalizeCode,

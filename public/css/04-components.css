@@ -42,6 +42,15 @@
    back-to-top 保持低于 modal(1000)，避免弹窗打开时按钮浮到遮罩之上 */
 body .lightbox { z-index: 1050; }
 body .back-to-top { z-index: 900; }
+/* #confirmModal 走 .modal（z-index:1000），但 lightbox 是 1050——相册 lightbox 打开时
+   点删除照片，showConfirm 的确认框会被 lightbox 遮罩盖住。提到 1100 与 .confirm-overlay
+   一致，恒高于 modal(1000) / lightbox(1050)，保证"确认框永远最前置"。 */
+body #confirmModal { z-index: 1100; }
+/* 回到顶部按钮统一压到 900（与 back-to-top 一致），避免与 modal(1000) 同级
+   时在弹窗打开场景下浮动到遮罩之上。 */
+body .scroll-top-btn,
+body .scroll-to-top,
+body .scroll-to-top-btn { z-index: 900; }
 
 /* ===== VRChat 收藏同步状态栏（顶部） ===== */
 .vrc-sync-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 16px; margin:10px 0 4px; border-radius:12px; border:1px solid var(--border); background:var(--card); box-shadow:var(--shadow-sm); font-size:13px; color:var(--text); transition:opacity .3s ease, transform .3s ease; flex-wrap:wrap }

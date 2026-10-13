@@ -25,6 +25,11 @@
     });
   }
 
+  function __(k, p) {
+    if (typeof window.__ === 'function') { try { return window.__(k, p); } catch (e) { } }
+    return k;
+  }
+
   function ensureBar() {
     let bar = $('vrcSyncBar');
     if (!bar) {
@@ -63,7 +68,7 @@
     if (!bar) return;
     clearHide();
     const closeBtn = withClose
-      ? '<button type="button" class="vrc-sync-close" data-act="close" title="关闭">✕</button>'
+      ? '<button type="button" class="vrc-sync-close" data-act="close" title="' + esc(__('vrcsync.close_title')) + '">✕</button>'
       : '';
     bar.className = 'vrc-sync-bar ' + cls;
     bar.innerHTML = '<span class="vrc-sync-inner">' + html + '</span>' + closeBtn;
@@ -97,14 +102,14 @@
   function progressText(sync) {
     const label = sync.stepLabel ? '（' + sync.stepLabel + '）' : '';
     if (sync.stepTotal > 0) {
-      return '正在同步 VRChat 收藏' + label + ' ' + (sync.stepIndex || 0) + '/' + sync.stepTotal + ' ...';
+      return __('vrcsync.syncing_steps', { step: sync.stepIndex || 0, total: sync.stepTotal }) + label + ' ' + (sync.stepIndex || 0) + '/' + sync.stepTotal + ' ...';
     }
-    return '正在同步 VRChat 收藏...';
+    return __('vrcsync.syncing');
   }
 
   async function runPoll() {
     if (_pollCount >= POLL_MAX) {
-      showBusy('同步进行中（VRChat 限流排队），可稍后手动刷新查看最新数据');
+      showBusy(__('vrcsync.queued'));
       return;
     }
     _pollCount++;
@@ -122,9 +127,9 @@
         const w = ps['items:world'] || {}, a = ps['items:avatar'] || {}, f = ps['items:friend'] || {};
         const total = (w.count || 0) + (a.count || 0) + (f.count || 0);
         showResult(
-          '✔ 收藏同步完成 · 地图 ' + (w.count || 0) + ' · 模型 ' + (a.count || 0) + ' · 好友 ' + (f.count || 0) +
+          __('vrcsync.done', { w: w.count || 0, a: a.count || 0, f: f.count || 0 }) +
           ' · 上次同步 ' + fmtTime(sync.lastAt) +
-          ' <button type="button" class="btn btn-xs btn-outline vrc-sync-reload" data-act="resync">🔄 重新同步</button>',
+          ' <button type="button" class="btn btn-xs btn-outline vrc-sync-reload" data-act="resync">🔄 ' + __('vrcsync.resync_btn') + '</button>',
           { done: true }
         );
         if (typeof window.dispatchEvent === 'function') {
@@ -132,7 +137,7 @@
         }
         return;
       }
-      showResult('↻ 收藏同步暂未完成（VRChat 限流或网络波动），稍后自动重试', { done: true, keepMs: 4000 });
+      showResult(__('vrcsync.pending'), { done: true, keepMs: 4000 });
     } catch (e) {
       // 单个状态查询失败：网络抖动，稍后重试
       schedulePoll(4000);
@@ -152,12 +157,12 @@
         clearPoll();
         clearHide();
         if (opts.startMsg) showBusy(opts.startMsg);
-        else showBusy('正在同步 VRChat 收藏（地图/模型/群组/好友）...');
+        else showBusy(__('vrcsync.syncing_full'));
         _pollCount = 0;
         await window.apiJson('/api/vrc-favorites/sync', { method: 'POST', silent: true, timeout: 12000 });
       } catch (e) {
         if (opts.silentFail) { hide(); return; }
-        showResult('同步启动失败，稍后自动重试', { done: true, keepMs: 4000 });
+        showResult(__('vrcsync.start_failed'), { done: true, keepMs: 4000 });
         return;
       }
       schedulePoll(2500);
@@ -188,7 +193,7 @@
       const el = e.target && e.target.closest ? e.target.closest('[data-act]') : null;
       if (!el || el.closest('#vrcSyncBar') !== bar) return;
       if (el.getAttribute('data-act') === 'close') { hide(); }
-      else if (el.getAttribute('data-act') === 'resync') { hide(); startFavSync({ startMsg: '正在重新同步 VRChat 收藏（地图/模型/群组/好友）...' }); }
+      else if (el.getAttribute('data-act') === 'resync') { hide(); startFavSync({ startMsg: __('vrcsync.resyncing') }); }
     };
     document.addEventListener('click', onDoc);
     return function () { document.removeEventListener('click', onDoc); };

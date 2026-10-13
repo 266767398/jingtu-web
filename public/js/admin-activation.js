@@ -58,6 +58,7 @@ function initActivationPanelEvents() {
     const code = btn.getAttribute('data-code');
     const action = btn.getAttribute('data-code-action');
     if (action === 'revoke') revokeActivationCode(code);
+    else if (action === 'delete') deleteActivationCode(code);
     else if (action === 'copy') copyToClipboard(code).then(function () { toast(__('admin.copied'), 'success'); });
   });
 }
@@ -119,7 +120,11 @@ function renderActivationCodes() {
     const codeEsc = escAttr(c.code);
     const notePart = c.note ? ' · ' + esc(c.note) : '';
     const usedInfo = c.used
-      ? '<div class="admin-user-status">' + __('admin.activation.used_by') + ' ' + esc(c.used_by || '-') + ' · ' + fmtTime(c.used_at) + '</div>'
+      ? '<div class="admin-user-status">' + __('admin.activation.used_by') + ' ' + esc(c.used_by || '-')
+        + (c.used_display_name && c.used_display_name !== c.used_by
+          ? '（' + __('admin.activation.used_display_name') + ' ' + esc(c.used_display_name) + '）'
+          : '')
+        + ' · ' + fmtTime(c.used_at) + '</div>'
       : '';
     const revokedInfo = c.revoked
       ? '<div class="admin-user-status">' + __('admin.activation.revoked_by') + ' ' + esc(c.revoked_by || '-') + ' · ' + fmtTime(c.revoked_at)
@@ -134,6 +139,7 @@ function renderActivationCodes() {
     const revokeBtn = (!c.used && !c.revoked)
       ? '<button class="btn btn-sm btn-danger" data-code-action="revoke" data-code="' + codeEsc + '">🚫 ' + __('admin.activation.revoke_btn') + '</button>'
       : '';
+    const deleteBtn = '<button class="btn btn-sm btn-outline" data-code-action="delete" data-code="' + codeEsc + '" style="color:#dc2626">🗑 ' + __('admin.activation.delete_btn') + '</button>';
     const copyBtn = '<button class="btn btn-sm btn-outline" data-code-action="copy" data-code="' + codeEsc + '">📋 ' + __('admin.activation.copy_btn') + '</button>';
     return '<div class="admin-user-card">'
       + '<div class="admin-user-info">'
@@ -142,7 +148,7 @@ function renderActivationCodes() {
       + '<div class="admin-user-role">' + __('admin.activation.created_by') + ' ' + esc(c.created_by || '-') + ' · ' + fmtTime(c.created_at) + notePart + '</div>'
       + usedInfo + revokedInfo + expiresInfo
       + '</div>'
-      + '<div class="admin-user-actions">' + copyBtn + revokeBtn + '</div>'
+      + '<div class="admin-user-actions">' + copyBtn + revokeBtn + deleteBtn + '</div>'
       + '</div>';
   }).join('');
 }
@@ -171,6 +177,35 @@ function revokeActivationCode(code) {
     } catch (err) {
       if (isApiHandledError(err)) return;
       toast(__('admin.activation.revoke_fail_prefix') + err.message, 'error');
+    }
+  });
+}
+
+// v6.3: 彻底删除激活码（物理删除条目，删除前留证到 activation-codes.deleted.json）
+function deleteActivationCode(code) {
+  const reason = prompt(__('admin.activation.delete_reason_prompt'), '');
+  if (reason === null) return;
+  if (!String(reason || '').trim()) {
+    toast(__('admin.activation.delete_reason_required'), 'warn');
+    return;
+  }
+  showConfirm(__('admin.activation.delete_confirm', { code: code }), async function () {
+    try {
+      const res = await api('/api/admin/activation-codes/delete', {
+        method: 'POST',
+        body: { code: code, reason: String(reason).trim() }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        toast(data.message || __('admin.activation.deleted_ok', { code: code }), 'success');
+        loadActivationCodesPanel();
+      } else {
+        const e = await res.json().catch(() => ({}));
+        toast(errText(e) || __('admin.activation.delete_fail'), 'error');
+      }
+    } catch (err) {
+      if (isApiHandledError(err)) return;
+      toast(__('admin.activation.delete_fail_prefix') + err.message, 'error');
     }
   });
 }
@@ -208,7 +243,7 @@ function exportActivationCodesCsv() {
   const head = [
     __('admin.activation.csv_code'), __('admin.activation.csv_status'), __('admin.activation.csv_note'),
     __('admin.activation.csv_creator'), __('admin.activation.csv_created_at'), __('admin.activation.csv_expires'),
-    __('admin.activation.csv_user'), __('admin.activation.csv_used_at')
+    __('admin.activation.csv_user'), __('admin.activation.csv_display_name'), __('admin.activation.csv_used_at')
   ];
   const rows = list.map(function (c) {
     return [
@@ -219,6 +254,7 @@ function exportActivationCodesCsv() {
       fmtTimePlain(c.created_at),
       c.expires_at ? fmtTimePlain(c.expires_at) : __('admin.activation.permanent'),
       c.used_by || '',
+      c.used_display_name || '',
       fmtTimePlain(c.used_at)
     ];
   });

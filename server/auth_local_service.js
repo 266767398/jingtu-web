@@ -128,11 +128,15 @@ router.post('/init', initLimiter, async (req, res) => {
 // 存于 server/data/activation-codes.json。校验+消耗在文件锁内原子完成，一码一号。
 router.post('/register', registerLimiter, async (req, res) => {
   try {
-    const { username, password, activationCode } = req.body;
+    const { username, password, activationCode, displayName } = req.body;
     if (typeof username !== 'string' || !username.trim()) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入用户名');
     if (typeof password !== 'string' || !password) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入密码');
     if (typeof activationCode !== 'string' || !activationCode.trim()) return fail(res, 400, '请输入激活码', { code: 'ACTIVATION_CODE_REQUIRED' });
     const trimmedUsername = username.trim();
+    // 可选显示名：未提供时与用户名一致；提供时校验长度 2-32 并去除首尾空白
+    const trimmedDisplayName = (typeof displayName === 'string' && displayName.trim())
+      ? displayName.trim().slice(0, 32)
+      : trimmedUsername;
     const trimmedCode = activationCode.trim();
     if (trimmedUsername.length < 2 || trimmedUsername.length > 32) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '用户名长度需在 2-32 字符之间');
@@ -165,14 +169,14 @@ router.post('/register', registerLimiter, async (req, res) => {
         const [result] = await getPool().query(
           `INSERT INTO users (login_id, display_name, password_hash, role, avatar_type, approved)
            VALUES (?, ?, ?, 'member', 'none', 1)`,
-          [trimmedUsername, trimmedUsername, pwdHash]
+          [trimmedUsername, trimmedDisplayName, pwdHash]
         );
         createdUserId = result.insertId;
         await getPool().query(
           `INSERT IGNORE INTO user_group_membership (user_id, group_id) VALUES (?, 3)`,
           [createdUserId]
         );
-      });
+      }, { displayName: trimmedDisplayName });
     } catch (e) {
       if (e instanceof activationCodes.ActivationCodeError) {
         return fail(res, e.reason === 'LOCK_TIMEOUT' ? 503 : 500, e.message, { code: e.reason });

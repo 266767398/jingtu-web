@@ -270,5 +270,30 @@ module.exports = function createAdminUsersRouter() {
     }
   });
 
+  // 彻底删除激活码（物理删除条目，删除前留证到 activation-codes.deleted.json）
+  router.post('/admin/activation-codes/delete', requireRole('super_admin'), async (req, res) => {
+    try {
+      const code = typeof req.body?.code === 'string' ? req.body.code : '';
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason.slice(0, 200) : '';
+      if (!code) return fail(res, 400, '请提供要删除的激活码', { code: 'EMPTY_CODE' });
+      const operator = req.session.displayName || req.session.loginId || String(req.session.userId || 'super_admin');
+      const result = await activationCodes.deleteCode(code, operator, reason);
+      if (!result.ok) {
+        const msgs = {
+          INVALID_FORMAT: '激活码格式不正确',
+          NOT_FOUND: '激活码不存在',
+          REASON_REQUIRED: '请输入删除原因'
+        };
+        return fail(res, 400, msgs[result.reason] || '删除失败', { code: result.reason });
+      }
+      // 安全：操作日志只记删除动作与码的存在性，不把码原文写进日志表
+      await logOper(req.session.userId, '删除激活码', `彻底删除 1 个激活码${reason ? `（原因：${reason}）` : ''}`);
+      ok(res, { code: result.entry.code, deleted_at: result.entry.deleted_at || new Date().toISOString(), message: `已彻底删除 ${result.entry.code}` });
+    } catch (e) {
+      if (e instanceof activationCodes.ActivationCodeError) return fail(res, 500, e.message, { code: e.reason });
+      handleError(res, e, '[admin/activation-codes/delete]');
+    }
+  });
+
   return router;
 };

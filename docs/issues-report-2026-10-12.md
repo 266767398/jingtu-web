@@ -76,3 +76,38 @@
   - 路由守恒基线同步为 490 条（live = golden），守卫转绿。
   - 版本戳统一为 `20261012b`（index / share.js / 测试断言动态化）。
 - 遗留提醒（非本轮范围，延续前三轮）：VRChat 系统 cookie 失效需人工 OTP 重登、MySQL 连接池重建刷屏排查、活动提醒任务队列失败、members.js 中期按域切分——见前几轮文档。
+
+---
+
+## 六、第五轮补充（2026-10-13：VRC 绑定语言键 + 激活码彻底删除/使用日志 + UI 层级遮盖）
+
+> 本轮在上表第四轮基础上追加三块修复，版本戳链自 `20261012b` 一路提升至 `20261012e`。
+
+### 6.1 VRChat 绑定 / 登录表单语言键未生效（v1）
+
+| # | 问题 | 严重度 | 位置 | 根因 | 修复内容 |
+|---|------|--------|------|------|----------|
+| R1 | VRC 绑定区语言键显示原始 key（`login.vrc_user_label` 等） | 🔴 高 | public/index.html + sw.js | 浏览器 Service Worker 对带 `?v=` 资源 cache-first：上一轮升戳后语言包 `en.js?v=20261012c` 已按旧内容缓存，后续磁盘内容更新但因 URL 未变命中旧缓存 | 版本戳链 `20261012b→c→d→e` 全量提升（index.html 40 处 + i18n.js I18N_PACK_VERSION + style.css @import 11 处 + 5 个独立 HTML 页 12 处 + share.js 2 处 + SW CACHE v2.18→v2.20），SW 全量失效重载 |
+| R2 | 登录 / 注册 / 初始化表单 label 缺 `data-i18n`（标签恒中文） | 🟡 中 | public/index.html L177-372 | 表单 label 仅硬编码中文，无 i18n 属性，6 语言切换无效 | 补 17 个新键（`login.id_label` / `login.pwd_label` / `register.code_label` / `init.*` 等）+ 复用 4 个已有键，6 份语言包同步；初始化完成区改用 `<span data-i18n>…</span><strong>` 结构避免 textContent 覆盖子元素 |
+
+### 6.2 激活码管理：彻底删除 + 使用日志（v2/v3，2026-10-13 完成并测试通过）
+
+| # | 需求 | 实现 |
+|---|------|------|
+| R3 | 激活码「彻底删除」（物理删除 + 留证） | `server/activation_code_service.js` 新增 `deleteCode`（物理删除 + 审计）；`server/routes/admin_users.js` 新增 `POST /admin/activation-codes/delete`；后台激活码列表新增删除按钮 |
+| R4 | 激活码使用日志（激活了哪个账号 / 显示名） | `validateAndConsume` 记录 `used_by` / `used_display_name`；`public/js/admin-activation.js` 后台展示使用日志 + CSV 导出含显示名列；`admin.activation.used_display_name` / `csv_display_name` 键 6 语言同步 |
+
+### 6.3 UI 层级与遮盖（v4）
+
+| # | 问题 | 严重度 | 位置 | 根因 | 修复内容 |
+|---|------|--------|------|------|----------|
+| R5 | `#confirmModal` z-index 1000 低于 `.lightbox` 1050 | 🟡 中 | public/css/04-components.css | `showConfirm` 走 `.modal` 容器（z-index 1000），相册 lightbox（1050）打开时点删除照片，确认框被 lightbox 遮罩盖住 | `body #confirmModal { z-index: 1100; }`（与 `.confirm-overlay` 同级，恒高于 modal/lightbox） |
+| R6 | 回到顶部按钮 `z-index:1000` 与 `.modal` 同级 | 🟢 低 | public/css/ui-enhance.css:1272 | `.scroll-top-btn/.scroll-to-top/.scroll-to-top-btn` 与 modal 同级，弹窗打开场景下可能浮动到遮罩之上 | 统一压至 900（`body .scroll-top-btn/.scroll-to-top/.scroll-to-top-btn { z-index:900 }`），与 `.back-to-top` 一致 |
+| R7 | style.css `@import` 子样式版本戳滞留 `20261012b` | 🟡 中 | public/css/style.css:9-24 | style.css 内 `@import url('04-components.css?v=20261012b')` 子戳未随主戳提升，SW cache-first 命中旧缓存，CSS 修复送不到客户端 | 全部 11 处子戳同步 `20261012b→20261012e` |
+
+### 6.4 验证结论（2026-10-13）
+
+- **浏览器实测**（`http://localhost:3456/?lang=en`）：登录/注册/初始化/VRC 表单英文标签全部正确渲染；`#scrollTopBtn=900`、`#confirmModal=1100`、`#lightbox=1050`、toast=2147483647 层级实测生效。
+- **全量测试**：50 套件 · 901 测试全绿（含 i18n / security-regressions / round6-sync-regressions / route-inventory）。
+- 版本戳链 `20261012e` 全站单一（index / style.css @import / 5 个独立 HTML / share.js / i18n.js 一致）；SW CACHE = jingtu-v2.20。
+- 路由守恒基线同步更新为 491 条（v2 激活码删除路由 `POST /api/admin/activation-codes/delete` 新增，live=golden 守卫转绿）。

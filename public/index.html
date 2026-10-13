@@ -16,37 +16,37 @@
 <link rel="dns-prefetch" href="https://assets.amlcdn.com">
 <link rel="dns-prefetch" href="https://assets.vrchat.com">
 <!-- 首屏关键 CSS：阻塞渲染（页面骨架 / 设计令牌 / 基础 UI / 导航 / 首页内容） -->
-<link rel="stylesheet" href="/css/style.css?v=20261012b">
-  <link rel="stylesheet" href="/css/99-design-system.css?v=20261012b">
-  <link rel="stylesheet" href="/css/ui-components.css?v=20261012b">
-  <link rel="stylesheet" href="/css/ui-enhance.css?v=20261012b">
-<link rel="stylesheet" href="/css/nav-scroller.css?v=20261012b">
-<link rel="stylesheet" href="/css/home-featured.css?v=20261012b">
-<link rel="stylesheet" href="/css/home-enhance.css?v=20261012b">
-<link rel="stylesheet" href="/css/animations.css?v=20261012b">
+<link rel="stylesheet" href="/css/style.css?v=20261012e">
+  <link rel="stylesheet" href="/css/99-design-system.css?v=20261012e">
+  <link rel="stylesheet" href="/css/ui-components.css?v=20261012e">
+  <link rel="stylesheet" href="/css/ui-enhance.css?v=20261012e">
+<link rel="stylesheet" href="/css/nav-scroller.css?v=20261012e">
+<link rel="stylesheet" href="/css/home-featured.css?v=20261012e">
+<link rel="stylesheet" href="/css/home-enhance.css?v=20261012e">
+<link rel="stylesheet" href="/css/animations.css?v=20261012e">
 <!-- 点赞动效（like-burst）：给 post/album 等点赞按钮加心爆裂动画 + 无障碍兜底 -->
-<link rel="stylesheet" href="/css/likes-anim.css?v=20261012b">
+<link rel="stylesheet" href="/css/likes-anim.css?v=20261012e">
 <!-- 功能隐藏：直播入口 #tab-btn-live / 管理侧栏 live / #tab-live 面板统一不显示。
      兜底性兜底：即使 JS 误把 #tab-live 设为 active，也会被 CSS 强制隐藏。 -->
-<link rel="stylesheet" href="/css/feature-disabled.css?v=20261012b">
+<link rel="stylesheet" href="/css/feature-disabled.css?v=20261012e">
 <!-- 非首屏 CSS：改为非阻塞异步加载（media=print 命中后切回 all），避免拖慢 LCP；
      首屏默认落在 home Tab，members/collections/social/地图/“更多”菜单等样式多为
      第二屏或弹层，异步加载后由浏览器空闲补全，导航到对应 Tab 时已就绪（P2-21） -->
-<link rel="stylesheet" href="/css/06b-presence.css?v=20261012b" media="print">
-<link rel="stylesheet" href="/css/06-members.css?v=20261012b" media="print">
-<link rel="stylesheet" href="/css/collections.css?v=20261012b" media="print">
-<link rel="stylesheet" href="/css/10-social.css?v=20261012b" media="print">
-<link rel="stylesheet" href="/css/baidu-modern.css?v=20261012b" media="print">
+<link rel="stylesheet" href="/css/06b-presence.css?v=20261012e" media="print">
+<link rel="stylesheet" href="/css/06-members.css?v=20261012e" media="print">
+<link rel="stylesheet" href="/css/collections.css?v=20261012e" media="print">
+<link rel="stylesheet" href="/css/10-social.css?v=20261012e" media="print">
+<link rel="stylesheet" href="/css/baidu-modern.css?v=20261012e" media="print">
 <!-- V9.4 地图 VRChat 世界面板样式（异步加载） -->
-<link rel="stylesheet" href="/css/worlds-panel.css?v=20261012b" media="print">
-<noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20261012b"></noscript>
+<link rel="stylesheet" href="/css/worlds-panel.css?v=20261012e" media="print">
+<noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20261012e"></noscript>
 <!-- 无 JS 兜底：保证禁用 JS 时样式仍加载 -->
 <noscript>
-  <link rel="stylesheet" href="/css/06b-presence.css?v=20261012b">
-  <link rel="stylesheet" href="/css/06-members.css?v=20261012b">
-  <link rel="stylesheet" href="/css/collections.css?v=20261012b">
-  <link rel="stylesheet" href="/css/10-social.css?v=20261012b">
-  <link rel="stylesheet" href="/css/baidu-modern.css?v=20261012b">
+  <link rel="stylesheet" href="/css/06b-presence.css?v=20261012e">
+  <link rel="stylesheet" href="/css/06-members.css?v=20261012e">
+  <link rel="stylesheet" href="/css/collections.css?v=20261012e">
+  <link rel="stylesheet" href="/css/10-social.css?v=20261012e">
+  <link rel="stylesheet" href="/css/baidu-modern.css?v=20261012e">
 </noscript>
   <meta name="description" content="境途同游是一个面向 VRChat 玩家的社群平台，提供群组相册、活动报名、动态分享、成员地图与实时聊天，记录你在虚拟世界里的每一次同游。">
   <meta property="og:type" content="website">
@@ -78,12 +78,12 @@
         return 'zh';
       }
       // 解析期 document.write 外部脚本为阻塞式，保证在 i18n.js 之前就绪
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261012b"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261012e"><\/script>');
     })();
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
        必须在 i18n 之后（依赖 window.__）、在 loader.js / ui.js 之前（确保 og:url 尽早被爬虫读取）。 -->
-  <script src="/js/seo.js?v=20261012b"></script>
+  <script src="/js/seo.js?v=20261012e"></script>
   <!-- 首屏性能量化（P2-21）：?perf=1 时上报 LCP/FCP 到 console，便于回归比对；
        生产默认关闭，零副作用。仅观测，不改写任何渲染行为。 -->
   <script>
@@ -176,14 +176,14 @@
       </div>
       <div class="login-input-group">
         <input type="text" id="loginId" placeholder="请输入账号" class="login-input" autocomplete="username" required data-i18n-placeholder="login.id_placeholder">
-        <label for="loginId" class="login-input-label">登录ID</label>
+        <label for="loginId" class="login-input-label" data-i18n="login.id_label">登录ID</label>
         <div class="login-input-underline"></div>
       </div>
       <div class="login-input-group mt-16">
         <div class="pwd-wrap">
           <input type="password" id="loginPassword" placeholder="请输入密码" class="login-input" autocomplete="current-password" required data-i18n-placeholder="login.pwd_placeholder">
-          <button type="button" class="pwd-toggle" title="显示密码" aria-label="显示密码" aria-pressed="false" id="pwdToggle"></button>
-          <label for="loginPassword" class="login-input-label">密码</label>
+          <button type="button" class="pwd-toggle" title="显示密码" aria-label="显示密码" aria-pressed="false" id="pwdToggle" data-i18n-title="auth.show_password" data-i18n-aria="auth.show_password"></button>
+          <label for="loginPassword" class="login-input-label" data-i18n="login.pwd_label">密码</label>
           <div class="login-input-underline"></div>
         </div>
       </div>
@@ -193,12 +193,12 @@
         <label class="login-checkbox-wrap">
           <input type="checkbox" id="rememberLogin" class="login-checkbox">
           <span class="login-checkbox-mark"></span>
-          <span class="login-checkbox-label">记住账号</span>
+          <span class="login-checkbox-label" data-i18n="login.remember_me">记住账号</span>
         </label>
-        <button type="button" id="forgotPwdLink" class="login-forgot-pwd">找回密码</button>
+        <button type="button" id="forgotPwdLink" class="login-forgot-pwd" data-i18n="login.forgot_pwd">找回密码</button>
       </div>
       <button type="button" class="login-btn" id="loginPwdBtn">
-        <span class="login-btn-text">登录</span>
+        <span class="login-btn-text" data-i18n="auth.login_btn">登录</span>
         <span class="login-btn-shimmer"></span>
       </button>
       <!-- 两步验证（TOTP）输入：开启 2FA 的账号密码验证通过后显示 -->
@@ -220,14 +220,14 @@
     <div class="form-group d-none" id="loginRegisterFields">
       <div class="login-input-group">
         <input type="text" id="regUsername" placeholder="请输入用户名" class="login-input" autocomplete="username" data-i18n-placeholder="register.username_ph">
-        <label for="regUsername" class="login-input-label">用户名</label>
+        <label for="regUsername" class="login-input-label" data-i18n="register.username_label">用户名</label>
         <div class="login-input-underline"></div>
       </div>
       <div class="login-input-group mt-16">
         <div class="pwd-wrap">
           <input type="password" id="regPassword" placeholder="请输入密码" class="login-input" autocomplete="new-password" data-i18n-placeholder="register.pwd_ph">
-          <button type="button" class="pwd-toggle" title="显示密码" aria-label="显示密码" aria-pressed="false" id="pwdToggleReg"></button>
-          <label for="regPassword" class="login-input-label">密码</label>
+          <button type="button" class="pwd-toggle" title="显示密码" aria-label="显示密码" aria-pressed="false" id="pwdToggleReg" data-i18n-title="auth.show_password" data-i18n-aria="auth.show_password"></button>
+          <label for="regPassword" class="login-input-label" data-i18n="register.pwd_label">密码</label>
           <div class="login-input-underline"></div>
         </div>
       </div>
@@ -235,12 +235,12 @@
       <div class="pwd-strength-text" id="regPwdStrength"></div>
       <div class="login-input-group mt-16">
         <input type="text" id="regActivationCode" placeholder="请输入激活码" class="login-input" autocomplete="off" data-i18n-placeholder="register.code_ph">
-        <label for="regActivationCode" class="login-input-label">激活码</label>
+        <label for="regActivationCode" class="login-input-label" data-i18n="register.code_label">激活码</label>
         <div class="login-input-underline"></div>
       </div>
       <p class="login-hint-text mt-12" data-i18n="register.code_hint">激活码由管理员发放，每个激活码仅可注册一个账号</p>
       <button type="button" class="login-btn mt-16" id="registerBtn">
-        <span class="login-btn-text">注册</span>
+        <span class="login-btn-text" data-i18n="register.submit_btn">注册</span>
         <span class="login-btn-shimmer"></span>
       </button>
     </div>
@@ -248,28 +248,28 @@
     <div class="form-group d-none" id="loginVrcFields">
       <div class="vrc-login-hint">
         <span class="vrc-login-hint-icon">🔐</span>
-        <div>首次使用请先 <strong>账号密码登录</strong> → 进入个人中心 → 绑定 VRChat 账号，绑定后即可使用 VRChat 快捷登录</div>
+        <div data-i18n="login.vrc_hint_first_bind">首次使用请先 <strong>账号密码登录</strong> → 进入个人中心 → 绑定 VRChat 账号，绑定后即可使用 VRChat 快捷登录</div>
       </div>
       <div class="login-input-group">
         <input type="text" id="loginVrcUser" placeholder="VRChat 用户名 / 邮箱" class="login-input" autocomplete="username" required data-i18n-placeholder="login.vrc_user_placeholder">
-        <label for="loginVrcUser" class="login-input-label">VRChat 用户名</label>
+        <label for="loginVrcUser" class="login-input-label" data-i18n="login.vrc_user_label">VRChat 用户名</label>
       </div>
       <div class="login-input-group mt-16">
         <div class="pwd-wrap">
           <input type="password" id="loginVrcPass" placeholder="VRChat 密码" class="login-input" autocomplete="current-password" required data-i18n-placeholder="login.vrc_pwd_placeholder">
-          <button type="button" class="pwd-toggle" title="显示密码" aria-label="显示密码" aria-pressed="false" id="pwdToggleVrc"></button>
-          <label for="loginVrcPass" class="login-input-label">密码</label>
+          <button type="button" class="pwd-toggle" title="显示密码" aria-label="显示密码" aria-pressed="false" id="pwdToggleVrc" data-i18n-title="auth.show_password" data-i18n-aria="auth.show_password"></button>
+          <label for="loginVrcPass" class="login-input-label" data-i18n="login.vrc_pwd_label">密码</label>
         </div>
       </div>
       <div class="login-options">
         <label class="login-checkbox-wrap">
           <input type="checkbox" id="rememberVrcLogin" class="login-checkbox">
           <span class="login-checkbox-mark"></span>
-          <span class="login-checkbox-label">记住账号 1 周</span>
+          <span class="login-checkbox-label" data-i18n="login.vrc_remember_week">记住账号 1 周</span>
         </label>
       </div>
       <button type="button" class="login-btn" id="sendVrcCodeBtn">
-        <span class="login-btn-text">发送验证码</span>
+        <span class="login-btn-text" data-i18n="login.vrc_send_code">发送验证码</span>
         <span class="login-btn-shimmer"></span>
       </button>
       <div class="d-none" id="vrcLoginCodeArea">
@@ -280,11 +280,11 @@
         </div>
         <div id="vrcLoginNo2faMsg" class="d-none">
           <div class="login-vrc-2fa-ready" id="loginVrc2faReady">
-            <span>✅ 无需验证码，点击下方"登录"按钮即可</span>
+            <span data-i18n="login.vrc_no_code_needed">✅ 无需验证码，点击下方"登录"按钮即可</span>
           </div>
         </div>
         <button type="button" class="login-btn mt-12" id="loginVrcConfirmBtn">
-          <span class="login-btn-text">登录</span>
+          <span class="login-btn-text" data-i18n="auth.login_btn">登录</span>
           <span class="login-btn-shimmer"></span>
         </button>
       </div>
@@ -328,23 +328,23 @@
 
       <!-- 步骤2：创建管理员 -->
       <div id="initStepAdmin" class="init-step-panel d-none">
-        <div class="init-step-title">👤 创建超级管理员</div>
-        <div class="init-step-desc">填写管理员账号信息，用于首次登录和系统管理</div>
+        <div class="init-step-title" data-i18n="init.create_super_admin">👤 创建超级管理员</div>
+        <div class="init-step-desc" data-i18n="init.admin_desc">填写管理员账号信息，用于首次登录和系统管理</div>
         <div class="login-input-group">
           <input type="text" id="initLoginId" placeholder="设置登录ID（3-20位字母数字）" class="login-input" autocomplete="off" required data-i18n-placeholder="init.login_id_placeholder" aria-label="登录 ID">
-          <label class="login-input-label">登录ID</label>
+          <label class="login-input-label" data-i18n="init.login_id_label">登录ID</label>
           <div id="initIdHint" class="login-error-msg"></div>
         </div>
         <div class="login-input-group mt-16">
           <input type="text" id="initDisplayName" placeholder="设置显示名称（对外展示）" class="login-input" autocomplete="off" required data-i18n-placeholder="init.display_name_placeholder" aria-label="显示名称">
-          <label class="login-input-label">显示名称</label>
+          <label class="login-input-label" data-i18n="init.display_name_label">显示名称</label>
           <div id="initNameHint" class="login-error-msg"></div>
         </div>
         <div class="login-input-group mt-16">
           <div class="pwd-wrap">
             <input type="password" id="initPassword" placeholder="大小写字母+数字，至少8位" data-i18n-placeholder="init.password_placeholder" class="login-input" required aria-label="设置密码">
-            <label class="login-input-label">设置密码</label>
-            <button class="pwd-toggle" id="pwdToggleInit" type="button" title="显示密码" aria-label="显示密码" aria-pressed="false"></button>
+            <label class="login-input-label" data-i18n="init.password_label">设置密码</label>
+            <button class="pwd-toggle" id="pwdToggleInit" type="button" title="显示密码" aria-label="显示密码" aria-pressed="false" data-i18n-title="auth.show_password" data-i18n-aria="auth.show_password"></button>
           </div>
         </div>
         <div class="pwd-strength" id="initPwdMeter"><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div><div class="pwd-strength-bar"></div></div>
@@ -352,23 +352,23 @@
         <div class="login-input-group mt-16">
           <div class="pwd-wrap">
             <input type="password" id="initPassword2" placeholder="再次输入密码" data-i18n-placeholder="init.password2_placeholder" class="login-input" required aria-label="确认密码">
-            <label class="login-input-label">确认密码</label>
+            <label class="login-input-label" data-i18n="init.password2_label">确认密码</label>
             <div id="initPwdMatch" class="login-error-msg"></div>
           </div>
         </div>
-        <button type="button" class="login-btn mt-20" id="initSubmitBtn">创建超级管理员</button>
+        <button type="button" class="login-btn mt-20" id="initSubmitBtn" data-i18n="init.create_super_admin">创建超级管理员</button>
       </div>
 
       <!-- 步骤3：完成 -->
       <div id="initStepDone" class="init-step-panel d-none">
         <div class="init-success-icon">🎉</div>
-        <div class="init-step-title">初始化完成！</div>
+        <div class="init-step-title" data-i18n="init.done_title">初始化完成！</div>
         <div class="init-success-info">
-          <div>登录ID：<strong id="initFinalLoginId"></strong></div>
-          <div>显示名称：<strong id="initFinalDisplayName"></strong></div>
+          <div><span data-i18n="init.login_id_colon">登录ID：</span><strong id="initFinalLoginId"></strong></div>
+          <div><span data-i18n="init.display_name_colon">显示名称：</span><strong id="initFinalDisplayName"></strong></div>
         </div>
-        <div class="init-step-desc">超级管理员已创建，现在可以登录系统开始使用了</div>
-        <button type="button" id="initFinishBtn" class="login-btn mt-16">进入系统 →</button>
+        <div class="init-step-desc" data-i18n="init.done_desc">超级管理员已创建，现在可以登录系统开始使用了</div>
+        <button type="button" id="initFinishBtn" class="login-btn mt-16" data-i18n="init.enter_system">进入系统 →</button>
       </div>
     </div>
     <div class="login-footer">境途同游 V8.2</div>
@@ -1946,7 +1946,7 @@
 
     <div class="card p-16 mt-12" id="secVrc">
       <h3 data-i18n="profile.vrc_bind">🎮 VRChat 账号</h3>
-      <div id="vrchatStatus"><p>检查中...</p></div>
+      <div id="vrchatStatus"><p data-i18n="init.checking">检查中...</p></div>
       <div id="vrchatBindForm" class="d-none mt-8">
         <input type="text" id="vrchatInputId" class="form-input" placeholder="VRChat 用户名" data-i18n-placeholder="login.vrc_user_placeholder" aria-label="VRChat 用户名">
         <input type="password" id="vrchatBindPwd" class="form-input mt-4" placeholder="密码" data-i18n-placeholder="login.vrc_pwd_placeholder" aria-label="VRChat 密码">
@@ -1968,7 +1968,7 @@
         <div class="d-flex items-center gap-8">
           <img id="vrchatBoundAvatar" src="/assets/group-avatar.svg" class="vrc-bound-avatar avatar-vrc" alt="VRChat头像" loading="lazy">
           <div>
-            <div><span id="vrchatBoundName"></span> <span id="vrchatBoundVerified" class="d-none text-green text-12">✅ 已验证</span></div>
+            <div><span id="vrchatBoundName"></span> <span id="vrchatBoundVerified" class="d-none text-green text-12" data-i18n="profile.vrc_verified">✅ 已验证</span></div>
             <div class="text-12 text-muted2">ID: <span id="vrchatBoundId"></span></div>
             <a id="vrchatBoundProfileLink" href="#" target="_blank" rel="noopener" class="text-12">🌐 <span data-i18n="profile.vrc_homepage">VRChat 主页</span></a>
           </div>
@@ -2556,31 +2556,31 @@
 <!-- ===== Scripts ===== -->
 <!-- 核心基础设施：defer 后与其余模块同批次按文档顺序执行（core 仍在最前），
      移出解析阻塞路径，首屏可先完成首次绘制（P2-21） -->
-<script defer src="/js/core.js?v=20261012b"></script>
+<script defer src="/js/core.js?v=20261012e"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
-<script defer src="/js/i18n.js?v=20261012b"></script>
-<script defer src="/js/ui.js?v=20261012b"></script>
-<script defer src="/vendor/gsap/gsap.min.js?v=20261012b"></script>
-<script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20261012b"></script>
-<script defer src="/js/motion.js?v=20261012b"></script>
-<script defer src="/js/reveal.js?v=20261012b"></script>
-<script defer src="/js/nav-scroller.js?v=20261012b"></script>
+<script defer src="/js/i18n.js?v=20261012e"></script>
+<script defer src="/js/ui.js?v=20261012e"></script>
+<script defer src="/vendor/gsap/gsap.min.js?v=20261012e"></script>
+<script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20261012e"></script>
+<script defer src="/js/motion.js?v=20261012e"></script>
+<script defer src="/js/reveal.js?v=20261012e"></script>
+<script defer src="/js/nav-scroller.js?v=20261012e"></script>
 <!-- 页面空闲冻结/解冻核心（freeze.js）：必须早于所有注册冻结回调的模块
      （theme/auth/main 及懒加载路由模块），保证它们顶层注册时 window.__freeze 已就绪 -->
-<script defer src="/js/freeze.js?v=20261012b"></script>
-<script defer src="/js/theme.js?v=20261012b"></script>
-<script defer src="/js/auth.js?v=20261012b"></script>
+<script defer src="/js/freeze.js?v=20261012e"></script>
+<script defer src="/js/theme.js?v=20261012e"></script>
+<script defer src="/js/auth.js?v=20261012e"></script>
 <!-- VRChat 收藏同步状态栏（vrc_sync.js）：登录/访问站点时自动把官方收藏快照同步到本地库，
      顶部状态条显示进度；群组同步/在线状态刷新也复用它透出。 -->
-<script defer src="/js/vrc_sync.js?v=20261012b"></script>
+<script defer src="/js/vrc_sync.js?v=20261012e"></script>
 <!-- 路由模块懒加载器：包裹 switchTab，按需 / 空闲预载（见 loader.js）。
      当前语言包由 <head> 内联引导按偏好注入，其余语言包在切换时按需加载。 -->
-<script defer src="/js/loader.js?v=20261012b"></script>
+<script defer src="/js/loader.js?v=20261012e"></script>
 <!-- 全局命令面板（VN-9，VRCNext SmartSearch 借鉴）：依赖 core.js 的 api/esc 等 -->
-<script defer src="/js/smartsearch.js?v=20261012b"></script>
+<script defer src="/js/smartsearch.js?v=20261012e"></script>
 <!-- 引导启动：调用 initI18n / switchTab，必须在 loader.js 之后 -->
-<script defer src="/js/init.js?v=20261012b"></script>
-<script defer src="/js/main.js?v=20261012b"></script>
+<script defer src="/js/init.js?v=20261012e"></script>
+<script defer src="/js/main.js?v=20261012e"></script>
 
 <!-- ===== Event Bindings (migrated from inline handlers) ===== -->
 <script>
