@@ -430,16 +430,17 @@ async function loadItems(reset, force) {
   // 直接切换穿戴该官方收藏模型（代表当前用户，仅 avatar 类型可切换）
   async function setVrcAvatar(id) {
     if (!id) return;
-    if (!confirm(__('model_coll.confirm_copy', '确定切换为该模型吗？'))) return;
-    try {
-      await api('/api/groups/vrc/avatar/set', {
-        method: 'POST',
-        body: JSON.stringify({ avatarId: id })
-      });
-      toast(__('model_coll.copied', '已切换'), 'success');
-    } catch (e) {
-      toast(e.message || __('vrcfav.switch_fail', '切换失败'), 'error');
-    }
+    showConfirm(__('model_coll.confirm_copy', '确定切换为该模型吗？'), async function () {
+      try {
+        await api('/api/groups/vrc/avatar/set', {
+          method: 'POST',
+          body: JSON.stringify({ avatarId: id })
+        });
+        toast(__('model_coll.copied', '已切换'), 'success');
+      } catch (e) {
+        toast(e.message || __('vrcfav.switch_fail', '切换失败'), 'error');
+      }
+    });
   }
 
   // P5-56: 官方收藏目标详情——先把列表富化数据秒开渲染，再异步调 /detail/:type/:id
@@ -532,15 +533,16 @@ async function loadItems(reset, force) {
   async function clearGroup() {
     const g = state.groups.find(x => x.name === state.group && x.type === state.kind);
     if (!g) { toast(__('vrcfav.need_group_select', '请先选择一个具体分组（不能是"全部"）'), 'warn'); return; }
-    if (!confirm(__('vrcfav.clear_confirm', '确定清空该分组下的全部官方收藏吗？此操作不可撤销。'))) return;
-    try {
-      await api(`/api/vrc-favorites/groups/${encodeURIComponent(g.type)}/${encodeURIComponent(g.name)}?ownerUserId=${encodeURIComponent(g.ownerUserId || '')}`, { method: 'DELETE' });
-      toast(__('vrcfav.clear_ok', '分组已清空'), 'success');
-      loadGroups();
-      loadItems(true);
-    } catch (e) {
-      toast(e.message, 'error');
-    }
+    showConfirm(__('vrcfav.clear_confirm', '确定清空该分组下的全部官方收藏吗？此操作不可撤销。'), async function () {
+      try {
+        await api(`/api/vrc-favorites/groups/${encodeURIComponent(g.type)}/${encodeURIComponent(g.name)}?ownerUserId=${encodeURIComponent(g.ownerUserId || '')}`, { method: 'DELETE' });
+        toast(__('vrcfav.clear_ok', '分组已清空'), 'success');
+        loadGroups();
+        loadItems(true);
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
   }
 
   // ============ 事件绑定（仅一次） ============

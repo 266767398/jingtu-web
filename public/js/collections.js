@@ -118,7 +118,9 @@
     const pubBadges = it.visibility === 'public'
       ? `<span class="coll-badge public">🌐 ${__('collections.public')}</span>` +
         ((state.scope === 'public' && it.show_author) ? `<span class="coll-badge pubby">👤 ${esc(it.owner_name || '')}</span>` : '')
-      : '';
+      : (state.scope !== 'public'
+        ? `<span class="coll-badge private">🔒 ${__('collections.private')}</span>`
+        : '');
     const ratingHtml = it.kind === 'avatar_model'
       ? `<span class="coll-card-rating">⭐ ${Number(it.rating_avg || 0).toFixed(1)} (${it.rating_count || 0})</span>`
       : '';
@@ -184,13 +186,14 @@
       return;
     }
     if (act === 'remove') {
-      if (!confirm(__('collections.confirm_remove'))) return;
-      try {
-        await api('/api/collections/' + id, { method: 'DELETE' });
-        toast(__('collections.removed'));
-        await loadFolders();
-        loadItems(true);
-      } catch (e) { toast(e.message, 'error'); }
+      showConfirm(__('collections.confirm_remove'), async function () {
+        try {
+          await api('/api/collections/' + id, { method: 'DELETE' });
+          toast(__('collections.removed'));
+          await loadFolders();
+          loadItems(true);
+        } catch (e) { toast(e.message, 'error'); }
+      });
       return;
     }
     if (act === 'check') {
@@ -204,13 +207,14 @@
       return;
     }
     if (act === 'setavatar') {
-      if (!confirm(__('model_coll.confirm_copy'))) return;
-      const release = btnBusy(e.target);
-      try {
-        await api('/api/collections/' + id + '/set-avatar', { method: 'POST' });
-        toast(__('model_coll.copied'));
-      } catch (e) { toast(e.message, 'error'); }
-      finally { release(); }
+      showConfirm(__('model_coll.confirm_copy'), async function () {
+        const release = btnBusy(e.target);
+        try {
+          await api('/api/collections/' + id + '/set-avatar', { method: 'POST' });
+          toast(__('model_coll.copied'));
+        } catch (e) { toast(e.message, 'error'); }
+        finally { release(); }
+      });
       return;
     }
   }
@@ -289,7 +293,7 @@
         if (e.target.getAttribute('data-del')) {
           e.stopPropagation();
           const fid = e.target.getAttribute('data-del');
-          if (confirm(__('collections.confirm_del_folder'))) deleteFolder(fid);
+          showConfirm(__('collections.confirm_del_folder'), function () { deleteFolder(fid); });
           return;
         }
         state.folder = li.getAttribute('data-folder');
@@ -381,6 +385,9 @@
     const tags = Array.isArray(it.tags) ? it.tags : (it.tags ? safeParseTags(it.tags) : []);
     const rows = [];
     rows.push(['ID', it.target_id]);
+    rows.push([__('collections.visibility', '可见性'), it.visibility === 'public'
+      ? '🌐 ' + __('collections.public') + (state.scope === 'public' ? '' : `（${__('model_coll.status_public_tip', '已公开，他人可发现')}）`)
+      : '🔒 ' + __('collections.private')]);
     rows.push([__('auto_collections_35'), KIND_LABEL[it.kind] || it.kind]);
     rows.push([__('auto_collections_36'), it.author || '-']);
     rows.push([__('auto_collections_37'), statusText(it.status)]);
@@ -471,9 +478,10 @@
     if (recDownBtn) recDownBtn.addEventListener('click', () => voteRecommend(it, -1));
     // 绑定详情内操作
     const setBtn = $('collDetailSetAvatar');
-    if (setBtn) setBtn.addEventListener('click', async () => {
-      if (!confirm(__('model_coll.confirm_copy'))) return;
-      try { await api('/api/collections/' + it.id + '/set-avatar', { method: 'POST' }); toast(__('model_coll.copied')); } catch (e) { toast(e.message, 'error'); }
+    if (setBtn) setBtn.addEventListener('click', () => {
+      showConfirm(__('model_coll.confirm_copy'), async function () {
+        try { await api('/api/collections/' + it.id + '/set-avatar', { method: 'POST' }); toast(__('model_coll.copied')); } catch (e) { toast(e.message, 'error'); }
+      });
     });
     const checkBtn = $('collDetailCheck');
     if (checkBtn) checkBtn.addEventListener('click', async () => {
@@ -518,15 +526,16 @@
       } catch (e) { toast(e.message, 'error'); }
     });
     const wtClear = $('collDetailWorldTagClear');
-    if (wtClear) wtClear.addEventListener('click', async () => {
-      if (!confirm(__('world_tags.confirm_clear'))) return;
-      try {
-        await api('/api/world-tags/' + encodeURIComponent(it.target_id), { method: 'DELETE' });
-        toast(__('world_tags.cleared'), 'success');
-        const input = $('collDetailWorldTags');
-        if (input) input.value = '';
-        it.worldTags = [];
-      } catch (e) { toast(e.message, 'error'); }
+    if (wtClear) wtClear.addEventListener('click', () => {
+      showConfirm(__('world_tags.confirm_clear'), async function () {
+        try {
+          await api('/api/world-tags/' + encodeURIComponent(it.target_id), { method: 'DELETE' });
+          toast(__('world_tags.cleared'), 'success');
+          const input = $('collDetailWorldTags');
+          if (input) input.value = '';
+          it.worldTags = [];
+        } catch (e) { toast(e.message, 'error'); }
+      });
     });
   }
 

@@ -1836,6 +1836,22 @@ select.form-input {
   margin-top: 24px;
   opacity: 0.7;
 }
+.login-footer-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.login-lang-btn {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 1;
+}
+.login-lang-btn:hover { border-color: var(--accent); color: var(--text); }
 
 .pwd-strength {
   display: flex;
@@ -1919,7 +1935,7 @@ select.form-input {
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
-  z-index: 9999;
+  z-index: 1100;
   display: flex;
   align-items: center;
   justify-content: center;

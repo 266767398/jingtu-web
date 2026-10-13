@@ -176,12 +176,14 @@
   }
 
   window.adminEndLive = function (id) {
-    if (!confirm(__('auto_admin_ui_9'))) return;
-    api('/api/admin/live/' + id + '/end', { method: 'POST' }).then(function () { loadAdminLive(); }).catch(function (e) { alert(__('auto_admin_ui_10') + (e && e.message || e)); });
+    showConfirm(__('auto_admin_ui_9'), function () {
+      api('/api/admin/live/' + id + '/end', { method: 'POST' }).then(function () { loadAdminLive(); }).catch(function (e) { alert(__('auto_admin_ui_10') + (e && e.message || e)); });
+    });
   };
   window.adminDeleteLive = function (id) {
-    if (!confirm(__('auto_admin_ui_11'))) return;
-    api('/api/admin/live/' + id, { method: 'DELETE' }).then(function () { loadAdminLive(); }).catch(function (e) { alert(__('auto_admin_ui_12') + (e && e.message || e)); });
+    showConfirm(__('auto_admin_ui_11'), function () {
+      api('/api/admin/live/' + id, { method: 'DELETE' }).then(function () { loadAdminLive(); }).catch(function (e) { alert(__('auto_admin_ui_12') + (e && e.message || e)); });
+    });
   };
 
   // 内容管理
@@ -344,10 +346,11 @@
   }
 
   window.adminDeleteContent = function (type, id) {
-    if (!confirm(__('auto_admin_ui_51'))) return;
-    api('/api/admin/content/' + type + '/' + id, { method: 'DELETE' })
-      .then(function () { loadAdminContent(); })
-      .catch(function (e) { alert(__('auto_admin_ui_52') + (e && e.message || e)); });
+    showConfirm(__('auto_admin_ui_51'), function () {
+      api('/api/admin/content/' + type + '/' + id, { method: 'DELETE' })
+        .then(function () { loadAdminContent(); })
+        .catch(function (e) { alert(__('auto_admin_ui_52') + (e && e.message || e)); });
+    });
   };
   // 后台内容管理「查看」入口：按内容类型分发到对应前台模块的详情函数（模块按需加载）
   window.adminViewContent = function (type, id) {
@@ -425,7 +428,7 @@
         if (!url) { alert(__('auto_admin_ui_photo_miss') || '未找到该照片'); return; }
         var overlay = document.createElement('div');
         overlay.className = 'modal-overlay active';
-        overlay.style.cssText = 'display:flex;align-items:center;justify-content:center;z-index:9999;';
+        overlay.style.cssText = 'display:flex;align-items:center;justify-content:center;';
         overlay.innerHTML = '<div style="position:relative;max-width:92vw;max-height:90vh;background:transparent;">'
           + '<button data-action="admin-album-photo-close" style="position:absolute;top:-32px;right:0;background:rgba(0,0,0,.5);color:#fff;border:none;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:18px;line-height:1;">×</button>'
           + (p.mediaType === 'video'
@@ -434,16 +437,30 @@
           + (p.content || p.displayName ? '<div style="margin-top:8px;color:#fff;text-align:center;font-size:13px;">' + (p.content ? escapeHtml(p.content) + (p.displayName ? ' · ' : '') : '') + (p.displayName ? escapeHtml(p.displayName) : '') + '</div>' : '')
           + '</div>';
         document.body.appendChild(overlay);
-        overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+        // M8: 纳入体系——锁滚动、Esc 可关、全局关闭链可清理（原先 z-index 9999 游离体系外，Esc 关不掉、切 tab 残留黑罩）
+        var _owner = 'admin-photo:' + id;
+        if (typeof lockBodyScroll === 'function') lockBodyScroll(_owner);
+        var _closePhoto = function () {
+          if (typeof unlockBodyScroll === 'function') unlockBodyScroll(_owner);
+          if (overlay.parentNode) overlay.remove();
+        };
+        overlay._cleanup = _closePhoto;
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) _closePhoto(); });
+        var _pc = overlay.querySelector('[data-action="admin-album-photo-close"]');
+        if (_pc) _pc.addEventListener('click', function () { _closePhoto(); });
+        document.addEventListener('keydown', function _phEsc(e) {
+          if (e.key === 'Escape') { _closePhoto(); document.removeEventListener('keydown', _phEsc, true); }
+        }, true);
       })
       .catch(function () { alert(__('auto_admin_ui_photo_miss') || '照片加载失败'); });
   };
   // 管理后台活动归档/取消归档（仅超管可操作；复用 PUT /api/events/:id，归档字段已对普通创建者封禁）
   window.adminArchiveEvent = function (id, current) {
-    if (!confirm(__('events.toggle_archive_confirm') || __('auto_admin_ui_53'))) return;
-    api('/api/events/' + id, { method: 'PUT', body: JSON.stringify({ isArchive: current ? 0 : 1 }) })
-      .then(function () { loadAdminContent(); })
-      .catch(function (e) { alert(__('auto_admin_ui_54') + (e && e.message || e)); });
+    showConfirm(__('events.toggle_archive_confirm') || __('auto_admin_ui_53'), function () {
+      api('/api/events/' + id, { method: 'PUT', body: JSON.stringify({ isArchive: current ? 0 : 1 }) })
+        .then(function () { loadAdminContent(); })
+        .catch(function (e) { alert(__('auto_admin_ui_54') + (e && e.message || e)); });
+    });
   };
   // 后台内容管理「活动」子标签的「编辑」入口：复用前端活动编辑弹窗（editEventCard/showEditEvent）。
   // 与创建入口一致，需按需确保 events.js 模块就绪后再打开。
@@ -478,10 +495,11 @@
   window.adminBatchDeleteContent = function () {
     var ids = Array.prototype.slice.call(document.querySelectorAll('#adminContentList .admin-batch-check:checked')).map(function (c) { return c.getAttribute('data-id'); });
     if (!ids.length) { alert(__('auto_admin_ui_57')); return; }
-    if (!confirm(__('auto_admin_ui_58') + ids.length + __('auto_admin_ui_59'))) return;
-    api('/api/admin/content/batch', { method: 'POST', body: JSON.stringify({ type: _contentTab, ids: ids }) })
-      .then(function () { loadAdminContent(); })
-      .catch(function (e) { alert(__('auto_admin_ui_60') + (e && e.message || e)); });
+    showConfirm(__('auto_admin_ui_58') + ids.length + __('auto_admin_ui_59'), function () {
+      api('/api/admin/content/batch', { method: 'POST', body: JSON.stringify({ type: _contentTab, ids: ids }) })
+        .then(function () { loadAdminContent(); })
+        .catch(function (e) { alert(__('auto_admin_ui_60') + (e && e.message || e)); });
+    });
   };
 
   // 主页管理 / 网站信息（复用 system_config；需 super_admin 保存）

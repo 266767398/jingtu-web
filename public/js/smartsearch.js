@@ -85,7 +85,7 @@
     panel.classList.remove('d-none');
     var input = document.getElementById('smartSearchInput');
     if (input) { input.value = ''; runSearch(''); setTimeout(function() { input.focus(); }, 0); }
-    document.addEventListener('keydown', globalEscHandler);
+    document.addEventListener('keydown', globalEscHandler, true);
   }
 
   function closePanel() {
@@ -93,11 +93,16 @@
     if (panel) panel.classList.add('d-none');
     results = [];
     cursor = -1;
-    document.removeEventListener('keydown', globalEscHandler);
+    document.removeEventListener('keydown', globalEscHandler, true);
   }
 
   function globalEscHandler(e) {
-    if (e.key === 'Escape') { e.preventDefault(); closePanel(); }
+    if (e.key === 'Escape') {
+      // M8: 面板打开时独占 Esc——否则与全局弹窗 Esc 链并行触发，会连带关掉底层 lightbox/弹窗
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      closePanel();
+    }
   }
 
   // ---------- 渲染结果 ----------

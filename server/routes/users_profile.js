@@ -31,8 +31,10 @@ function cleanupOldAvatars(userId, keep1, keep2) {
       const full = path.join(AVATAR_DIR, f);
       if (f === keep1 || f === keep2) continue;
       // 匹配旧命名：{id}.jpg / {id}_256.jpg / {id}_64.jpg / {id}_{ts}.jpg / {id}_{ts}_64.jpg / .tmp_*
+      // 及 multer 临时文件 avatar_{id}_*（上传中断/校验失败残留，正常流程已删除）
       const isOld = f === `${id}.jpg` || f === `${id}_256.jpg` || f === `${id}_64.jpg`
         || (f.startsWith(`${id}_`) && (f.endsWith('.jpg') || f.endsWith('.png')))
+        || f.startsWith(`avatar_${id}_`)
         || f.startsWith('.tmp_');
       if (isOld) { try { fs.unlinkSync(full); } catch {} }
     }
@@ -268,6 +270,7 @@ router.post('/me/avatar', requireAuth, secureUpload(avatarUpload.single('avatar'
   if (!req.file) {
     return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请选择头像图片');
   }
+  let tmpPath = req.file ? req.file.path : null;
   try {
     // 每次上传使用时间戳唯一文件名，避免 Windows 下覆盖正在被读取的旧文件导致
     // sharp.toFile 报 "Permission denied / Invalid argument"（原地覆盖写锁冲突）。
@@ -283,11 +286,14 @@ router.post('/me/avatar', requireAuth, secureUpload(avatarUpload.single('avatar'
       .jpeg({ quality: 85 })
       .toFile(finalPath);
 
+    // 主图生成校验：文件缺失/为空视为上传失败，绝不写入 DB 指向一个已丢失的文件
+    // （历史曾出现 DB 引用主图但文件缺失 → 前端 onerror 静默回退默认头像，用户感知"头像不好使"）
+    if (!fs.existsSync(finalPath) || fs.statSync(finalPath).size === 0) {
+      throw new Error('头像主图生成失败：目标文件未写入');
+    }
+
     // 生成缩略图
     await sharp(finalPath).resize(64, 64, { fit: 'cover' }).jpeg({ quality: 75 }).toFile(thumbPath64);
-
-    // 删除上传临时文件
-    try { fs.unlinkSync(req.file.path); } catch {}
 
     // 清理该用户旧头像文件（best-effort，忽略锁定/不存在）
     cleanupOldAvatars(req.session.userId, finalName, thumbName);
@@ -310,6 +316,10 @@ router.post('/me/avatar', requireAuth, secureUpload(avatarUpload.single('avatar'
     await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '上传头像', ?)`,
       [req.session.userId, `上传自定义头像: ${req.file.originalname}`]);
   } catch (e) { handleError(res, e, '[users/avatar]'); }
+  finally {
+    // 无论成功/失败，删除 multer 临时文件，避免 uploads/avatars 目录堆积 avatar_{id}_* 残留
+    if (tmpPath) { try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {} }
+  }
 });
 
 // ==================== 切换到 VRChat 头像 ====================

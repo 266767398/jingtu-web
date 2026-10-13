@@ -154,60 +154,72 @@ function renderActivationCodes() {
 }
 
 function revokeActivationCode(code) {
-  const reason = prompt(__('admin.activation.revoke_reason_prompt'), '');
-  if (reason === null) return;
-  if (!String(reason || '').trim()) {
-    toast(__('admin.activation.revoke_reason_required'), 'warn');
-    return;
-  }
-  showConfirm(__('admin.activation.revoke_confirm', { code: code }), async function () {
-    try {
-      const res = await api('/api/admin/activation-codes/revoke', {
-        method: 'POST',
-        body: { code: code, reason: String(reason).trim() }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        toast(data.message || __('admin.activation.revoked_ok', { code: code }), 'success');
-        loadActivationCodesPanel();
-      } else {
-        const e = await res.json().catch(() => ({}));
-        toast(errText(e) || __('admin.activation.revoke_fail'), 'error');
-      }
-    } catch (err) {
-      if (isApiHandledError(err)) return;
-      toast(__('admin.activation.revoke_fail_prefix') + err.message, 'error');
+  // M8: 原生 prompt（浏览器阻塞框）换行内样式化输入弹窗
+  showInput(__('admin.activation.revoke_reason_prompt'), '', function (reason) {
+    if (reason === null) return;
+    if (!String(reason || '').trim()) {
+      toast(__('admin.activation.revoke_reason_required'), 'warn');
+      return;
     }
+    showConfirm(__('admin.activation.revoke_confirm', { code: code }), function () {
+      doRevokeActivationCode(code, String(reason).trim());
+    });
   });
+}
+
+async function doRevokeActivationCode(code, reason) {
+  try {
+    const res = await api('/api/admin/activation-codes/revoke', {
+      method: 'POST',
+      body: { code: code, reason: reason }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      toast(data.message || __('admin.activation.revoked_ok', { code: code }), 'success');
+      loadActivationCodesPanel();
+    } else {
+      const e = await res.json().catch(() => ({}));
+      toast(errText(e) || __('admin.activation.revoke_fail'), 'error');
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('admin.activation.revoke_fail_prefix') + err.message, 'error');
+  }
 }
 
 // v6.3: 彻底删除激活码（物理删除条目，删除前留证到 activation-codes.deleted.json）
 function deleteActivationCode(code) {
-  const reason = prompt(__('admin.activation.delete_reason_prompt'), '');
-  if (reason === null) return;
-  if (!String(reason || '').trim()) {
-    toast(__('admin.activation.delete_reason_required'), 'warn');
-    return;
-  }
-  showConfirm(__('admin.activation.delete_confirm', { code: code }), async function () {
-    try {
-      const res = await api('/api/admin/activation-codes/delete', {
-        method: 'POST',
-        body: { code: code, reason: String(reason).trim() }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        toast(data.message || __('admin.activation.deleted_ok', { code: code }), 'success');
-        loadActivationCodesPanel();
-      } else {
-        const e = await res.json().catch(() => ({}));
-        toast(errText(e) || __('admin.activation.delete_fail'), 'error');
-      }
-    } catch (err) {
-      if (isApiHandledError(err)) return;
-      toast(__('admin.activation.delete_fail_prefix') + err.message, 'error');
+  // M8: 原生 prompt 换行内样式化输入弹窗
+  showInput(__('admin.activation.delete_reason_prompt'), '', function (reason) {
+    if (reason === null) return;
+    if (!String(reason || '').trim()) {
+      toast(__('admin.activation.delete_reason_required'), 'warn');
+      return;
     }
+    showConfirm(__('admin.activation.delete_confirm', { code: code }), function () {
+      doDeleteActivationCode(code, String(reason).trim());
+    });
   });
+}
+
+async function doDeleteActivationCode(code, reason) {
+  try {
+    const res = await api('/api/admin/activation-codes/delete', {
+      method: 'POST',
+      body: { code: code, reason: reason }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      toast(data.message || __('admin.activation.deleted_ok', { code: code }), 'success');
+      loadActivationCodesPanel();
+    } else {
+      const e = await res.json().catch(() => ({}));
+      toast(errText(e) || __('admin.activation.delete_fail'), 'error');
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('admin.activation.delete_fail_prefix') + err.message, 'error');
+  }
 }
 
 function copyUnusedActivationCodes() {

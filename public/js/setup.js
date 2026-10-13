@@ -694,7 +694,7 @@ async function saveAndStart() {
 // ==================== 重走建站引导（单独重置引导数据）====================
 async function resetWizard() {
   if (!isSuperAdmin) { alert(__('setup.rewalk_admin_only_alert')); return; }
-  if (!window.confirm(__('setup.rewalk_confirm'))) return;
+  showConfirm(__('setup.rewalk_confirm'), async function () {
   const btn = document.querySelector('[data-setup-action="reset-wizard"]');
   if (btn) { btn.disabled = true; btn.textContent = __('setup.resetting'); }
   try {
@@ -718,6 +718,7 @@ async function resetWizard() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = __('setup.rewalk_btn'); }
   }
+  });
 }
 
 // ==================== 输入实时反馈 ====================

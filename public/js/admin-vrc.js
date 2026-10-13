@@ -549,7 +549,7 @@ async function loadGitUpdateStatus() {
   }
 }
 
-async function runGitUpdate() {
+function runGitUpdate() {
   if (!currentUser || currentUser.role !== 'super_admin') { toast(__('admin_vrc.super_admin_setting'), 'error'); return; }
   const btn = document.getElementById('gitUpdateBtn');
   const resultEl = document.getElementById('gitUpdateResult');
@@ -558,7 +558,11 @@ async function runGitUpdate() {
   const confirmMsg = '确定从 GitHub 拉取并应用最新代码？'
     + (restart ? '\n更新成功后服务将自动重启（约 3 秒中断），页面会暂时无法访问。' : '\n更新成功后需手动点击「仅重启服务」使代码生效。')
     + '\n\n更新不会改动 .env、数据库与 uploads/ 等用户数据。';
-  if (!confirm(confirmMsg)) return;
+  // M8: 原生 confirm 换行内样式化确认弹窗
+  showConfirm(confirmMsg, function () { doGitUpdate(btn, resultEl, restart); });
+}
+
+async function doGitUpdate(btn, resultEl, restart) {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 正在更新…'; }
   if (resultEl) resultEl.innerHTML = '<span class="text-muted2">正在拉取远端代码（fetch → 快进合并 → 依赖检测），请稍候…</span>';
   try {
@@ -589,10 +593,16 @@ async function runGitUpdate() {
   }
 }
 
-async function runGitRestart() {
+function runGitRestart() {
   if (!currentUser || currentUser.role !== 'super_admin') { toast(__('admin_vrc.super_admin_setting'), 'error'); return; }
   const resultEl = document.getElementById('gitUpdateResult');
-  if (!confirm('确定重启服务？重启约需 3 秒，期间网站暂时无法访问。\n\n适用于：已手动拉取代码或修改服务端配置后需要重载。')) return;
+  // M8: 原生 confirm 换行内样式化确认弹窗
+  showConfirm('确定重启服务？重启约需 3 秒，期间网站暂时无法访问。\n\n适用于：已手动拉取代码或修改服务端配置后需要重载。', function () {
+    doGitRestart(resultEl);
+  });
+}
+
+async function doGitRestart(resultEl) {
   try {
     const res = await api('/api/admin/git-restart', { method: 'POST', timeout: 15000 });
     if (!res.ok) { const d = await res.json().catch(() => ({})); if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(errText(d) || '重启失败') + '</span>'; return; }

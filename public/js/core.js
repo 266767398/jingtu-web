@@ -758,6 +758,12 @@ function closeAllModals() {
     if (typeof overlay._cleanup === 'function') overlay._cleanup('cancel');
     else overlay.remove();
   });
+  // M8: .modal-overlay 自制遮罩（posts 发布/编辑/详情、admin 照片查看等）同样参与全局关闭链，
+  // 否则切 tab / 开新弹窗后残留全屏黑罩拦截点击。有 _cleanup 优先走（解锁滚动+清理状态）。
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    if (typeof overlay._cleanup === 'function') overlay._cleanup('cancel');
+    else overlay.remove();
+  });
 }
 function showModal(id) {
   closeAllModals();
@@ -830,6 +836,14 @@ function initModalCloseActions() {
     if (!modal || !modal.classList.contains('show')) return;
     if (modal.contains(e.target) && e.target !== modal) return; // 点击内容区不关闭
     if (_modalMouseDownInside) return; // 从内容区拖出去松开的，不关闭
+    // M8: #confirmModal 点遮罩等价于点「取消」——与取消按钮走同一清理路径，
+    // 避免取消回调被静默跳过、_confirmCallback 残留到下个周期。
+    if (modal.id === 'confirmModal') {
+      const cb = window._cancelCallback;
+      window._confirmCallback = null;
+      window._cancelCallback = null;
+      if (typeof cb === 'function') cb();
+    }
     closeModal(modal.id);
   });
 }
@@ -862,6 +876,10 @@ function hideModal(id) {
 
 // ==================== 通用弹窗工厂 ====================
 function createOverlayDialog(contentHtml, onConfirm, onCancel) {
+  // 记录打开前的顶层弹窗，关闭后恢复——与 #confirmModal 的 returnToModal 行为一致，
+  // 避免"在弹窗 A 内触发确认/输入框，A 被 closeAllModals 收掉后不再回来"。
+  const _prevEl = document.querySelector('.modal.show');
+  const _prevModalId = (_prevEl && _prevEl.id !== 'confirmModal') ? _prevEl.id : null;
   // 覆盖层 z-index 高于 .modal（400），但打开前仍先把已开的弹窗全部收起：
   // 否则成员名片等弹窗还悬在页面上，用户看到新弹窗叠在旧弹窗后面还要手动关。
   closeAllModals();
@@ -869,10 +887,19 @@ function createOverlayDialog(contentHtml, onConfirm, onCancel) {
   overlay.className = 'confirm-overlay';
   overlay.innerHTML = contentHtml;
   document.body.appendChild(overlay);
+  // M8: 确认/输入覆盖层同样锁定背景滚动（与标准 .modal 一致），避免滚轮带动背后页面
+  const _ovSeq = (window.__overlaySeq = (window.__overlaySeq || 0) + 1);
+  const _ovOwner = 'confirm-overlay:' + _ovSeq;
+  if (typeof lockBodyScroll === 'function') lockBodyScroll(_ovOwner);
   const cleanup = function(result) {
+    if (typeof unlockBodyScroll === 'function') unlockBodyScroll(_ovOwner);
     overlay.remove();
     if (result === 'confirm' && onConfirm) onConfirm();
     if (result === 'cancel' && onCancel) onCancel();
+    // M8: 恢复被 closeAllModals 收起的原弹窗（若用户是从某弹窗内触发的）
+    if (_prevModalId && !document.querySelector('.modal.show')) {
+      try { if (typeof showModal === 'function') showModal(_prevModalId); } catch (e) {}
+    }
   };
   overlay._cleanup = cleanup; // J8: 挂到 overlay 上，供 closeAllModals 遍历 .confirm-overlay 时触发取消清理
   const okBtn = overlay.querySelector('[data-action="confirm"]') || overlay.querySelector('.btn-accent');
@@ -937,6 +964,12 @@ function showConfirm(msg, callbackYes, callbackNo) {
   msgEl.textContent = msg;
   window._confirmCallback = callbackYes;
   window._cancelCallback = callbackNo;
+  // M8: 弹窗内触发 showConfirm 时，showModal 内部的 closeAllModals 会把原弹窗收掉，
+  // 记录它为 return-to，确认/取消/遮罩关闭后自动恢复，避免"确认完成原弹窗也没了"。
+  const topModal = document.querySelector('.modal.show');
+  if (topModal && topModal.id !== 'confirmModal') {
+    modal.dataset.returnToModal = topModal.id;
+  }
   okBtn.onclick = function() {
     closeModal('confirmModal');
     const cb = window._confirmCallback;

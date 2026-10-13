@@ -1063,6 +1063,21 @@ function closeMobileTabMenu() {
   if (btn) btn.focus();
 }
 
+// M8: 移动端「更多」菜单 Esc 不依赖焦点在菜单内——原先 keydown 绑在 menu 元素上，
+// 焦点落在触发按钮时按 Esc 会漏到全局链，菜单不关反而关了底层弹窗。
+// 改为 capture 级 document 监听（初始化注册一次），菜单打开时独占 Esc。
+if (!window.__mobileMenuEscBound) {
+  window.__mobileMenuEscBound = true;
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    const m = document.getElementById('mobileMoreMenu');
+    if (m && m.classList.contains('show')) {
+      e.stopImmediatePropagation();
+      closeMobileTabMenu();
+    }
+  }, true);
+}
+
 // 初始化移动端「更多」菜单（DOM 就绪后运行一次）
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initMobileTabMenu);

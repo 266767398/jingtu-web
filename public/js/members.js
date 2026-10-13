@@ -551,22 +551,22 @@ async function saveMemberNote() {
 
 async function deleteMemberNote() {
   if (!currentNoteUserId) return;
-  if (!confirm(__('members.notes_confirm_delete'))) return;
-  
-  try {
-    const res = await api(`/api/users/${currentNoteUserId}/notes`, { method: 'DELETE' });
-    if (res.ok) {
-      toast(__('members.notes_deleted'), 'success');
-      const textarea = document.getElementById('memberNoteText');
-      if (textarea) textarea.value = '';
-      const countEl = document.getElementById('memberNoteCount');
-      if (countEl) countEl.textContent = '0';
-    } else {
+  showConfirm(__('members.notes_confirm_delete'), async function () {
+    try {
+      const res = await api(`/api/users/${currentNoteUserId}/notes`, { method: 'DELETE' });
+      if (res.ok) {
+        toast(__('members.notes_deleted'), 'success');
+        const textarea = document.getElementById('memberNoteText');
+        if (textarea) textarea.value = '';
+        const countEl = document.getElementById('memberNoteCount');
+        if (countEl) countEl.textContent = '0';
+      } else {
+        toast(__('members.notes_delete_failed'), 'error');
+      }
+    } catch (e) {
       toast(__('members.notes_delete_failed'), 'error');
     }
-  } catch (e) {
-    toast(__('members.notes_delete_failed'), 'error');
-  }
+  });
 }
 
 // ==================== F-18 举报玩家/头像 ====================
@@ -1529,19 +1529,20 @@ async function saveAvatarTags() {
 async function clearAvatarTags() {
   const d = currentAvatarDetail;
   if (!d || !/^avtr_/i.test(d.avatarId)) return;
-  if (!confirm(__('members.avatar_tags_confirm_clear'))) return;
-  try {
-    const res = await api(`/api/avatar-tags/${encodeURIComponent(d.avatarId)}`, { method: 'DELETE' });
-    if (res.ok) {
-      toast(__('members.avatar_tags_cleared'), 'success');
-      const input = document.getElementById('avatarTagInput');
-      if (input) input.value = '';
-    } else {
+  showConfirm(__('members.avatar_tags_confirm_clear'), async function () {
+    try {
+      const res = await api(`/api/avatar-tags/${encodeURIComponent(d.avatarId)}`, { method: 'DELETE' });
+      if (res.ok) {
+        toast(__('members.avatar_tags_cleared'), 'success');
+        const input = document.getElementById('avatarTagInput');
+        if (input) input.value = '';
+      } else {
+        toast(__('members.avatar_tags_clear_failed'), 'error');
+      }
+    } catch (e) {
       toast(__('members.avatar_tags_clear_failed'), 'error');
     }
-  } catch (e) {
-    toast(__('members.avatar_tags_clear_failed'), 'error');
-  }
+  });
 }
 
 // ==================== 成员卡片 3D 倾斜（桌面端） ====================

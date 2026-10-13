@@ -338,7 +338,18 @@ router.get('/', requireAuth, async (req, res) => {
       [...params, pageSize, offset]
     );
     // 缩略图代理 + 去重标记（同模型ID是否已有他人公开副本）
-    rows.forEach(r => { if (r.thumbnail) r.thumbnail = proxyThumb(r.thumbnail); r.public_duplicate = !!Number(r.public_duplicate); });
+    // V9.8 安全：scope=public 时列表含他人公开副本，须与 discover 一致剥离资源直链/备注等敏感字段
+    rows.forEach(r => {
+      if (r.thumbnail) r.thumbnail = proxyThumb(r.thumbnail);
+      if (q.scope === 'public') {
+        delete r.notes;
+        delete r.asset_url;
+        delete r.unity_package_url;
+        delete r.booth_url;
+        delete r.folder_id;
+      }
+      r.public_duplicate = !!Number(r.public_duplicate);
+    });
     // 自愈：本页存在历史空名行时后台回源补齐，不阻塞本次响应
     backfillMissingInfo(rows, req.vrcCookie || null).catch(() => {});
     ok(res, {
@@ -383,7 +394,18 @@ router.get('/discover', requireAuth, async (req, res) => {
        ORDER BY ${sort} LIMIT ? OFFSET ?`,
       [...params, pageSize, offset]
     );
-    rows.forEach(r => { if (r.thumbnail) r.thumbnail = proxyThumb(r.thumbnail); delete r.notes; r.public_duplicate = !!Number(r.public_duplicate); });
+    // V9.8 安全：公开发现页对任何人可见，但剥离资源直链等敏感字段——
+    // asset_url/unity_package_url 为 VRChat 资源下载地址、booth_url 为作者店铺链接、
+    // notes 为收藏者私人备注，均只对收藏者本人（列表视角"我的收藏"）可见，绝不随公开副本下发。
+    rows.forEach(r => {
+      if (r.thumbnail) r.thumbnail = proxyThumb(r.thumbnail);
+      delete r.notes;
+      delete r.asset_url;
+      delete r.unity_package_url;
+      delete r.booth_url;
+      delete r.folder_id;
+      r.public_duplicate = !!Number(r.public_duplicate);
+    });
     backfillMissingInfo(rows, req.vrcCookie || null).catch(() => {});
     ok(res, { items: rows, page, pageSize, total, totalPages });
   } catch (e) { handleError(res, e, 'collections.discover'); }
@@ -628,10 +650,14 @@ router.get('/:id', requireAuth, async (req, res) => {
     it.my_recommend = myVote.length ? Number(myVote[0].vote) : 0;
     // V9.7 安全：公开收藏对非本人可见，但剥离私有字段，避免把 notes/分组/BOOTH 链接等
     // 私密信息泄漏给浏览公开发现页的其他用户（前端公开视角本就不渲染这些，现后端也不再下发）。
+    // V9.8 补充：asset_url / unity_package_url 是 VRChat 资源直链，属于"可被解析出下载地址"的
+    // 敏感信息，同样只对收藏者本人可见——别人看到的是名称/封面/描述/评分，拿不到模型资源链接。
     if (it.user_id !== uid) {
       delete it.notes;
       delete it.booth_url;
       delete it.folder_id;
+      delete it.asset_url;
+      delete it.unity_package_url;
     }
     ok(res, { item: it });
   } catch (e) { handleError(res, e, 'collections.detail'); }

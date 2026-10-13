@@ -1320,21 +1320,23 @@ async function joinTeam(teamId, eventId) {
 }
 
 async function leaveTeam(teamId, eventId) {
-  if (!confirm(__('teams.confirm_leave'))) return;
-  try {
+  showConfirm(__('teams.confirm_leave'), async function () {
+    try {
     const res = await api(`/api/event-teams/${teamId}/leave`, { method: 'POST' });
     if (res.ok) { toast(__('teams.left'), 'success'); loadEventTeams(eventId); }
     else { const data = await res.json(); toast(errText(data) || __('teams.leave_failed'), 'error'); }
   } catch { toast(__('teams.leave_failed'), 'error'); }
+  });
 }
 
 async function disbandTeam(teamId, eventId) {
-  if (!confirm(__('teams.confirm_disband'))) return;
-  try {
+  showConfirm(__('teams.confirm_disband'), async function () {
+    try {
     const res = await api(`/api/event-teams/${teamId}`, { method: 'DELETE' });
     if (res.ok) { toast(__('teams.disbanded'), 'success'); loadEventTeams(eventId); }
     else { const data = await res.json(); toast(errText(data) || __('teams.disband_failed'), 'error'); }
   } catch { toast(__('teams.disband_failed'), 'error'); }
+  });
 }
 
 // ==================== 事件页内联事件迁移（CSP nonce 拦截属性型处理器） ====================

@@ -26,6 +26,8 @@ server/session.json
 # V8.7：系统 VRChat 会话已迁至 server/data/session.json（挂载卷，Docker 可写）
 server/data/session.json
 server/data/activation-codes.json
+# 激活码删除留证（运行时审计产物，见 activation_code_service.js）
+server/data/activation-codes.deleted.json
 # 单实例运行锁（server.js 启动写入，运行时状态）
 server/data/server.lock
 # SQLite 运行库（生产数据，永不入库）

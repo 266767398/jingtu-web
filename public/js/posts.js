@@ -387,7 +387,7 @@ function showPostMenu(event, postId) {
     html += '<div class="post-menu-item" data-action="post-menu-pin" data-post-id="' + postId + '">' + __('posts.toggle_pin') + '</div>';
   }
   menu.innerHTML = html;
-  menu.style.cssText = 'position:fixed;z-index:1000;top:' + event.clientY + 'px;left:' + event.clientX + 'px;';
+  menu.style.cssText = 'position:fixed;z-index:1200;top:' + event.clientY + 'px;left:' + event.clientX + 'px;';
   document.body.appendChild(menu);
   // 边界 clamp：避免菜单在视口右下角溢出导致看不到/点不到
   const rect = menu.getBoundingClientRect();
@@ -403,7 +403,12 @@ function showPostMenu(event, postId) {
   if (top < pad) top = pad;
   menu.style.top = top + 'px';
   menu.style.left = left + 'px';
-  setTimeout(function() { document.addEventListener('click', function() { menu.remove(); }, { once: true }); }, 0);
+  setTimeout(function() {
+    // M8: 菜单需响应 Esc（否则按 Esc 只会落到全局链关掉底下弹窗，菜单残留）
+    const onEsc = function(ev) { if (ev.key === 'Escape') menu.remove(); };
+    document.addEventListener('click', function() { menu.remove(); }, { once: true });
+    document.addEventListener('keydown', onEsc, { once: true });
+  }, 0);
 }
 
 function deletePost(postId) {
@@ -414,6 +419,10 @@ function deletePost(postId) {
         // 4xx 等非抛错失败也会 resolve 到这里：不校验成功标记就弹「删除成功」是假成功
         if (r2.ok && r2.data && r2.data.success !== false) {
           toast(__('posts.deleted'), 'success');
+          // M8: 若删除的正是当前详情弹窗展示的动态，弹窗保留会显示已删除内容，
+          // 后续点赞/评论全失败。删除成功时按归属关掉对应详情。
+          const dOverlay = document.getElementById('postDetailModalOverlay');
+          if (dOverlay && dOverlay.getAttribute('data-post-id') === String(postId)) closePostDetail();
           loadPosts(postsCurrentPage);
         } else {
           toast(__('posts.delete_failed'), 'error');
@@ -447,6 +456,9 @@ function editPost(postId) {
         + '<div class="modal-footer"><button type="button" class="btn" data-action="edit-post-close">' + __('posts.cancel_btn') + '</button><button class="btn btn-primary" data-action="edit-post-submit" data-post-id="' + postId + '" id="editPostBtn">' + __('posts.save_btn') + '</button></div></div>';
       document.body.appendChild(overlay);
       overlay.addEventListener('click', function(e) { if (e.target === overlay) closeEditPostModal(); });
+      // M8: 自制遮罩挂 _cleanup + 启用 Esc 关闭，纳入全局关闭链
+      overlay._cleanup = closeEditPostModal;
+      enablePostsOverlayEsc();
 
       var preview = document.getElementById('editPostPreview');
       if (preview && post.media && post.media.length > 0) {
@@ -579,7 +591,11 @@ function togglePinPost(postId) {
 function showCreatePostModal() {
   if (!currentUser) { toast(__('posts.login_first'), 'warning'); return; }
   var existing = document.getElementById('createPostModal');
-  if (existing) { existing.closest('.modal-overlay').classList.add('active'); return; }
+  if (existing) {
+    var exOv = existing.closest('.modal-overlay');
+    if (exOv) { exOv.classList.add('active'); return; }
+    existing.remove(); // M8: 遮罩已异常移除时，避免裸元素残留导致函数中断
+  }
 
   var overlay = document.createElement('div');
   overlay.className = 'modal-overlay active';
@@ -596,6 +612,8 @@ function showCreatePostModal() {
     + '<div class="modal-footer"><button type="button" class="btn" data-action="create-post-close">' + __('posts.cancel_btn') + '</button><button class="btn btn-primary" data-action="create-post-submit" id="createPostBtn">' + __('posts.publish_btn') + '</button></div></div>';
   document.body.appendChild(overlay);
   overlay.addEventListener('click', function(e) { if (e.target === overlay) closeCreatePostModal(); });
+  overlay._cleanup = closeCreatePostModal;
+  enablePostsOverlayEsc();
   setTimeout(function() { var el = document.getElementById('createPostContent'); if (el) el.focus(); }, 100);
 }
 
@@ -704,8 +722,28 @@ function openPostDetailModal(postId) {
     document.body.appendChild(overlay);
     overlay.setAttribute('data-post-id', postId);
     overlay.addEventListener('click', function(e) { if (e.target === overlay) closePostDetail(); });
+    overlay._cleanup = closePostDetail;
+    enablePostsOverlayEsc();
   }
   return overlay;
+}
+
+// ==================== 自制遮罩统一 Esc 关闭 ====================
+// posts 的发布/编辑/详情弹窗使用 .modal-overlay（非标准 .modal 体系），
+// 全局 Esc 链（closeAllModals）本不处理它们。这里在 capture 阶段拦截 Esc，
+// 存在任一 posts 遮罩时优先关闭它并中断传播，避免连带关掉底层弹窗。
+function enablePostsOverlayEsc() {
+  if (window.__postsEscBound) return;
+  window.__postsEscBound = true;
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var target = document.getElementById('createPostModal');
+    if (target) { e.stopImmediatePropagation(); closeCreatePostModal(); return; }
+    target = document.getElementById('editPostModal');
+    if (target) { e.stopImmediatePropagation(); closeEditPostModal(); return; }
+    target = document.getElementById('postDetailModal');
+    if (target) { e.stopImmediatePropagation(); closePostDetail(); }
+  }, true);
 }
 
 function paintPostDetail(post) {
@@ -875,18 +913,23 @@ function showPostMediaViewer(postId, idx) {
   // 统一清理：无论通过关闭按钮、点击遮罩还是 Esc 关闭，都移除键盘监听，避免重复绑定泄漏
   function cleanupViewer() {
     if (viewer.parentNode) viewer.remove();
-    document.removeEventListener('keydown', keyHandler);
+    document.removeEventListener('keydown', keyHandler, true);
   }
   viewer.addEventListener('click', function(e) { if (e.target === viewer) cleanupViewer(); });
   var closeBtn = viewer.querySelector('#mediaViewerClose');
   if (closeBtn) closeBtn.addEventListener('click', cleanupViewer);
 
   function keyHandler(e) {
-    if (e.key === 'Escape') cleanupViewer();
+    if (e.key === 'Escape') {
+      // M8: 隔离全局 Esc 链——否则 main.js 的 bubble 级 Esc 会同时关掉底层弹窗
+      e.stopImmediatePropagation();
+      cleanupViewer();
+    }
     else if (e.key === 'ArrowLeft') navigateMediaViewer(-1);
     else if (e.key === 'ArrowRight') navigateMediaViewer(1);
   }
-  document.addEventListener('keydown', keyHandler);
+  // capture 注册：先于 main.js 的 bubble 级 Esc 链执行
+  document.addEventListener('keydown', keyHandler, true);
 }
 
 function navigateMediaViewer(delta) {

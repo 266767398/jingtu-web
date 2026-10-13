@@ -729,13 +729,24 @@ function showVrcBindGuide(data) {
   `;
   document.body.appendChild(guide);
   setTimeout(() => guide.classList.add('show'), 50);
-  guide.querySelector('#vrcBindClose').onclick = () => guide.remove();
+  // M8: 引导遮罩纳入体系——锁滚动 + Esc 可关 + 全局清理入口
+  const _owner = 'vrc-bind-guide';
+  if (typeof lockBodyScroll === 'function') lockBodyScroll(_owner);
+  const closeGuide = () => {
+    if (typeof unlockBodyScroll === 'function') unlockBodyScroll(_owner);
+    if (guide.parentNode) guide.remove();
+    document.removeEventListener('keydown', guide._escHandler, true);
+  };
+  guide._escHandler = (e) => { if (e.key === 'Escape') closeGuide(); };
+  document.addEventListener('keydown', guide._escHandler, true);
+  guide._cleanup = closeGuide;
+  guide.querySelector('#vrcBindClose').onclick = closeGuide;
   guide.querySelector('#vrcBindSwitchPwd').onclick = () => {
-    guide.remove();
+    closeGuide();
     switchLoginMode('password');
     document.getElementById('loginId')?.focus();
   };
-  guide.onclick = (e) => { if (e.target === guide) guide.remove(); };
+  guide.onclick = (e) => { if (e.target === guide) closeGuide(); };
   toast(__('auth.vrc_not_bound'), 'warn');
 }
 

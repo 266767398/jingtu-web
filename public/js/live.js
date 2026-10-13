@@ -255,25 +255,26 @@ function stopLiveCommentPolling() {
 }
 
 async function endLiveStream(streamId) {
-  if (!confirm(__('live.confirm_end'))) return;
-  try {
-    const res = await api(`/api/live/${streamId}/end`, { method: 'POST' });
-    if (res.ok) {
-      toast(__('live.ended_success'), 'success');
-      hideModal('livePlayerModal');
-      stopLiveCommentPolling();
-      if (liveCache.currentStream) {
-        leaveLiveRoom(liveCache.currentStream.id);
-        liveCache.currentStream = null;
+  showConfirm(__('live.confirm_end'), async function () {
+    try {
+      const res = await api(`/api/live/${streamId}/end`, { method: 'POST' });
+      if (res.ok) {
+        toast(__('live.ended_success'), 'success');
+        hideModal('livePlayerModal');
+        stopLiveCommentPolling();
+        if (liveCache.currentStream) {
+          leaveLiveRoom(liveCache.currentStream.id);
+          liveCache.currentStream = null;
+        }
+        loadLiveStreams();
+      } else {
+        const data = await res.json();
+        toast(errText(data) || __('live.end_failed'), 'error');
       }
-      loadLiveStreams();
-    } else {
-      const data = await res.json();
-      toast(errText(data) || __('live.end_failed'), 'error');
+    } catch {
+      toast(__('live.end_failed'), 'error');
     }
-  } catch {
-    toast(__('live.end_failed'), 'error');
-  }
+  });
 }
 
 function openCreateLiveModal() {

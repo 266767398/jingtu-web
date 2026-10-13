@@ -923,11 +923,13 @@ async function publishGroupAnnouncement() {
 }
 
 async function deleteGroupAnnouncement(id) {
-  if (!id || !confirm(__('group.ann_del_confirm'))) return;
-  const res = await api('/api/group/announcements/' + encodeURIComponent(id), { method: 'DELETE' });
-  if (!res.ok) { await groupAdminFail(res); return; }
-  toast(__('group.op_done'), 'success');
-  loadGroupAnnouncements();
+  if (!id) return;
+  showConfirm(__('group.ann_del_confirm'), async function () {
+    const res = await api('/api/group/announcements/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!res.ok) { await groupAdminFail(res); return; }
+    toast(__('group.op_done'), 'success');
+    loadGroupAnnouncements();
+  });
 }
 
 // ---- 群相册 ----
@@ -976,20 +978,23 @@ async function createGroupGallery() {
 
 async function renameGroupGallery(id, oldName) {
   if (!id) return;
-  const name = prompt(__('group.gal_rename_prompt'), oldName || '');
-  if (!name || !name.trim()) return;
-  const res = await api('/api/group/galleries/' + encodeURIComponent(id), { method: 'PUT', body: { name: name.trim() } });
-  if (!res.ok) { await groupAdminFail(res); return; }
-  toast(__('group.op_done'), 'success');
-  loadGroupGalleries();
+  showInput(__('group.gal_rename_prompt'), oldName || '', async function (name) {
+    if (!name || !name.trim()) return;
+    const res = await api('/api/group/galleries/' + encodeURIComponent(id), { method: 'PUT', body: { name: name.trim() } });
+    if (!res.ok) { await groupAdminFail(res); return; }
+    toast(__('group.op_done'), 'success');
+    loadGroupGalleries();
+  });
 }
 
 async function deleteGroupGallery(id) {
-  if (!id || !confirm(__('group.gal_del_confirm'))) return;
-  const res = await api('/api/group/galleries/' + encodeURIComponent(id), { method: 'DELETE' });
-  if (!res.ok) { await groupAdminFail(res); return; }
-  toast(__('group.op_done'), 'success');
-  loadGroupGalleries();
+  if (!id) return;
+  showConfirm(__('group.gal_del_confirm'), async function () {
+    const res = await api('/api/group/galleries/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!res.ok) { await groupAdminFail(res); return; }
+    toast(__('group.op_done'), 'success');
+    loadGroupGalleries();
+  });
 }
 
 // ---- 群角色 ----
@@ -1038,11 +1043,13 @@ async function createGroupRole() {
 }
 
 async function deleteGroupRole(id) {
-  if (!id || !confirm(__('group.role_del_confirm'))) return;
-  const res = await api('/api/group/roles/' + encodeURIComponent(id), { method: 'DELETE' });
-  if (!res.ok) { await groupAdminFail(res); return; }
-  toast(__('group.op_done'), 'success');
-  loadGroupRoles();
+  if (!id) return;
+  showConfirm(__('group.role_del_confirm'), async function () {
+    const res = await api('/api/group/roles/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!res.ok) { await groupAdminFail(res); return; }
+    toast(__('group.op_done'), 'success');
+    loadGroupRoles();
+  });
 }
 
 async function applyGroupMemberRole(action) {
@@ -1116,20 +1123,23 @@ async function banGroupMemberAction() {
   if (!el) return;
   const userId = el.value.trim();
   if (!userId) { toast(__('group.ban_user_required'), 'error'); return; }
-  if (!confirm(__('group.ban_confirm'))) return;
-  const res = await api('/api/group/bans', { method: 'POST', body: { userId } });
-  if (!res.ok) { await groupAdminFail(res); return; }
-  el.value = '';
-  toast(__('group.op_done'), 'success');
-  loadGroupBans();
+  showConfirm(__('group.ban_confirm'), async function () {
+    const res = await api('/api/group/bans', { method: 'POST', body: { userId } });
+    if (!res.ok) { await groupAdminFail(res); return; }
+    el.value = '';
+    toast(__('group.op_done'), 'success');
+    loadGroupBans();
+  });
 }
 
 async function unbanGroupMember(userId) {
-  if (!userId || !confirm(__('group.unban_confirm'))) return;
-  const res = await api('/api/group/bans/' + encodeURIComponent(userId), { method: 'DELETE' });
-  if (!res.ok) { await groupAdminFail(res); return; }
-  toast(__('group.op_done'), 'success');
-  loadGroupBans();
+  if (!userId) return;
+  showConfirm(__('group.unban_confirm'), async function () {
+    const res = await api('/api/group/bans/' + encodeURIComponent(userId), { method: 'DELETE' });
+    if (!res.ok) { await groupAdminFail(res); return; }
+    toast(__('group.op_done'), 'success');
+    loadGroupBans();
+  });
 }
 
 // ---- 群日历关注（F-23） ----

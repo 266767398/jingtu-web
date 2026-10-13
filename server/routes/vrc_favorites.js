@@ -114,6 +114,9 @@ function pruneFavCacheIfDue() {
 // 方案：把「分组 + 各类型条目列表（已富化）」落库为 vrc_fav_snapshot，读取命中直接返回（零回源）；
 // 登录/进入 VRC 页签时后台同步刷新（POST /sync），顶部状态栏展示进度；手动「刷新」强制重拉。
 const SNAP_SCOPES = ['groups', 'items:world', 'items:avatar', 'items:friend'];
+// V9.8 安全：快照按用户隔离。scope 加 `u{userId}:` 前缀，杜绝跨用户缓存泄露
+//（此前 scope 为全局固定值，用户 A 登录会读到用户 B 的官方收藏快照）。
+function userSnapScope(uid, scope) { return 'u' + Number(uid) + ':' + scope; }
 // 快照新鲜阈值：10 分钟内直接命中，不触发任何回源
 const SNAP_FRESH_MS = 10 * 60 * 1000;
 // 快照超过 30 分钟：仍先返回缓存（不阻塞渲染），同时顺带触发一次后台同步补鲜
@@ -190,17 +193,18 @@ function favSyncProgress() {
 // 单步骤失败不中断整体（VRChat 限流/单类型异常只影响该类型），下次登录/刷新自动补齐。
 // 收藏条目：VRChat 官方接口不按 type 服务端过滤，整批分页抓全后按类型切分落快照，
 // 避免同一批数据为三类各回源一次（既省 API 又保证 >100 条的用户也能全量入库）。
-async function startFavSync(cookie) {
+async function startFavSync(cookie, uid) {
   if (favSync.running) return favSync;
   favSync.running = true;
   favSync.startedAt = Date.now();
   favSync.lastError = '';
+  const userScope = s => userSnapScope(uid, s);
   const itemSteps = [
-    { scope: 'items:world', label: '地图', type: 'world' },
-    { scope: 'items:avatar', label: '模型', type: 'avatar' },
-    { scope: 'items:friend', label: '好友', type: 'friend' }
+    { scope: userScope('items:world'), label: '地图', type: 'world' },
+    { scope: userScope('items:avatar'), label: '模型', type: 'avatar' },
+    { scope: userScope('items:friend'), label: '好友', type: 'friend' }
   ];
-  const steps = [{ scope: 'groups', label: '收藏分组' }, ...itemSteps];
+  const steps = [{ scope: userScope('groups'), label: '收藏分组' }, ...itemSteps];
   favSync.stepTotal = steps.length;
   const byType = { world: [], avatar: [], friend: [] };
   try {
@@ -214,7 +218,7 @@ async function startFavSync(cookie) {
           const upstream = await vrchatGetFavoriteGroups(cookie, 100, 0);
           if (upstream.status >= 200 && upstream.status < 300) {
             const groups = Array.isArray(upstream.data) ? upstream.data : [];
-            await snapSet('groups', groups);
+            await snapSet(userScope('groups'), groups);
           }
         } else {
           // 首次进条目步骤时整批分页抓全（上限 600 条，防止异常大收藏刷爆令牌桶）
@@ -443,10 +447,11 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
   router.get('/groups', requireAuth, async (req, res) => {
     if (!req.vrcCookieRead) return fail(res, 400, '暂无可用的 VRChat 登录态，请先绑定或配置 VRChat 账号', { code: ErrorCodes.NEED_BIND });
     try {
+      const gscope = userSnapScope(req.session.userId, 'groups');
       if (req.query.refresh !== '1') {
-        const snap = await snapGet('groups');
+        const snap = await snapGet(gscope);
         if (snap) {
-          if (snapAgeMs(snap) > SNAP_OLDER_MS) startFavSync(req.vrcCookieRead).catch(() => {});
+          if (snapAgeMs(snap) > SNAP_OLDER_MS) startFavSync(req.vrcCookieRead, req.session.userId).catch(() => {});
           return ok(res, { groups: snap.payload, cached: true });
         }
       }
@@ -455,7 +460,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       const upstream = await vrchatGetFavoriteGroups(req.vrcCookieRead, n, offset);
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '获取收藏分组');
       const groups = Array.isArray(upstream.data) ? upstream.data : [];
-      await snapSet('groups', groups);
+      await snapSet(gscope, groups);
       ok(res, { groups });
     } catch (e) { handleError(res, e, 'vrcfav.groups'); }
   });
@@ -472,7 +477,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
     try {
       const upstream = await vrchatUpdateFavoriteGroup(req.vrcCookieWrite, type, name, ownerUserId, displayName);
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '重命名收藏分组');
-      await snapInvalidate('groups%');
+      await snapInvalidate(userSnapScope(req.session.userId, 'groups%'));
       ok(res, { group: upstream.data });
     } catch (e) { handleError(res, e, 'vrcfav.group.rename'); }
   });
@@ -487,8 +492,8 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
     try {
       const upstream = await vrchatClearFavoriteGroup(req.vrcCookieWrite, type, name, ownerUserId);
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '清空收藏分组');
-      await snapInvalidate('items:%');
-      await snapInvalidate('groups%');
+      await snapInvalidate(userSnapScope(req.session.userId, 'items:%'));
+      await snapInvalidate(userSnapScope(req.session.userId, 'groups%'));
       ok(res);
     } catch (e) { handleError(res, e, 'vrcfav.group.clear'); }
   });
@@ -507,10 +512,10 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       const tag = (req.query.tag || '').trim() || null;
       // 仅「首页 + 无分组过滤」命中快照；分组过滤/翻页语义不同，直接实时拉取
       if (offset === 0 && !tag && req.query.refresh !== '1') {
-        const scope = snapScopeOfType(type || 'world');
+        const scope = userSnapScope(req.session.userId, snapScopeOfType(type || 'world'));
         const snap = await snapGet(scope);
         if (snap) {
-          if (snapAgeMs(snap) > SNAP_OLDER_MS) startFavSync(req.vrcCookieRead).catch(() => {});
+          if (snapAgeMs(snap) > SNAP_OLDER_MS) startFavSync(req.vrcCookieRead, req.session.userId).catch(() => {});
           return ok(res, { items: snap.payload, cached: true });
         }
       }
@@ -534,7 +539,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       items = await enrichFavoriteItems(items, req.vrcCookieRead);
       pruneFavCacheIfDue();
       // 首页全量列表顺带写回快照，供下次秒开（仅无分组过滤时）
-      if (offset === 0 && !tag) await snapSet(snapScopeOfType(type || 'world'), items);
+      if (offset === 0 && !tag) await snapSet(userSnapScope(req.session.userId, snapScopeOfType(type || 'world')), items);
       ok(res, { items });
     } catch (e) { handleError(res, e, 'vrcfav.items'); }
   });
@@ -552,8 +557,8 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       const upstream = await vrchatAddFavorite(req.vrcCookieWrite, type, favoriteId, [tag]);
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '添加收藏');
       // 快照失效：下个请求实时重拉，避免列表与官方不一致
-      await snapInvalidate(snapScopeOfType(type) + '%');
-      await snapInvalidate('groups%');
+      await snapInvalidate(userSnapScope(req.session.userId, snapScopeOfType(type)) + '%');
+      await snapInvalidate(userSnapScope(req.session.userId, 'groups%'));
       ok(res, { favorite: upstream.data });
     } catch (e) {
       // 目标已在收藏中：上游 400 "already in favorites" 转 409 便于前端识别
@@ -572,8 +577,8 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       const upstream = await vrchatRemoveFavorite(req.vrcCookieWrite, req.params.id);
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '移除收藏');
       // 快照失效：无法预知类型，全部条目快照失效，下个请求实时重拉
-      await snapInvalidate('items:%');
-      await snapInvalidate('groups%');
+      await snapInvalidate(userSnapScope(req.session.userId, 'items:%'));
+      await snapInvalidate(userSnapScope(req.session.userId, 'groups%'));
       ok(res);
     } catch (e) { handleError(res, e, 'vrcfav.item.remove'); }
   });
@@ -607,7 +612,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
     if (!req.vrcCookieRead) return fail(res, 400, '暂无可用的 VRChat 登录态，请先绑定或配置 VRChat 账号', { code: ErrorCodes.NEED_BIND });
     try {
       if (favSync.running) return ok(res, { running: true, startedAt: favSync.startedAt });
-      startFavSync(req.vrcCookieRead).catch(() => {});
+      startFavSync(req.vrcCookieRead, req.session.userId).catch(() => {});
       ok(res, { running: true, startedAt: Date.now() });
     } catch (e) { handleError(res, e, 'vrcfav.sync'); }
   });
@@ -617,7 +622,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
     try {
       const perScope = {};
       for (const scope of SNAP_SCOPES) {
-        const snap = await snapGet(scope);
+        const snap = await snapGet(userSnapScope(req.session.userId, scope));
         perScope[scope] = snap
           ? { count: snap.itemCount, fetchedAt: snap.fetchedAt }
           : { count: 0, fetchedAt: null };

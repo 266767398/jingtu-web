@@ -384,7 +384,7 @@ async function loadDbTablePage(page) {
 
 async function dbOptimizeTable() {
   if (!currentDbTable) return;
-  if (!confirm(__('admin.db.confirm_optimize', {table: currentDbTable}))) return;
+  showConfirm(__('admin.db.confirm_optimize', {table: currentDbTable}), async function () {
   
   try {
     const res = await api(`/api/admin/db/optimize/${currentDbTable}`, { method: 'POST' });
@@ -402,6 +402,7 @@ async function dbOptimizeTable() {
     if (isApiHandledError(err)) return;
     toast(__('admin.db.optimize_failed') + ': ' + err.message, 'error');
   }
+  });
 }
 
 async function dbAnalyzeTable() {
@@ -445,7 +446,7 @@ async function dbCheckTable() {
 
 async function dbRepairTable() {
   if (!currentDbTable) return;
-  if (!confirm(__('admin.db.confirm_repair', {table: currentDbTable}))) return;
+  showConfirm(__('admin.db.confirm_repair', {table: currentDbTable}), async function () {
   
   try {
     const res = await api(`/api/admin/db/repair/${currentDbTable}`, { method: 'POST' });
@@ -464,6 +465,7 @@ async function dbRepairTable() {
     if (isApiHandledError(err)) return;
     toast(__('admin.db.repair_failed') + ': ' + err.message, 'error');
   }
+  });
 }
 
 async function loadDbProcesses() {
@@ -526,7 +528,7 @@ async function loadDbProcesses() {
 }
 
 async function dbKillProcess(pid) {
-  if (!confirm(__('admin.db.confirm_kill', {pid}))) return;
+  showConfirm(__('admin.db.confirm_kill', {pid}), async function () {
   
   try {
     const res = await api(`/api/admin/db/kill/${pid}`, { method: 'POST' });
@@ -543,6 +545,7 @@ async function dbKillProcess(pid) {
     if (isApiHandledError(err)) return;
     toast(__('admin.db.kill_failed') + ': ' + err.message, 'error');
   }
+  });
 }
 
 async function loadDbSlowQueries() {

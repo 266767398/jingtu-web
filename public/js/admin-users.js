@@ -400,14 +400,20 @@ function showEditUser(userId, displayName, role) {
   showModal('editUserModal');
 }
 
-async function updateUser() {
+function updateUser() {
   const userId = document.getElementById('editUserId')?.value;
   const displayName = document.getElementById('editUserDisplayName')?.value;
   const role = document.getElementById('editUserRole')?.value;
   if (!userId) { toast(__('admin_users.invalid_id'), 'error'); return; }
   if (!displayName) { toast(__('admin.fill_display_name'), 'error'); return; }
-  const confirmPassword = prompt(__('admin_users.confirm_pwd_prompt'));
-  if (confirmPassword === null) return; // 用户取消
+  // M8: 原生 prompt 换行内样式化输入弹窗（不阻塞、跟随主题）；取消（null）则不提交
+  showInput(__('admin_users.confirm_pwd_prompt'), '', function (confirmPassword) {
+    if (confirmPassword === null) return;
+    submitUpdateUser(userId, displayName, role, confirmPassword);
+  });
+}
+
+async function submitUpdateUser(userId, displayName, role, confirmPassword) {
   try {
     const res = await api(`/api/users/${userId}`, {
       method: 'PUT',
@@ -470,29 +476,15 @@ async function resetUserPassword() {
 // 个人中心导出见 profile-page.js，如需管理端导出请另行命名接入。）
 
 // ==================== 系统备份 ====================
-async function createBackup() {
+function createBackup() {
   // 后端 POST /api/admin/backups/create 为 requireSuperAdmin（备份含全库 PII），
   // 前端必须同门槛拦截，避免普通管理员看到可点却 403
   if (!currentUser || currentUser.role !== 'super_admin') {
     toast(__('permission_denied'), 'error');
     return;
   }
-  if (!confirm(__('admin.backup_confirm'))) return;
-  try {
-    const res = await api('/api/admin/backups/create', { method: 'POST' });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success) {
-        toast(__('admin.backup_success') + ': ' + data.filename, 'success');
-        loadBackups();
-      } else {
-        toast(errText(data) || __('admin.backup_failed'), 'error');
-      }
-    }
-  } catch (err) {
-    if (isApiHandledError(err)) return;
-    toast(__('admin.backup_failed') + ': ' + err.message, 'error');
-  }
+  // M8: 原生 confirm 换行内样式化确认弹窗
+  showConfirm(__('admin.backup_confirm'), doCreateBackup);
 }
 
 async function loadBackups() {
@@ -509,6 +501,24 @@ async function loadBackups() {
   } catch (err) {
     if (isApiHandledError(err)) return;
     toast(__('admin.load_backups_failed') + ': ' + err.message, 'error');
+  }
+}
+
+async function doCreateBackup() {
+  try {
+    const res = await api('/api/admin/backups/create', { method: 'POST' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success) {
+        toast(__('admin.backup_success') + ': ' + data.filename, 'success');
+        loadBackups();
+      } else {
+        toast(errText(data) || __('admin.backup_failed'), 'error');
+      }
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('admin.backup_failed') + ': ' + err.message, 'error');
   }
 }
 
@@ -557,14 +567,18 @@ function downloadBackup(encodedFilename) {
   window.open(`/api/admin/backups/${encodedFilename}/download`, '_blank');
 }
 
-async function deleteBackup(encodedFilename) {
+function deleteBackup(encodedFilename) {
   // 后端 DELETE /api/admin/backups/:filename 为 requireSuperAdmin
   if (!currentUser || currentUser.role !== 'super_admin') {
     toast(__('permission_denied'), 'error');
     return;
   }
   const filename = decodeURIComponent(encodedFilename);
-  if (!confirm(__('admin.backup_delete_confirm', {filename}))) return;
+  // M8: 原生 confirm 换行内样式化确认弹窗
+  showConfirm(__('admin.backup_delete_confirm', {filename}), function () { doDeleteBackup(encodedFilename); });
+}
+
+async function doDeleteBackup(encodedFilename) {
   try {
     const res = await api(`/api/admin/backups/${encodedFilename}`, { method: 'DELETE' });
     if (res.ok) {
@@ -765,7 +779,7 @@ function showEditAdmin(userId, displayName, role, email) {
   showModal('editAdminModal');
 }
 
-async function updateAdmin() {
+function updateAdmin() {
   const userId = document.getElementById('editAdminId')?.value;
   const displayName = document.getElementById('editAdminDisplayName')?.value?.trim();
   const role = document.getElementById('editAdminRole')?.value;
@@ -774,8 +788,14 @@ async function updateAdmin() {
   if (!userId) { toast(__('admin_users.invalid_id'), 'error'); return; }
   if (!displayName) { toast(__('admin.fill_display_name'), 'error'); return; }
   
-  const confirmPassword = prompt(__('admin_users.confirm_pwd_prompt'));
-  if (confirmPassword === null) return; // 用户取消
+  // M8: 原生 prompt 换行内样式化输入弹窗
+  showInput(__('admin_users.confirm_pwd_prompt'), '', function (confirmPassword) {
+    if (confirmPassword === null) return; // 用户取消
+    submitUpdateAdmin(userId, displayName, role, email, confirmPassword);
+  });
+}
+
+async function submitUpdateAdmin(userId, displayName, role, email, confirmPassword) {
   try {
     const res = await api(`/api/users/${userId}`, {
       method: 'PUT',
