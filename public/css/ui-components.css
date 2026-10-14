@@ -3751,8 +3751,12 @@ body {
   overflow-x: hidden;
 }
 
-/* 登录/初始化遮罩：内容超出视口时必须可滚动，否则小屏幕下按钮不可达 */
+/* 登录/初始化遮罩：内容超出视口时必须可滚动，否则小屏幕下按钮不可达；
+   z-index 950：高于页面级浮层（scroll-top-btn 900 / back-to-top 900），
+   低于 modal(1000)/confirm(1100)/lightbox(1050)，避免登录面板打开时
+   右下角「返回顶部」等按钮悬浮在遮罩之上。 */
 .login-overlay {
+  z-index: 950;
   overflow-y: auto;
   overflow-x: hidden;
   align-items: flex-start;

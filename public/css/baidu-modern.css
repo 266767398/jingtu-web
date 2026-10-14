@@ -400,6 +400,15 @@ table.admin-table tbody tr:hover td {
     height: 38px;
     font-size: 18px;
   }
+  /* 移动端 2 列卡片描述可读性：单行省略会把文案砍掉大半，
+     放开为最多两行（超出仍省略号截断），标题仍保持单行。 */
+  .home-feature-desc {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
   .home-welcome-brand {
     display: none;
   }
