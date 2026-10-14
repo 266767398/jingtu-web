@@ -453,14 +453,6 @@ function syncAvatarCache() {
   cacheUserAvatar(currentUser.loginId, visible ? (currentUser.avatarUrl || currentUser.vrchatAvatarUrl || null) : null);
 }
 
-// 登录页账号头像预览（§11.8.3）：输入 loginId 后实时预览「本地头像 + VRChat 头像」
-// 匿名未记住的账号后端按 M-2 防枚举返回 null，此处降级为「账号首字母」彩色占位头像，
-// 保证两个槽位永远有图（默认 SVG 路由支持 ?name= 生成首字母/首汉字，绝无裂图）。
-function loginAvatarPlaceholder(loginId) {
-  const c = String(loginId || '').replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, '').charAt(0);
-  return '/api/avatar/default?name=' + encodeURIComponent(c || '');
-}
-
 // 头像预览图失败回落默认头像（原内联 onerror="this.src='/api/avatar/default'" 被 CSP 拦截，
 // 改由 JS 属性绑定；已回落后清掉自身处理器，避免默认头像自身失败时无限循环）
 function bindAvatarDefaultFallback(img) {
@@ -473,54 +465,30 @@ function bindAvatarDefaultFallback(img) {
   };
 }
 
-async function previewLoginAvatar(loginId) {
+// 登录页账号头像预览（§11.8.3）：统一单槽显示——
+// · 命中浏览器缓存（本机曾登录过该账号）→ 显示其真实头像
+// · 未命中缓存（或无头像）→ 显示默认「问号」头像（/api/avatar/default）
+// VRChat 槽 / 分隔线 / 标签一律隐藏，登录页只保留一个头像。
+function previewLoginAvatar(loginId) {
   const wrap = document.getElementById('loginAvatarPreview');
   const localImg = document.getElementById('loginLocalAvatar');
   const vrcImg = document.getElementById('loginVrcAvatar');
   if (!wrap || !localImg || !vrcImg) return;
+  const divider = wrap.querySelector('.lap-divider');
+  const vrcItem = vrcImg.closest('.lap-item');
+  const localLabel = localImg.closest('.lap-item')?.querySelector('.lap-label');
+  if (divider) divider.style.display = 'none';
+  if (vrcItem) vrcItem.style.display = 'none';
+  if (localLabel) localLabel.style.display = 'none';
+
   const id = (loginId || '').trim();
-  // 缓存命中（本浏览器曾登录过该账号）→ 登录页只显示缓存的那一个头像：
-  // 隐藏 VRChat 槽与分隔线，也不再请求后端
-  const cached = getCachedAvatar(id);
-  if (cached) {
-    wrap.style.display = 'flex';
-    wrap.dataset.previewCached = '1';
-    const divider = wrap.querySelector('.lap-divider');
-    const vrcItem = vrcImg.closest('.lap-item');
-    const localLabel = localImg.closest('.lap-item')?.querySelector('.lap-label');
-    if (divider) divider.style.display = 'none';
-    if (vrcItem) vrcItem.style.display = 'none';
-    if (localLabel) localLabel.style.display = 'none';
-    bindAvatarDefaultFallback(localImg);
-    localImg.src = cached;
-    return;
-  }
-  // 未命中缓存：恢复双槽显示（同页内从缓存账号切到其它账号时重置隐藏态）
-  if (wrap.dataset.previewCached === '1') {
-    wrap.dataset.previewCached = '';
-    const divider = wrap.querySelector('.lap-divider');
-    const vrcItem = vrcImg.closest('.lap-item');
-    const localLabel = localImg.closest('.lap-item')?.querySelector('.lap-label');
-    if (divider) divider.style.display = '';
-    if (vrcItem) vrcItem.style.display = '';
-    if (localLabel) localLabel.style.display = '';
-  }
   if (!id) {
-    wrap.style.display = 'none';
+    wrap.style.display = 'none'; // 未输入账号 → 不显示预览
     return;
-  }
-  const placeholder = loginAvatarPlaceholder(id);
-  let data = null;
-  try {
-    data = await api('/api/auth/preview?loginId=' + encodeURIComponent(id));
-  } catch (e) {
-    data = null; // 限流/网络错误静默降级为占位，不干扰登录流程
   }
   wrap.style.display = 'flex';
   bindAvatarDefaultFallback(localImg);
-  bindAvatarDefaultFallback(vrcImg);
-  localImg.src = (data && data.avatarUrl) || placeholder;
-  vrcImg.src = (data && data.vrchatAvatarUrl) || placeholder;
+  localImg.src = getCachedAvatar(id) || '/api/avatar/default';
 }
 
 // V6.6: 登录后引导用户绑定 VRChat 账号
