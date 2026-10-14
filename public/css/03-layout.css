@@ -943,6 +943,10 @@ html {
   .me-avatar-wrap {
     margin:0 auto
   }
+  .me-avatar-actions {
+    justify-content:center;
+    margin-top:4px
+  }
   .me-field-row {
     flex-direction:column
   }

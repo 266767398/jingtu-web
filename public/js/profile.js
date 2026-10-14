@@ -287,6 +287,7 @@ async function uploadAvatar(file) {
       currentUser.avatarVisible = true; // 上传即默认启用显示
       updateUserUI();
       renderAvatarPref();
+      if (typeof syncAvatarCache === 'function') syncAvatarCache(); // 同步登录页头像缓存
       toast(__('profile.avatar_updated'), 'success');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.upload_failed') + ': ' + err.message, 'error'); }
@@ -302,6 +303,7 @@ async function removeAvatar() {
         currentUser.customAvatarPath = null;
         updateUserUI();
         renderAvatarPref();
+        if (typeof removeCachedAvatar === 'function') removeCachedAvatar(currentUser.loginId); // 移除登录页头像缓存
         toast(__('profile.avatar_removed'), 'info');
       }
     } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.op_failed') + ': ' + err.message, 'error'); }
@@ -319,6 +321,7 @@ async function switchToVRchatAvatar() {
       currentUser.avatarVisible = true; // 切换到 VRChat 头像即默认启用显示
       updateUserUI();
       renderAvatarPref();
+      if (typeof syncAvatarCache === 'function') syncAvatarCache(); // 同步登录页头像缓存
       toast(__('profile.avatar_switched_vrc'), 'success');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.switch_failed') + ': ' + err.message, 'error'); }
@@ -409,6 +412,7 @@ async function saveAvatarPref(patch) {
       currentUser.avatarUrl = data.avatarUrl;
       updateUserUI();
       renderAvatarPref();
+      if (typeof syncAvatarCache === 'function') syncAvatarCache(); // 同步登录页头像缓存
       toast(__('profile.avatar_pref_saved'), 'success');
     }
   } catch (err) {
@@ -499,6 +503,7 @@ async function bindVRChatWithPassword() {
         saveVrcCredsIfChecked();
         resetVrcBindResend();
         updateUserUI();
+        if (typeof syncAvatarCache === 'function') syncAvatarCache(); // 同步登录页头像缓存
         renderVRChatBindStatus();
         toast(__('profile.bind_success'), 'success');
         document.getElementById('vrcLookupResult').innerHTML = `<div class="text-green text-13">✅ ${__('profile.bind_success')}</div>`;
@@ -559,6 +564,7 @@ async function confirmVrcBind2fa() {
         _vrcBindTemp = null;
         resetVrcBindResend();
         updateUserUI();
+        if (typeof syncAvatarCache === 'function') syncAvatarCache(); // 同步登录页头像缓存
         renderVRChatBindStatus();
         toast(__('profile.bind_success'), 'success');
         document.getElementById('vrcLookupResult').innerHTML = `<div class="text-green text-13">✅ ${__('profile.bind_success')}</div>`;
@@ -701,12 +707,20 @@ async function unbindVRChat() {
         currentUser.vrchatId = null;
         currentUser.vrchatName = null;
         currentUser.vrchatVerified = false;
+        currentUser.vrchatAvatarUrl = null;
+        // 服务端解绑时若正在展示 VRChat 头像会回落为 none，前端同步，避免残留旧头像
+        if (currentUser.avatarType === 'vrchat') {
+          currentUser.avatarType = 'none';
+          currentUser.avatarUrl = null;
+        }
         // V6.9: 清除浏览器缓存的 VRChat 绑定状态和用户名
         localStorage.removeItem('jingtu_vrc_user');
         localStorage.removeItem('jingtu_vrc_bound');
         localStorage.removeItem(VRC_CREDS_KEY);
         _vrcReloginActive = false;
         updateUserUI();
+        renderAvatarPref();
+        if (typeof syncAvatarCache === 'function') syncAvatarCache(); // 同步登录页头像缓存
         renderVRChatBindStatus();
         toast(__('profile.vrc_unbound'), 'info');
       }

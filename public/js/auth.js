@@ -189,6 +189,8 @@ function showApp() {
     document.getElementById('mainContainer')?.classList.remove('d-none');
     document.getElementById('appFooter')?.classList.remove('d-none');
     updateUserUI();
+    // 登录成功后把当前展示头像写入浏览器缓存，供下次登录页预览复用
+    syncAvatarCache();
     // 首页公开内容已在 init() 中提前加载，登录态恢复后只需更新用户相关 UI，
     // 避免重复请求和首屏闪烁。
     wsReconnectAttempts = 0;
@@ -405,6 +407,52 @@ async function doRegister() {
   }
 }
 
+// ==================== 登录头像浏览器缓存 ====================
+// 登录成功后把当前「展示头像」写入 localStorage；登录页输入账号时若命中缓存，
+// 直接显示该账号唯一缓存的头像（不再请求后端 /api/auth/preview 双槽预览）。
+// 在「我的信息」里改头像 / 移除 / 切换来源 / 改显示偏好时同步更新缓存。
+const AVATAR_CACHE_KEY = 'jingtu_avatar_cache';
+
+function getAvatarCache() {
+  try { return JSON.parse(localStorage.getItem(AVATAR_CACHE_KEY) || '{}') || {}; } catch (e) { return {}; }
+}
+
+function cacheUserAvatar(loginId, url) {
+  try {
+    if (!loginId) return;
+    const map = getAvatarCache();
+    const k = String(loginId).toLowerCase();
+    if (url) map[k] = url;
+    else delete map[k];
+    localStorage.setItem(AVATAR_CACHE_KEY, JSON.stringify(map));
+  } catch (e) {}
+}
+
+function getCachedAvatar(loginId) {
+  if (!loginId) return null;
+  return getAvatarCache()[String(loginId).toLowerCase()] || null;
+}
+
+function removeCachedAvatar(loginId) {
+  try {
+    if (!loginId) return;
+    const map = getAvatarCache();
+    const k = String(loginId).toLowerCase();
+    if (map[k]) {
+      delete map[k];
+      localStorage.setItem(AVATAR_CACHE_KEY, JSON.stringify(map));
+    }
+  } catch (e) {}
+}
+
+// 以「当前展示头像」口径同步缓存（与 updateUserUI 计算一致）：
+// 隐藏头像或未设置任何头像 → 移除缓存条目（登录页回落到首字母占位）
+function syncAvatarCache() {
+  if (!currentUser || !currentUser.loginId) return;
+  const visible = currentUser.avatarVisible !== false && currentUser.avatarType !== 'none';
+  cacheUserAvatar(currentUser.loginId, visible ? (currentUser.avatarUrl || currentUser.vrchatAvatarUrl || null) : null);
+}
+
 // 登录页账号头像预览（§11.8.3）：输入 loginId 后实时预览「本地头像 + VRChat 头像」
 // 匿名未记住的账号后端按 M-2 防枚举返回 null，此处降级为「账号首字母」彩色占位头像，
 // 保证两个槽位永远有图（默认 SVG 路由支持 ?name= 生成首字母/首汉字，绝无裂图）。
@@ -431,6 +479,32 @@ async function previewLoginAvatar(loginId) {
   const vrcImg = document.getElementById('loginVrcAvatar');
   if (!wrap || !localImg || !vrcImg) return;
   const id = (loginId || '').trim();
+  // 缓存命中（本浏览器曾登录过该账号）→ 登录页只显示缓存的那一个头像：
+  // 隐藏 VRChat 槽与分隔线，也不再请求后端
+  const cached = getCachedAvatar(id);
+  if (cached) {
+    wrap.style.display = 'flex';
+    wrap.dataset.previewCached = '1';
+    const divider = wrap.querySelector('.lap-divider');
+    const vrcItem = vrcImg.closest('.lap-item');
+    const localLabel = localImg.closest('.lap-item')?.querySelector('.lap-label');
+    if (divider) divider.style.display = 'none';
+    if (vrcItem) vrcItem.style.display = 'none';
+    if (localLabel) localLabel.style.display = 'none';
+    bindAvatarDefaultFallback(localImg);
+    localImg.src = cached;
+    return;
+  }
+  // 未命中缓存：恢复双槽显示（同页内从缓存账号切到其它账号时重置隐藏态）
+  if (wrap.dataset.previewCached === '1') {
+    wrap.dataset.previewCached = '';
+    const divider = wrap.querySelector('.lap-divider');
+    const vrcItem = vrcImg.closest('.lap-item');
+    const localLabel = localImg.closest('.lap-item')?.querySelector('.lap-label');
+    if (divider) divider.style.display = '';
+    if (vrcItem) vrcItem.style.display = '';
+    if (localLabel) localLabel.style.display = '';
+  }
   if (!id) {
     wrap.style.display = 'none';
     return;

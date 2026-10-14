@@ -468,11 +468,14 @@ router.post('/me/avatar-pref', requireAuth, async (req, res) => {
     }
     await req.session.save();
 
-    const [rows] = await getPool().query(`SELECT avatar_type, avatar_visible FROM users WHERE id = ?`, [uid]);
+    const [rows] = await getPool().query(`SELECT avatar_type, avatar_visible, custom_avatar_path, vrchat_avatar_url FROM users WHERE id = ?`, [uid]);
     const u = rows[0];
     ok(res, {
       avatarType: u.avatar_type,
       avatarVisible: u.avatar_visible === 0 ? false : true,
+      // avatarUrl 需要 custom_avatar_path / vrchat_avatar_url 才能算出，
+      // 只查 avatar_type,avatar_visible 会让 getAvatarUrl 恒为 null → 前端 saveAvatarPref
+      // 把 currentUser.avatarUrl 覆写成 null，切显示开关/选来源后头像立即变默认
       avatarUrl: getAvatarUrl(u),
       message: '头像显示设置已更新'
     });
