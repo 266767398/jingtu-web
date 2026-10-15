@@ -222,6 +222,14 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       let onlineCount = 0, offlineCount = 0, updatedCount = 0;
       const results = [];
 
+      // 性能修复：原实现对每个成员逐条 await pool.query UPDATE（含 !info 分支的 synced_at 心跳更新），
+      // 大群几百成员 = 几百次 DB 串行往返，配合上游 VRChat 解析把整个刷新拖到几十秒，
+      // 前端只看到"正在刷新在线状态…"无反馈像卡死。
+      // 改为：未知成员（!info）聚合为单条 IN 更新 synced_at；已知成员用 CASE WHEN 批量 UPDATE，
+      // 分片 200（与 schedule.js stable refresh 同款模式），往返次数 N/200。
+      const BATCH_UPDATE_SIZE = 200;
+      const unknownIds = [];
+      const knownRows = []; // 每项 { r: 名册行, info: 解析结果 }
       for (const m of toProcess) {
         let info = onlineMap.get(m.vrchat_id);
         let isFriend = info && info.isFriend ? true : false;
@@ -247,8 +255,8 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
           isFriend = true;
         }
         if (!info) {
-          // 状态未知，保留原在线状态，仅刷新 synced_at，不误标离线。
-          await pool.query(`UPDATE group_roster SET synced_at=NOW() WHERE vrchat_id=?`, [m.vrchat_id]);
+          // 状态未知，保留原在线状态，仅刷新 synced_at，不误标离线（批量收集，最后统一 IN 更新）。
+          unknownIds.push(m.vrchat_id);
           continue;
         }
         const status = info.status || 'offline';
@@ -259,16 +267,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
           const parts = location.split(':');
           if (parts[0]) worldName = parts[0];
         }
-        await pool.query(
-          `UPDATE group_roster SET display_name=?, avatar_url=?, is_online=?, is_in_game=?, vrchat_status=?, location=?, world_name=?, is_friend=?,
-              is_vrc_plus=?, age_verified=?, age_verification_status=?, profile_pic_override_thumbnail=?, user_icon=?, last_seen=NOW(), synced_at=NOW()
-           WHERE vrchat_id=?`,
-          [info.displayName || m.vrchat_name || '', info.avatarUrl || m.avatar_url || '',
-           isOnline ? 1 : 0, info.isInGame ? 1 : 0,
-           status, location, worldName, isFriend ? 1 : 0,
-           info.isVrcPlus ? 1 : 0, info.ageVerified ? 1 : 0, info.ageVerificationStatus || '',
-           info.profilePicOverrideThumbnail || '', info.userIcon || '', m.vrchat_id]
-        );
+        knownRows.push({ m, info, status, isOnline, location, worldName, isFriend });
         results.push({
           vrchatId: m.vrchat_id, displayName: info.displayName, status, isOnline, isInGame: !!info.isInGame, isFriend,
           location, worldName, avatarUrl: info.avatarUrl, lastLogin: info.last_login,
@@ -279,6 +278,59 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         });
         if (isOnline) onlineCount++; else offlineCount++;
         updatedCount++;
+      }
+
+      // 未知成员：一次 IN 更新所有 synced_at（心跳），分片防过长 SQL
+      if (unknownIds.length > 0) {
+        for (let i = 0; i < unknownIds.length; i += BATCH_UPDATE_SIZE) {
+          const chunk = unknownIds.slice(i, i + BATCH_UPDATE_SIZE);
+          await pool.query(
+            `UPDATE group_roster SET synced_at=NOW() WHERE vrchat_id IN (${chunk.map(() => '?').join(',')})`,
+            chunk
+          );
+        }
+      }
+
+      // 已知成员：分片 CASE WHEN 批量 UPDATE（列集与原来单条 UPDATE 完全对齐，ELSE col END 防御行缺列串值）
+      if (knownRows.length > 0) {
+        // 列映射：camelCase → snake_case
+        const colMap = {
+          display_name: (r) => r.info.displayName || r.m.vrchat_name || '',
+          avatar_url: (r) => r.info.avatarUrl || r.m.avatar_url || '',
+          is_online: (r) => r.isOnline ? 1 : 0,
+          is_in_game: (r) => r.info.isInGame ? 1 : 0,
+          vrchat_status: (r) => r.status,
+          location: (r) => r.location,
+          world_name: (r) => r.worldName,
+          is_friend: (r) => r.isFriend ? 1 : 0,
+          is_vrc_plus: (r) => r.info.isVrcPlus ? 1 : 0,
+          age_verified: (r) => r.info.ageVerified ? 1 : 0,
+          age_verification_status: (r) => r.info.ageVerificationStatus || '',
+          profile_pic_override_thumbnail: (r) => r.info.profilePicOverrideThumbnail || '',
+          user_icon: (r) => r.info.userIcon || '',
+        };
+        for (let i = 0; i < knownRows.length; i += BATCH_UPDATE_SIZE) {
+          const chunk = knownRows.slice(i, i + BATCH_UPDATE_SIZE);
+          const ids = chunk.map(r => r.m.vrchat_id);
+          const setParts = [];
+          const allVals = [];
+          for (const col of Object.keys(colMap)) {
+            const valFn = colMap[col];
+            const pairs = [];
+            for (const r of chunk) {
+              let v = valFn(r);
+              if (v === undefined || v === null) v = '';
+              pairs.push(r.m.vrchat_id, v);
+            }
+            const cases = Array(pairs.length / 2).fill('WHEN ? THEN ?').join(' ');
+            setParts.push(`${col}=CASE ${cases} ELSE ${col} END`);
+            allVals.push(...pairs);
+          }
+          await pool.query(
+            `UPDATE group_roster SET ${setParts.join(',')}, last_seen=NOW(), synced_at=NOW() WHERE vrchat_id IN (${ids.map(() => '?').join(',')})`,
+            [...allVals, ...ids]
+          );
+        }
       }
 
       await pool.query(

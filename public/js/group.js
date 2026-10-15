@@ -699,8 +699,21 @@ async function refreshGroupStatus() {
   if (groupStatusRefreshing) return;
   groupStatusRefreshing = true;
   const btn = document.getElementById('refreshGroupBtn');
-  if (btn) { btn.disabled = true; btn.textContent = __('group.refreshing'); }
+  if (btn) {
+    btn.disabled = true;
+    // 活反馈：内嵌旋转 spinner + 动态文案，避免"正在刷新在线状态…"长时间静止像卡死
+    btn.innerHTML = '<span class="spinner-sm" aria-hidden="true"></span> ' + __('group.refreshing');
+  }
   vrcTaskBarShow(__('group.refreshing'));
+
+  // 心跳：每 2s 轻微呼吸一次按钮文案（透明度闪烁），提示任务仍在进行
+  let heartbeat = null;
+  if (btn) {
+    heartbeat = setInterval(function () {
+      if (!groupStatusRefreshing) return;
+      btn.style.opacity = (btn.style.opacity === '0.55') ? '1' : '0.55';
+    }, 2000);
+  }
 
   try {
     // 刷新在线状态：服务端走 /auth/user/friends 全量解析（好友不截断，非好友回退≤25 人），
@@ -740,7 +753,12 @@ async function refreshGroupStatus() {
     // 恢复只写一处。原先早退、catch、函数末尾各抄了一份，
     // 任何一条新增的 return 路径漏抄，按钮就永久禁用、刷新功能报废。
     groupStatusRefreshing = false;
-    if (btn) { btn.disabled = false; btn.textContent = __('group.sync_status_btn'); }
+    if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+    if (btn) {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.textContent = __('group.sync_status_btn');
+    }
   }
 }
 
