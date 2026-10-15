@@ -1582,6 +1582,8 @@ window._LANG_DE = {
   "admin_vrc.bl_reason_label2": "Details / Grund",
   "admin_vrc.bl_synced_at": "Zuletzt synchronisiert",
   "admin_vrc.bl_system_sync": "System-Sync",
+  "admin_vrc.bl_search_ph": "Name / ID / URL / Grund / Hinzugefügt von suchen...",
+  "admin_vrc.bl_no_result": "Keine passenden Blacklist-Einträge",
   "group.blacklisted_tooltip": "Dieser Spieler steht auf der VRChat-Blacklist (vom Super-Admin verwaltet)",
   "admin_vrc.pending_count": "{n} Wartende Anfragen",
   "admin_vrc.reason": "Grund: ",

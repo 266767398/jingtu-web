@@ -20,6 +20,9 @@ const logger = require('../logger');
 
 const GROUP_ID = process.env.GROUP_ID || 'vrc_group';
 
+// VRChat 信任等级 → 中文展示名（与 groups_member_detail.js 的 TRUST_CN 同款映射）
+const TRUST_CN = { 'negative': '恶劣玩家', 'visitor': '游客', 'new': '新用户', 'user': '用户', 'known': '常驻玩家', 'trusted': '信任', 'vetted': '审核', 'veteran': '资深玩家', 'legend': '资深玩家' };
+
 // 系统账号 Cookie 注入点：server.js 启动时通过 setSystemVRCCookieFn(getVRCCookie) 注入，
 // 供后台黑名单「同步封禁/同步解封到 VRChat 群」这类无会话上下文的写操作使用。
 let _systemCookieFn = null;
@@ -82,10 +85,21 @@ async function syncBlacklistWithVrcBans(pool, vrcCookie) {
         );
         result.updated++;
       } else {
+        // VRChat bans API 不带 displayName——从本地名册取真名（无则回退占位名），
+        // 避免黑名单里存 "群成员 usr_xxx" 这种不可读的名字
+        let realName = name;
+        if (!realName) {
+          try {
+            const [roster] = await pool.query(
+              `SELECT display_name FROM group_roster WHERE vrchat_id = ? LIMIT 1`, [vid]
+            );
+            if (roster.length > 0 && roster[0].display_name) realName = roster[0].display_name;
+          } catch (e4) { /* 名册查询失败不阻塞 */ }
+        }
         await pool.query(
           `INSERT INTO vrc_blacklist (vrchat_id, username, url, reason, source, banned, synced_at, created_by)
            VALUES (?, ?, ?, NULL, 'group', 1, ?, 0)`,
-          [vid, name || ('群成员 ' + vid), url, now]
+          [vid, realName || ('群成员 ' + vid), url, now]
         );
         result.added++;
       }
@@ -126,13 +140,23 @@ module.exports = function createAdminVrcBlacklistRouter() {
         `SELECT b.id, b.vrchat_id AS vrchatId, b.username, b.url, b.reason, b.source, b.banned,
                 b.synced_at AS syncedAt, b.created_at AS createdAt,
                 b.created_by AS createdBy, u.display_name AS createdByName,
-                gr.display_name AS memberName, gr.avatar_url AS avatarUrl, gr.trust_level AS trustLevel
+                gr.display_name AS memberName, gr.avatar_url AS avatarUrl, gr.trust_level AS trustLevel,
+                gr.trust_level_cn AS trustLevelCn,
+                rg.display_name AS registeredName, rg.avatar_url AS registeredAvatar
          FROM vrc_blacklist b
          LEFT JOIN users u ON b.created_by = u.id AND b.created_by != 0
          LEFT JOIN group_roster gr ON gr.vrchat_id = b.vrchat_id AND b.vrchat_id IS NOT NULL AND b.vrchat_id != ''
+         LEFT JOIN users rg ON rg.vrchat_id = b.vrchat_id AND b.vrchat_id IS NOT NULL AND b.vrchat_id != ''
          ORDER BY b.created_at DESC`
       );
-      res.json({ items: rows });
+      // 名字/头像优先级：群名册 → 网站注册用户 → 手动填写；信任等级中文名后端一次算好
+      const items = rows.map(r => ({
+        ...r,
+        memberName: r.memberName || r.registeredName || null,
+        avatarUrl: r.avatarUrl || r.registeredAvatar || null,
+        trustLevelCn: TRUST_CN[r.trustLevel] || r.trustLevel || null
+      }));
+      res.json({ items });
     } catch (e) { handleError(res, e, '[admin/vrc-blacklist/list]'); }
   });
 

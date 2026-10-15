@@ -123,6 +123,9 @@ async function syncVRChatEvents() {
 // ========== VRChat 黑名单（超管维护：用户名 / 用户URL / 做了什么） ==========
 // 与 VRChat 群黑名单联动：本地库是唯一存储，source=group 表示从群黑名单自动同步而来；
 // banned 表示当前是否在 VRChat 群黑名单中；每条可单独编辑详情并直接写回本地库。
+// 列表本地搜索过滤（blSearch 输入框），不产生额外请求。
+let _vrcBlacklistCache = [];
+
 async function loadVrcBlacklist() {
   if (!currentUser || currentUser.role !== 'super_admin') return;
   const listEl = document.getElementById('vrcBlacklistList');
@@ -132,54 +135,84 @@ async function loadVrcBlacklist() {
     const res = await api('/api/admin/vrc-blacklist', { method: 'GET', timeout: 30000 });
     if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(errText(err) || __('admin_vrc.load_failed')); }
     const data = await res.json();
-    const items = data.items || [];
-    if (!items.length) { listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_empty') + '</p>'; window._vrcBlacklistCache = []; return; }
-    // 供「编辑详情」弹窗取当前记录
-    window._vrcBlacklistCache = items;
-    listEl.innerHTML = items.map(it => {
-      const name = it.memberName || it.username || it.vrchatId || '-';
-      const avatarHtml = it.avatarUrl
-        ? `<img class="vrc-blacklist-avatar" src="${escAttr(it.avatarUrl)}" alt="" loading="lazy">`
-        : '<span class="vrc-blacklist-avatar vrc-blacklist-avatar-fallback">🚫</span>';
-      const sourceBadge = it.source === 'group'
-        ? `<span class="vrc-blacklist-source">${__('admin_vrc.bl_source_group')}</span>`
-        : `<span class="vrc-blacklist-source vrc-blacklist-source-manual">${__('admin_vrc.bl_source_manual')}</span>`;
-      const bannedBadge = it.banned
-        ? `<span class="vrc-blacklist-banned">${__('admin_vrc.bl_banned')}</span>`
-        : `<span class="vrc-blacklist-banned vrc-blacklist-unbanned">${__('admin_vrc.bl_unbanned')}</span>`;
-      const trustDot = it.trustLevel
-        ? `<span class="vrc-blacklist-trust" title="${__('admin_vrc.bl_trust', {t: it.trustLevel})}">●</span>`
-        : '';
-      return `<div class="vrc-blacklist-item">
-        <div class="vrc-blacklist-head">
-          ${avatarHtml}
-          <span class="vrc-blacklist-name">${name}${trustDot}</span>
-          ${it.vrchatId ? `<span class="vrc-blacklist-id">${esc(it.vrchatId)}</span>` : ''}
-          ${sourceBadge}${bannedBadge}
-          <button class="btn btn-xs btn-outline" data-vrc-action="blacklist-edit" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_edit')}">✏️ ${__('admin_vrc.bl_edit')}</button>
-          <button class="btn btn-xs btn-outline" data-vrc-action="blacklist-remove" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_remove')}">🗑️ ${__('admin_vrc.bl_remove')}</button>
-        </div>
-        ${it.url ? `<div class="vrc-blacklist-url">🔗 <a href="${escAttr(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.url)}</a></div>` : ''}
-        ${it.reason ? `<div class="vrc-blacklist-reason">${__('admin_vrc.bl_reason_label')}${esc(it.reason)}</div>` : ''}
-        <div class="vrc-blacklist-meta">${__('admin_vrc.bl_added_by')} ${esc(it.createdByName || __('admin_vrc.bl_system_sync'))} · ${fmtDate(it.createdAt)}${it.syncedAt ? ' · ' + __('admin_vrc.bl_synced_at') + ' ' + fmtDate(it.syncedAt) : ''}</div>
-      </div>`;
-    }).join('');
-    // 头像加载失败时兜底隐藏（CSP script-src 无 unsafe-inline，内联 onerror 会被拦截，改用事件监听）
-    listEl.querySelectorAll('img.vrc-blacklist-avatar').forEach(function (img) {
-      img.addEventListener('error', function () { this.style.display = 'none'; });
-    });
+    _vrcBlacklistCache = data.items || [];
+    renderVrcBlacklistList();
   } catch (e) {
     const msg = String((e && e.message) || __('admin_vrc.load_failed'));
     listEl.innerHTML = '<p class="text-red text-13">' + (typeof esc === 'function' ? esc(msg) : msg) + '</p>';
   }
 }
 
-// 手动同步 VRChat 群黑名单 ⇄ 本地（超管）
+// 纯本地渲染（搜索过滤不产生请求）：名字 / VRChat ID / URL / 原因 / 添加人
+function renderVrcBlacklistList() {
+  const listEl = document.getElementById('vrcBlacklistList');
+  if (!listEl) return;
+  const items = _vrcBlacklistCache;
+  if (!items.length) { listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_empty') + '</p>'; return; }
+  const kw = (document.getElementById('blSearch')?.value || '').trim().toLowerCase();
+  const shown = kw
+    ? items.filter(function (it) {
+        const hay = [it.memberName, it.username, it.vrchatId, it.url, it.reason, it.createdByName]
+          .filter(Boolean).join(' ').toLowerCase();
+        return hay.indexOf(kw) !== -1;
+      })
+    : items;
+  if (!shown.length) {
+    listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_no_result') + '</p>';
+    return;
+  }
+  listEl.innerHTML = shown.map(it => {
+    const name = it.memberName || it.username || it.vrchatId || '-';
+    const avatarHtml = it.avatarUrl
+      ? `<img class="vrc-blacklist-avatar" src="${escAttr(it.avatarUrl)}" alt="" loading="lazy">`
+      : '<span class="vrc-blacklist-avatar vrc-blacklist-avatar-fallback">🚫</span>';
+    const sourceBadge = it.source === 'group'
+      ? `<span class="vrc-blacklist-source">${__('admin_vrc.bl_source_group')}</span>`
+      : `<span class="vrc-blacklist-source vrc-blacklist-source-manual">${__('admin_vrc.bl_source_manual')}</span>`;
+    const bannedBadge = it.banned
+      ? `<span class="vrc-blacklist-banned">${__('admin_vrc.bl_banned')}</span>`
+      : `<span class="vrc-blacklist-banned vrc-blacklist-unbanned">${__('admin_vrc.bl_unbanned')}</span>`;
+    const trustLabel = it.trustLevelCn || it.trustLevel;
+    const trustDot = trustLabel
+      ? `<span class="vrc-blacklist-trust" title="${__('admin_vrc.bl_trust', {t: trustLabel})}">●</span>`
+      : '';
+    return `<div class="vrc-blacklist-item">
+      <div class="vrc-blacklist-head">
+        ${avatarHtml}
+        <span class="vrc-blacklist-name">${name}${trustDot}</span>
+        ${it.vrchatId ? `<span class="vrc-blacklist-id">${esc(it.vrchatId)}</span>` : ''}
+        ${sourceBadge}${bannedBadge}
+        <button class="btn btn-xs btn-outline" data-vrc-action="blacklist-edit" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_edit')}">✏️ ${__('admin_vrc.bl_edit')}</button>
+        <button class="btn btn-xs btn-outline" data-vrc-action="blacklist-remove" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_remove')}">🗑️ ${__('admin_vrc.bl_remove')}</button>
+      </div>
+      ${it.url ? `<div class="vrc-blacklist-url">🔗 <a href="${escAttr(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.url)}</a></div>` : ''}
+      ${it.reason ? `<div class="vrc-blacklist-reason">${__('admin_vrc.bl_reason_label')}${esc(it.reason)}</div>` : ''}
+      <div class="vrc-blacklist-meta">${__('admin_vrc.bl_added_by')} ${esc(it.createdByName || __('admin_vrc.bl_system_sync'))} · ${fmtDate(it.createdAt)}${it.syncedAt ? ' · ' + __('admin_vrc.bl_synced_at') + ' ' + fmtDate(it.syncedAt) : ''}</div>
+    </div>`;
+  }).join('');
+  // 头像加载失败时兜底隐藏（CSP script-src 无 unsafe-inline，内联 onerror 会被拦截，改用事件监听）
+  listEl.querySelectorAll('img.vrc-blacklist-avatar').forEach(function (img) {
+    img.addEventListener('error', function () { this.style.display = 'none'; });
+  });
+}
+
+// 黑名单搜索框输入（本地过滤，无需重新请求）
+function onVrcBlacklistSearch() {
+  clearTimeout(window._blSearchTimer);
+  window._blSearchTimer = setTimeout(renderVrcBlacklistList, 250);
+}
+
+// 手动同步 VRChat 群黑名单 ⇄ 本地（超管）；busy 锁防连点
+let _vrcBlacklistSyncBusy = false;
 async function syncVrcBlacklist() {
   if (!currentUser || currentUser.role !== 'super_admin') {
     toast(__('admin_vrc.super_admin_only'), 'error');
     return;
   }
+  if (_vrcBlacklistSyncBusy) return;
+  _vrcBlacklistSyncBusy = true;
+  const btn = document.querySelector('[data-vrc-action="blacklist-sync"]');
+  if (btn) btn.disabled = true;
   try {
     toast(__('admin_vrc.bl_syncing'), 'info');
     const res = await api('/api/admin/vrc-blacklist/sync', { method: 'POST', timeout: 60000 });
@@ -189,6 +222,10 @@ async function syncVrcBlacklist() {
     loadVrcBlacklist();
     if (typeof loadGroupBans === 'function') loadGroupBans();
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.op_failed') + ': ' + err.message, 'error'); }
+  finally {
+    _vrcBlacklistSyncBusy = false;
+    if (btn) btn.disabled = false;
+  }
 }
 
 // 编辑黑名单详情（超管；直接写本地库 reason/username/url）
@@ -196,8 +233,7 @@ async function syncVrcBlacklist() {
 // 校验/保存失败则保持弹窗打开继续编辑（不闪关）。
 function editVrcBlacklistItem(id) {
   if (!currentUser || currentUser.role !== 'super_admin') return;
-  if (!window._vrcBlacklistCache) window._vrcBlacklistCache = [];
-  const item = window._vrcBlacklistCache.find(function (it) { return String(it.id) === String(id); }) || {};
+  const item = _vrcBlacklistCache.find(function (it) { return String(it.id) === String(id); }) || {};
   const overlay = createOverlayDialog(`
     <div class="confirm-dialog" style="max-width:460px">
       <div class="confirm-msg"><b style="font-size:15px">${esc(__('admin_vrc.bl_edit_title'))}</b>
@@ -247,6 +283,16 @@ function editVrcBlacklistItem(id) {
   };
   cancelBtn.onclick = function () { overlay._cleanup('cancel'); };
   overlay.onclick = function (e) { if (e.target === overlay) overlay._cleanup('cancel'); };
+  // Enter 快速保存（textarea 内换行不拦截）；Esc 关闭
+  overlay.addEventListener('keydown', function (e) {
+    const tag = e.target && e.target.tagName;
+    if (e.key === 'Enter' && tag !== 'TEXTAREA' && tag !== 'BUTTON') {
+      e.preventDefault();
+      okBtn.click();
+    } else if (e.key === 'Escape') {
+      overlay._cleanup('cancel');
+    }
+  });
 }
 
 async function addVrcBlacklistItem() {
@@ -726,6 +772,12 @@ document.addEventListener('click', function (e) {
   if (actEl && actEl.getAttribute('data-action') === 'vrc-cookie-expire-save') { saveVrcCookieExpire(); return; }
   if (e.target.closest('#gitUpdateBtn')) { runGitUpdate(); return; }
   if (e.target.closest('#gitRestartBtn')) { runGitRestart(); return; }
+});
+
+// 黑名单本地搜索（输入委托，兼容 CSP 禁内联处理器）
+document.addEventListener('input', function (e) {
+  const t = e.target;
+  if (t && t.id === 'blSearch') onVrcBlacklistSearch();
 });
 
 function clearSystemVrcCredentials() {

@@ -1526,6 +1526,8 @@ window._LANG_ZH = {
   "admin_vrc.bl_reason_label2": "详情 / 原因",
   "admin_vrc.bl_synced_at": "最近同步",
   "admin_vrc.bl_system_sync": "系统同步",
+  "admin_vrc.bl_search_ph": "搜索名字 / ID / URL / 原因 / 添加人...",
+  "admin_vrc.bl_no_result": "没有匹配的黑名单记录",
   "group.blacklisted_tooltip": "该玩家在 VRChat 黑名单中（超管维护）",
   "admin.backup_delete_confirm": "确定删除备份「{filename}」吗？此操作不可恢复。",
   "admin.ban_confirm": "确定封禁该用户吗？封禁后其将无法登录。",

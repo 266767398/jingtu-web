@@ -1613,6 +1613,8 @@ window._LANG_RU = {
   "admin_vrc.bl_reason_label2": "Детали / Причина",
   "admin_vrc.bl_synced_at": "Последняя синхр.",
   "admin_vrc.bl_system_sync": "Системная синхр.",
+  "admin_vrc.bl_search_ph": "Поиск по имени / ID / URL / причине / добавившему...",
+  "admin_vrc.bl_no_result": "Совпадений в чёрном списке нет",
   "group.blacklisted_tooltip": "Этот игрок находится в чёрном списке VRChat (управляется супер-администратором)",
   "admin_vrc.pending_count": "{n} Заявок на проверку",
   "admin_vrc.reason": "Причина: ",

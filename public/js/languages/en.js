@@ -1750,6 +1750,8 @@ window._LANG_EN = {
   "admin_vrc.bl_reason_label2": "Details / Reason",
   "admin_vrc.bl_synced_at": "Last synced",
   "admin_vrc.bl_system_sync": "System sync",
+  "admin_vrc.bl_search_ph": "Search name / ID / URL / reason / added by...",
+  "admin_vrc.bl_no_result": "No matching blacklist entries",
   "group.blacklisted_tooltip": "This player is on the VRChat blacklist (maintained by super admin)",
   "admin_vrc.pending_count": "{n} Pending Requests",
   "admin_vrc.reason": "Reason: ",

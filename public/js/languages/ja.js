@@ -1582,6 +1582,8 @@ window._LANG_JA = {
   "admin_vrc.bl_reason_label2": "詳細 / 理由",
   "admin_vrc.bl_synced_at": "最終同期",
   "admin_vrc.bl_system_sync": "システム同期",
+  "admin_vrc.bl_search_ph": "名前 / ID / URL / 理由 / 追加者で検索...",
+  "admin_vrc.bl_no_result": "一致するブラックリストはありません",
   "group.blacklisted_tooltip": "このプレイヤーはVRChatブラックリストに登録されています（スーパー管理者管理）",
   "admin_vrc.pending_count": "{n} 個の待審核",
   "admin_vrc.reason": "<b>理由：</b>",

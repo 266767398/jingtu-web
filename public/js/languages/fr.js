@@ -1582,6 +1582,8 @@ window._LANG_FR = {
   "admin_vrc.bl_reason_label2": "Détails / Raison",
   "admin_vrc.bl_synced_at": "Dernière synchro",
   "admin_vrc.bl_system_sync": "Synchro système",
+  "admin_vrc.bl_search_ph": "Rechercher nom / ID / URL / raison / ajouté par...",
+  "admin_vrc.bl_no_result": "Aucune entrée de liste noire correspondante",
   "group.blacklisted_tooltip": "Ce joueur est sur la liste noire VRChat (géré par le super admin)",
   "admin_vrc.pending_count": "{n} demandes en attente de validation",
   "admin_vrc.reason": "Raison : ",
