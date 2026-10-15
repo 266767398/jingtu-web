@@ -192,8 +192,8 @@ module.exports = function () {
 <meta property="og:title" content="${esc(typeLabel)}分享 · 境途同游">
 <meta property="og:type" content="website">
 <meta name="description" content="来自境途同游社群的${esc(typeLabel)}分享">
-<link rel="stylesheet" href="/css/01-variables.css?v=20261015k">
-<link rel="stylesheet" href="/css/share-page.css?v=20261015k">
+<link rel="stylesheet" href="/css/01-variables.css?v=20261015l">
+<link rel="stylesheet" href="/css/share-page.css?v=20261015l">
 </head>
 <body class="share-page">
 <main class="sp-card">
@@ -304,6 +304,9 @@ module.exports = function () {
         }
       }
       if (!content) return res.status(404).send('<h1>分享内容不存在</h1>');
+      // HTML 落地页绝不缓存：服务端每响应注入一次性 CSP nonce，启发式缓存的旧 HTML
+      // 内联 script 与当次 nonce 错配会被 CSP 全拦（与 server.js 静态 HTML no-store 对齐）
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
       res.type('html').send(renderSharePage(link, content));
     } catch (e) { handleError(res, e, '[share:page]'); }
   });

@@ -356,6 +356,13 @@ app.use(express.static(path.join(ROOT_DIR, 'public'), {
   setHeaders: (res, filePath) => {
     if (res.req && /\?v=/.test(res.req.url)) {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (/\.html?$/i.test(filePath) || filePath.endsWith('index.html')) {
+      // HTML 文档绝不缓存：服务端每响应注入一次性 CSP nonce（见 server.js CSP 中间件），
+      // 浏览器若命中启发式缓存的旧 HTML，其内联 <script> 携带的是旧 nonce，与当次响应头
+      // 的 script-src nonce 错配 → 页面所有内联脚本被 CSP 拦截（"Executing inline script
+      // violates... the action has been blocked"）。与 public/sw.js 的 HTML network-first
+      // "绝不写入缓存" 策略对齐，从 HTTP 层根治。
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     }
   }
 }));
