@@ -18,7 +18,7 @@
  *   description: 群组公告相册角色审计金流黑名单日历接口
  */
 const express = require('express');
-const { fail, ok, handleError, sendError, sendVrcError, ErrorCodes, logOper } = require('../utils');
+const { fail, ok, handleError, sendError, sendVrcError, ErrorCodes, logOper, getPool } = require('../utils');
 const {
   vrchatGetGroupAnnouncements, vrchatCreateGroupAnnouncement, vrchatDeleteGroupAnnouncement,
   vrchatGetGroupGalleries, vrchatCreateGroupGallery, vrchatGetGroupGallery,
@@ -244,7 +244,47 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       if (!cookie) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
       if (result.status !== 200) return sendVrcError(res, result, '获取群黑名单');
       const data = Array.isArray(result.data) ? result.data : (result.data?.bans || []);
-      ok(res, { bans: data });
+      // 群黑名单只有 userId/userUrl，没带名字和头像——用本地群名册（group_roster）补齐
+      // displayName/avatarUrl/信任等级，并关联本地 vrc_blacklist 的 reason 详情，
+      // 让「群黑名单」与后台「VRChat黑名单」联动展示同一批数据（名字/头像/详情俱全）。
+      const bans = [];
+      for (const b of data) {
+        const vid = b && b.userId;
+        let ext = { memberName: null, avatarUrl: null, trustLevel: null, reason: null };
+        if (vid && /^usr_/i.test(vid)) {
+          const [rows] = await getPool().query(
+            `SELECT gr.display_name AS memberName, gr.avatar_url AS avatarUrl, gr.trust_level AS trustLevel,
+                    bl.reason
+             FROM group_roster gr
+             LEFT JOIN vrc_blacklist bl ON bl.vrchat_id = gr.vrchat_id
+             WHERE gr.vrchat_id = ?`,
+            [vid]
+          );
+          if (rows.length > 0) {
+            const r = rows[0];
+            ext = {
+              memberName: r.memberName || null,
+              avatarUrl: r.avatarUrl || null,
+              trustLevel: r.trustLevel || null,
+              reason: r.reason || null
+            };
+          }
+          if (!ext.reason) {
+            const [bl] = await getPool().query(
+              `SELECT reason FROM vrc_blacklist WHERE vrchat_id = ? AND reason IS NOT NULL AND reason != '' LIMIT 1`, [vid]
+            );
+            if (bl.length > 0) ext.reason = bl[0].reason;
+          }
+        }
+        bans.push({
+          ...(b || {}),
+          displayName: (b && (b.displayName || b.username)) || ext.memberName || '',
+          avatarUrl: ext.avatarUrl,
+          trustLevel: ext.trustLevel,
+          reason: ext.reason
+        });
+      }
+      ok(res, { bans });
     } catch (e) { handleError(res, e, 'groups/bans-list'); }
   });
 

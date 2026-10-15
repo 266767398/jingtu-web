@@ -1344,17 +1344,26 @@ async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
       // VRChat 黑名单（超管维护：用户名 / 用户URL / 做了什么 的详细信息；群组名册 LEFT JOIN 本表打标）
+      // source：manual=手动维护；group=从 VRChat 群黑名单自动同步而来。
+      // banned：是否当前存在于 VRChat 群黑名单中（1=是，0=已撤销/未同步）——群黑名单与
+      // 本地黑名单联动：VRChat 侧解除封禁后，定时/手动同步会自动撤销本表对应记录。
       `CREATE TABLE IF NOT EXISTS vrc_blacklist (
         id INT AUTO_INCREMENT PRIMARY KEY,
         vrchat_id VARCHAR(100) NULL COMMENT 'VRChat用户ID(usr_前缀，NULL=未填写)',
         username VARCHAR(255) NOT NULL COMMENT '用户名',
         url VARCHAR(2048) DEFAULT '' COMMENT '用户主页URL',
-        reason TEXT COMMENT '做了什么/处置原因详细信息',
+        reason TEXT COMMENT '做了什么/处置原因详细信息（超管可在后台单独编辑）',
+        source VARCHAR(16) NOT NULL DEFAULT 'manual' COMMENT '来源:manual=手动维护,group=群黑名单自动同步',
+        banned TINYINT NOT NULL DEFAULT 1 COMMENT '是否当前在VRChat群黑名单中(1=是,0=已撤销/未同步)',
+        synced_at DATETIME NULL COMMENT '最近一次与VRChat群黑名单同步时间',
         created_by INT NOT NULL COMMENT '添加人(users.id)',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uk_vrchat_id (vrchat_id),
         INDEX idx_created_at (created_at),
-        INDEX idx_username (username)
+        INDEX idx_username (username),
+        INDEX idx_source (source),
+        INDEX idx_banned (banned)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
     ];
 
@@ -1904,6 +1913,27 @@ async function initDatabase() {
     // P2-XX §11.8.8: users 表添加 halo_visible（信任光环显示开关，默认开启）
     try { await holder.pool.query(`ALTER TABLE users ADD COLUMN halo_visible TINYINT DEFAULT 1 COMMENT '信任光环显示开关（1=显示，0=隐藏；控制全站信任环渲染，默认开）'`); } catch (e) {
       if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ halo_visible migration:', e.message);
+    }
+
+    // V6.XX：vrc_blacklist 黑名单联动增强——来源/封禁状态/同步时间/详情更新时间
+    //（群黑名单与本地黑名单合并联动、VRChat 撤销后自动同步撤销所需字段）
+    try { await holder.pool.query(`ALTER TABLE vrc_blacklist ADD COLUMN source VARCHAR(16) NOT NULL DEFAULT 'manual' COMMENT '来源:manual=手动维护,group=群黑名单自动同步'`); } catch (e) {
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ vrc_blacklist.source migration:', e.message);
+    }
+    try { await holder.pool.query(`ALTER TABLE vrc_blacklist ADD COLUMN banned TINYINT NOT NULL DEFAULT 1 COMMENT '是否当前在VRChat群黑名单中(1=是,0=已撤销/未同步)'`); } catch (e) {
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ vrc_blacklist.banned migration:', e.message);
+    }
+    try { await holder.pool.query(`ALTER TABLE vrc_blacklist ADD COLUMN synced_at DATETIME NULL COMMENT '最近一次与VRChat群黑名单同步时间'`); } catch (e) {
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ vrc_blacklist.synced_at migration:', e.message);
+    }
+    try { await holder.pool.query(`ALTER TABLE vrc_blacklist ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`); } catch (e) {
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ vrc_blacklist.updated_at migration:', e.message);
+    }
+    try { await holder.pool.query(`ALTER TABLE vrc_blacklist ADD INDEX idx_source (source)`); } catch (e) {
+      if (e.errno !== 1061 && e.code !== 'ER_DUP_KEYNAME') logger.warn('db-init', '  ⚠️ vrc_blacklist idx_source migration:', e.message);
+    }
+    try { await holder.pool.query(`ALTER TABLE vrc_blacklist ADD INDEX idx_banned (banned)`); } catch (e) {
+      if (e.errno !== 1061 && e.code !== 'ER_DUP_KEYNAME') logger.warn('db-init', '  ⚠️ vrc_blacklist idx_banned migration:', e.message);
     }
 
     // P3-39: users 表添加 online_visible（在线状态隐身开关，broadcastOnlineUsers 过滤用）

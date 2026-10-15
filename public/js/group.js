@@ -268,7 +268,7 @@ async function loadVrcBlacklistView() {
     const data = await res.json();
     const items = data.items || [];
     const countEl = document.getElementById('vrcBlacklistViewCount');
-    if (countEl) countEl.textContent = '共 ' + items.length + ' 条';
+    if (countEl) countEl.textContent = __('admin_vrc.bl_count', { n: items.length });
     const canManage = isVrcBlacklistManager();
     if (!items.length) {
       listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_empty') + '</p>';
@@ -278,18 +278,36 @@ async function loadVrcBlacklistView() {
     }
     const addBar = document.getElementById('vrcBlacklistViewAddBar');
     if (addBar) addBar.style.display = canManage ? '' : 'none';
-    listEl.innerHTML = items.map(it => `
+    listEl.innerHTML = items.map(it => {
+      const name = it.memberName || it.username || it.vrchatId || '-';
+      const avatarHtml = it.avatarUrl
+        ? `<img class="vrc-blacklist-avatar" src="${escAttr(it.avatarUrl)}" alt="" loading="lazy">`
+        : '<span class="vrc-blacklist-avatar vrc-blacklist-avatar-fallback">🚫</span>';
+      const sourceBadge = it.source === 'group'
+        ? `<span class="vrc-blacklist-source">${__('admin_vrc.bl_source_group')}</span>`
+        : `<span class="vrc-blacklist-source vrc-blacklist-source-manual">${__('admin_vrc.bl_source_manual')}</span>`;
+      const bannedBadge = it.banned
+        ? `<span class="vrc-blacklist-banned">${__('admin_vrc.bl_banned')}</span>`
+        : `<span class="vrc-blacklist-banned vrc-blacklist-unbanned">${__('admin_vrc.bl_unbanned')}</span>`;
+      return `
       <div class="vrc-blacklist-item">
         <div class="vrc-blacklist-head">
-          <span class="vrc-blacklist-name">🚫 ${esc(it.username || '')}</span>
+          ${avatarHtml}
+          <span class="vrc-blacklist-name">${esc(name)}</span>
           ${it.vrchatId ? `<span class="vrc-blacklist-id">${esc(it.vrchatId)}</span>` : ''}
+          ${sourceBadge}${bannedBadge}
           ${canManage ? `<button class="btn btn-xs btn-outline ml-auto" data-vrc-action="blacklist-view-remove" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_remove')}">🗑️ ${__('admin_vrc.bl_remove')}</button>` : ''}
         </div>
         ${it.url ? `<div class="vrc-blacklist-url">🔗 <a href="${escAttr(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.url)}</a></div>` : ''}
         ${it.reason ? `<div class="vrc-blacklist-reason">${__('admin_vrc.bl_reason_label')}${esc(it.reason)}</div>` : ''}
-        <div class="vrc-blacklist-meta">${__('admin_vrc.bl_added_by')} ${esc(it.createdByName || '-')} · ${fmtDate(it.createdAt)}</div>
+        <div class="vrc-blacklist-meta">${__('admin_vrc.bl_added_by')} ${esc(it.createdByName || __('admin_vrc.bl_system_sync'))} · ${fmtDate(it.createdAt)}${it.syncedAt ? ' · ' + __('admin_vrc.bl_synced_at') + ' ' + fmtDate(it.syncedAt) : ''}</div>
       </div>
-    `).join('');
+    `;
+    }).join('');
+    // 头像加载失败时兜底隐藏（CSP 无 inline 事件）
+    listEl.querySelectorAll('img.vrc-blacklist-avatar').forEach(function (img) {
+      img.addEventListener('error', function () { this.style.display = 'none'; });
+    });
   } catch (e) {
     const msg = String((e && e.message) || __('admin_vrc.load_failed'));
     listEl.innerHTML = '<p class="text-red text-13">' + (typeof esc === 'function' ? esc(msg) : msg) + '</p>';
@@ -1138,7 +1156,7 @@ async function loadGroupAuditLogs() {
   } catch {}
 }
 
-// ---- 群黑名单（F-23） ----
+// ---- 群黑名单（F-23）：VRChat 群封禁列表，与本地 vrc_blacklist 联动（名字/头像/详情由 /group/bans 富化） ----
 async function loadGroupBans() {
   const list = document.getElementById('groupBansList');
   const countEl = document.getElementById('groupBansCount');
@@ -1153,12 +1171,27 @@ async function loadGroupBans() {
     list.innerHTML = items.map(b => {
       const uid = b.userId || b.bannedUserId || '';
       const name = b.displayName || b.username || uid || '-';
+      const avatarHtml = b.avatarUrl
+        ? `<img class="group-ban-avatar" src="${escAttr(b.avatarUrl)}" alt="" loading="lazy">`
+        : '<span class="group-ban-avatar group-ban-avatar-fallback">🚫</span>';
+      const trustDot = b.trustLevel
+        ? `<span class="group-ban-trust" title="${esc(__('members.vrc_trust_label') + ': ' + b.trustLevel)}">●</span>`
+        : '';
+      const reasonHtml = b.reason
+        ? `<div class="group-ban-reason">${__('admin_vrc.bl_reason_label')}${esc(b.reason)}</div>`
+        : '';
       return `<div class="group-change-item" data-ban-id="${esc(uid)}">
-        <span class="group-change-icon">🚫</span>
-        <span class="group-change-name" title="${esc(uid)}">${esc(name)}</span>
+        ${avatarHtml}
+        <span class="group-change-name" title="${esc(uid)}">${esc(name)}${trustDot}</span>
+        <span class="group-ban-vid mono">${esc(uid)}</span>
+        ${reasonHtml}
         <button class="btn btn-sm btn-outline" data-action="ban-lift">${__('group.unban_btn')}</button>
       </div>`;
     }).join('');
+    // 头像加载失败时兜底隐藏（避免破图；CSP 无 inline 事件，用 addEventListener）
+    list.querySelectorAll('img.group-ban-avatar').forEach(function (img) {
+      img.addEventListener('error', function () { this.style.display = 'none'; });
+    });
     list.querySelectorAll('[data-action="ban-lift"]').forEach(btn => {
       btn.addEventListener('click', () => unbanGroupMember(btn.closest('[data-ban-id]').dataset.banId));
     });

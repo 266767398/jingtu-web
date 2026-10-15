@@ -50,6 +50,12 @@ function handleVrcAction(e) {
         case 'clear-credentials':
           clearSystemVrcCredentials();
           break;
+        case 'blacklist-sync':
+          syncVrcBlacklist();
+          break;
+        case 'blacklist-edit':
+          editVrcBlacklistItem(id);
+          break;
         case 'blacklist-add':
           addVrcBlacklistItem();
           break;
@@ -114,7 +120,9 @@ async function syncVRChatEvents() {
   } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.sync_failed') + ': ' + err.message, 'error'); }
 }
 
-// ========== VRChat 黑名单（超管维护：用户名 / URL / 做了什么） ==========
+// ========== VRChat 黑名单（超管维护：用户名 / 用户URL / 做了什么） ==========
+// 与 VRChat 群黑名单联动：本地库是唯一存储，source=group 表示从群黑名单自动同步而来；
+// banned 表示当前是否在 VRChat 群黑名单中；每条可单独编辑详情并直接写回本地库。
 async function loadVrcBlacklist() {
   if (!currentUser || currentUser.role !== 'super_admin') return;
   const listEl = document.getElementById('vrcBlacklistList');
@@ -125,23 +133,120 @@ async function loadVrcBlacklist() {
     if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(errText(err) || __('admin_vrc.load_failed')); }
     const data = await res.json();
     const items = data.items || [];
-    if (!items.length) { listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_empty') + '</p>'; return; }
-    listEl.innerHTML = items.map(it => `
-      <div class="vrc-blacklist-item">
+    if (!items.length) { listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_empty') + '</p>'; window._vrcBlacklistCache = []; return; }
+    // 供「编辑详情」弹窗取当前记录
+    window._vrcBlacklistCache = items;
+    listEl.innerHTML = items.map(it => {
+      const name = it.memberName || it.username || it.vrchatId || '-';
+      const avatarHtml = it.avatarUrl
+        ? `<img class="vrc-blacklist-avatar" src="${escAttr(it.avatarUrl)}" alt="" loading="lazy">`
+        : '<span class="vrc-blacklist-avatar vrc-blacklist-avatar-fallback">🚫</span>';
+      const sourceBadge = it.source === 'group'
+        ? `<span class="vrc-blacklist-source">${__('admin_vrc.bl_source_group')}</span>`
+        : `<span class="vrc-blacklist-source vrc-blacklist-source-manual">${__('admin_vrc.bl_source_manual')}</span>`;
+      const bannedBadge = it.banned
+        ? `<span class="vrc-blacklist-banned">${__('admin_vrc.bl_banned')}</span>`
+        : `<span class="vrc-blacklist-banned vrc-blacklist-unbanned">${__('admin_vrc.bl_unbanned')}</span>`;
+      const trustDot = it.trustLevel
+        ? `<span class="vrc-blacklist-trust" title="${__('admin_vrc.bl_trust', {t: it.trustLevel})}">●</span>`
+        : '';
+      return `<div class="vrc-blacklist-item">
         <div class="vrc-blacklist-head">
-          <span class="vrc-blacklist-name">🚫 ${esc(it.username || '')}</span>
+          ${avatarHtml}
+          <span class="vrc-blacklist-name">${name}${trustDot}</span>
           ${it.vrchatId ? `<span class="vrc-blacklist-id">${esc(it.vrchatId)}</span>` : ''}
-          <button class="btn btn-xs btn-outline ml-auto" data-vrc-action="blacklist-remove" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_remove')}">🗑️ ${__('admin_vrc.bl_remove')}</button>
+          ${sourceBadge}${bannedBadge}
+          <button class="btn btn-xs btn-outline" data-vrc-action="blacklist-edit" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_edit')}">✏️ ${__('admin_vrc.bl_edit')}</button>
+          <button class="btn btn-xs btn-outline" data-vrc-action="blacklist-remove" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_remove')}">🗑️ ${__('admin_vrc.bl_remove')}</button>
         </div>
         ${it.url ? `<div class="vrc-blacklist-url">🔗 <a href="${escAttr(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.url)}</a></div>` : ''}
         ${it.reason ? `<div class="vrc-blacklist-reason">${__('admin_vrc.bl_reason_label')}${esc(it.reason)}</div>` : ''}
-        <div class="vrc-blacklist-meta">${__('admin_vrc.bl_added_by')} ${esc(it.createdByName || '-')} · ${fmtDate(it.createdAt)}</div>
-      </div>
-    `).join('');
+        <div class="vrc-blacklist-meta">${__('admin_vrc.bl_added_by')} ${esc(it.createdByName || __('admin_vrc.bl_system_sync'))} · ${fmtDate(it.createdAt)}${it.syncedAt ? ' · ' + __('admin_vrc.bl_synced_at') + ' ' + fmtDate(it.syncedAt) : ''}</div>
+      </div>`;
+    }).join('');
+    // 头像加载失败时兜底隐藏（CSP script-src 无 unsafe-inline，内联 onerror 会被拦截，改用事件监听）
+    listEl.querySelectorAll('img.vrc-blacklist-avatar').forEach(function (img) {
+      img.addEventListener('error', function () { this.style.display = 'none'; });
+    });
   } catch (e) {
     const msg = String((e && e.message) || __('admin_vrc.load_failed'));
     listEl.innerHTML = '<p class="text-red text-13">' + (typeof esc === 'function' ? esc(msg) : msg) + '</p>';
   }
+}
+
+// 手动同步 VRChat 群黑名单 ⇄ 本地（超管）
+async function syncVrcBlacklist() {
+  if (!currentUser || currentUser.role !== 'super_admin') {
+    toast(__('admin_vrc.super_admin_only'), 'error');
+    return;
+  }
+  try {
+    toast(__('admin_vrc.bl_syncing'), 'info');
+    const res = await api('/api/admin/vrc-blacklist/sync', { method: 'POST', timeout: 60000 });
+    if (!res.ok) { const err = await res.json().catch(() => ({})); toast(errText(err) || __('admin_vrc.op_failed'), 'error'); return; }
+    const d = await res.json();
+    toast(__('admin_vrc.bl_synced', { a: d.added || 0, u: d.updated || 0, r: d.revoked || 0 }), 'success');
+    loadVrcBlacklist();
+    if (typeof loadGroupBans === 'function') loadGroupBans();
+  } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.op_failed') + ': ' + err.message, 'error'); }
+}
+
+// 编辑黑名单详情（超管；直接写本地库 reason/username/url）
+// 用 createOverlayDialog 定制内容弹窗：保存成功走 _cleanup('confirm') 解锁滚动并关闭，
+// 校验/保存失败则保持弹窗打开继续编辑（不闪关）。
+function editVrcBlacklistItem(id) {
+  if (!currentUser || currentUser.role !== 'super_admin') return;
+  if (!window._vrcBlacklistCache) window._vrcBlacklistCache = [];
+  const item = window._vrcBlacklistCache.find(function (it) { return String(it.id) === String(id); }) || {};
+  const overlay = createOverlayDialog(`
+    <div class="confirm-dialog" style="max-width:460px">
+      <div class="confirm-msg"><b style="font-size:15px">${esc(__('admin_vrc.bl_edit_title'))}</b>
+        ${item.vrchatId ? `<div class="text-muted text-12 mt-4 mono">${esc(item.vrchatId)}</div>` : ''}
+      </div>
+      <div class="form-group mb-8">
+        <label class="form-label">${__('admin_vrc.bl_username')}</label>
+        <input type="text" id="blEditName" class="search-box" value="${escAttr(item.memberName || item.username || '')}" maxlength="255" style="width:100%;box-sizing:border-box">
+      </div>
+      <div class="form-group mb-8">
+        <label class="form-label">${__('admin_vrc.bl_url')}</label>
+        <input type="text" id="blEditUrl" class="search-box" value="${escAttr(item.url || '')}" maxlength="2048" placeholder="https://vrchat.com/home/user/usr_..." style="width:100%;box-sizing:border-box">
+      </div>
+      <div class="form-group mb-8">
+        <label class="form-label">${__('admin_vrc.bl_reason_label2')}</label>
+        <textarea id="blEditReason" rows="4" class="search-box" maxlength="2000" placeholder="${escAttr(__('admin_vrc.bl_reason_ph'))}" style="width:100%;box-sizing:border-box;resize:vertical">${esc(item.reason || '')}</textarea>
+      </div>
+      <div class="confirm-actions" style="margin-top:12px">
+        <button class="btn btn-accent btn-sm" data-action="confirm">${__('admin_vrc.bl_edit_save')}</button>
+        <button class="btn btn-outline btn-sm" data-action="cancel">${__('core.cancel_btn')}</button>
+      </div>
+    </div>`, null, null);
+  const nameEl = overlay.querySelector('#blEditName');
+  const urlEl = overlay.querySelector('#blEditUrl');
+  const reasonEl = overlay.querySelector('#blEditReason');
+  const okBtn = overlay.querySelector('[data-action="confirm"]');
+  const cancelBtn = overlay.querySelector('[data-action="cancel"]');
+  if (nameEl) setTimeout(function () { nameEl.focus({ preventScroll: true }); }, 60);
+  // 覆盖 createOverlayDialog 默认接线：保存成功才关闭，失败保持弹窗
+  okBtn.onclick = async function () {
+    const name = (nameEl.value || '').trim();
+    const url = (urlEl.value || '').trim();
+    const reason = (reasonEl.value || '').trim();
+    if (!name) { toast(__('admin_vrc.bl_need_username'), 'error'); nameEl.focus(); return; }
+    try {
+      const res = await api('/api/admin/vrc-blacklist/' + id, {
+        method: 'PUT',
+        body: { username: name, url, reason },
+        timeout: 30000
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); toast(errText(err) || __('admin_vrc.op_failed'), 'error'); return; }
+      toast(__('admin_vrc.bl_edited'), 'success');
+      overlay._cleanup('confirm');
+      loadVrcBlacklist();
+      if (typeof loadGroupBans === 'function') loadGroupBans();
+    } catch (err) { if (isApiHandledError(err)) return; toast(__('admin_vrc.op_failed') + ': ' + err.message, 'error'); }
+  };
+  cancelBtn.onclick = function () { overlay._cleanup('cancel'); };
+  overlay.onclick = function (e) { if (e.target === overlay) overlay._cleanup('cancel'); };
 }
 
 async function addVrcBlacklistItem() {

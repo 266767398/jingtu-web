@@ -7,6 +7,7 @@ const cacheService = require('./cache_service');
 const logger = require('./logger');
 const { scanAvatarModels } = require('./routes/collections');
 const { syncRosterFromVrc } = require('./routes/groups_helpers');
+const { syncBlacklistWithVrcBans } = require('./routes/admin_vrc_blacklist');
 
 const jobs = [];
 let notificationService = null;
@@ -663,6 +664,25 @@ function startSchedule() {
       logger.error('schedule', '❌ [定时任务] 群组成员状态刷新失败:', e.message);
     } finally {
       onlineRefreshInFlight = false;
+    }
+  }));
+
+  // 每 30 分钟 — VRChat 群黑名单 ⇄ 本地黑名单自动同步
+  // 联动规则见 routes/admin_vrc_blacklist.js：VRChat 侧撤销群封禁后，
+  // 本地 source='group' 的记录自动撤销删除；手动记录保留但标记 banned=0。
+  // 与手动同步共用同一对账函数，幂等；系统账号不可用/令牌桶排队时让路，不误删本地数据。
+  jobs.push(schedule.scheduleJob('*/30 * * * *', async () => {
+    if (!_getVRCCookie) return;
+    if (vrcBacklog() > 0) return;
+    try {
+      const vrcCookie = _getVRCCookie({ session: {} });
+      if (!vrcCookie) return;
+      const result = await syncBlacklistWithVrcBans(getPool(), vrcCookie);
+      if (result.added || result.revoked || result.unbanSynced) {
+        logger.info('schedule', `🔁 [定时任务] 黑名单同步: 新增 ${result.added}，更新 ${result.updated}，自动撤销 ${result.revoked}，解封标记 ${result.unbanSynced}`);
+      }
+    } catch (e) {
+      logger.warn('schedule', '⚠️ [定时任务] 黑名单同步异常（非致命）:', e.message);
     }
   }));
 

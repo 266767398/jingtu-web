@@ -573,6 +573,10 @@ const {
   hasVRCCredentials, resetReloginGuard, getAutoReloginStatus
 } = setupVrcAuth();
 
+// 后台黑名单「同步封禁/解封到 VRChat 群」需要系统账号 cookie（无会话上下文）——
+// 通过黑名单路由模块的注入点注册，供手动同步/定时任务/添加联动使用。
+require('./routes/admin_vrc_blacklist').setSystemVRCCookieFn(getVRCCookie);
+
 // ==================== 权限路由 ====================
 app.use('/api/auth', require('./routes/auth_routes'));
 app.use('/api/profile', require('./routes/profile'));

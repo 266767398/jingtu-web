@@ -733,7 +733,8 @@ el.innerHTML='<div class="table-wrap"><table><tr><th>激活码</th><th>状态</t
 rows.map(c=>{const st=acState(c);
 const expSoon=st==='unused'&&c.expires_at&&new Date(c.expires_at).getTime()-Date.now()<7*86400000;
 const tag={unused:'<span style="color:#4ade80">未使用</span>',used:'<span style="color:#fbbf24">已使用</span>',revoked:'<span style="color:#f87171">已作废</span>',expired:'<span style="color:#f97316">已过期</span>'}[st]+(expSoon?' <span style="color:#f59e0b">⚡即将过期</span>':'');
-const info=c.used?('由 <b>'+esc(c.used_by||'?')+'</b> 于 '+fmt(c.used_at)+' 使用'):(c.revoked?('由 '+esc(c.revoked_by||'?')+' 于 '+fmt(c.revoked_at)+' 作废'+(c.revoked_reason?'（'+esc(c.revoked_reason)+'）':'')):(c.expires_at?('有效期至 <b class="mono">'+fmt(c.expires_at)+'</b>'+(st==='expired'?'<span style="color:#f97316">（已过期）</span>':(expSoon?'<span style="color:#f59e0b">（即将过期）</span>':''))):'-'));
+const usedName=c.used?(c.used_display_name||c.used_by||'?'):'';const usedAcct=c.used&&c.used_by&&c.used_by!==usedName?('（账号 '+esc(c.used_by)+'）'):'';
+const info=c.used?('由 <b>'+esc(usedName)+'</b>'+usedAcct+' 于 '+fmt(c.used_at)+' 使用'):(c.revoked?('由 '+esc(c.revoked_by||'?')+' 于 '+fmt(c.revoked_at)+' 作废'+(c.revoked_reason?'（'+esc(c.revoked_reason)+'）':'')):(c.expires_at?('有效期至 <b class="mono">'+fmt(c.expires_at)+'</b>'+(st==='expired'?'<span style="color:#f97316">（已过期）</span>':(expSoon?'<span style="color:#f59e0b">（即将过期）</span>':''))):'-')));
 return `<tr><td class="mono">${esc(c.code)}</td><td>${tag}</td><td>${esc(c.note||'-')}</td><td>${esc(c.created_by||'-')}</td><td class="mono">${fmt(c.created_at)}</td><td>${info}</td>
 <td><button class="btn btn-ghost btn-sm" data-code="${esc(c.code)}">复制</button>${st==='unused'?` <button class="btn btn-danger btn-sm" data-revoke="${esc(c.code)}">作废</button>`:''}</td></tr>`;}).join('')+'</table></div>';}
 function activationSearch(){AC.kw=$('acKw').value.trim();renderAcList();}
