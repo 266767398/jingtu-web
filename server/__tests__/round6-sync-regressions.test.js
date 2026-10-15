@@ -233,6 +233,20 @@ describe('群组同步不能把自己或整站拖住', () => {
     expect(bad).toEqual([]);
   });
 
+  test('全量同步 upsert 必须写入信任等级（信任光环的数据源；只升不降、空值不覆盖）', () => {
+    // 20261015q 回归：此前 syncRosterFromVrc 的 upsert 不含 trust_level/trust_level_cn，
+    // 新成员插入即 trust_level=''，而脆弱的"每分钟 25 人"补充任务长期补不上，
+    // 导致 /api/group/members 返回全空 trustLevel → 前端信任光环完全不渲染（只显示默认金环）。
+    // 修复：从 GroupMember.user.tags 推断（VRCX 同款），一次全量同步补全全群光环。
+    expect(helpersJs).toMatch(/trust_level_cn/);
+    expect(helpersJs).toMatch(/VALUES\s*\(trust_level\)/);
+    expect(helpersJs).toMatch(/VALUES\s*\(trust_level_cn\)/);
+    expect(helpersJs).toMatch(/trust_checked_at\s*=\s*NOW\(\)/);
+    expect(helpersJs).toMatch(/resolveTrustLevelFromTags\(m\.user\s*&&\s*m\.user\.tags\)/);
+    // 只升不降语义存在（新推断不高于现值时保留现值）
+    expect(helpersJs).toMatch(/trustUpgrade/);
+  });
+
   test('同一时刻只允许一次全量同步（路由层互斥 + 定时任务共用同一把 GET_LOCK）', () => {
     // 前端超时后用户会重复点；并发同步会互相看到对方
     // `UPDATE ... is_member=0` 的中间态，写出成片假的"已离开群组"。
