@@ -9,21 +9,8 @@
  *   invalidate 条件、降级重试顺序逐字不变。
  */
 
-const { vrchatGetGroupMembers, resolveTrustLevelFromTags } = require('../vrc');
+const { vrchatGetGroupMembers } = require('../vrc');
 const logger = require('../logger');
-
-// 信任等级「只升不降」+ 中文映射（与 schedule.js 同款，避免循环依赖就地复制）
-const TRUST_RANK = { legend: 9, veteran: 8, vetted: 7, trusted: 6, known: 5, user: 4, new: 3, visitor: 2, negative: 1 };
-function trustUpgrade(newLevel, curLevel) {
-  if (!newLevel) return curLevel || '';
-  if (!curLevel) return newLevel;
-  const next = TRUST_RANK[newLevel];
-  const curr = TRUST_RANK[curLevel];
-  if (next === undefined) return curLevel;
-  if (curr === undefined) return newLevel;
-  return next >= curr ? newLevel : curLevel;
-}
-const TRUST_CN = { negative:'恶劣玩家', visitor:'游客', new:'新用户', user:'用户', known:'常驻玩家', trusted:'信任', vetted:'审核', veteran:'资深玩家', legend:'资深玩家' };
 
 const sleep = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
@@ -162,7 +149,7 @@ async function syncRosterFromVrc({ pool, groupId, vrcCookie, broadcast }) {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    const [oldMembers] = await conn.query(`SELECT vrchat_id, vrchat_name, is_member, trust_level FROM group_roster WHERE is_member=1`);
+    const [oldMembers] = await conn.query(`SELECT vrchat_id, vrchat_name, is_member FROM group_roster WHERE is_member=1`);
     const oldMap = new Map(oldMembers.map(m => [m.vrchat_id, m]));
 
     await conn.query(`UPDATE group_roster SET is_member=0 WHERE is_member=1`);
@@ -185,26 +172,25 @@ async function syncRosterFromVrc({ pool, groupId, vrcCookie, broadcast }) {
         const isNew = !oldMap.has(uid);
         if (isNew) joinedCount++;
         updatedCount++;
-        // 信任等级：VRChat GroupMember.user（LimitedUser）带系统信任标签，直接推断写库
-        //（F-24 同款 VRCX 推断）。只升不降：新推断值不高于库里现值时保留现值，
-        // 空值不覆盖非空旧值——与 schedule.js 补充任务口径一致，一次全量同步即可补全全群光环。
-        const inferred = resolveTrustLevelFromTags(m.user && m.user.tags);
-        const finalTl = trustUpgrade(inferred, (oldMap.get(uid) && oldMap.get(uid).trust_level) || '');
-        const tlCn = TRUST_CN[finalTl] || finalTl || '';
+        // 注意：信任等级不在此处推断/写入！VRChat 群成员接口（GET /groups/{id}/members）
+        // 返回的 GroupMember.user 是 GroupMemberLimitedUser（精简对象），**不含 tags 字段**
+        //（仅 current_avatar_tags 等头像标签），system_trust_* 信任标签只通过完整资料
+        // /users/{id} 返回。若在此用 m.user.tags 推断，全群都会落成 visitor（20261015r 线上
+        // 实测 467 人全 visitor），污染 trust_level 且挤掉 schedule 补充任务的回填候选。
+        // 正确口径：信任等级只由 schedule.js /users/{id} 补充任务 + 玩家详情接口写入；
+        // 全量同步保持「不写 trust_level」（新成员默认 ''，已有成员保留现值不被覆盖）。
         params.push(
           uid,
           m.user?.displayName || '',
           m.user?.currentAvatarThumbnailImageUrl || m.user?.iconUrl || '',
           m.membershipStatus || 'member',
           JSON.stringify(m.roleIds || []),
-          existingIds.has(uid) ? null : now,
-          finalTl,
-          tlCn
+          existingIds.has(uid) ? null : now
         );
       }
-      const placeholders = chunk.map(() => '(?, ?, ?, 1, ?, ?, ?, NOW(), ?, ?)').join(', ');
+      const placeholders = chunk.map(() => '(?, ?, ?, 1, ?, ?, ?, NOW())').join(', ');
       await conn.query(
-        `INSERT INTO group_roster (vrchat_id, vrchat_name, avatar_url, is_member, membership_status, role_ids, joined_at, synced_at, trust_level, trust_level_cn)
+        `INSERT INTO group_roster (vrchat_id, vrchat_name, avatar_url, is_member, membership_status, role_ids, joined_at, synced_at)
          VALUES ${placeholders}
          ON DUPLICATE KEY UPDATE
            vrchat_name = VALUES(vrchat_name),
@@ -214,9 +200,6 @@ async function syncRosterFromVrc({ pool, groupId, vrcCookie, broadcast }) {
            role_ids = VALUES(role_ids),
            joined_at = COALESCE(group_roster.joined_at, VALUES(joined_at)),
            left_at = NULL,
-           trust_level = VALUES(trust_level),
-           trust_level_cn = VALUES(trust_level_cn),
-           trust_checked_at = NOW(),
            synced_at = NOW()`,
         params
       );

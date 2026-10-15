@@ -1459,6 +1459,25 @@ async function initDatabase() {
       }
     }
 
+    // 20261015r 一次性自愈：20261015q 误从群成员接口（GroupMemberLimitedUser 无 tags）
+    // 推断信任等级，全量同步把全群写成 visitor 且 trust_checked_at=NOW()，挤掉了
+    // schedule 信任补充任务（/users/{id} 唯一正确数据源）的回填候选，真实等级永远补不上。
+    // 这里只复位 trust_checked_at（trust_level 保持 visitor 避免光环暂时消失），让这些行
+    // 立即重新纳入补充任务候选，由 schedule 逐步用真实等级覆盖。只执行一次（system_config 标记）。
+    const [trustHealFlag] = await holder.pool.query(
+      `SELECT config_value FROM system_config WHERE config_key = 'trust_level_heal_20261015r' LIMIT 1`
+    );
+    if (!trustHealFlag || trustHealFlag.length === 0) {
+      logger.info('db-init', '🔄 自愈 20261015q 信任等级污染（复位 visitor 行 trust_checked_at）...');
+      await holder.pool.query(
+        `UPDATE group_roster SET trust_checked_at=NULL WHERE is_member=1 AND trust_level='visitor' AND trust_checked_at IS NOT NULL`
+      );
+      await holder.pool.query(
+        `INSERT IGNORE INTO system_config (config_key, config_value) VALUES ('trust_level_heal_20261015r', '1')`
+      );
+      logger.info('db-init', '✅ 信任等级污染自愈完成（真实等级将由 schedule 补充任务回填）');
+    }
+
     // V9.4: F-17 世界详情缓存补列（world_cache 服务需要完整信息以支撑前端详情展示、减少回源）
     // vrc_worlds_cache 原表仅有展示基础字段，缺少 author_id/world_type/unity_package_url/asset_url/platform
     const worldCacheCols = [

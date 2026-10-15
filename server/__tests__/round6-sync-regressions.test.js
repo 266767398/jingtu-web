@@ -233,18 +233,24 @@ describe('群组同步不能把自己或整站拖住', () => {
     expect(bad).toEqual([]);
   });
 
-  test('全量同步 upsert 必须写入信任等级（信任光环的数据源；只升不降、空值不覆盖）', () => {
-    // 20261015q 回归：此前 syncRosterFromVrc 的 upsert 不含 trust_level/trust_level_cn，
-    // 新成员插入即 trust_level=''，而脆弱的"每分钟 25 人"补充任务长期补不上，
-    // 导致 /api/group/members 返回全空 trustLevel → 前端信任光环完全不渲染（只显示默认金环）。
-    // 修复：从 GroupMember.user.tags 推断（VRCX 同款），一次全量同步补全全群光环。
-    expect(helpersJs).toMatch(/trust_level_cn/);
-    expect(helpersJs).toMatch(/VALUES\s*\(trust_level\)/);
-    expect(helpersJs).toMatch(/VALUES\s*\(trust_level_cn\)/);
-    expect(helpersJs).toMatch(/trust_checked_at\s*=\s*NOW\(\)/);
-    expect(helpersJs).toMatch(/resolveTrustLevelFromTags\(m\.user\s*&&\s*m\.user\.tags\)/);
-    // 只升不降语义存在（新推断不高于现值时保留现值）
-    expect(helpersJs).toMatch(/trustUpgrade/);
+  test('全量同步不推断信任等级（群成员接口无 tags）；补充任务候选纳入 visitor 自愈', () => {
+    // 20261015r 回归：20261015q 曾从 GroupMember.user.tags 推断信任等级随 upsert 写入，
+    // 但群成员接口返回的 GroupMemberLimitedUser **不含 tags**（仅头像/显示名/角色等），
+    // 实测全群 467 人被写成 visitor 且 trust_checked_at=NOW()，挤掉 schedule 补充任务
+    // 候选（trust_level='' 永不命中），真实等级永远回填不上 → 线上光环全错为游客。
+    // 修复方向：信任等级只由 /users/{id} 数据源写入——全量同步保持不写（见 helpers 注释），
+    // 由 schedule 补充任务 + 玩家详情接口写入；补充任务候选纳入 visitor 自愈污染行。
+    const helpersRaw = read(path.join(SRV, 'routes/groups_helpers.js'));
+    expect(helpersJs).not.toMatch(/resolveTrustLevelFromTags\(m\.user/);
+    expect(helpersJs).not.toMatch(/VALUES\s*\(trust_level\)/);
+    expect(helpersJs).not.toMatch(/VALUES\s*\(trust_level_cn\)/);
+    expect(helpersJs).not.toMatch(/trust_checked_at\s*=\s*NOW\(\)/);
+    // 群成员接口无 tags 的说明必须以业务注释形式驻留在 helpers（防回溯再犯）
+    expect(helpersRaw).toMatch(/不含\s*tags/);
+    // schedule 补充任务（唯一正确回填路径）候选纳入 visitor 自愈污染行
+    expect(srv('schedule.js')).toMatch(/trust_level='visitor'/);
+    // db_init 一次性自愈迁移存在（复位被污染行 trust_checked_at）
+    expect(srv('db_init.js')).toMatch(/trust_level_heal_20261015r/);
   });
 
   test('同一时刻只允许一次全量同步（路由层互斥 + 定时任务共用同一把 GET_LOCK）', () => {

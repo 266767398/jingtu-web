@@ -589,9 +589,14 @@ function startSchedule() {
         // P2-56：只补「信任等级缺失 或 头像缺失」的成员，且用 trust_checked_at 去重——
         // 无 tags/无头像的成员（隐私墙/404/删号）若不标记会导致每轮都重复查询同一批人，
         // 占满名额，使真正能补的成员永远轮不上。6 小时后再重试。
+        // 20261015r 自愈：20261015q 曾误从群成员接口（GroupMemberLimitedUser 无 tags）
+        // 推断信任等级，全量同步把全群写成 visitor 且 trust_checked_at=NOW()，真实等级
+        // 永远无法回填。修复 = 全量同步不再写信任等级（groups_helpers.js 同步注释）+
+        // 此处把 visitor 也纳入候选，让 /users/{id}（唯一正确数据源）把真实等级逐步回写。
+        // visitor 按 6h 窗口复查还有保鲜收益：VRChat 信任等级会随行为变化，定期复查不长期失真。
         const [missingTrust] = await pool.query(
           `SELECT vrchat_id, trust_level FROM group_roster WHERE is_member=1
-           AND ((trust_level='' OR trust_level IS NULL) OR (avatar_url='' OR avatar_url IS NULL))
+           AND ((trust_level='' OR trust_level IS NULL OR trust_level='visitor') OR (avatar_url='' OR avatar_url IS NULL))
            AND (trust_checked_at IS NULL OR trust_checked_at < NOW() - INTERVAL 6 HOUR)
            ORDER BY trust_checked_at IS NOT NULL, synced_at ASC
            LIMIT ?`,
