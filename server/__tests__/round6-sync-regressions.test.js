@@ -272,6 +272,22 @@ describe('群组同步不能把自己或整站拖住', () => {
     // 改成一次性取回已存在的 ID + 批量 upsert（校验点在共享同步函数内）
     expect(helpersJs).toMatch(/ON\s+DUPLICATE\s+KEY\s+UPDATE/i);
   });
+
+  test('批量 CASE WHEN 更新必须带 vrchat_id = 列比较（禁止裸 WHEN ? 布尔条件）', () => {
+    // 20261015t 回归：CASE WHEN 分支误写成 fill('WHEN ? THEN ?') —— 第一个 ? 是
+    // vrchat_id 字符串，却作为裸布尔条件交给 MySQL 求值，字符串 'usr_xxx' 转 DOUBLE
+    // 直接抛 Truncated incorrect DOUBLE value，导致手动刷新与定时任务双双失败
+    //（groups_members_sync.js:329 / schedule 群组成员状态刷新）。
+    // 正确写法是 WHEN vrchat_id = ? THEN ?：第一个 ? 参与字符串列比较，不触发数值转换。
+    for (const f of ['routes/groups_members_sync.js', 'schedule.js']) {
+      const src = srv(f);
+      // 不得出现裸 WHEN ? THEN ?（缺列比较）——注意 fill('WHEN ? THEN ?') 字面量
+      expect(src).not.toMatch(/fill\('WHEN\s+\?\s+THEN\s+\?'\)/);
+      // 批量 UPDATE 的 CASE 分支必须带列比较
+      const batchQueries = src.match(/WHEN\s+vrchat_id\s*=\s*\?\s+THEN\s+\?/g) || [];
+      expect(batchQueries.length).toBeGreaterThan(0);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

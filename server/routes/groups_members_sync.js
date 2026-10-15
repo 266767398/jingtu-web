@@ -322,7 +322,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
               if (v === undefined || v === null) v = '';
               pairs.push(r.m.vrchat_id, v);
             }
-            const cases = Array(pairs.length / 2).fill('WHEN ? THEN ?').join(' ');
+            const cases = Array(pairs.length / 2).fill('WHEN vrchat_id = ? THEN ?').join(' ');
             setParts.push(`${col}=CASE ${cases} ELSE ${col} END`);
             allVals.push(...pairs);
           }

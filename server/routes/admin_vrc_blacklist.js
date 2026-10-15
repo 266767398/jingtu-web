@@ -142,7 +142,7 @@ module.exports = function createAdminVrcBlacklistRouter() {
                 b.created_by AS createdBy, u.display_name AS createdByName,
                 gr.display_name AS memberName, gr.avatar_url AS avatarUrl, gr.trust_level AS trustLevel,
                 gr.trust_level_cn AS trustLevelCn,
-                rg.display_name AS registeredName, rg.avatar_url AS registeredAvatar
+                rg.display_name AS registeredName, rg.vrchat_avatar_url AS registeredAvatar
          FROM vrc_blacklist b
          LEFT JOIN users u ON b.created_by = u.id AND b.created_by != 0
          LEFT JOIN group_roster gr ON gr.vrchat_id = b.vrchat_id AND b.vrchat_id IS NOT NULL AND b.vrchat_id != ''

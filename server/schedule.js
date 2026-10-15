@@ -562,7 +562,7 @@ function startSchedule() {
             }
             if (pairs.length === 0) continue; // 全 chunk 都没这列 → 省掉
             // CASE WHEN vrchat_id=? THEN ? ... END AS col
-            const cases = Array(pairs.length / 2).fill('WHEN ? THEN ?').join(' ');
+            const cases = Array(pairs.length / 2).fill('WHEN vrchat_id = ? THEN ?').join(' ');
             setParts.push(`${col}=CASE ${cases} ELSE ${col} END`);
             allVals.push(...pairs);
           }
