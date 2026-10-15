@@ -142,7 +142,12 @@ function requestSizeLimiter(req, res, next) {
 function suspiciousRequestDetector(req, res, next) {
   const ua = (req.headers['user-agent'] || '').toLowerCase();
   if (!ua && req.method !== 'OPTIONS') {
-    logger.info('security', `[SEC] No User-Agent from ${req.ip}: ${req.method} ${req.path}`);
+    // 内部存活/就绪探针（pm2/Docker HEALTHCHECK/监控脚本）几乎都不带 User-Agent，
+    // /api/health/* 属合法无 UA 流量，不记 security 告警——否则每 30s 刷一条刷屏。
+    // 真正的异常由下方根路径/.env/.git 探测拦截承载，无 UA 本身不是攻击信号。
+    if (!/^\/api\/health\//.test(req.path)) {
+      logger.info('security', `[SEC] No User-Agent from ${req.ip}: ${req.method} ${req.path}`);
+    }
   }
   // 仅取路径部分（去掉 query），统一小写
   const urlPath = (req.url.split('?')[0] || '').toLowerCase();
