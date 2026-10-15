@@ -573,12 +573,12 @@ function bindEvents() {
   };
   document.addEventListener('click', window._backToTopClickHandler);
 
-  // 头像文件输入监听
+  // 头像文件输入监听（选择后先进入内置裁剪，确认后才上传）
   const avatarFileInput = document.getElementById('meAvatarUpload');
   if (avatarFileInput) {
     avatarFileInput.addEventListener('change', (e) => {
       if (e.target.files && e.target.files[0]) {
-        uploadAvatar(e.target.files[0]);
+        startAvatarCrop(e.target.files[0]);
       }
     });
   }

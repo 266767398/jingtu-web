@@ -764,6 +764,8 @@ function closeAllModals() {
     if (typeof overlay._cleanup === 'function') overlay._cleanup('cancel');
     else overlay.remove();
   });
+  // 滚动锁自愈对账：清完全部弹窗/遮罩后，若还有残留持锁来源（被 remove 的弹窗），一并释放。
+  if (typeof reconcileBodyScroll === 'function') reconcileBodyScroll();
 }
 function showModal(id) {
   closeAllModals();

@@ -52,6 +52,9 @@ async function showProfile() {
         role: data.role,
         avatarType: data.avatarType,
         avatarVisible: data.avatarVisible !== false,
+        haloVisible: data.haloVisible !== false,
+        trustLevel: data.trustLevel || null,
+        trustLevelCn: data.trustLevelCn || null,
         customAvatarPath: data.customAvatarPath || null,
         avatarUrl: data.avatarUrl,
         qq: data.qq,
@@ -300,6 +303,177 @@ async function uploadAvatar(file) {
     finally { _avatarUploadBusy = false; } // 无论成败释放锁
 }
 
+// ==================== 头像上传内置裁剪（方形取景，canvas 裁剪后上传） ====================
+// 选择图片后先弹裁剪框：固定方形取景，拖动图片定位、滑块/滚轮缩放；确认后把取景区
+// 绘制成 256×256 画布转 blob，再走 uploadAvatar 上传。全部前端完成，不依赖第三方库
+//（CSP 只允许 unpkg 且国内访问不稳，自研 canvas 裁剪最可靠，参照主流头像裁剪交互）。
+let _avatarCrop = null; // { img, objUrl, _sourceFile, cover, scale, dx, dy, vw, vh }
+let _avatarCropOpening = false; // 图片解码异步窗口的防重入标志（双绑定重复触发时去重）
+
+function startAvatarCrop(file) {
+  if (!file) return;
+  if (_avatarUploadBusy || _avatarCropOpening || _avatarCrop) return;
+  if (!/^image\//.test(file.type)) { toast(__('profile.avatar_crop_bad_type'), 'error'); return; }
+  _avatarCropOpening = true;
+  const objUrl = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = function () {
+    _avatarCropOpening = false;
+    const vp = document.getElementById('avatarCropViewport');
+    const zoomEl = document.getElementById('avatarCropZoom');
+    const imgEl = document.getElementById('avatarCropImg');
+    if (!vp || !zoomEl || !imgEl) { URL.revokeObjectURL(objUrl); return; }
+    const vw = vp.clientWidth || 360, vh = vp.clientHeight || 360;
+    if (!img.naturalWidth || !img.naturalHeight) {
+      URL.revokeObjectURL(objUrl);
+      toast(__('profile.avatar_crop_bad_file'), 'error');
+      return;
+    }
+    _avatarCrop = {
+      img, objUrl, _sourceFile: file,
+      vw, vh,
+      nw: img.naturalWidth, nh: img.naturalHeight,
+      // 初始 cover：整图覆盖方形取景区（不裁丢内容，用户再缩放/拖动精修）
+      cover: Math.max(vw / img.naturalWidth, vh / img.naturalHeight),
+      scale: 1, dx: 0, dy: 0
+    };
+    imgEl.src = objUrl;
+    zoomEl.value = 1;
+    applyAvatarCrop();
+    showModal('avatarCropModal');
+  };
+  img.onerror = function () { _avatarCropOpening = false; URL.revokeObjectURL(objUrl); toast(__('profile.avatar_crop_bad_file'), 'error'); };
+  img.src = objUrl;
+}
+
+// 应用当前位移/缩放并夹紧（图片必须始终完整覆盖方形取景区）
+function applyAvatarCrop() {
+  const c = _avatarCrop;
+  if (!c) return;
+  const s = c.cover * c.scale;
+  const dispW = c.nw * s, dispH = c.nh * s;
+  // dx 可取范围 [vw-dispW, 0]：左缘不越过视口右缘、右缘不越过视口左缘，避免露底
+  c.dx = Math.min(0, Math.max(c.vw - dispW, c.dx));
+  c.dy = Math.min(0, Math.max(c.vh - dispH, c.dy));
+  const imgEl = document.getElementById('avatarCropImg');
+  if (imgEl) imgEl.style.transform = 'translate3d(' + c.dx + 'px, ' + c.dy + 'px, 0) scale(' + s + ')';
+}
+
+// 缩放（newScale ∈ [1,4]）；ax/ay 为取景区内屏幕坐标，缩放时保持该点下的图像不动
+function avatarCropZoom(newScale, ax, ay) {
+  const c = _avatarCrop;
+  if (!c) return;
+  const clamped = Math.max(1, Math.min(4, newScale));
+  const r = clamped / c.scale;
+  c.dx = ax - (ax - c.dx) * r;
+  c.dy = ay - (ay - c.dy) * r;
+  c.scale = clamped;
+  applyAvatarCrop();
+}
+
+// 确认裁剪：把当前取景区绘制成 256×256 画布，转 jpeg blob 后走 uploadAvatar
+function confirmAvatarCrop() {
+  const c = _avatarCrop;
+  if (!c) return;
+  const s = c.cover * c.scale;
+  const sx = (-c.dx) / s;  // 视口左上角对应的原图像素坐标（transform-origin 0 0，dx≤0）
+  const sy = (-c.dy) / s;
+  const sw = c.vw / s, sh = c.vh / s;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) { closeAvatarCrop(); return; }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(c.img, sx, sy, sw, sh, 0, 0, 256, 256);
+  canvas.toBlob(function (blob) {
+    const srcFile = _avatarCrop ? _avatarCrop._sourceFile : null;
+    closeAvatarCrop();
+    if (!blob) { toast(__('profile.avatar_crop_failed'), 'error'); return; }
+    const base = (srcFile && srcFile.name) ? srcFile.name.replace(/\.[^.]+$/, '') : 'avatar';
+    const cropped = new File([blob], base + '-crop.jpg', { type: 'image/jpeg' });
+    uploadAvatar(cropped);
+  }, 'image/jpeg', 0.92);
+}
+
+// 清理裁剪状态并关闭弹窗（取消/确定/右上角/点遮罩统一走这里）
+function closeAvatarCrop() {
+  if (_avatarCrop) {
+    if (_avatarCrop.objUrl) URL.revokeObjectURL(_avatarCrop.objUrl);
+    _avatarCrop = null;
+  }
+  const imgEl = document.getElementById('avatarCropImg');
+  if (imgEl) imgEl.removeAttribute('src');
+  const inp = document.getElementById('meAvatarUpload');
+  if (inp) inp.value = ''; // 允许再次选择同一张图
+  closeModal('avatarCropModal');
+}
+
+// 裁剪控件初始化（指针拖动 / 滚轮缩放 / 滑块缩放 / 按钮 / Esc / 取消与遮罩关闭清理）
+if (!window.__avatarCropInit) {
+  window.__avatarCropInit = true;
+  const vp = document.getElementById('avatarCropViewport');
+  const zoomEl = document.getElementById('avatarCropZoom');
+  const confirmBtn = document.getElementById('avatarCropConfirm');
+
+  if (vp) {
+    let drag = null;
+    vp.addEventListener('pointerdown', function (e) {
+      if (!_avatarCrop) return;
+      drag = { startX: e.clientX, startY: e.clientY, dx: _avatarCrop.dx, dy: _avatarCrop.dy };
+      vp.classList.add('dragging');
+      vp.setPointerCapture(e.pointerId);
+    });
+    vp.addEventListener('pointermove', function (e) {
+      if (!drag || !_avatarCrop) return;
+      _avatarCrop.dx = drag.dx + (e.clientX - drag.startX);
+      _avatarCrop.dy = drag.dy + (e.clientY - drag.startY);
+      applyAvatarCrop();
+    });
+    vp.addEventListener('pointerup', function () { drag = null; vp.classList.remove('dragging'); });
+    vp.addEventListener('pointercancel', function () { drag = null; vp.classList.remove('dragging'); });
+    vp.addEventListener('wheel', function (e) {
+      if (!_avatarCrop) return;
+      e.preventDefault();
+      const rect = vp.getBoundingClientRect();
+      avatarCropZoom(_avatarCrop.scale + (e.deltaY < 0 ? 0.15 : -0.15), e.clientX - rect.left, e.clientY - rect.top);
+    }, { passive: false });
+  }
+  if (zoomEl) {
+    zoomEl.addEventListener('input', function () {
+      if (!_avatarCrop) return;
+      avatarCropZoom(parseFloat(zoomEl.value) || 1, _avatarCrop.vw / 2, _avatarCrop.vh / 2);
+    });
+  }
+  if (confirmBtn) confirmBtn.addEventListener('click', confirmAvatarCrop);
+
+  const modalEl = document.getElementById('avatarCropModal');
+  if (modalEl) {
+    modalEl.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeAvatarCrop();
+    });
+  }
+
+  // 取消按钮 / 右上角关闭 / 点遮罩 → 统一清理（核心 closeModal 负责解锁滚动）
+  document.addEventListener('click', function (e) {
+    if (!_avatarCrop) return;
+    const m = document.getElementById('avatarCropModal');
+    if (!m) return;
+    const isBackdrop = e.target === m;
+    const isCancel = !!e.target.closest('[data-action="avatar-crop-cancel"]');
+    const isCloseBtn = !!e.target.closest('[data-modal-close="avatarCropModal"]');
+    if (isBackdrop || isCancel || isCloseBtn) closeAvatarCrop();
+  });
+
+  // 缩放按钮 ±0.25（围绕取景区中心）
+  document.addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-action="avatar-crop-zoom-in"], [data-action="avatar-crop-zoom-out"]');
+    if (!btn || !_avatarCrop) return;
+    const delta = btn.getAttribute('data-action') === 'avatar-crop-zoom-in' ? 0.25 : -0.25;
+    avatarCropZoom(_avatarCrop.scale + delta, _avatarCrop.vw / 2, _avatarCrop.vh / 2);
+  });
+}
+
 async function removeAvatar() {
   showConfirm(__('profile.confirm_remove_avatar'), async () => {
     try {
@@ -351,8 +525,8 @@ function bindAvatarPrefFallback(img) {
 }
 
 function renderAvatarPref() {
-  const vis = document.getElementById('meAvatarVisible');
-  if (vis) vis.checked = !!currentUser.avatarVisible;
+  const halo = document.getElementById('meHaloVisible');
+  if (halo) halo.checked = currentUser.haloVisible !== false;
 
   const custImg = document.getElementById('prefCustomImg');
   const vrcImg = document.getElementById('prefVrcImg');
@@ -374,6 +548,22 @@ function renderAvatarPref() {
   // 未设置的种类置灰不可选
   if (prefCustom) prefCustom.classList.toggle('disabled', !currentUser.customAvatarPath);
   if (prefVrc) prefVrc.classList.toggle('disabled', !currentUser.vrchatAvatarUrl);
+
+  // 我的头像信任光环：光环开关开启且本账号有信任等级 → 按等级着色（无记录保持默认金色无光环）
+  applyMeAvatarHalo();
+}
+
+// 我的信息页头像信任光环渲染：.me-avatar-wrap 套用与群组成员一致的信任环（has-trust-ring + --tc）。
+// 光环开关关闭时不显示；信任等级缺失/未绑定时保持默认样式。
+function applyMeAvatarHalo() {
+  const wrap = document.querySelector('.me-avatar-wrap');
+  if (!wrap) return;
+  const haloOn = currentUser.haloVisible !== false;
+  const trustColor = (typeof window.trustColorOf === 'function' && currentUser.trustLevel)
+    ? window.trustColorOf(currentUser.trustLevel) : '';
+  wrap.classList.toggle('has-trust-ring', !!(haloOn && trustColor));
+  if (haloOn && trustColor) wrap.style.setProperty('--tc', trustColor);
+  else wrap.style.removeProperty('--tc');
 }
 
 function selectAvatarPref(type) {
@@ -397,10 +587,10 @@ document.addEventListener('click', function (e) {
   }
 });
 
-function onAvatarVisibleToggle() {
-  const vis = document.getElementById('meAvatarVisible');
-  if (!vis) return;
-  saveAvatarPref({ avatarVisible: vis.checked ? 1 : 0 });
+function onHaloVisibleToggle() {
+  const halo = document.getElementById('meHaloVisible');
+  if (!halo) return;
+  saveAvatarPref({ haloVisible: halo.checked ? 1 : 0 });
 }
 
 let _avatarPrefSaving = false;
@@ -416,6 +606,7 @@ async function saveAvatarPref(patch) {
       const data = await res.json();
       currentUser.avatarType = data.avatarType;
       currentUser.avatarVisible = data.avatarVisible !== false;
+      currentUser.haloVisible = data.haloVisible !== false;
       currentUser.avatarUrl = data.avatarUrl;
       updateUserUI();
       renderAvatarPref();
@@ -457,8 +648,13 @@ async function refreshVrcBindState() {
       vrchatVerified: meData.vrchatVerified,
       vrchatAvatarUrl: meData.vrchatAvatarUrl,
       avatarType: meData.avatarType,
-      avatarUrl: meData.avatarUrl
+      avatarUrl: meData.avatarUrl,
+      // 绑定/同步后信任等级与光环开关一并回拉，保证「我的头像」光环即时刷新
+      trustLevel: meData.trustLevel || null,
+      trustLevelCn: meData.trustLevelCn || null,
+      haloVisible: meData.haloVisible !== false
     });
+    if (typeof renderAvatarPref === 'function') renderAvatarPref();
     return !!meData.vrchatId;
   } catch (e) {
     return false;

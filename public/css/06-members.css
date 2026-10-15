@@ -368,6 +368,11 @@
 .gm-avatar-wrap.has-trust-ring {
   box-shadow: 0 0 0 2px var(--tc), 0 0 0 4px var(--card2, #1a1d29);
 }
+/* 我的信息页头像信任光环：与群成员卡片一致的信任环着色（80px 大图，加一圈辉光更醒目） */
+.me-avatar-wrap.has-trust-ring {
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--tc), 0 0 0 4px rgba(255,255,255,.25), 0 0 16px color-mix(in srgb, var(--tc) 45%, transparent);
+}
 .gm-status-pill {
   display: inline-block; max-width: 100%; padding: 2px 9px; border-radius: 999px;
   font-size: 11px; font-weight: 600; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px;
@@ -506,3 +511,41 @@
   .avatar-detail-current { flex-direction: column; align-items: flex-start; }
   .avatar-detail-current-actions { align-self: stretch; justify-content: flex-end; }
 }
+/* ===== 头像上传裁剪弹窗（前端 canvas 方形裁剪） ===== */
+.modal-title { font-size: 15px; font-weight: 700; margin: 0; }
+.avatar-crop-dialog { width: min(440px, 92vw); }
+.avatar-crop-body { padding: 14px 16px; }
+.avatar-crop-viewport {
+  position: relative; width: min(360px, 78vw); height: min(360px, 78vw);
+  margin: 0 auto; border-radius: 12px; overflow: hidden; cursor: grab;
+  background:
+    linear-gradient(45deg, #2a2f45 25%, transparent 25%, transparent 75%, #2a2f45 75%),
+    linear-gradient(45deg, #2a2f45 25%, transparent 25%, transparent 75%, #2a2f45 75%);
+  background-color: #232839;
+  background-size: 22px 22px;
+  background-position: 0 0, 11px 11px;
+  border: 1px solid var(--border);
+  user-select: none; touch-action: none;
+}
+.avatar-crop-viewport.dragging { cursor: grabbing; }
+.avatar-crop-viewport img {
+  position: absolute; left: 0; top: 0; max-width: none; max-height: none;
+  transform-origin: 0 0; will-change: transform; pointer-events: none;
+}
+/* 中心方形裁剪框（固定方形取景，图片在后方拖动/缩放） */
+.avatar-crop-viewport::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  box-shadow: inset 0 0 0 2px rgba(124,92,252,.9), inset 0 0 0 9999px rgba(0,0,0,.28);
+  border-radius: 12px;
+}
+.avatar-crop-hint { text-align: center; margin: 10px 6px 8px; }
+.avatar-crop-zoom { display: flex; align-items: center; gap: 10px; justify-content: center; }
+.avatar-crop-zoom-btn {
+  width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--card2); color: var(--text); font-size: 16px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: var(--transition-fast);
+}
+.avatar-crop-zoom-btn:hover { border-color: var(--accent); color: var(--accent2); background: var(--hover); }
+.avatar-crop-zoom input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+.avatar-crop-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; }
+.avatar-crop-actions .btn { min-width: 88px; }

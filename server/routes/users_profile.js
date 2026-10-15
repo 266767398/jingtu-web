@@ -70,19 +70,22 @@ router.get('/me/profile', requireAuth, async (req, res) => {
     let rows;
     try {
       [rows] = await getPool().query(
-        `SELECT id, login_id, display_name, vrchat_id, vrchat_name, vrchat_verified, role, banned, avatar_type,
-                custom_avatar_path, vrchat_avatar_url, avatar_visible, qq_number_enc, birthday, email, last_login,
-                location, lat, lng, location_visible, preferences, created_at, updated_at
-         FROM users WHERE id = ? AND deleted_at IS NULL`,
+        `SELECT u.id, u.login_id, u.display_name, u.vrchat_id, u.vrchat_name, u.vrchat_verified, u.role, u.banned, u.avatar_type,
+                u.custom_avatar_path, u.vrchat_avatar_url, u.avatar_visible, u.halo_visible, u.qq_number_enc, u.birthday, u.email, u.last_login,
+                u.location, u.lat, u.lng, u.location_visible, u.preferences, u.created_at, u.updated_at,
+                gr.trust_level AS self_trust_level, gr.trust_level_cn AS self_trust_level_cn
+         FROM users u
+         LEFT JOIN group_roster gr ON gr.vrchat_id = u.vrchat_id AND gr.vrchat_id IS NOT NULL AND gr.vrchat_id != ''
+         WHERE u.id = ? AND u.deleted_at IS NULL`,
         [req.session.userId]
       );
     } catch (e) {
       if (e.code === 'ER_BAD_FIELD_ERROR') {
         [rows] = await getPool().query(
-          `SELECT id, login_id, display_name, vrchat_id, vrchat_name, vrchat_verified, role, banned, avatar_type,
-                  custom_avatar_path, vrchat_avatar_url, avatar_visible, qq_number_enc, birthday,
-                  location, lat, lng, location_visible, preferences, created_at, updated_at
-           FROM users WHERE id = ?`,
+          `SELECT u.id, u.login_id, u.display_name, u.vrchat_id, u.vrchat_name, u.vrchat_verified, u.role, u.banned, u.avatar_type,
+                  u.custom_avatar_path, u.vrchat_avatar_url, u.avatar_visible, u.halo_visible, u.qq_number_enc, u.birthday,
+                  u.location, u.lat, u.lng, u.location_visible, u.preferences, u.created_at, u.updated_at
+           FROM users u WHERE u.id = ?`,
           [req.session.userId]
         );
       } else {
@@ -105,9 +108,15 @@ router.get('/me/profile', requireAuth, async (req, res) => {
       banned: !!u.banned,
       avatarType: u.avatar_type,
       avatarVisible: u.avatar_visible === 0 ? false : true,
+      // 信任光环显示开关（1=显示，0=隐藏），供前端控制全站信任环渲染
+      haloVisible: u.halo_visible !== 0,
       customAvatarPath: u.custom_avatar_path || null,
       avatarUrl: getAvatarUrl(u),
       qq: decryptAES(u.qq_number_enc),
+      // 自身信任等级（来自群成员表 group_roster，左连避免未绑定 VRChat 时炸接口）。
+      // 供「我的信息」头像光环显示；未绑定/无记录 → null，前端回退金色默认环。
+      trustLevel: u.self_trust_level || null,
+      trustLevelCn: u.self_trust_level_cn || null,
       birthday: u.birthday,
       location: u.location,
       lat: u.lat,
@@ -428,7 +437,7 @@ router.delete('/me/avatar', requireAuth, async (req, res) => {
 router.post('/me/avatar-pref', requireAuth, async (req, res) => {
   try {
     const uid = req.session.userId;
-    const { avatarVisible, avatarType } = req.body || {};
+    const { avatarVisible, avatarType, haloVisible } = req.body || {};
     const updates = [];
     const values = [];
 
@@ -438,6 +447,14 @@ router.post('/me/avatar-pref', requireAuth, async (req, res) => {
       }
       updates.push('avatar_visible = ?');
       values.push(avatarVisible ? 1 : 0);
+    }
+
+    if (haloVisible !== undefined) {
+      if (haloVisible !== 0 && haloVisible !== 1 && haloVisible !== false && haloVisible !== true) {
+        return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'haloVisible 必须是 0/1');
+      }
+      updates.push('halo_visible = ?');
+      values.push(haloVisible ? 1 : 0);
     }
 
     if (avatarType !== undefined) {
@@ -481,11 +498,12 @@ router.post('/me/avatar-pref', requireAuth, async (req, res) => {
     }
     await req.session.save();
 
-    const [rows] = await getPool().query(`SELECT avatar_type, avatar_visible, custom_avatar_path, vrchat_avatar_url FROM users WHERE id = ?`, [uid]);
+    const [rows] = await getPool().query(`SELECT avatar_type, avatar_visible, halo_visible, custom_avatar_path, vrchat_avatar_url FROM users WHERE id = ?`, [uid]);
     const u = rows[0];
     ok(res, {
       avatarType: u.avatar_type,
       avatarVisible: u.avatar_visible === 0 ? false : true,
+      haloVisible: u.halo_visible !== 0,
       // avatarUrl 需要 custom_avatar_path / vrchat_avatar_url 才能算出，
       // 只查 avatar_type,avatar_visible 会让 getAvatarUrl 恒为 null → 前端 saveAvatarPref
       // 把 currentUser.avatarUrl 覆写成 null，切显示开关/选来源后头像立即变默认

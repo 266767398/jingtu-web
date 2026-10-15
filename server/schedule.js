@@ -13,6 +13,28 @@ let notificationService = null;
 let _getVRCCookie = null;
 let _wsService = null;
 
+// 信任等级阶序（数值越大等级越高），用于「信任光环只升不降」判定。
+// 信任等级随同步/补充查询更新，但任何新推断值都不得把数据库里已有的更高等级降下来——
+// 例如某成员此前是 trusted，后来 tags 读不全（隐私墙）被推断成 visitor，则必须保留 trusted。
+const TRUST_RANK = { legend: 9, veteran: 8, vetted: 7, trusted: 6, known: 5, user: 4, new: 3, visitor: 2, negative: 1 };
+
+/**
+ * 只升不降：比较新推断值 newLevel 与数据库现值 curLevel，返回应写入 DB 的信任等级。
+ * - DB 无记录（空/缺失）→ 直接用新值
+ * - 新值缺失 → 保留现值
+ * - 新值等级高于或等于现值 → 升级/维持（返回新值）
+ * - 新值等级低于现值 → 保留现值（不降级，trusted 不会被 visitor 覆盖）
+ */
+function trustUpgrade(newLevel, curLevel) {
+  if (!curLevel) return newLevel || '';
+  if (!newLevel) return curLevel;
+  const next = TRUST_RANK[newLevel];
+  const curr = TRUST_RANK[curLevel];
+  if (curr === undefined) return newLevel;   // 现值不在阶序中 → 直接用新值
+  if (next === undefined) return curLevel;   // 新值不在阶序中 → 保留现值
+  return next >= curr ? newLevel : curLevel; // 只升不降
+}
+
 function setNotificationService(ns) {
   notificationService = ns;
 }
@@ -475,7 +497,8 @@ function startSchedule() {
           userIcon: info.userIcon || '',
           // 空值不覆盖非空旧值——共享态链路此前缺字段且用 '' 无条件覆盖，
           // 导致群成员的 status_description/trust_level 被定时任务清空（自定义状态与信任光环丢失）。
-          trustLevel: info.trustLevel || prev.trust_level || '',
+          // 信任等级另加「只升不降」：新值等级不低于现值才写入（trusted 不会被 visitor 覆盖）。
+          trustLevel: trustUpgrade(info.trustLevel, prev.trust_level || ''),
           statusDescription: info.statusDescription || prev.status_description || '',
         });
         touched++;
@@ -566,7 +589,7 @@ function startSchedule() {
         // 无 tags/无头像的成员（隐私墙/404/删号）若不标记会导致每轮都重复查询同一批人，
         // 占满名额，使真正能补的成员永远轮不上。6 小时后再重试。
         const [missingTrust] = await pool.query(
-          `SELECT vrchat_id FROM group_roster WHERE is_member=1
+          `SELECT vrchat_id, trust_level FROM group_roster WHERE is_member=1
            AND ((trust_level='' OR trust_level IS NULL) OR (avatar_url='' OR avatar_url IS NULL))
            AND (trust_checked_at IS NULL OR trust_checked_at < NOW() - INTERVAL 6 HOUR)
            ORDER BY trust_checked_at IS NOT NULL, synced_at ASC
@@ -588,7 +611,9 @@ function startSchedule() {
               if (userData && (Array.isArray(userData.tags) || userData.currentAvatarThumbnailImageUrl || userData.iconUrl || userData.profilePicOverrideThumbnail)) {
                 // F-24: 从 tags 推断信任等级（VRCX 同款），替代不存在的 userData.trustLevel
                 const tl = resolveTrustLevelFromTags(userData.tags);
-                const tlCn = ({ negative:'恶劣玩家', visitor:'游客', new:'新用户', user:'用户', known:'常驻玩家', trusted:'信任', vetted:'审核', veteran:'资深玩家', legend:'资深玩家' })[tl] || tl;
+                // 只升不降：即使本轮 tags 读不全推断出 visitor，也比对 DB 现值保留更高等级。
+                const finalTl = trustUpgrade(tl, row.trust_level || '');
+                const tlCn = ({ negative:'恶劣玩家', visitor:'游客', new:'新用户', user:'用户', known:'常驻玩家', trusted:'信任', vetted:'审核', veteran:'资深玩家', legend:'资深玩家' })[finalTl] || finalTl;
                 // P2-51: /users/{id} 返回完整资料，顺带补全头像字段（friends API 不返回头像）。
                 // V9.3: currentAvatarThumbnailImageUrl 已被 VRChat 弃用（2025 个人资料体系改版），
                 // 新字段 iconUrl（个人资料图标）对非好友/隐私受限成员也始终返回，作为头像来源。
@@ -596,7 +621,7 @@ function startSchedule() {
                 const profilePic = userData.profilePicOverrideThumbnail || '';
                 await pool.query(
                   `UPDATE group_roster SET trust_level=?, trust_level_cn=?, avatar_url=?, profile_pic_override_thumbnail=?, trust_checked_at=NOW() WHERE vrchat_id=?`,
-                  [tl, tlCn, avatarUrl, profilePic, row.vrchat_id]
+                  [finalTl, tlCn, avatarUrl, profilePic, row.vrchat_id]
                 );
                 enriched++;
               } else {

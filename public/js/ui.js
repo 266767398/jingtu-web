@@ -368,6 +368,9 @@ setTimeout(updateTabIndicator, 300);
 function switchTab(tab, force) {
   // M1: 标签切换统一滚动回顶（覆盖桌面顶部栏 / 移动端底部栏 / 深链 / 后退）
   window.scrollTo({ top: 0, behavior: 'auto' });
+  // 滚动锁自愈：来回切换功能选项后若某覆盖层残留锁导致滚不动，先对账清锁。
+  // 放在最前，即使切到同一 tab（early return 之前）也能触发修复。
+  if (typeof reconcileBodyScroll === 'function') reconcileBodyScroll();
   // 首页隐藏顶部标签栏（首页底部已有功能栏），其余页面显示
   document.body.classList.toggle('home-active', tab === 'home');
   if (activeTab === tab && !force) return;
@@ -963,6 +966,52 @@ function unlockBodyScroll(owner) {
   }
 }
 
+// 滚动锁自愈：检查当前每个持锁来源是否仍对应"可见的锁定 UI"。
+// 弹窗/覆盖层被直接 remove 或所在 tab 重渲染（未走 closeModal）时，
+// 持锁来源会残留 → body 永远 overflow:hidden 滚不动，刷新才恢复。
+// 这里在切 tab 等时机做对账：没有任何来源仍可见就清空全部锁并恢复滚动。
+function reconcileBodyScroll() {
+  const hasVisibleLockUI = [..._scrollLockOwners].some(function (owner) {
+    if (typeof owner !== 'string') {
+      // DOM 元素持锁人（无障碍层）：仍连接且处于打开态才算有效
+      return !!owner.isConnected &&
+        (owner.classList.contains('show') || (owner.style && owner.style.display && owner.style.display !== 'none'));
+    }
+    if (owner === 'mobile-tab-menu') {
+      const m = document.getElementById('mobileMoreMenu');
+      return !!m && m.classList.contains('show');
+    }
+    if (owner === 'smart-search') {
+      const p = document.getElementById('smartSearchPanel');
+      return !!p && !p.classList.contains('d-none');
+    }
+    if (owner === 'generic-lightbox') {
+      return !!document.querySelector('.generic-lightbox.show');
+    }
+    if (owner === 'vrc-bind-guide') {
+      return !!document.querySelector('.vrc-bind-guide');
+    }
+    if (owner.indexOf('modal:') === 0) {
+      const el = document.getElementById(owner.slice('modal:'.length));
+      return !!el && isModalOpen(el);
+    }
+    if (owner.indexOf('posts-overlay:') === 0 ||
+        owner.indexOf('confirm-overlay:') === 0 ||
+        owner.indexOf('admin-photo:') === 0) {
+      // posts 编辑器/详情、confirm 确认层、后台相册遮罩：存在可见覆盖层才算有效
+      return !!document.querySelector('.modal-overlay.active, .confirm-overlay, .modal-overlay');
+    }
+    return false;
+  });
+  if (!hasVisibleLockUI) {
+    _scrollLockOwners.clear();
+    _scrollLockOriginalOverflow = null;
+    if (document.body.style.overflow === 'hidden') {
+      document.body.style.overflow = '';
+    }
+  }
+}
+
 // ==================== 移动端「更多」溢出菜单 ====================
 // 底部栏只放得下 9 个入口，其余 tab 收进「更多」弹出菜单，复用 window.switchTab。
 // TAB_ITEMS 列出全部桌面 tab，保证手机上没有任何功能入口被遗漏。
@@ -1178,6 +1227,9 @@ function syncModalA11y() {
       if (modalEl.hasAttribute('aria-modal')) modalEl.removeAttribute('aria-modal');
       _modalStack.splice(idx, 1);
       unlockBodyScroll(modalEl);
+      // 弹窗被直接 remove（未走 closeModal）时，showModal 加的 'modal:'+id 字符串锁
+      // 会残留，导致 body 永久 overflow:hidden。此处一并释放，杜绝滚动锁泄漏。
+      if (modalEl.id) unlockBodyScroll('modal:' + modalEl.id);
     }
   }
   modals.forEach(function (modalEl) {

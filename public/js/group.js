@@ -182,6 +182,11 @@ function renderGroupMembers(members) {
     const trustColor = (typeof window.trustColorOf === 'function')
       ? window.trustColorOf(m.trustLevel)
       : ((window.VRC_TRUST_COLOR && m.trustLevel && window.VRC_TRUST_COLOR[(m.trustLevel || '').toLowerCase()]) || '');
+    // 【光环显示开关】用户可在「我的信息 → 头像显示设置」关闭信任光环；
+    // 关闭后全站（含群成员卡片）不渲染彩色信任环，统一回落到默认金色环。
+    const haloOn = !window.currentUser || window.currentUser.haloVisible !== false;
+    const ringClass = (trustColor && haloOn) ? ' has-trust-ring' : '';
+    const ringStyle = (trustColor && haloOn) ? ` style="--tc:${trustColor}"` : '';
     // 【P2-62】状态行只显示玩家自定义状态文字，无自定义时仅显示圆点（不再兜底__('auto_group_3')）
     const statusText = status.text;
 
@@ -192,7 +197,7 @@ function renderGroupMembers(members) {
          data-vrchat-id="${escAttr(m.vrchatId || m.vrcUserId || '')}"
          data-tip-dot="${status.dotClass}"
          data-action="group-open-vrc-card">
-      <div class="gm-avatar-wrap${trustColor ? ' has-trust-ring' : ''}"${trustColor ? ` style="--tc:${trustColor}"` : ''}>
+      <div class="gm-avatar-wrap${ringClass}"${ringStyle}>
         <div class="gm-avatar-link" style="cursor:pointer">
           ${avatar ? `<img src="${escAttr(avatar)}" class="gm-avatar" alt="${esc(displayName)}" data-avatar="${escAttr(proxied || '')}" loading="lazy" data-avatar-fail-src="${escAttr(avatar)}">` : ''}
           <img src="/api/avatar/default" class="gm-avatar" alt="${esc(displayName)}" data-gm-default-avatar="1" style="display:none" loading="lazy">

@@ -261,6 +261,7 @@ async function initDatabase() {
         custom_avatar_path VARCHAR(255) COMMENT '自定义头像路径',
         vrchat_avatar_url VARCHAR(500) COMMENT 'VRChat头像URL（currentAvatarThumbnailImageUrl）',
         avatar_visible TINYINT DEFAULT 1 COMMENT '头像是否显示（1=显示，0=隐藏；与 avatar_type 选哪种解耦）',
+        halo_visible TINYINT DEFAULT 1 COMMENT '信任光环显示开关（1=显示，0=隐藏；控制全站信任环渲染，默认开）',
         online_visible TINYINT DEFAULT 1 COMMENT '在线状态是否公开展示（1=可见，0=隐身）',
         qq_number_enc VARCHAR(500) COMMENT 'QQ号 AES-256-CBC加密',
         birthday DATE NULL COMMENT '生日（自愿填写）',
@@ -1898,6 +1899,11 @@ async function initDatabase() {
     // V7.13 §11.8.8: users 表添加 avatar_visible（头像总显示开关，与 avatar_type 选哪种解耦）
     try { await holder.pool.query(`ALTER TABLE users ADD COLUMN avatar_visible TINYINT DEFAULT 1 COMMENT '头像是否显示（1=显示，0=隐藏；与 avatar_type 选哪种解耦）'`); } catch (e) {
       if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ avatar_visible migration:', e.message);
+    }
+
+    // P2-XX §11.8.8: users 表添加 halo_visible（信任光环显示开关，默认开启）
+    try { await holder.pool.query(`ALTER TABLE users ADD COLUMN halo_visible TINYINT DEFAULT 1 COMMENT '信任光环显示开关（1=显示，0=隐藏；控制全站信任环渲染，默认开）'`); } catch (e) {
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ halo_visible migration:', e.message);
     }
 
     // P3-39: users 表添加 online_visible（在线状态隐身开关，broadcastOnlineUsers 过滤用）
