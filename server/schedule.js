@@ -204,10 +204,10 @@ function startSchedule() {
   // 群组规模阈值：成员数 <= 此值时每轮刷新全员（实时性强、无游标滞后）；
   // 超过时才启用游标分批，避免大群单次打爆 VRChat API。
   const FULL_REFRESH_THRESHOLD = 80;
-  // 名册兜底同步冷却：与手动「同步 VRChat」按用户冷却（5 分钟）保持一致。
+  // 名册兜底同步冷却：与手动「同步 VRChat」按用户冷却（1 小时）保持一致。
   // 冷却窗口内若一直无人手动点同步，定时任务在窗口结束后由系统账号兜底同步一次成员名册
   // （头像/名字/新成员加入），保证玩家信息在无人操作时也会自动更新。
-  const ROSTER_SYNC_COOLDOWN_MS = 5 * 60 * 1000;
+  const ROSTER_SYNC_COOLDOWN_MS = 60 * 60 * 1000;
 
   jobs.push(schedule.scheduleJob('0 * * * * *', async () => {
     if (!_getVRCCookie) return;
@@ -221,6 +221,16 @@ function startSchedule() {
       if (!vrcCookie) return;
 
       const pool = getPool();
+      // ── 定时任务开关（管理面板「系统设置」，默认开启）──
+      // system_config 存字符串：'0' 表示关闭，其余（含缺省/空）视为开启。
+      // sched_roster_refresh：定时刷新群组成员状态（名册兜底同步 + 在线状态刷新 + 广播）；
+      // sched_trust_enrich：定时补充成员信任等级（老成员光环回填，与新玩家检测相互独立）。
+      const [cfgRows] = await pool.query(
+        `SELECT config_key, config_value FROM system_config WHERE config_key IN ('sched_roster_refresh','sched_trust_enrich')`
+      );
+      const cfgMap = new Map((cfgRows || []).map(r => [r.config_key, r.config_value]));
+      const rosterRefreshOn = (cfgMap.get('sched_roster_refresh') || '1') !== '0';
+      const trustEnrichOn = (cfgMap.get('sched_trust_enrich') || '1') !== '0';
       // 仅取真实 VRChat 成员（vrchat_id 非空），NULL/空的直接排除，
       // 既不浪费 API 额度，也避免探活/刷新时对非法 ID 抛错导致整轮被静默跳过。
       const [members] = await pool.query(
@@ -245,12 +255,12 @@ function startSchedule() {
       }
 
       // ── 名册兜底同步（V8.2）──
-      // 手动「同步 VRChat」按用户冷却（5 分钟）窗口内若一直没人点同步，窗口结束后
+      // 手动「同步 VRChat」按用户冷却（1 小时）窗口内若一直没人点同步，窗口结束后
       // 由系统账号兜底同步一次成员名册（头像/名字/新成员加入/离开），确保玩家信息
       // 在无人手动操作时也会自动更新。判定基准用 group_sync_log 里最近一次 full 成功
       // 同步的 created_at——synced_at 会被下方在线状态刷新每轮写回，不能当名册时间戳。
       // 与手动同步共用 GET_LOCK 互斥：正在手动同步/其它实例执行时本轮让路（幂等）。
-      if (systemCookieUsable) {
+      if (rosterRefreshOn && systemCookieUsable) {
         let rosterLockConn = null;
         try {
           const [fullSync] = await pool.query(
@@ -281,6 +291,8 @@ function startSchedule() {
                 groupId: VRC_GROUP_ID,
                 vrcCookie,
                 broadcast: async () => { await forceRosterBroadcast(VRC_GROUP_ID); },
+                // 定时名册兜底：新成员信任检测跟随「信任等级补充」开关（关 = 定时不做，仅手动检测）
+                syncTrustNew: trustEnrichOn,
               });
               logger.info('schedule', `🔄 [定时任务] 名册兜底同步完成: 共 ${r.total} 人，新加入 ${r.joined}，离开 ${r.left}，更新 ${r.updated}`);
             }
@@ -298,8 +310,13 @@ function startSchedule() {
         }
       }
 
+      // ── 在线状态刷新主体（受「定时刷新群组成员状态」开关控制）──
+      // 开关关闭时跳过 API 拉取 / DB 写回 / 广播；广播所需变量在此提升声明，
+      // 仅实际刷新时才会被赋值（关闭时广播块整体跳过，零副作用）。
+      // 信任补充块（trustEnrichOn）独立于本开关，见下方单独门控。
+      let toProcess, touched, changedMembers, batchWrites;
+      if (rosterRefreshOn) {
       // 本批成员：小群组每轮刷新全员；大群组按游标轮转环形覆盖（避免第51名之后永远不刷新）。
-      let toProcess;
       if (members.length <= FULL_REFRESH_THRESHOLD) {
         toProcess = members;
         onlineRefreshCursor = 0;
@@ -319,9 +336,9 @@ function startSchedule() {
       // 可信度等级：3=群友共享(好友视角) 2=系统账号好友 1=非好友回退 0=未知
       const TRUST_SHARED = 3, TRUST_FRIEND = 2, TRUST_FALLBACK = 1;
 
-      const changedMembers = []; 
-      const batchWrites = [];      
-      let touched = 0;
+      changedMembers = [];
+      batchWrites = [];
+      touched = 0;
 
       // 批量解析在线状态：优先用 /auth/user/friends（VRCX 同款数据源，好友状态最准确），
       // 非好友再回退到 /users/{id}（公开资料，非好友通常显示 offline，受 VRChat 隐私限制）。
@@ -573,6 +590,7 @@ function startSchedule() {
           );
         }
       }
+      } // ┄ rosterRefreshOn 门控（刷新主体结束）：信任补充块独立受 trustEnrichOn 控制 ┄
 
       // ── 信任等级 + 头像联合补充查询（P2-44 / F-24）──
       // VRChat 不直接暴露 trustLevel 字段：信任等级编码在用户 tags 的 system_trust_* 中
@@ -604,7 +622,7 @@ function startSchedule() {
         );
         // P1-34: 有用户在排队等令牌时本轮跳过信任补充——它是纯后台增强任务，
         // 错过一轮 30 分钟无感；用户请求被拖到 12s 超时有感。
-        if (missingTrust.length > 0 && systemCookieUsable && vrcBacklog() === 0) {
+        if (trustEnrichOn && missingTrust.length > 0 && systemCookieUsable && vrcBacklog() === 0) {
           let enriched = 0;
           for (const row of missingTrust) {
             // P1-34: 循环中途若用户请求开始排队，立即收手，剩余名额留给下一轮
@@ -658,12 +676,15 @@ function startSchedule() {
 
       // 每轮刷新后，仅广播"正式翻转"的成员 + 权威统计（前端增量更新，无需整页轮询）。
       // 数据来源统一为 group_roster，确保前端展示与服务器实际状态一致。
-      if (touched > 0 && _wsService) {
-        const groups = await getGroupStatsSnapshot(pool);
-        _wsService.broadcastRosterUpdate({ groups, members: changedMembers });
-        logger.info('schedule', `🔄 [定时任务] 群组成员状态刷新: ${touched}/${toProcess.length} 人写回 [cursor=${onlineRefreshCursor}/${members.length}]，正式翻转 ${changedMembers.length} 人，已广播`);
-      } else if (touched > 0) {
-        logger.info('schedule', `🔄 [定时任务] 群组成员状态刷新: ${touched}/${toProcess.length} 人写回 [cursor=${onlineRefreshCursor}/${members.length}]`);
+      // 广播跟随 rosterRefreshOn：开关关闭时跳过（touched 未被赋值，此处一并规避）。
+      if (rosterRefreshOn) {
+        if (touched > 0 && _wsService) {
+          const groups = await getGroupStatsSnapshot(pool);
+          _wsService.broadcastRosterUpdate({ groups, members: changedMembers });
+          logger.info('schedule', `🔄 [定时任务] 群组成员状态刷新: ${touched}/${toProcess.length} 人写回 [cursor=${onlineRefreshCursor}/${members.length}]，正式翻转 ${changedMembers.length} 人，已广播`);
+        } else if (touched > 0) {
+          logger.info('schedule', `🔄 [定时任务] 群组成员状态刷新: ${touched}/${toProcess.length} 人写回 [cursor=${onlineRefreshCursor}/${members.length}]`);
+        }
       }
     } catch (e) {
       logger.error('schedule', '❌ [定时任务] 群组成员状态刷新失败:', e.message);

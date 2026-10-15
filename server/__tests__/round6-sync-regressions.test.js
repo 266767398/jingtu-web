@@ -244,9 +244,17 @@ describe('群组同步不能把自己或整站拖住', () => {
     expect(helpersJs).not.toMatch(/resolveTrustLevelFromTags\(m\.user/);
     expect(helpersJs).not.toMatch(/VALUES\s*\(trust_level\)/);
     expect(helpersJs).not.toMatch(/VALUES\s*\(trust_level_cn\)/);
-    expect(helpersJs).not.toMatch(/trust_checked_at\s*=\s*NOW\(\)/);
+    // 批量 upsert 的列清单不得出现 trust_checked_at（新成员检测在事务外单独 UPDATE）
+    expect(helpersJs).not.toMatch(/INSERT\s+INTO\s+group_roster\s*\([\s\S]{0,120}trust_checked_at/);
+    // V12 新玩家信任检测（信任光环自动显示）：事务 commit 后走 /users/{id} 单条 UPDATE
+    // 写 trust_checked_at 是允许且期望的——但只允许单条 UPDATE ... WHERE vrchat_id=?
+    // 这种形态（正确数据源 /users/{id}），禁止回退到批量 upsert 里写信任字段。
+    expect(helpersJs).toMatch(/trust_checked_at\s*=\s*NOW\(\)[\s\S]{0,60}WHERE\s+vrchat_id\s*=\s*\?/);
     // 群成员接口无 tags 的说明必须以业务注释形式驻留在 helpers（防回溯再犯）
     expect(helpersRaw).toMatch(/不含\s*tags/);
+    // V12 开关贯通：手动「同步 VRChat」恒检测新玩家；定时名册兜底跟随「信任等级补充」开关
+    expect(groupsSyncJs).toMatch(/syncTrustNew:\s*true/);
+    expect(srv('schedule.js')).toMatch(/syncTrustNew:\s*trustEnrichOn/);
     // schedule 补充任务（唯一正确回填路径）候选纳入 visitor 自愈污染行
     expect(srv('schedule.js')).toMatch(/trust_level='visitor'/);
     // db_init 一次性自愈迁移存在（复位被污染行 trust_checked_at）

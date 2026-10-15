@@ -34,7 +34,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
   const SYNC_LOCK_NAME = 'group_members_sync:' + GROUP_ID;
   // 全量同步 / 在线状态刷新已对全体登录用户开放，用内存冷却（按用户隔离，重启即清零）
   // 防止频繁触发打爆 VRChat 限流（429）。
-  const SYNC_COOLDOWN_MS = 5 * 60 * 1000;   // 全量同步：5 分钟一次
+  const SYNC_COOLDOWN_MS = 60 * 60 * 1000;   // 全量同步：1 小时一次
   const REFRESH_COOLDOWN_MS = 30 * 1000;    // 在线状态刷新：30 秒一次
   // 同步分页拉取：单页遇上游 429 时本页重试次数与页间限速，降低触发 VRChat 全局限流的概率，
   // 并避免"一次 429 就让整次同步 abort"导致前端反复点、雪崩 429。
@@ -63,7 +63,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       return fail(res, 401, '缺少可用的 VRChat 登录状态', { detail: '请先在个人中心绑定您的 VRChat 账号，或在管理面板的"系统 VRChat 账号"卡片中登录系统账号', code: 'VRC_SYSTEM_OFFLINE' });
     }
     const pool = getPool();
-    // 全量同步是重操作，已对全体登录用户开放，走「按用户」冷却（5 分钟一次）再走互斥锁，
+    // 全量同步是重操作，已对全体登录用户开放，走「按用户」冷却（1 小时一次）再走互斥锁，
     // 防止有人反复点同步把 VRChat API 打到限流（429）。冷却按用户隔离，一人同步不冻结他人。
     const nowMs = Date.now();
     const syncUserKey = String((req.user && (req.user.id || req.user.login_id)) || 'unknown');
@@ -114,6 +114,8 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         groupId: GROUP_ID,
         vrcCookie,
         broadcast: async () => { await schedule.forceRosterBroadcast(GROUP_ID); },
+        // 手动「同步 VRChat」恒为新加入成员检测信任等级（自动显示信任光环）
+        syncTrustNew: true,
       });
       ok(res, result);
     } catch (e) {

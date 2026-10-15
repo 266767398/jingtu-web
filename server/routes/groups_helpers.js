@@ -9,7 +9,7 @@
  *   invalidate 条件、降级重试顺序逐字不变。
  */
 
-const { vrchatGetGroupMembers } = require('../vrc');
+const { vrchatGetGroupMembers, vrchatGetUser, resolveTrustLevelFromTags, vrcBacklog } = require('../vrc');
 const logger = require('../logger');
 
 const sleep = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -103,7 +103,10 @@ const SYNC_PAGE_GAP_MS = 250;
 const SYNC_MAX_PAGES = 200;
 const SYNC_CHUNK = 200;
 
-async function syncRosterFromVrc({ pool, groupId, vrcCookie, broadcast }) {
+async function syncRosterFromVrc({ pool, groupId, vrcCookie, broadcast, syncTrustNew }) {
+  // syncTrustNew：是否对该轮「新加入成员」执行信任等级检测（走 /users/{id} 正确数据源，
+  // 自动写 trust_level/trust_checked_at，前端即时显示信任光环）。手动「同步 VRChat」恒为
+  // true；定时名册兜底由管理面板「信任等级补充」开关控制（关 = 定时不做，仅手动检测）。
   // — 1) 分页拉取全部成员（429 本页退避重试；页间限速；页数上限防上游忽略 offset 死循环）—
   let allMembers = [];
   let offset = 0;
@@ -245,6 +248,41 @@ async function syncRosterFromVrc({ pool, groupId, vrcCookie, broadcast }) {
 
     await conn.commit();
     const result = { total: allMembers.length, joined: joinedCount, left: leftCount, updated: updatedCount };
+    // — 2.5) 新加入成员信任等级自动检测（V12：信任光环自动显示）—
+    // 与信任等级补充任务（schedule.js）不同：这里是「刚加入的玩家」即时检测，走 /users/{id}
+    // （唯一含 tags 的正确数据源）推断信任等级直接写库，手动同步时前端刷新即可看到光环。
+    // 保护：批次上限 10 人/轮 + 令牌桶 vrcBacklog 中断 + 1.2s 间隔，绝不阻塞同步主流程
+    //（任何单点失败仅标记 trust_checked_at，静默跳过，由后续补充/详情接口兜底）。
+    if (syncTrustNew === true && joinedMembers.length > 0 && vrcCookie) {
+      const TRUST_NEW_BATCH = 10;
+      const TRUST_NEW_CN = { negative:'恶劣玩家', visitor:'游客', new:'新用户', user:'用户', known:'常驻玩家', trusted:'信任', vetted:'审核', veteran:'资深玩家', legend:'资深玩家' };
+      let detected = 0;
+      for (const m of joinedMembers.slice(0, TRUST_NEW_BATCH)) {
+        if (vrcBacklog() > 2) break; // 有用户在排队等令牌 → 剩余名额留给下一轮
+        try {
+          const resp = await vrchatGetUser(m.userId, vrcCookie);
+          const userData = resp && resp.status === 200 ? resp.data : null;
+          if (userData && Array.isArray(userData.tags)) {
+            const tl = resolveTrustLevelFromTags(userData.tags) || '';
+            const tlCn = TRUST_NEW_CN[tl] || tl;
+            const avatarUrl = userData.currentAvatarThumbnailImageUrl || userData.iconUrl || '';
+            await pool.query(
+              `UPDATE group_roster SET trust_level=?, trust_level_cn=?, avatar_url=?, trust_checked_at=NOW() WHERE vrchat_id=?`,
+              [tl, tlCn, avatarUrl, m.userId]
+            );
+            detected++;
+          } else {
+            // 未拿到 tags（隐私墙/非好友/404）：仅标记已尝试，避免每轮重复查同一批
+            await pool.query(`UPDATE group_roster SET trust_checked_at=NOW() WHERE vrchat_id=?`, [m.userId]);
+          }
+        } catch (e) {
+          logger.warn('groups', `⚠️ [新成员信任检测] ${m.userId}: ${e.message}`);
+          try { await pool.query(`UPDATE group_roster SET trust_checked_at=NOW() WHERE vrchat_id=?`, [m.userId]); } catch (e3) { /* 忽略 */ }
+        }
+        await sleep(1200); // VRChat 认证接口约 40-60 次/分钟，与信任补充任务同速限流
+      }
+      if (detected > 0) logger.info('groups', `✅ [新成员信任检测] 本轮为 ${detected}/${Math.min(joinedMembers.length, TRUST_NEW_BATCH)} 名新成员写入信任等级`);
+    }
     // 成员加入/离开后立即广播最新在线统计（广播失败不阻断同步结果）
     if (typeof broadcast === 'function') {
       try { await broadcast(result); } catch (be) { logger.warn('groups', 'sync 后广播群组状态失败', be.message); }

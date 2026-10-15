@@ -1033,6 +1033,9 @@ async function loadSystemConfig() {
       setVal('cfgMediaMirrors', mirrorsToLines(cfg.media_provider_mirrors));
       setVal('cfgMediaMirrorFirst', cfg.media_provider_mirror_first);
       setVal('cfgMediaTimeout', cfg.media_provider_timeout_ms);
+      // VRChat 群组定时任务开关（默认开启，空值视为 1）
+      setVal('cfgSchedRosterRefresh', cfg.sched_roster_refresh === undefined || cfg.sched_roster_refresh === null ? '1' : cfg.sched_roster_refresh);
+      setVal('cfgSchedTrustEnrich', cfg.sched_trust_enrich === undefined || cfg.sched_trust_enrich === null ? '1' : cfg.sched_trust_enrich);
       if (cfg.hero_title) {
         const pt = document.getElementById('heroPreviewTitle');
         if (pt) pt.textContent = cfg.hero_title;
@@ -1105,6 +1108,8 @@ async function saveSystemConfig() {
     media_provider_mirrors: JSON.stringify(linesToMirrors(getVal('cfgMediaMirrors'))),
     media_provider_mirror_first: getVal('cfgMediaMirrorFirst'),
     media_provider_timeout_ms: getVal('cfgMediaTimeout'),
+    sched_roster_refresh: getVal('cfgSchedRosterRefresh'),
+    sched_trust_enrich: getVal('cfgSchedTrustEnrich'),
   };
   if (!config.site_name) { toast(__('fill_required'), 'error'); return; }
   try {
