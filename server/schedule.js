@@ -331,8 +331,14 @@ function startSchedule() {
       }
 
       // 读取本批成员已有的正式状态与候选时间戳，用于稳定化判定（单条查询，避免 N+1）
+      // 必须一并读取 trust_level / status_description：下方 batchWrites 用
+      // `info.trustLevel || prev.trust_level || ''` 做「空值不覆盖非空旧值」保护，
+      // 而 info 来自在线状态解析器（不含信任等级/tags）。此前本 SELECT 漏了这两列，
+      // 导致 prev.trust_level / prev.status_description 恒为 undefined，保护形同虚设——
+      // 每一轮刷新都把信任等级与自定义状态写回空串（信任光环丢失、全部退回金色默认环）。
       const [existingRows] = await pool.query(
-        `SELECT vrchat_id, is_online, status_candidate, status_changed_at, status_trust, vrchat_status
+        `SELECT vrchat_id, is_online, is_in_game, status_candidate, status_changed_at, status_trust, vrchat_status,
+                trust_level, status_description
          FROM group_roster WHERE vrchat_id IN (?)`,
         [idsToProcess]
       );
@@ -476,20 +482,70 @@ function startSchedule() {
       }
 
       // 批量写回：touchOnly 仅刷新 synced_at；其余整行更新（含稳定化字段）。
-      for (const w of batchWrites) {
-        if (w.touchOnly) {
-          await pool.query(`UPDATE group_roster SET synced_at=NOW() WHERE vrchat_id=?`, [w.vrchatId]);
-        } else {
+      // 性能修复：原版对 batchWrites 逐条 await pool.query 串行写入，
+      // 几百成员 = 几百次数据库往返（N+1 反模式，与 presence/contribute 同类）。
+      // 改为：touchOnly 聚合为单条 IN 查询；非touchOnly 用 CASE WHEN 批量 UPDATE 分片写入，
+      // 分片大小 BATCH_UPDATE_SIZE 防止过长 SQL 撞 max_allowed_packet（保守 200）。
+      // 两种写入互不影响——touchOnly 只是"我还活着"心跳，不会覆盖非touchOnly 的真实状态。
+      const BATCH_UPDATE_SIZE = 200;
+      const touchIds = [];
+      const fullRows = [];
+      for (const w of batchWrites) (w.touchOnly ? touchIds : fullRows).push(w);
+
+      // touchOnly：一次 IN 查询刷所有 synced_at
+      if (touchIds.length > 0) {
+        for (let i = 0; i < touchIds.length; i += BATCH_UPDATE_SIZE) {
+          const chunk = touchIds.slice(i, i + BATCH_UPDATE_SIZE).map(r => r.vrchatId);
           await pool.query(
-            `UPDATE group_roster SET display_name=?, avatar_url=?, avatar_id=?, is_online=?, is_in_game=?, vrchat_status=?, location=?, world_name=?, is_friend=?,
-                is_vrc_plus=?, age_verified=?, age_verification_status=?, profile_pic_override_thumbnail=?, user_icon=?, trust_level=?,
-                status_description=?,
-                status_candidate=?, status_changed_at=?, status_trust=?, last_seen=NOW(), synced_at=NOW()
-             WHERE vrchat_id=?`,
-            [w.displayName, w.avatarUrl, w.avatarId || '', w.isOnline ? 1 : 0, w.isInGame ? 1 : 0, w.status, w.location, w.worldName, w.isFriend ? 1 : 0,
-             w.isVrcPlus, w.ageVerified, w.ageVerificationStatus, w.profilePicOverrideThumbnail, w.userIcon, w.trustLevel || '',
-             w.statusDescription || '',
-             w.candidate === null ? null : w.candidate, w.changedAt, w.trust, w.vrchatId]
+            `UPDATE group_roster SET synced_at=NOW() WHERE vrchat_id IN (${chunk.map(() => '?').join(',')})`,
+            chunk
+          );
+        }
+      }
+
+      // 非touchOnly：分片 CASE WHEN 批量 UPDATE。
+      // 思路：遍历 chunk 里每一行，对每个需要更新的列生成 WHEN vrchat_id=? THEN ? 序列；
+      // 所有列的 WHEN/THEN 对共享同一份 vrchat_id，保证对齐（chunk 每行的 key 不完全一致也安全——
+      // 缺失列自动取该行的列默认值/原值，不会把其他行的值串过来）。
+      const colMap = {
+        displayName: 'display_name', avatarUrl: 'avatar_url', avatarId: 'avatar_id',
+        isOnline: 'is_online', isInGame: 'is_in_game', status: 'vrchat_status',
+        location: 'location', worldName: 'world_name', isFriend: 'is_friend',
+        isVrcPlus: 'is_vrc_plus', ageVerified: 'age_verified', ageVerificationStatus: 'age_verification_status',
+        profilePicOverrideThumbnail: 'profile_pic_override_thumbnail', userIcon: 'user_icon',
+        trustLevel: 'trust_level', statusDescription: 'status_description',
+        candidate: 'status_candidate', changedAt: 'status_changed_at', trust: 'status_trust'
+      };
+      const boolCols = new Set(['is_online', 'is_in_game', 'is_friend', 'is_vrc_plus', 'age_verified']);
+      if (fullRows.length > 0) {
+        for (let i = 0; i < fullRows.length; i += BATCH_UPDATE_SIZE) {
+          const chunk = fullRows.slice(i, i + BATCH_UPDATE_SIZE);
+          const ids = chunk.map(r => r.vrchatId);
+          // 一次遍历同时构造 setClause 和 allVals：
+          // 对每个 camelCase key → snake_case 列，生成 CASE WHEN vrchat_id=? THEN ? 序列。
+          // bool 列自动 0/1 转换；null 原样传递；candidate === null 显式传 null（不是空串）。
+          const setParts = [];
+          const allVals = [];
+          for (const k of Object.keys(colMap)) {
+            const col = colMap[k];
+            const pairs = [];
+            for (const r of chunk) {
+              if (!(k in r)) continue; // 该行不含此列 → 跳过该 CASE 分支（用列原值兜底）
+              let v = r[k];
+              if (boolCols.has(col)) v = v ? 1 : 0;
+              else if (v === null || v === undefined) v = null;
+              pairs.push(r.vrchatId, v);
+            }
+            if (pairs.length === 0) continue; // 全 chunk 都没这列 → 省掉
+            // CASE WHEN vrchat_id=? THEN ? ... END AS col
+            const cases = Array(pairs.length / 2).fill('WHEN ? THEN ?').join(' ');
+            setParts.push(`${col}=CASE ${cases} ELSE ${col} END`);
+            allVals.push(...pairs);
+          }
+          if (setParts.length === 0) continue;
+          await pool.query(
+            `UPDATE group_roster SET ${setParts.join(',')}, last_seen=NOW(), synced_at=NOW() WHERE vrchat_id IN (${ids.map(() => '?').join(',')})`,
+            [...allVals, ...ids]
           );
         }
       }
@@ -501,14 +557,18 @@ function startSchedule() {
       // 逐个调用 vrchatGetUser 推断并补充写入 DB（同时解决群成员头像长期缺项）。
       // 每轮最多处理 TRUST_ENRICH_BATCH 个成员，避免触发 429 限流。
       try {
-        const TRUST_ENRICH_BATCH = 20; 
+        // 20 → 25：上轮发现信任等级被 stable refresh 刷空后，回填速度受限于每轮 20 条。
+        // 结合本轮已把主链路回退从 25 压到 12，额外 +5 条不会触令牌桶上限；
+        // 去重 12h → 6h：隐私墙/404 成员的重试窗口减半，既能加速真正能补的成员上抬，
+        // 也不会让查不到的成员长期占坑（仍有 backlog>2 中断保护 + 令牌桶限流）。
+        const TRUST_ENRICH_BATCH = 25; 
         // P2-56：只补「信任等级缺失 或 头像缺失」的成员，且用 trust_checked_at 去重——
         // 无 tags/无头像的成员（隐私墙/404/删号）若不标记会导致每轮都重复查询同一批人，
-        // 占满 20 个名额，使真正能补的成员永远轮不上。12 小时后再重试。
+        // 占满名额，使真正能补的成员永远轮不上。6 小时后再重试。
         const [missingTrust] = await pool.query(
           `SELECT vrchat_id FROM group_roster WHERE is_member=1
            AND ((trust_level='' OR trust_level IS NULL) OR (avatar_url='' OR avatar_url IS NULL))
-           AND (trust_checked_at IS NULL OR trust_checked_at < NOW() - INTERVAL 12 HOUR)
+           AND (trust_checked_at IS NULL OR trust_checked_at < NOW() - INTERVAL 6 HOUR)
            ORDER BY trust_checked_at IS NOT NULL, synced_at ASC
            LIMIT ?`,
           [TRUST_ENRICH_BATCH]

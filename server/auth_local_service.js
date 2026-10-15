@@ -408,6 +408,14 @@ router.post('/login', async (req, res) => {
       const lockMinutes = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
       return fail(res, 423, `账户已被锁定，请${lockMinutes}分钟后再试`, { code: 'ACCOUNT_LOCKED', lockMinutes });
     }
+    // S4 修复：锁定已期满但 failed_login_attempts 未清零（旧逻辑解锁后计数仍残留，
+    // 首次再错即 ≥5 再次锁定，攻击者可借机对账户做持续性 DoS）。期满时先清零再放行。
+    if (user.locked_until && new Date(user.locked_until) <= new Date()) {
+      try {
+        await getPool().query(`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?`, [user.id]);
+        user.failed_login_attempts = 0; user.locked_until = null;
+      } catch {}
+    }
 
     if (!user.password_hash) return fail(res, 401, '该账号未设置密码，请联系管理员或使用初始化流程重新设置', { code: 'NO_PASSWORD' });
     const valid = await verifyPassword(password, user.password_hash);
@@ -499,6 +507,13 @@ router.post('/2fa/verify', auth2faLimiter, async (req, res) => {
     if (user.locked_until && new Date(user.locked_until) > new Date()) {
       const lockMinutes = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
       return fail(res, 200, `账户已被锁定，请${lockMinutes}分钟后再试`, { code: 'ACCOUNT_LOCKED', lockMinutes });
+    }
+    // S4 修复：与密码登录同口径——锁定期满后先清零失败计数再放行，避免残留计数致首次再错即再锁
+    if (user.locked_until && new Date(user.locked_until) <= new Date()) {
+      try {
+        await getPool().query(`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?`, [user.id]);
+        user.failed_login_attempts = 0; user.locked_until = null;
+      } catch {}
     }
 
     if (!totp.verifyTotp(user.totp_secret, trimmedCode)) {

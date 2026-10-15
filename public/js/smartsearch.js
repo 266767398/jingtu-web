@@ -73,6 +73,7 @@
   // ---------- 状态 ----------
   var results = [];
   var cursor = -1;
+  var prevFocus = null; // F3 修复：记录打开面板前的焦点，关闭时归还
 
   function panelIsOpen() {
     var p = document.getElementById('smartSearchPanel');
@@ -86,6 +87,9 @@
     var input = document.getElementById('smartSearchInput');
     if (input) { input.value = ''; runSearch(''); setTimeout(function() { input.focus(); }, 0); }
     document.addEventListener('keydown', globalEscHandler, true);
+    // F3 修复：面板打开时锁定背景滚动，避免底层页面滚出露底
+    if (typeof lockBodyScroll === 'function') lockBodyScroll('smart-search');
+    prevFocus = document.activeElement;
   }
 
   function closePanel() {
@@ -94,6 +98,12 @@
     results = [];
     cursor = -1;
     document.removeEventListener('keydown', globalEscHandler, true);
+    // F3 修复：解锁背景滚动 + 焦点归还触发搜索的控件
+    if (typeof unlockBodyScroll === 'function') unlockBodyScroll('smart-search');
+    if (prevFocus && prevFocus !== document.body && typeof prevFocus.focus === 'function') {
+      try { prevFocus.focus(); } catch (e) { /* 元素已移除等场景直接忽略 */ }
+    }
+    prevFocus = null;
   }
 
   function globalEscHandler(e) {
@@ -388,7 +398,9 @@
   }
 
   function searchPosts(q) {
-    return api('/api/posts?q=' + encodeURIComponent(q) + '&pageSize=10')
+    // B1 修复：原调 GET /api/posts?q= 被后端忽略 q（返回最新动态，伪搜索）。
+    // 改为专用搜索端点 /api/posts/search（要求 q≥2 字符）
+    return api('/api/posts/search?q=' + encodeURIComponent(q))
       .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
       .then(function(data) { return (data && data.posts) || []; })
       .catch(function() { return []; });

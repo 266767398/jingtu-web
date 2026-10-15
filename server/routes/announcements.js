@@ -28,9 +28,19 @@ router.post('/:id/attachments', requireAdminCompat, async (req, res) => {
     if (announcement.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '公告不存在');
     const { filename, url, fileSize, mimeType } = req.body;
     if (!filename || !url) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '缺少文件名或URL');
+    // S8 修复：附件 url 协议/路径白名单——仅允许 http/https 与 / 开头的站内相对路径，
+    // 拦截 file://、javascript:、// 协议相对等异常协议（防钓鱼/伪协议链接入库展示）
+    const urlStr = String(url).trim();
+    const isHttp = /^https?:\/\//i.test(urlStr);
+    const isRelative = /^\/(?!\/)/.test(urlStr);
+    if (!isHttp && !isRelative) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '附件URL仅允许 http/https 或站内相对路径');
+    }
+    if (urlStr.length > 2048) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '附件URL过长');
+    if (String(filename).length > 255) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '文件名不能超过255字');
     await getPool().query(
       'INSERT INTO announcement_attachments (announcement_id, filename, url, file_size, mime_type) VALUES (?, ?, ?, ?, ?)',
-      [id, filename, url, fileSize || 0, mimeType || '']
+      [id, filename, urlStr, fileSize || 0, mimeType || '']
     );
     await logOper(req.session.userId, '上传公告附件', `公告ID: ${id}, 文件: ${filename}`);
     ok(res);

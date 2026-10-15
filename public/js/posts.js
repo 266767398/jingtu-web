@@ -455,6 +455,7 @@ function editPost(postId) {
         + '</select></div></div>'
         + '<div class="modal-footer"><button type="button" class="btn" data-action="edit-post-close">' + __('posts.cancel_btn') + '</button><button class="btn btn-primary" data-action="edit-post-submit" data-post-id="' + postId + '" id="editPostBtn">' + __('posts.save_btn') + '</button></div></div>';
       document.body.appendChild(overlay);
+      if (typeof lockBodyScroll === 'function') lockBodyScroll('posts-overlay:edit');
       overlay.addEventListener('click', function(e) { if (e.target === overlay) closeEditPostModal(); });
       // M8: 自制遮罩挂 _cleanup + 启用 Esc 关闭，纳入全局关闭链
       overlay._cleanup = closeEditPostModal;
@@ -491,6 +492,7 @@ function closeEditPostModal() {
   // 而本模态框留在 DOM 里、按钮还是 disabled，下次打开就再也提交不了。
   var modal = document.getElementById('editPostModal');
   var overlay = modal && modal.closest('.modal-overlay');
+  if (typeof unlockBodyScroll === 'function') unlockBodyScroll('posts-overlay:edit');
   if (overlay) overlay.remove();
 }
 
@@ -611,6 +613,7 @@ function showCreatePostModal() {
     + '</select></div></div>'
     + '<div class="modal-footer"><button type="button" class="btn" data-action="create-post-close">' + __('posts.cancel_btn') + '</button><button class="btn btn-primary" data-action="create-post-submit" id="createPostBtn">' + __('posts.publish_btn') + '</button></div></div>';
   document.body.appendChild(overlay);
+  if (typeof lockBodyScroll === 'function') lockBodyScroll('posts-overlay:create');
   overlay.addEventListener('click', function(e) { if (e.target === overlay) closeCreatePostModal(); });
   overlay._cleanup = closeCreatePostModal;
   enablePostsOverlayEsc();
@@ -625,6 +628,7 @@ function closeCreatePostModal() {
   }
   var modal = document.getElementById('createPostModal');
   var overlay = modal && modal.closest('.modal-overlay');
+  if (typeof unlockBodyScroll === 'function') unlockBodyScroll('posts-overlay:create');
   if (overlay) overlay.remove();
 }
 
@@ -720,6 +724,7 @@ function openPostDetailModal(postId) {
       + '<div class="post-detail-comment-input"><input type="text" id="postDetailCommentInput" placeholder="' + __('posts.placeholder') + '" maxlength="2000" data-action="detail-comment-input" data-post-id="' + postId + '"><button class="btn btn-primary" data-action="detail-comment-submit" data-post-id="' + postId + '">' + __('posts.send_btn') + '</button></div>'
       + '</div></div>';
     document.body.appendChild(overlay);
+    if (typeof lockBodyScroll === 'function') lockBodyScroll('posts-overlay:detail');
     overlay.setAttribute('data-post-id', postId);
     overlay.addEventListener('click', function(e) { if (e.target === overlay) closePostDetail(); });
     overlay._cleanup = closePostDetail;
@@ -806,6 +811,7 @@ function showPostDetail(postId) {
 
 function closePostDetail() {
   var overlay = document.getElementById('postDetailModalOverlay');
+  if (typeof unlockBodyScroll === 'function') unlockBodyScroll('posts-overlay:detail');
   if (overlay) overlay.remove();
 }
 

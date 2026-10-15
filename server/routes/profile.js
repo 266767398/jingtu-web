@@ -301,11 +301,15 @@ router.get('/:userId', async (req, res) => {
     const isLoggedIn = !!currentUserId;
 
     // 查询用户基本信息（preferences 内含 motto/bio/website/coverImage/social_links 等资料字段）
+    // 注意：users 表**没有** bio 列（bio 的真相源是 user_profile 表 + users.preferences，
+    // 见下方 L340 的 user_profile 查询与 L357 的合并逻辑）。此前误把 bio 放进本 SELECT，
+    // 导致线上每访问一次公开主页就 500（Unknown column 'bio' in 'field list'）。
+    // 同时补 location_visible —— 下方隐私判定要用 user.location_visible，之前未 SELECT 恒为 undefined。
     const [users] = await getPool().query(
       `SELECT id, login_id AS loginId, display_name AS displayName,
               avatar_type, custom_avatar_path, vrchat_avatar_url,
               role, vrchat_id AS vrchatId, vrchat_name AS vrchatName,
-              birthday, location, bio, preferences
+              birthday, location, location_visible, preferences
        FROM users WHERE id = ? AND deleted_at IS NULL`,
       [targetUserId]
     );

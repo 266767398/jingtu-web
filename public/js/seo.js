@@ -69,12 +69,26 @@
     l.setAttribute('href', href);
   }
 
+  // CSP S-1：script-src 已移除 'unsafe-inline'，改为每响应一次性 nonce，
+  // 任何 <script>（含 type="application/ld+json" 这类结构化数据块）缺 nonce
+  // 都会被浏览器判为违规并在控制台刷屏。这里从页面内已带 nonce 的内联脚本
+  // （index.html 尾部的事件绑定块，由服务端中间件注入）继承同一 nonce，
+  // 使 JSON-LD 与本次响应 CSP 头匹配，消除违规报告。
+  function _cspNonce() {
+    try {
+      var el = document.querySelector('script[nonce]');
+      if (!el) return '';
+      return el.nonce || el.getAttribute('nonce') || '';
+    } catch (e) { return ''; }
+  }
   function upsertJsonLd(id, payload) {
     var old = document.getElementById(id);
     if (old) old.parentNode.removeChild(old);
     var s = document.createElement('script');
     s.type = 'application/ld+json';
     s.id = id;
+    var n = _cspNonce();
+    if (n) s.setAttribute('nonce', n);
     s.textContent = JSON.stringify(payload);
     document.head.appendChild(s);
   }
@@ -87,22 +101,32 @@
   if (o) setCanonical(o + '/');
 
   // JSON-LD: Organization + WebSite（含 SearchAction 提示潜在站点搜索框）
-  upsertJsonLd('jsonld-org', {
-    '@context': 'https://schema.org',
-    '@type': 'Organization',
-    name: _tr('seo.site_name', '境途同游'),
-    url: o || '/',
-    logo: (o || '') + '/assets/group-avatar.png',
-    sameAs: [],
-    description: _tr('seo.entry_desc', '面向 VRChat 玩家的社群平台：群组相册、活动报名、动态分享、成员地图与实时聊天。')
-  });
-  upsertJsonLd('jsonld-site', {
-    '@context': 'https://schema.org',
-    '@type': 'WebSite',
-    name: _tr('seo.site_name', '境途同游'),
-    url: o || '/',
-    inLanguage: ['zh-CN', 'en', 'ja', 'fr', 'de', 'ru']
-  });
+  // 本文件在 <head> 内同步执行（无 defer），此时页面尾部带 nonce 的内联脚本
+  // 尚未解析，直接注入会取不到 nonce 而被 CSP 拦截。故推迟到 DOMContentLoaded
+  // 之后再注入，确保能继承到服务端注入的 nonce（见 _cspNonce）。
+  function injectBaseJsonLd() {
+    upsertJsonLd('jsonld-org', {
+      '@context': 'https://schema.org',
+      '@type': 'Organization',
+      name: _tr('seo.site_name', '境途同游'),
+      url: o || '/',
+      logo: (o || '') + '/assets/group-avatar.png',
+      sameAs: [],
+      description: _tr('seo.entry_desc', '面向 VRChat 玩家的社群平台：群组相册、活动报名、动态分享、成员地图与实时聊天。')
+    });
+    upsertJsonLd('jsonld-site', {
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: _tr('seo.site_name', '境途同游'),
+      url: o || '/',
+      inLanguage: ['zh-CN', 'en', 'ja', 'fr', 'de', 'ru']
+    });
+  }
+  if (_cspNonce() || document.readyState !== 'loading') {
+    injectBaseJsonLd();
+  } else {
+    document.addEventListener('DOMContentLoaded', injectBaseJsonLd);
+  }
 
   // 页面级覆写：路由模块切换 Tab 时调用
   function setPageSeo(opts) {

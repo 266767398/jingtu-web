@@ -127,6 +127,27 @@
     animation: fadeIn .2s ease;
 }
 
+/* F1 修复：posts 发布/编辑/详情等自制遮罩复用 .modal 类，但 04-components.css
+   中 .modal 默认 display:none（仅 .modal.show 才显示），它们又不挂 .show class，
+   导致只看到遮罩背景、弹窗内容黑屏。这里补一条显示规则，并把 .modal 的
+   「全屏 flex 容器」形态重置为弹出卡片形态（relative + 卡片底色）。 */
+.modal-overlay .modal {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    position: relative;
+    inset: auto;
+    background: var(--bg-primary, #fff);
+    border-radius: 16px;
+    width: 92%;
+    max-width: 520px;
+    max-height: 85vh;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    animation: slideUp .3s ease;
+}
+.modal-overlay .modal.show { display: flex; }
+
 .modal-content {
     background: var(--bg-primary);
     border-radius: 16px;
@@ -401,20 +422,7 @@
     cursor: not-allowed;
 }
 
-/* 加载遮罩 */
-.loading-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(255, 255, 255, 0.8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 9999;
-    backdrop-filter: blur(4px);
-}
+/* 加载遮罩（P3 打磨：无引用死代码，已移除 .loading-overlay） */
 
 .loading-spinner {
     width: 48px;
@@ -545,10 +553,6 @@
 [data-theme="dark"] .modal-content {
     background: var(--bg-primary);
     border: 1px solid var(--border);
-}
-
-[data-theme="dark"] .loading-overlay {
-    background: rgba(0, 0, 0, 0.8);
 }
 
 /* 动画效果 */
@@ -868,98 +872,8 @@
   border-radius: 3px;
 }
 
-/* ========== 62. 移动端 Tab 折叠菜单 ========== */
-.mobile-tab-menu {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: var(--card);
-  border-top: 1px solid var(--border);
-  border-radius: 16px 16px 0 0;
-  padding: 16px;
-  z-index: 500;
-  transform: translateY(100%);
-  transition: transform .3s cubic-bezier(.4,0,.2,1);
-  box-shadow: 0 -4px 24px rgba(0,0,0,.2);
-  max-height: 70vh;
-  overflow-y: auto;
-}
-.mobile-tab-menu.show {
-  transform: translateY(0);
-}
-.mobile-tab-menu-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-.mobile-tab-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 8px;
-  border-radius: 12px;
-  background: var(--bg);
-  cursor: pointer;
-  transition: all .2s ease;
-  border: 1px solid transparent;
-  font-size: 12px;
-  color: var(--text2);
-  text-align: center;
-}
-.mobile-tab-item:hover {
-  background: var(--hover);
-  transform: translateY(-2px);
-}
-.mobile-tab-item.active {
-  background: var(--accent-light);
-  border-color: var(--accent);
-  color: var(--accent2);
-}
-.mobile-tab-item .emoji {
-  font-size: 24px;
-}
-.mobile-tab-close {
-  position: absolute;
-  top: 12px;
-  right: 16px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text2);
-  cursor: pointer;
-  transition: all .2s ease;
-  font-size: 16px;
-}
-.mobile-tab-close:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-.mobile-tab-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,.5);
-  backdrop-filter: blur(4px);
-  z-index: 499;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity .2s ease;
-}
-.mobile-tab-overlay.show {
-  opacity: 1;
-  visibility: visible;
-}
-
-.mobile-tab-menu-btn {
-  display: none;
-  flex-shrink: 0;
-}
+/* ========== 62. 移动端 Tab 折叠菜单（P3 打磨：已废弃。实际菜单为
+          #mobileMoreMenu/.mobile-more-menu，锁 key 沿用 mobile-tab-menu） ========== */
 
 .tab-scroll-wrapper {
   display: flex;
@@ -1128,9 +1042,6 @@
   }
 }
 @media (max-width: 480px) {
-  .mobile-tab-menu-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
   .admin-form-input-sm {
     max-width: none;
   }
@@ -2805,6 +2716,17 @@ button[aria-expanded="false"]::after {
     min-width: 0;
   }
 
+  /* P3 打磨（F8）：390px 下 9 项 ≈ 43px/项，badge 原定位于按钮横向中心
+     (right: calc(50% - 20px)) 在窄按钮上会溢出到邻项；窄屏固定到右上角内侧。 */
+  .mobile-tab-bar-item .tab-badge {
+    right: 2px;
+    top: 2px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    font-size: 9px;
+  }
+
   /* 防止 iOS 输入框自动放大页面 */
   input,
   select,
@@ -3030,92 +2952,6 @@ textarea,
   overflow: visible;
   clip: auto;
   white-space: normal;
-}
-
-/* ========== 13. 图片查看器样式 ========== */
-.lightbox-viewer {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.3s, visibility 0.3s;
-}
-
-.lightbox-viewer.show {
-  opacity: 1;
-  visibility: visible;
-}
-
-.lightbox-viewer .lightbox-img {
-  max-width: 90vw;
-  max-height: 85vh;
-  object-fit: contain;
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-}
-
-.lightbox-viewer .lightbox-close,
-.lightbox-viewer .lightbox-prev,
-.lightbox-viewer .lightbox-next {
-  position: absolute;
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
-  color: #fff;
-  font-size: 24px;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s, transform 0.2s;
-}
-
-.lightbox-viewer .lightbox-close:hover,
-.lightbox-viewer .lightbox-prev:hover,
-.lightbox-viewer .lightbox-next:hover {
-  background: rgba(255, 255, 255, 0.25);
-}
-
-.lightbox-viewer .lightbox-close {
-  top: 16px;
-  right: 16px;
-  font-size: 28px;
-}
-
-.lightbox-viewer .lightbox-prev {
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.lightbox-viewer .lightbox-next {
-  right: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.lightbox-viewer .lightbox-counter {
-  position: absolute;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 14px;
-  background: rgba(0, 0, 0, 0.5);
-  padding: 4px 12px;
-  border-radius: 16px;
-}
-
-.lightbox-viewer button:focus-visible {
-  outline: 2px solid var(--accent, #7c5cfc);
-  outline-offset: 2px;
 }
 
 /* ========== 14. 全局焦点样式 ========== */

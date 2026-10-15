@@ -302,10 +302,9 @@ summary:focus-visible {
 /* ==================== 移动端一致性 ==================== */
 /* 移动端「全部功能」菜单项已由 div 改为 button（div 无法聚焦、不响应回车/空格，
    而它是移动端访问成员/群组/公告/生日/相册/收藏夹/地图的唯一入口）。
-   button 不继承页面字体，必须显式声明，否则会退回浏览器默认字体。 */
-.mobile-tab-item,
-.mobile-tab-bar-item,
-.mobile-tab-close {
+   button 不继承页面字体，必须显式声明，否则会退回浏览器默认字体。
+   P3 打磨：.mobile-tab-item/.mobile-tab-close 已随废弃的折叠菜单一并移除。 */
+.mobile-tab-bar-item {
   font-family: inherit;
 }
 
@@ -377,25 +376,10 @@ summary:focus-visible {
    ==================================================== */
 
 /* --- 1. 默认隐藏的按钮必须重新声明 ---
-   上面的 .btn{display:inline-flex} 与 .mobile-tab-menu-btn{display:none}
-   特异性相同(0,1,0)，本文件后加载所以 .btn 胜出，
-   结果桌面端也冒出了「☰ 全部功能」按钮，还压住了最后一个「聊天」标签。
-   这类"默认隐藏"的按钮必须在此显式重申。 */
-button.mobile-tab-menu-btn {
-  /* 特异性 (0,1,1) 覆盖 .btn{display:inline-flex} 的 (0,1,0)，不再依赖加载顺序 */
-  display: none;
-}
-
-@media (max-width: 768px) {
-  button.mobile-tab-menu-btn {
-    display: inline-flex;
-    /* 移动端 .tabs 隐藏后这一行只剩这一个按钮，满宽才不至于留下大片空白 */
-    width: 100%;
-    justify-content: center;
-    gap: 8px;
-    min-height: 44px;
-  }
-}
+   曾经的 .mobile-tab-menu-btn{display:none} 与本文件 .btn{display:inline-flex}
+   特异性相同(0,1,0)，后加载的 .btn 曾胜出把「☰ 全部功能」按钮顶出来。
+   （P3 打磨：mobile-tab-menu-btn 已随废弃折叠菜单移除，兜底规则同步删除，
+   无需再显式隐藏。） */
 
 /* --- 2. 按钮绝不允许被 flex 压扁 ---
    成员卡片里的「查看卡片」被压成 38px 宽的竖条，文字完全糊掉

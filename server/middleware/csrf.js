@@ -127,7 +127,9 @@ function setupCsrf(app) {
     // ⚠️ Express app.use('/api', ...) 会裁剪 req.path，所以豁免路径使用相对于 /api 的路径
     const exemptPaths = ['/vrchat-login', '/init',
       '/auth/login', '/auth/register', '/auth/init', '/csrf-token',
-      '/auth/logout', '/auth/vrchat-login',
+      // S7 修复：/auth/logout 移出豁免——前端 api() 走 ensureCsrf 自动携带
+      // X-CSRF-Token，可正常调用；此前豁免可被跨站强迫登出（仅低危 DoS）
+      '/auth/vrchat-login',
       '/auth/forgot-password', '/auth/verify-reset-code', '/auth/reset-password',
       '/setup/test-db', '/setup/test-email', '/setup/save',
       '/setup/state', '/setup/reset',

@@ -106,3 +106,26 @@ html[data-theme="light"] .avatar-lg {
 body .btn-accent:hover:not(:disabled) {
   box-shadow: 0 0 0 1px var(--gold2), 0 4px 18px rgba(124,92,252,.4);
 }
+
+/* ===== P3 打磨：触屏热区达标（F9） ===== */
+/* 桌面端（鼠标）保持紧凑视觉；触屏设备把 .btn-xs / .btn-icon 热区提升到
+   44px 无障碍建议值，避免误触。 */
+@media (hover: none) and (pointer: coarse) {
+  .btn-xs {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 12px;
+  }
+  .btn-icon {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+/* ===== P3 打磨：移动端 Toast 避让底栏 ===== */
+/* 移动端底栏约 69px，Toast 原 bottom:24px 会被遮；窄屏抬升到 84px 之上。 */
+@media (max-width: 768px) {
+  .toast-container {
+    bottom: 84px;
+  }
+}

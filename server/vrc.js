@@ -183,8 +183,12 @@ function vrcBacklog() {
  * 通用的 VRChat API 请求函数（带 Cookie）。
  * 经全局令牌桶限速；遇 429 触发退避重试（最多 3 次），透明降级，
  * 不让瞬时限流直接暴露为失败（从而避免上游误判/误标离线）。
+ * @param {number} [timeoutMs] 覆盖单次上游请求超时（默认 VRC_FETCH_TIMEOUT=30s）。
+ *   P3 打磨：像"触发邮箱验证码"这类写操作，30s+3 次重试会拖垮整个绑定/登录接口
+ *   （前端默认 10s 先 abort，用户只看到"请求超时"）。调用方传 _retry=3 + 短 timeoutMs
+ *   即可得到"不重试、限时"的快速失败语义。
  */
-async function vrchatRequest(method, endpoint, body = null, cookie = null, _retry = 0) {
+async function vrchatRequest(method, endpoint, body = null, cookie = null, _retry = 0, timeoutMs = VRC_FETCH_TIMEOUT) {
   await vrcAcquire();
   const url = `${VRC_API}${endpoint}`;
   const headers = { 'User-Agent': USER_AGENT, 'X-Client-Identifier': VRC_CLIENT_ID, 'Content-Type': 'application/json' };
@@ -193,11 +197,11 @@ async function vrchatRequest(method, endpoint, body = null, cookie = null, _retr
   if (body) options.body = JSON.stringify(body);
   let res;
   try {
-    res = await fetchWithTimeout(url, options);
+    res = await fetchWithTimeout(url, options, timeoutMs);
   } catch (e) {
     // 网络层失败（超时/重置）：若令牌桶只是排队超时则直接抛出；否则按退避重试
     if (e?.code === 'VRC_RATE_TIMEOUT') throw e;
-    if (_retry < 3) { await sleep(800 * (_retry + 1)); return vrchatRequest(method, endpoint, body, cookie, _retry + 1); }
+    if (_retry < 3) { await sleep(800 * (_retry + 1)); return vrchatRequest(method, endpoint, body, cookie, _retry + 1, timeoutMs); }
     throw e;
   }
   // 429 = 触发限流：罚没令牌退避后重试，不让其冒泡成业务错误。
@@ -205,7 +209,7 @@ async function vrchatRequest(method, endpoint, body = null, cookie = null, _retr
   if (res.status === 429) {
     vrc429Streak += 1;
     vrcPenalize(vrc429Streak);
-    if (_retry < 3) { await sleep(Math.min(4000 * vrc429Streak, 15000)); return vrchatRequest(method, endpoint, body, cookie, _retry + 1); }
+    if (_retry < 3) { await sleep(Math.min(4000 * vrc429Streak, 15000)); return vrchatRequest(method, endpoint, body, cookie, _retry + 1, timeoutMs); }
   } else if (res.status >= 200 && res.status < 300) {
     vrc429Streak = 0;
   }
@@ -220,15 +224,39 @@ async function vrchatRequest(method, endpoint, body = null, cookie = null, _retr
 }
 
 /**
+ * 触发 VRChat 邮箱验证码发送（emailOtp）。
+ * P3 打磨：VRChat 上游在海外、国内网络时常慢/不可达，此端点不再沿用
+ * 30s 超时 + 3 次网络重试 —— 那会把整个绑定/登录接口拖到一两分钟，前端早已
+ * 10s 超时 abort。这里固定 10s 超时且不重试（邮件重发成本低，失败靠用户点
+ * "重发验证码"兜底），失败仅 warn，绝不阻塞主流程。
+ * @param {string} cookie VRChat auth cookie
+ * @returns {Promise<boolean>} 是否已发起（超时/失败返回 false）
+ */
+async function triggerVrcEmailOtp(cookie) {
+  try {
+    await vrchatRequest('POST', `/auth/twofactorauth/emailotp?apiKey=${VRC_API_KEY}`, {}, cookie, 3, 10000);
+    return true;
+  } catch (e) {
+    logger.warn('vrc', '[emailOtp] 触发邮箱验证码失败（已忽略，不阻塞登录/绑定）:', e.message);
+    return false;
+  }
+}
+
+/**
  * 按 VRCX 的顺序使用 Basic Auth 登录 VRChat。
  * VRChat 风控轮（P1-34）：/auth/user 登录请求此前直接 fetchWithTimeout 绕过全局令牌桶，
  * 现汇入同一闸门；排队超时按 429 形状返回（调用方统一读 data.error.message 提示稍后重试）。
  */
 async function vrchatBasicLogin(username, password) {
   // /config 预热只是探测 API 可达性（VRCX 登录前并不调用），失败不应连带登录失败。
-  // 此前这里直接 await，VRChat 抽风/限流排队超时会抛 VRC_RATE_TIMEOUT → 整个登录 500。
+  // P3 打磨：此前走 vrchatRequest 会经过令牌排队(最长12s)+30s 超时+3 次网络重试，
+  // 国内访问 api.vrchat.cloud 慢时仅预热就能把整个登录拖到一分钟。改 5s 直连、
+  // 不进令牌桶、不重试——探测失败立刻忽略，真正登录仍由下方 /auth/user 完成。
   try {
-    await vrchatRequest('GET', '/config');
+    await fetchWithTimeout(`${VRC_API}/config`, {
+      method: 'GET',
+      headers: { 'User-Agent': USER_AGENT, 'X-Client-Identifier': VRC_CLIENT_ID }
+    }, 5000);
   } catch (e) {
     logger.warn('vrc', '[vrchatBasicLogin] /config 预热失败（忽略，继续登录）:', e.message);
   }
@@ -871,11 +899,14 @@ async function vrchatGetFriends(cookie, options = {}) {
  * 获取全部好友（online/active + offline），自动分页。
  * 这是 VRCX 等客户端用来追踪好友在线状态的核心数据源：
  * 一次获取即可拿到所有好友的 status / location / last_login，而无需对每个用户调 /users/{id}。
+ * @param {object} [options.onlineOnly] 仅拉在线/活跃好友（offline=false）。贡献等场景只看在线
+ *                                       状态时开启，离线好友不必下载——请求数减半，显著提速。
  */
 async function vrchatGetAllFriends(cookie, options = {}) {
-  const { n = 100, maxPages = 20, delayMs = 0 } = options;
+  const { n = 100, maxPages = 20, delayMs = 0, onlineOnly = false } = options;
   const all = [];
-  for (const offline of [false, true]) {
+  const passModes = onlineOnly ? [false] : [false, true];
+  for (const offline of passModes) {
     for (let page = 0; page < maxPages; page++) {
       const res = await vrchatGetFriends(cookie, { n, offset: page * n, offline });
       const pageArr = Array.isArray(res) ? res : (res?.data || []);
@@ -1176,6 +1207,7 @@ module.exports = {
   vrchatRequest,
   vrchatBasicLogin,
   vrchatVerifyTwoFactor,
+  triggerVrcEmailOtp,
   vrchatGetCurrentUser,
   vrchatGetCurrentUserResult,
   vrchatGetGroupEvents,

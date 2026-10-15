@@ -197,7 +197,11 @@ router.get('/admin/files/:filepath/download', requireAdminCompat, (req, res) => 
 
     const filename = path.basename(fullPath);
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    // S6 修复：文件名按 RFC 5987 编码（filename*=UTF-8''…），
+    // 中文/特殊字符文件名不再乱码；filename 回退仅作 ASCII 兼容并做引号卫生。
+    const asciiFallback = filename.replace(/["\\]/g, '_');
+    const encodedName = encodeURIComponent(filename).replace(/'/g, '%27');
+    res.setHeader('Content-Disposition', `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodedName}`);
     res.sendFile(fullPath);
   } catch (e) { handleError(res, e, '[files/download]'); }
 });

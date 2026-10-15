@@ -289,7 +289,7 @@ function showLogin2fa(data) {
   document.getElementById('loginPasswordFields')?.classList.add('d-none');
   document.getElementById('login2faArea')?.classList.remove('d-none');
   const codeInput = document.getElementById('login2faCode');
-  if (codeInput) { codeInput.value = ''; codeInput.focus(); }
+  if (codeInput) { codeInput.value = ''; codeInput.focus({ preventScroll: true }); }
   toast(data.message || __('login.2fa_hint'), 'info');
 }
 
@@ -371,7 +371,9 @@ async function doRegister() {
   try {
     const res = await api('/api/auth/register', {
       method: 'POST',
-      body: { username, password, activationCode }
+      body: { username, password, activationCode },
+      // 注册成功后 loadMe() 会补拉完整档案；后端无上游慢依赖，防御性 30s
+      timeout: 30000
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.success) {
@@ -553,7 +555,9 @@ async function sendVrcLoginCode() {
   try {
     const res = await api('/api/auth/vrchat-login', { 
       method: 'POST', 
-      body: { username: vrchatUser, password: vrchatPass }
+      body: { username: vrchatUser, password: vrchatPass },
+      // P3 打磨：VRChat 上游慢时可达 30s+，默认 10s abort 会误报"请求超时"
+      timeout: 90000
     });
 
     if (res.ok) {
@@ -570,7 +574,7 @@ async function sendVrcLoginCode() {
         document.getElementById('vrcLoginCodeInputWrap')?.classList.remove('d-none');
         document.getElementById('vrcLoginNo2faMsg')?.classList.add('d-none');
         const codeInput = document.getElementById('loginVrcCode');
-        if (codeInput) { codeInput.value = ''; codeInput.focus(); }
+        if (codeInput) { codeInput.value = ''; codeInput.focus({ preventScroll: true }); }
         toast(data.message || __('auth.code_sent'), 'success');
         startVrcCodeCountdown();
       } else if (data.success) {
@@ -657,7 +661,8 @@ async function doVrcLoginConfirm() {
 
     const res = await api('/api/auth/vrchat-login', { 
       method: 'POST', 
-      body: { code, method: _vrcLoginTemp.method, loginToken: _vrcLoginTemp.loginToken }
+      body: { code, method: _vrcLoginTemp.method, loginToken: _vrcLoginTemp.loginToken },
+      timeout: 90000
     });
 
     if (res.ok) {
@@ -724,7 +729,8 @@ async function resendVrcLoginCode() {
   try {
     const res = await api('/api/auth/vrchat-login', {
       method: 'POST',
-      body: { loginToken: token }
+      body: { loginToken: token },
+      timeout: 90000
     });
     if (res.ok) {
       const data = await res.json();
@@ -733,7 +739,7 @@ async function resendVrcLoginCode() {
         const method = methods.includes('emailOtp') ? 'emailOtp' : (methods.includes('totp') ? 'totp' : 'otp');
         _vrcLoginTemp = { loginToken: data.loginToken || token, method };
         const codeInput = document.getElementById('loginVrcCode');
-        if (codeInput) { codeInput.value = ''; codeInput.focus(); }
+        if (codeInput) { codeInput.value = ''; codeInput.focus({ preventScroll: true }); }
         toast(data.message || __('auth.code_resent'), 'success');
         startVrcCodeCountdown();
       } else {
@@ -810,7 +816,7 @@ function showVrcBindGuide(data) {
   guide.querySelector('#vrcBindSwitchPwd').onclick = () => {
     closeGuide();
     switchLoginMode('password');
-    document.getElementById('loginId')?.focus();
+    document.getElementById('loginId')?.focus({ preventScroll: true });
   };
   guide.onclick = (e) => { if (e.target === guide) closeGuide(); };
   toast(__('auth.vrc_not_bound'), 'warn');
@@ -1030,7 +1036,8 @@ async function sendForgotCode() {
     try {
       const res = await api('/api/auth/forgot-password', {
         method: 'POST',
-        body: { email }
+        body: { email },
+        timeout: 30000
       });
       const data = await res.json();
 
@@ -1064,7 +1071,8 @@ async function verifyForgotCode() {
   try {
     const res = await api('/api/auth/verify-reset-code', {
       method: 'POST',
-      body: { token: resetToken, code }
+      body: { token: resetToken, code },
+      timeout: 30000
     });
     const data = await res.json();
 
@@ -1107,7 +1115,8 @@ async function resetPassword() {
   try {
     const res = await api('/api/auth/reset-password', {
       method: 'POST',
-      body: { token: resetToken, code, newPassword }
+      body: { token: resetToken, code, newPassword },
+      timeout: 30000
     });
     const data = await res.json();
 

@@ -23,10 +23,15 @@ if (!fs.existsSync(AVATAR_DIR)) fs.mkdirSync(AVATAR_DIR, { recursive: true });
 
 // 清理某用户的旧头像文件（best-effort，忽略锁定/不存在错误）
 // keep1/keep2 为本次新生成的文件名，必须保留
-function cleanupOldAvatars(userId, keep1, keep2) {
+// notBeforeTs：本次请求开始时间戳（ms）。只删除在该时间之前已存在的文件——
+// 并发上传时另一请求刚写入的新文件 mtime 必 > notBeforeTs，绝不会被误删（历史 BUG：
+// 同一用户秒级内重复上传，两请求的 cleanup 互相把对方刚生成的主图当旧文件删掉，
+// 磁盘最后只剩缩略图、主图丢失，DB 引用悬空 → 前端 404）。
+function cleanupOldAvatars(userId, keep1, keep2, notBeforeTs) {
   try {
     const files = fs.readdirSync(AVATAR_DIR);
     const id = String(userId);
+    const threshold = typeof notBeforeTs === 'number' ? notBeforeTs : Number.MAX_SAFE_INTEGER;
     for (const f of files) {
       const full = path.join(AVATAR_DIR, f);
       if (f === keep1 || f === keep2) continue;
@@ -36,7 +41,12 @@ function cleanupOldAvatars(userId, keep1, keep2) {
         || (f.startsWith(`${id}_`) && (f.endsWith('.jpg') || f.endsWith('.png')))
         || f.startsWith(`avatar_${id}_`)
         || f.startsWith('.tmp_');
-      if (isOld) { try { fs.unlinkSync(full); } catch {} }
+      if (!isOld) continue;
+      // 并发保护：本次请求开始后才写入的文件（其他上传请求刚生成）一律保留
+      try {
+        const st = fs.statSync(full);
+        if (st.mtimeMs < threshold) fs.unlinkSync(full);
+      } catch {}
     }
   } catch {}
 }
@@ -272,6 +282,9 @@ router.post('/me/avatar', requireAuth, secureUpload(avatarUpload.single('avatar'
   }
   let tmpPath = req.file ? req.file.path : null;
   try {
+    // 本次请求开始时间：清理旧头像时只删在此之前存在的文件（并发上传防护，
+    // 见 cleanupOldAvatars 的 notBeforeTs 参数说明）
+    const startedAt = Date.now();
     // 每次上传使用时间戳唯一文件名，避免 Windows 下覆盖正在被读取的旧文件导致
     // sharp.toFile 报 "Permission denied / Invalid argument"（原地覆盖写锁冲突）。
     const ts = Date.now();
@@ -295,8 +308,8 @@ router.post('/me/avatar', requireAuth, secureUpload(avatarUpload.single('avatar'
     // 生成缩略图
     await sharp(finalPath).resize(64, 64, { fit: 'cover' }).jpeg({ quality: 75 }).toFile(thumbPath64);
 
-    // 清理该用户旧头像文件（best-effort，忽略锁定/不存在）
-    cleanupOldAvatars(req.session.userId, finalName, thumbName);
+    // 清理该用户旧头像文件（best-effort，忽略锁定/不存在；并发上传防护见函数注释）
+    cleanupOldAvatars(req.session.userId, finalName, thumbName, startedAt);
 
     const url = `/uploads/avatars/${finalName}`;
     const thumbUrl = `/uploads/avatars/${thumbName}`;

@@ -76,8 +76,26 @@ async function contributePresence() {
     // timeout 60s：服务端需串行拉≤10 页好友列表（在线+离线各≤5 页），
     // 且受全局 40/min 令牌桶约束可能排队；20s 太短会被 abort（net::ERR_ABORTED）
     // 导致贡献永远静默失败——60s 在覆盖正常耗时与止损之间取平衡。
+    // V9.5：服务端已改为 onlineOnly 快模式（只拉在线好友），实际耗时降到秒级。
     await api('/api/group/presence/contribute', { method: 'POST', timeout: 60000, silent: true });
   } catch (e) { /* 静默：仅在已绑定 VRChat 且在线时有效，失败不影响主流程 */ }
+}
+
+// ==================== 全局持续贡献（VRCX 式群友互助） ====================
+// 只要登录并绑定 VRChat 的用户开着网站，就每 10 分钟后台贡献一次自己的好友状态，
+// 而不只等用户打开群组 Tab。这样 group_presence_share 覆盖面远大于"只看群组的人"，
+// 系统账号只需补漏（非好友回退），VRChat 官方限流被大量用户账号分摊——刷新更快、
+// 更不容易撞 429。页面冻结（切后台标签/锁屏）时暂停，恢复前台后立即补一次。
+let _presenceContribTimer = null;
+function startGlobalPresenceContributor() {
+  if (_presenceContribTimer) return;
+  _presenceContribTimer = setInterval(function () {
+    if (document.hidden) return; // 后台标签不浪费配额
+    contributePresence();
+  }, 10 * 60 * 1000);
+}
+function stopGlobalPresenceContributor() {
+  if (_presenceContribTimer) { clearInterval(_presenceContribTimer); _presenceContribTimer = null; }
 }
 
 // ==================== 加载群组统计 ====================
@@ -171,7 +189,7 @@ function renderGroupMembers(members) {
     try { (window.__groupRosterById = window.__groupRosterById || {})[m.vrchatId || m.vrcUserId] = m; } catch (e) {}
     return `
     <div class="group-member-card ${!isOnline ? 'offline' : (m.isInGame ? 'online ingame' : 'online web')}${isFriend ? ' is-friend' : ' not-friend'}" role="button" tabindex="0"
-         data-vrchat-id="${escAttr(m.vrchatId || '')}"
+         data-vrchat-id="${escAttr(m.vrchatId || m.vrcUserId || '')}"
          data-tip-dot="${status.dotClass}"
          data-action="group-open-vrc-card">
       <div class="gm-avatar-wrap${trustColor ? ' has-trust-ring' : ''}"${trustColor ? ` style="--tc:${trustColor}"` : ''}>
@@ -246,7 +264,7 @@ async function loadVrcBlacklistView() {
     const items = data.items || [];
     const countEl = document.getElementById('vrcBlacklistViewCount');
     if (countEl) countEl.textContent = '共 ' + items.length + ' 条';
-    const canManage = isAdminUser();
+    const canManage = isVrcBlacklistManager();
     if (!items.length) {
       listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_empty') + '</p>';
       const addBar = document.getElementById('vrcBlacklistViewAddBar');
@@ -275,7 +293,7 @@ async function loadVrcBlacklistView() {
 window.loadVrcBlacklistView = loadVrcBlacklistView;
 
 function addVrcBlacklistViewItem() {
-  if (!isAdminUser()) { toast(__('admin_vrc.super_admin_only'), 'error'); return; }
+  if (!isVrcBlacklistManager()) { toast(__('admin_vrc.super_admin_only'), 'error'); return; }
   const username = document.getElementById('blvUsername')?.value?.trim();
   if (!username) { toast(__('admin_vrc.bl_need_username'), 'error'); return; }
   try {
@@ -298,7 +316,7 @@ function addVrcBlacklistViewItem() {
 }
 
 function removeVrcBlacklistViewItem(id) {
-  if (!isAdminUser()) { toast(__('admin_vrc.super_admin_only'), 'error'); return; }
+  if (!isVrcBlacklistManager()) { toast(__('admin_vrc.super_admin_only'), 'error'); return; }
   showConfirm(__('admin_vrc.bl_remove_confirm'), async () => {
     try {
       const res = await api('/api/admin/vrc-blacklist/' + id, { method: 'DELETE', timeout: 30000 });
@@ -823,6 +841,12 @@ function isAdminUser() {
   return !!(currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin'));
 }
 
+// B2 修复：VRC 黑名单的增删接口后端固定 requireSuperAdmin（普通 admin 全 403），
+// 前端判定与之对齐——只有超管渲染操作按钮/输入栏，普通管理员不再看到点了必失败的控件。
+function isVrcBlacklistManager() {
+  return !!(currentUser && currentUser.role === 'super_admin');
+}
+
 // api() 对 401/403/429/5xx 已统一弹提示；这里只兜底 400 类静默失败，把后端错误文案吐出来
 async function groupAdminFail(res) {
   try {
@@ -1211,11 +1235,15 @@ function stopGroupPolling() {
 
 // 空闲冻结：暂停/恢复 vrc Tab 的 30s 在线轮询（见 freeze.js）。
 // 解冻时仅当用户正停留在 vrc Tab 才恢复，避免在其它 Tab 下空转。
+// V9.5：全局持续贡献定时器（VRCX 式群友互助）随冻结一并暂停/恢复，
+// 后台标签不空耗 VRChat 配额；恢复前台时立即补贡献一次。
 if (window.__freeze && typeof window.__freeze.register === 'function') {
   window.__freeze.register({
-    onFreeze: function () { stopGroupPolling(); },
+    onFreeze: function () { stopGroupPolling(); stopGlobalPresenceContributor(); },
     onUnfreeze: function () {
       if (activeTab === 'vrc' && typeof loadGroupStats === 'function') startGroupPolling();
+      startGlobalPresenceContributor();
+      contributePresence(); // 恢复前台立即贡献一次，状态尽早回流
     }
   });
 }
@@ -1223,6 +1251,11 @@ if (window.__freeze && typeof window.__freeze.register === 'function') {
 // ==================== 初始化 ====================
 document.addEventListener('DOMContentLoaded', () => {
   setupGroupSearch();
+  // V9.5：已登录并绑定 VRChat 的用户持续贡献好友状态（VRCX 式群友互助）。
+  // 5 分钟节流在 contributePresence 内部，10 分钟全局定时器 + freeze 暂停/恢复。
+  if (typeof currentUser !== 'undefined' && currentUser && currentUser.id) {
+    startGlobalPresenceContributor();
+  }
   // F-6/F-23 管理面板绑定（内部有 isAdminUser 守卫，非管理员不绑定）
   setupGroupAdminPanels();
   // 群组成员卡片：点击 / 键盘（Enter/Space）打开 VRChat 成员名片

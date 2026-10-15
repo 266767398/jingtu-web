@@ -273,8 +273,14 @@ async function loadMyEvents() {
 }
 
 // ==================== 头像上传/移除/切换 ====================
+// 上传进行中标志：防连点并发（同一用户一次只允许一个上传任务，
+// 历史 BUG：重复点击触发 2+ 并发上传，后端 cleanup 互相误删刚生成的主图 → 头像 404）
+let _avatarUploadBusy = false;
+
 async function uploadAvatar(file) {
   if (!file) return;
+  if (_avatarUploadBusy) return; // 进行中直接忽略，防止并发
+  _avatarUploadBusy = true;
   const formData = new FormData();
   formData.append('avatar', file);
   try {
@@ -291,6 +297,7 @@ async function uploadAvatar(file) {
       toast(__('profile.avatar_updated'), 'success');
     }
   } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.upload_failed') + ': ' + err.message, 'error'); }
+    finally { _avatarUploadBusy = false; } // 无论成败释放锁
 }
 
 async function removeAvatar() {
@@ -313,7 +320,7 @@ async function removeAvatar() {
 async function switchToVRchatAvatar() {
   if (!currentUser.vrchatId) { toast(__('profile.vrc_not_bound'), 'error'); return; }
   try {
-    const res = await api('/api/users/me/avatar-vrchat', { method: 'POST' });
+    const res = await api('/api/users/me/avatar-vrchat', { method: 'POST', timeout: 20000 });
     if (res.ok) {
       const data = await res.json();
       currentUser.avatarUrl = data.avatarUrl;
@@ -470,7 +477,10 @@ async function bindVRChatWithPassword() {
   try {
     const res = await api('/api/auth/vrchat-bind-verify', {
       method: 'POST',
-      body: { username, password }
+      body: { username, password },
+      // P3 打磨：VRChat 上游在海外、国内网络慢时单次可达 30s+，默认 10s 会先 abort
+      // 报"请求超时"，用户以为没反应反复点击。放宽到 90s 覆盖上游最坏时长。
+      timeout: 90000
     });
     if (res.ok) {
       const data = await res.json();
@@ -481,7 +491,9 @@ async function bindVRChatWithPassword() {
         document.getElementById('vrcLookupResult').innerHTML = `<div class="text-13 text-muted">${esc(data.message)}</div>`;
         showEl('vrcLookupResult');
         document.getElementById('vrcBind2faCode').value = '';
-        document.getElementById('vrcBind2faCode').focus();
+        // preventScroll：2FA 区紧跟在按钮下方展开，默认 focus 会把页面滚到输入框处（"点击窜到下面"），
+        // 焦点照常给到输入框但页面滚动位置保持不变。
+        document.getElementById('vrcBind2faCode').focus({ preventScroll: true });
         startVrcBindResendCountdown();
       } else if (data.success) {
         // 绑定成功（无需2FA）
@@ -540,7 +552,9 @@ async function confirmVrcBind2fa() {
           ? 'emailOtp'
           : (_vrcBindTemp?.methods?.includes('totp') ? 'totp' : 'otp'),
         bindToken: _vrcBindTemp?.bindToken
-      }
+      },
+      // P3 打磨：2FA 验证 / 拿资料都打 VRChat 上游，放宽超时避免 10s 误杀
+      timeout: 90000
     });
     if (res.ok) {
       const data = await res.json();
@@ -593,14 +607,15 @@ async function resendVrcBindCode() {
   try {
     const res = await api('/api/auth/vrchat-bind-verify', {
       method: 'POST',
-      body: { bindToken: token, resend: true }
+      body: { bindToken: token, resend: true },
+      timeout: 90000
     });
     if (res.ok) {
       const data = await res.json();
       if (data.bindToken) _vrcBindTemp.bindToken = data.bindToken;
       toast(data.message || __('profile.code_resent'), 'success');
       document.getElementById('vrcBind2faCode').value = '';
-      document.getElementById('vrcBind2faCode').focus();
+      document.getElementById('vrcBind2faCode').focus({ preventScroll: true });
     } else {
       const err = await res.json();
       if (err.expired || err.code === '2FA_LOCKED') {
@@ -669,7 +684,7 @@ function showVrcReloginForm() {
   const savedUser = (() => { try { const c = JSON.parse(localStorage.getItem(VRC_CREDS_KEY) || 'null'); return c && c.username; } catch (e) { return null; } })();
   if (idInput && !idInput.value) idInput.value = savedUser || localStorage.getItem('jingtu_vrc_user') || '';
   const pwdInput = document.getElementById('vrchatBindPwd');
-  if (pwdInput) { pwdInput.value = ''; pwdInput.focus(); }
+  if (pwdInput) { pwdInput.value = ''; pwdInput.focus({ preventScroll: true }); }
   toast(__('profile.vrc_relogin_enter_pwd'), 'info');
 }
 
@@ -728,6 +743,37 @@ async function unbindVRChat() {
   });
 }
 
+// 重新同步：从本站服务器重新加载已同步的缓存快照（模型 / 地图 / 好友），不回源 VRChat 官方
+async function resyncVrcLocal() {
+  const vs = window.vrcSync;
+  if (vs && typeof vs.showTask === 'function') vs.showTask(__('profile.vrc_resync_running'));
+  try {
+    // 并行读取本地库快照（不带 refresh=1，纯本地，零回源官方）
+    await Promise.all([
+      apiJson('/api/vrc-favorites/groups?n=100', { timeout: 20000 }),
+      apiJson('/api/vrc-favorites/items?type=world&n=100', { timeout: 20000 }),
+      apiJson('/api/vrc-favorites/items?type=avatar&n=100', { timeout: 20000 }),
+      apiJson('/api/vrc-favorites/items?type=friend&n=200', { timeout: 20000 }),
+      apiJson('/api/collections', { timeout: 20000 })
+    ]);
+    // 通知收藏页用最新本地快照重渲染
+    try { window.dispatchEvent(new CustomEvent('vrcfav:synced', { detail: {} })); } catch (e) {}
+    if (vs && typeof vs.taskDone === 'function') vs.taskDone(__('profile.vrc_resync_done'), { keepMs: 4000 });
+  } catch (e) {
+    if (vs && typeof vs.taskDone === 'function') vs.taskDone(__('profile.vrc_resync_failed'), { err: true });
+  }
+}
+
+// 拉取同步：从 VRChat 官方拉取自己最新的收藏地图 / 模型 / 好友
+function pullVrcOfficial() {
+  const vs = window.vrcSync;
+  if (!vs || typeof vs.startFavSync !== 'function') {
+    toast(__('vrcsync.start_failed'), 'error');
+    return;
+  }
+  vs.startFavSync({ startMsg: __('profile.vrc_pull_running') });
+}
+
 // 渲染 VRChat 绑定状态（显示已绑定信息或绑定表单）
 function renderVRChatBindStatus() {
   const statusEl = document.getElementById('vrchatStatus');
@@ -756,6 +802,12 @@ function renderVRChatBindStatus() {
         boundVerifiedEl.classList.add('d-none');
       }
     }
+
+    // 同步按钮原生 title 悬浮详情：原生 title 不走 data-i18n 引擎，用 __() 覆写（随语言切换重渲染刷新）
+    const resyncBtnEl = document.getElementById('vrcResyncLocalBtn');
+    if (resyncBtnEl) resyncBtnEl.title = __('profile.vrc_resync_tip');
+    const pullBtnEl = document.getElementById('vrcPullSyncBtn');
+    if (pullBtnEl) pullBtnEl.title = __('profile.vrc_pull_sync_tip');
   } else {
     // 未绑定
     statusEl.innerHTML = '<span class="text-13 text-muted2">' + __('profile.not_bound') + '</span>';
@@ -895,7 +947,7 @@ async function enableTotp() {
     document.getElementById('totpSetupArea').classList.remove('d-none');
     document.getElementById('totpEnableBtn').classList.add('d-none');
     const codeInput = document.getElementById('totpConfirmCode');
-    if (codeInput) { codeInput.value = ''; codeInput.focus(); }
+    if (codeInput) { codeInput.value = ''; codeInput.focus({ preventScroll: true }); }
   } catch (err) { if (!isApiHandledError(err)) toast(__('totp.setup_failed') + ': ' + err.message, 'error'); }
 }
 

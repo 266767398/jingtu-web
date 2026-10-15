@@ -64,6 +64,7 @@
 
 - `/api/search` 有两个 GET 处理器（server.js 登录版先注册优先）。
 - `users/me/profile` 前端兼容 `data.user || data`。
-- `posts` 的 `limit` 参数被忽略。
+- `posts` 的 `limit` 与 `q`（关键词搜索）参数被忽略（后端 `posts.js` 未消费；全局搜索的动态页为伪搜索，2026-10-14 审计 B1）。
+- `/api/auth/preview` 前端已停止调用，登录页头像预览改为浏览器缓存单槽（命中显示真实头像、未命中显示问号头像 `/api/avatar/default`）。
 - 上传字段命名以代码为准：`photo/media/photos/video/avatar/file/thumbnail/image`。
 - 直播 `/live/user/history` 被流式参数路由遮蔽不可达（历史遗留）。

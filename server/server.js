@@ -118,6 +118,10 @@ if (!process.env.GROUP_ID) {
 const GROUP_ID = process.env.GROUP_ID || defaultGroupId;
 const ROOT_DIR = path.join(__dirname, '..');
 const ASSETS_DIR = path.join(ROOT_DIR, 'assets');
+// 源码资产目录：v2.13 起全套群组图（group-hero/banner/avatar、pwa-icon 等）随代码
+// 放在 public/assets/ 发布；根目录 assets/ 只承载运行时上传与缓存数据
+// （avatar-cache、album、admin 上传覆盖等）。见下方 /assets 挂载的优先级说明。
+const PUBLIC_ASSETS_DIR = path.join(ROOT_DIR, 'public', 'assets');
 const PROFILE_PHOTOS_DIR = path.join(ROOT_DIR, 'uploads', 'profile', 'photos');
 const PROFILE_VIDEOS_DIR = path.join(ROOT_DIR, 'uploads', 'profile', 'videos');
 for (const d of [PROFILE_PHOTOS_DIR, PROFILE_VIDEOS_DIR]) {
@@ -323,6 +327,20 @@ app.use((req, res, next) => {
 // P1-53: 相册媒体鉴权（登录或分享令牌放行，游客直接访问 401）——
 // 必须在 /assets 静态挂载之前注册，否则 express.static 会先接管
 setupAssetsAlbumAuth(app);
+// P3-fix（横幅"没推送上去"根因）：v2.13 的新全套群组图在 public/assets/，
+// 而 /assets 原来只读根目录 assets/（旧 v1.3 图 + 运行时缓存），导致
+// /assets/group-hero.png 一直返回旧横幅、/assets/pwa-icon-*.png 直接 404。
+// 这里先挂载源码资产目录（新图优先），未命中再回退下方根目录静态（avatar-cache、
+// album、admin 上传覆盖等运行时数据）。album 鉴权中间件仍在最前，不受影响。
+app.use('/assets', express.static(PUBLIC_ASSETS_DIR, {
+  maxAge: 0,
+  etag: true,
+  setHeaders: (res, filePath) => {
+    if (res.req && /\?v=/.test(res.req.url)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  }
+}));
 app.use('/assets', express.static(ASSETS_DIR, {
   maxAge: 0,
   etag: true,
@@ -659,7 +677,11 @@ app.use('/api', albumRouter);
 const GROUP_IMG_TYPES = ['image', 'avatar', 'banner', 'logo', 'cover', 'hero'];
 const groupImgUpload = multer({
   storage: multer.diskStorage({
-    destination: (req, file, cb) => { if (!fs.existsSync(ASSETS_DIR)) fs.mkdirSync(ASSETS_DIR, { recursive: true }); cb(null, ASSETS_DIR); },
+    destination: (req, file, cb) => {
+      // P3-fix：写入源码资产目录，与上方 /assets 静态优先一致——上传后立即生效
+      if (!fs.existsSync(PUBLIC_ASSETS_DIR)) fs.mkdirSync(PUBLIC_ASSETS_DIR, { recursive: true });
+      cb(null, PUBLIC_ASSETS_DIR);
+    },
     filename: (req, file, cb) => {
       const type = GROUP_IMG_TYPES.includes(req.body.type) ? req.body.type : 'image';
       cb(null, `group-${type}.png`);
@@ -673,7 +695,7 @@ app.post('/api/admin/group-image', requireAdminCompat, groupImgUpload.single('im
   if (!req.file) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请选择图片');
   try {
     const type = GROUP_IMG_TYPES.includes(req.body.type) ? req.body.type : 'image';
-    const targetFile = path.join(ASSETS_DIR, `group-${type}.png`);
+    const targetFile = path.join(PUBLIC_ASSETS_DIR, `group-${type}.png`);
     await sharp(req.file.path).resize(type === 'avatar' ? 512 : type === 'banner' ? 1200 : 1920).jpeg({ quality: 85 }).toFile(targetFile);
     // sharp 成功后删除临时文件
     try { fs.unlinkSync(req.file.path); } catch {}

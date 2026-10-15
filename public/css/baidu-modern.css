@@ -436,9 +436,6 @@ table.admin-table tbody tr:hover td {
 .lightbox-prev:focus-visible,
 .lightbox-next:focus-visible,
 .lightbox-nav:focus-visible,
-.lightbox-viewer .lightbox-close:focus-visible,
-.lightbox-viewer .lightbox-prev:focus-visible,
-.lightbox-viewer .lightbox-next:focus-visible,
 .lang-switcher-item:focus-visible,
 .group-tag-remove:focus-visible {
   outline: 2px solid var(--accent);

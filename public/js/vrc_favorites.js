@@ -61,7 +61,7 @@
 
   async function loadGroups(force) {
     try {
-      const d = await api('/api/vrc-favorites/groups?n=100' + (force ? '&refresh=1' : ''));
+      const d = await api('/api/vrc-favorites/groups?n=100' + (force ? '&refresh=1' : ''), { timeout: 20000 });
       state.groups = d.groups || [];
       renderGroups();
       if (force) showCachedHint(d.cached, false);
@@ -372,7 +372,8 @@ async function loadItems(reset, force) {
     try {
       await api('/api/vrc-favorites/items', {
         method: 'POST',
-        body: JSON.stringify({ type: state.kind, favoriteId: raw, tag: state.group })
+        body: JSON.stringify({ type: state.kind, favoriteId: raw, tag: state.group }),
+        timeout: 20000
       });
       if (input) input.value = '';
       toast(__('vrcfav.add_ok', '已加入官方收藏'), 'success');
@@ -386,7 +387,7 @@ async function loadItems(reset, force) {
   async function removeFavorite(fvrtId) {
     if (!fvrtId || !confirm(__('vrcfav.remove_confirm', '确定从官方收藏中移除吗？'))) return;
     try {
-      await api('/api/vrc-favorites/items/' + encodeURIComponent(fvrtId), { method: 'DELETE' });
+      await api('/api/vrc-favorites/items/' + encodeURIComponent(fvrtId), { method: 'DELETE', timeout: 20000 });
       toast(__('vrcfav.remove_ok', '已移除'), 'success');
       loadItems(true);
     } catch (e) {
@@ -434,7 +435,8 @@ async function loadItems(reset, force) {
       try {
         await api('/api/groups/vrc/avatar/set', {
           method: 'POST',
-          body: JSON.stringify({ avatarId: id })
+          body: JSON.stringify({ avatarId: id }),
+          timeout: 20000
         });
         toast(__('model_coll.copied', '已切换'), 'success');
       } catch (e) {
@@ -520,7 +522,8 @@ async function loadItems(reset, force) {
     try {
       await api(`/api/vrc-favorites/groups/${encodeURIComponent(g.type)}/${encodeURIComponent(g.name)}`, {
         method: 'PUT',
-        body: JSON.stringify({ displayName, ownerUserId: g.ownerUserId || '' })
+        body: JSON.stringify({ displayName, ownerUserId: g.ownerUserId || '' }),
+        timeout: 20000
       });
       if (input) input.value = '';
       toast(__('vrcfav.rename_ok', '分组已重命名'), 'success');
@@ -535,7 +538,7 @@ async function loadItems(reset, force) {
     if (!g) { toast(__('vrcfav.need_group_select', '请先选择一个具体分组（不能是"全部"）'), 'warn'); return; }
     showConfirm(__('vrcfav.clear_confirm', '确定清空该分组下的全部官方收藏吗？此操作不可撤销。'), async function () {
       try {
-        await api(`/api/vrc-favorites/groups/${encodeURIComponent(g.type)}/${encodeURIComponent(g.name)}?ownerUserId=${encodeURIComponent(g.ownerUserId || '')}`, { method: 'DELETE' });
+        await api(`/api/vrc-favorites/groups/${encodeURIComponent(g.type)}/${encodeURIComponent(g.name)}?ownerUserId=${encodeURIComponent(g.ownerUserId || '')}`, { method: 'DELETE', timeout: 20000 });
         toast(__('vrcfav.clear_ok', '分组已清空'), 'success');
         loadGroups();
         loadItems(true);

@@ -518,11 +518,7 @@
   animation: bounceIn 0.5s ease-out;
 }
 
-/* ========== 加载遮罩动画 ========== */
-
-.loading-overlay {
-  animation: fadeIn var(--transition-time) ease-out;
-}
+/* ========== 加载遮罩动画（P3 打磨：.loading-overlay 已无引用，移除） ========== */
 
 /* ========== 滚动提示动画 ========== */
 

@@ -777,7 +777,7 @@ function showModal(id) {
     // 而不是 X 关闭按钮——否则回车会误触发关闭弹窗而非提交。
     const inputs = modal.querySelector('input, select, textarea:not([type="hidden"])');
     const focusable = inputs || modal.querySelector('button:not([data-modal-close]), [tabindex]:not([tabindex="-1"])');
-    if (focusable) setTimeout(() => focusable.focus(), 100);
+    if (focusable) setTimeout(() => focusable.focus({ preventScroll: true }), 100);
   }
 }
 function closeModal(id) {

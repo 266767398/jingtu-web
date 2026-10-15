@@ -127,6 +127,7 @@ describe('moderations routes', () => {
 
   test('rejects duplicate pending report with 409', async () => {
     mockQueryBySql([
+      [/SELECT id FROM users WHERE/, [[{ id: 5 }]]],
       [/SELECT id FROM moderations WHERE reporter_id/, [[{ id: 3 }]]]
     ]);
     const response = await request(createApp())
@@ -139,6 +140,7 @@ describe('moderations routes', () => {
 
   test('submits a report and logs the operation', async () => {
     mockQueryBySql([
+      [/SELECT id FROM users WHERE/, [[{ id: 5 }]]],
       [/SELECT id FROM moderations WHERE reporter_id/, [[]]],
       [/INSERT INTO moderations/, [{ insertId: 9 }]]
     ]);
@@ -150,6 +152,18 @@ describe('moderations routes', () => {
     expect(response.body.success).toBe(true);
     const { logOper } = require('../utils');
     expect(logOper).toHaveBeenCalled();
+  });
+
+  test('rejects report when target user does not exist (S10)', async () => {
+    mockQueryBySql([
+      [/SELECT id FROM users WHERE/, [[]]]
+    ]);
+    const response = await request(createApp())
+      .post('/api/moderations')
+      .send({ targetType: 'player', targetUserId: 999, reason: '幻影目标' });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error.code).toBe('NOT_FOUND');
   });
 
   // ==================== 审核队列 ====================

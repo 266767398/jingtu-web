@@ -8,7 +8,7 @@ async function searchWorlds(query, limit = 10) {
   const container = document.getElementById('worldSearchResults');
   if (container) container.innerHTML = '<div class="loading">' + __('vrc.searching') + '</div>';
   try {
-    const res = await api(`/api/vrc/worlds/search?q=${encodeURIComponent(query)}&n=${limit}`, { method: 'GET' });
+    const res = await api(`/api/vrc/worlds/search?q=${encodeURIComponent(query)}&n=${limit}`, { method: 'GET', timeout: 60000 });
     if (res.ok) {
       const data = await res.json();
       worldSearchResults = data.worlds || [];
@@ -89,7 +89,7 @@ function showVrc2faModal(hint, loginToken) {
     const hintEl = document.getElementById('vrc2faHint');
     if (hintEl && hint) hintEl.textContent = hint;
     document.getElementById('vrc2faError')?.classList.add('d-none');
-    document.getElementById('vrc2faCode')?.focus();
+    document.getElementById('vrc2faCode')?.focus({ preventScroll: true });
   }
   showModal('vrc2faModal');
 }
@@ -99,7 +99,7 @@ async function submitVrc2fa() {
   if (!code || code.length < 4) { toast(__('vrc.enter_code'), 'error'); return; }
   if (!_vrc2faToken) { toast(__('vrc.send_code_first'), 'error'); return; }
   try {
-    const res = await api('/api/auth/vrchat-2fa', { method: 'POST', body: { code, loginToken: _vrc2faToken } });
+    const res = await api('/api/auth/vrchat-2fa', { method: 'POST', body: { code, loginToken: _vrc2faToken }, timeout: 90000 });
     if (res.ok) {
       const data = await res.json();
       if (data.success) {

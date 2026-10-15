@@ -675,7 +675,7 @@
     try {
       // P3-1: 改用全局 api()，统一获得超时、no-store 缓存控制与错误兜底；与模块内其他请求一致
       //（api=window.apiJson 已把 Response 解析成对象返回，此处不可再调用 res.json()）
-      const data = await api('/api/collections/search-models?q=' + encodeURIComponent(q) + '&n=12');
+      const data = await api('/api/collections/search-models?q=' + encodeURIComponent(q) + '&n=12', { timeout: 20000 });
       const results = Array.isArray(data.results) ? data.results : [];
       if (!results.length) {
         const errMsg = errText(data);
@@ -823,7 +823,9 @@
     if (!isLoggedIn()) return;
     try {
       toast(__('collections.scanning'));
-      const d = await api('/api/collections/scan', { method: 'POST' });
+      // scan 为慢操作：后端需逐条回源 VRChat 复检（最多 200 条，令牌桶限速下可能数分钟），
+      // 前端默认 10s 超时必然中断，放宽至 240s。
+      const d = await api('/api/collections/scan', { method: 'POST', timeout: 240000 });
       toast(__('collections.scan_done') + `：${d.checked} / ${d.newInvalid}`);
       loadItems(true);
     } catch (e) { toast(e.message, 'error'); }

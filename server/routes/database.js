@@ -105,7 +105,9 @@ router.get('/admin/db/tables', requireAdminCompat, async (req, res) => {
   } catch (e) { handleError(res, e, '[db/tables]'); }
 });
 
-router.get('/admin/db/processlist', requireAdminCompat, async (req, res) => {
+// S9 修复：processlist 暴露任意连接的主机/账号/当前 SQL，属数据库运维级信息，
+// 从 requireAdminCompat 收紧为仅超管（此前普通 admin 也可巡检）
+router.get('/admin/db/processlist', requireSuperAdmin, async (req, res) => {
   try {
     const [processes] = await getPool().query('SHOW FULL PROCESSLIST');
     

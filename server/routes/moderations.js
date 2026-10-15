@@ -95,6 +95,14 @@ module.exports = (getVRCCookieUserOnly) => {
       if (targetId === req.session.userId) {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '不能举报自己');
       }
+      // S10 修复：校验目标用户真实存在（未删除），避免脏数据/幻影目标举报入库
+      const [targetUser] = await getPool().query(
+        'SELECT id FROM users WHERE id = ? AND deleted_at IS NULL',
+        [targetId]
+      );
+      if (targetUser.length === 0) {
+        return sendError(res, 404, ErrorCodes.NOT_FOUND, '目标用户不存在');
+      }
       // 同一举报人对同一目标的同类待处理举报去重，避免刷屏
       const [dup] = await getPool().query(
         'SELECT id FROM moderations WHERE reporter_id = ? AND target_user_id = ? AND target_type = ? AND status = ?',

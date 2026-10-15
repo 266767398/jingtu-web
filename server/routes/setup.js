@@ -64,6 +64,22 @@ function getEnvPath() {
   return path.join(__dirname, '..', '..', '.env');
 }
 
+// S1 修复：/setup/save 是「首装窗口」匿名可达的写端点（写 .env + 建超管），此前无限流，
+// 可被无限重放做数据库凭据探测/资源消耗。对齐 test-email/test-db 做每来源 IP 限流。
+const SAVE_WINDOW_MS = 60 * 60 * 1000;
+const SAVE_MAX = 10;
+const setupSaveHits = new Map(); // ip -> { count, resetAt }
+function setupSaveLimited(ip) {
+  const now = Date.now();
+  const rec = setupSaveHits.get(ip);
+  if (!rec || now > rec.resetAt) {
+    setupSaveHits.set(ip, { count: 1, resetAt: now + SAVE_WINDOW_MS });
+    return false;
+  }
+  rec.count += 1;
+  return rec.count > SAVE_MAX;
+}
+
 // ============ 引导隔离状态存储（setup-wizard.json）============
 function getWizardPath() {
   return path.join(__dirname, '..', '..', 'setup-wizard.json');
@@ -378,6 +394,11 @@ router.post('/setup/test-email', requireNotInstalled, requireSuperAdminForReconf
 
 router.post('/setup/save', requireNotInstalled, requireSuperAdminForReconfigure, async (req, res) => {
   try {
+    // S1 修复：首装窗口匿名可达的写端点，每来源 IP 限流（10 次/小时），防凭据探测/资源消耗
+    const saveIp = (req.socket && req.socket.remoteAddress) || '';
+    if (setupSaveLimited(saveIp)) {
+      return sendError(res, 429, ErrorCodes.RATE_LIMITED, '尝试过于频繁，请稍后再试');
+    }
     const config = req.body;
     const envExists = fs.existsSync(getEnvPath());
     const reconfigure = !!config.reconfigure && envExists;

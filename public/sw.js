@@ -1,13 +1,20 @@
-// 境途同游 — Service Worker v2.22 (20261013: 提升 CACHE 版本，配合 VRC tab emoji 去重等 UI 修复，版本戳 20261013a 全量失效重载)
-const CACHE = 'jingtu-v2.22';
+// 境途同游 — Service Worker v2.25 (20261015:
+//  ① 不再预缓存 '/' HTML —— 服务端对每个响应注入一次性 CSP nonce，被缓存下来的
+//     HTML 携带的是「那次响应」的旧 nonce。一旦该缓存被 SW 命中（离线兜底、或旧
+//     SW 残留未及时换代），就会与当次 CSP 头错配 → 页面内联脚本（含尾部事件绑定块
+//     与页头引导块）全部被拦 → 选项卡/按钮点击失效（"刷新后点不了"的真实投递路径）。
+//     故 HTML 一律走「网络优先 + offline.html 兜底」，绝不进预缓存清单。
+//  ② 替换 group-hero.png 新横幅，强制老用户重装 SW 重抓首屏背景，避免
+//     stale-while-revalidate 继续返回旧横幅缓存)
+const CACHE = 'jingtu-v2.25';
 const STATIC_ASSETS = [
-  '/',
   '/offline.html',
   '/css/style.css',
   '/manifest.json',
   '/assets/group-avatar.svg',
   '/assets/group-avatar.png',
   '/assets/group-banner.png',
+  '/assets/group-hero.png',
   '/assets/pwa-icon-192.svg',
   '/assets/pwa-icon-512.svg'
 ];
@@ -76,18 +83,12 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // HTML 文档：network-first（保证最新内容），失败用缓存兜底
+  // HTML 文档：network-first（保证最新内容）；失败仅用 offline.html 兜底。
+  // 注意：绝不把 HTML 写入缓存 —— 服务端每响应注入一次性 CSP nonce，缓存下来的
+  // HTML 携带旧 nonce，与当次 CSP 头错配后页内内联脚本全被拦（见文件头说明）。
   if (isNavigation(request)) {
     e.respondWith(
-      fetch(request)
-        .then(res => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE).then(cache => cache.put(request, clone));
-          }
-          return res;
-        })
-        .catch(() => caches.match('/offline.html').then(off => off || caches.match(request)))
+      fetch(request).catch(() => caches.match('/offline.html'))
     );
     return;
   }

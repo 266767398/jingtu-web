@@ -426,7 +426,13 @@ describe('security regressions', () => {
   // 必须按 user_id 兜底读取（失败静默降级）并以 preferences 为真相源合并。
   test('merges the public profile from preferences with a user_id fallback', () => {
     const publicProfile = sliceBetween(files.profileRoute, "router.get('/:userId'", "router.post('/update'");
-    expect(publicProfile).toMatch(/birthday, location, bio, preferences/);
+    // users 表**没有** bio 列（bio 的真相源是 user_profile 表 + users.preferences）：
+    // 曾误把 bio 放进该 SELECT，导致线上每次访问公开主页都 500（Unknown column 'bio'）。
+    // 同时必须带 location_visible，供下方 location 隐私判定使用（此前漏选，恒 undefined）。
+    expect(publicProfile).toMatch(/birthday, location, location_visible, preferences/);
+    const usersSelect = sliceBetween(publicProfile, 'const [users] = await getPool().query(', 'if (!users.length)');
+    expect(usersSelect).not.toMatch(/\bbio\b/);
+    expect(usersSelect).toMatch(/location_visible/);
     expect(publicProfile).toMatch(/FROM user_profile WHERE user_id = \?/);
     expect(publicProfile).not.toMatch(/user_profile WHERE vrchat_id/);
     expect(publicProfile).toMatch(/logger\.warn\('\[profile\] user_profile 表读取失败，仅使用 preferences 数据:'/);
@@ -855,8 +861,11 @@ describe('security regressions', () => {
     });
 
     test('group.js 冻结停轮询，解冻仅在 vrc Tab 恢复', () => {
-      expect(files.groupJs).toMatch(/onFreeze: function \(\) \{ stopGroupPolling\(\); \}/);
+      expect(files.groupJs).toMatch(/onFreeze: function \(\) \{ stopGroupPolling\(\); stopGlobalPresenceContributor\(\); \}/);
       expect(files.groupJs).toMatch(/activeTab === 'vrc' && typeof loadGroupStats === 'function'\) startGroupPolling\(\);/);
+      // V9.5：全局持续贡献（VRCX 式群友互助）冻结暂停、解冻恢复且立即补贡献
+      expect(files.groupJs).toMatch(/stopGlobalPresenceContributor\(\);/);
+      expect(files.groupJs).toMatch(/contributePresence\(\); \/\/ 恢复前台立即贡献一次/);
     });
 
     test('map.js 封装位置上报循环并注册冻结回调（清扫 + GPS 上报）', () => {

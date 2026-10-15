@@ -227,7 +227,9 @@ router.post('/db-recover', requireRecoveryToken, async (req, res) => {
     });
     await conn.query('SELECT 1 AS ping');
   } catch (e) {
-    return sendError(res, 400, ErrorCodes.BAD_REQUEST, '数据库连接测试失败：' + e.message);
+    // S5 修复：不外泄上游 MySQL 错误细节（主机名/路径/版本等），详情仅入服务端日志
+    logger.warn('[db-recover] 数据库连接测试失败：' + e.message);
+    return sendError(res, 400, ErrorCodes.BAD_REQUEST, '数据库连接测试失败，请检查连接参数后再试（详情见服务端日志）');
   } finally {
     if (conn) { try { await conn.end(); } catch (_) {} }
   }

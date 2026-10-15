@@ -35,7 +35,7 @@ const LANG_ORDER = ['zh', 'en', 'ja', 'fr', 'de', 'ru'];
 // 语言包静态版本号（与 index.html 中 document.write 引入的语言包 ?v 保持一致）。
 // 动态按需加载的语言包同样必须带 ?v，否则 Service Worker 可能命中旧缓存，
 // 导致切换语言后文案仍显示旧语言（缓存问题 4.2）。语言包内容更新时需同步提升此版本号。
-const I18N_PACK_VERSION = '20261014d';
+const I18N_PACK_VERSION = '20261015k';
 
 // ==================== 翻译表（从语言文件加载） ====================
 
@@ -73,8 +73,15 @@ function _applyLanguage(lang) {
   reloadDynamicI18n();
   const modal = document.getElementById('langSwitcherModal');
   if (modal) {
-    modal.classList.remove('show');
-    setTimeout(() => { modal.remove(); }, 300);
+    // P3 打磨：统一走 closeModal（内部解锁 body 滚动锁 + 移除 .show），
+    // 不再直接 remove 绕过解锁；轻量页无 core.js 时手动解锁后移除。
+    if (typeof closeModal === 'function') {
+      closeModal('langSwitcherModal');
+    } else {
+      modal.classList.remove('show');
+      if (typeof unlockBodyScroll === 'function') unlockBodyScroll('modal:langSwitcherModal');
+      setTimeout(() => { modal.remove(); }, 300);
+    }
   }
   return lang;
 }

@@ -10,9 +10,14 @@ const request = require('supertest');
 let mockCookie = 'auth=test-cookie';
 let mockNoteRes = { status: 200, body: { success: { message: 'ok', status_code: 200 } } };
 let mockBoopRes = { status: 200, body: { success: { message: 'User booped!', status_code: 200 } } };
+let mockIsFriend = true; // 可被用例覆写，控制 isAcceptedFriend 的返回（boop/world 前置校验）
 
 jest.mock('../auth', () => ({
-  requireAuth(req, res, next) { next(); }
+  requireAuth(req, res, next) {
+    req.session = req.session || {};
+    req.session.userId = req.session.userId || 1;
+    next();
+  }
 }));
 
 jest.mock('../utils', () => ({
@@ -28,13 +33,25 @@ jest.mock('../utils', () => ({
   handleError(res, e) {
     return res.status(e.statusCode || 500).json({ success: false, error: { code: e.code || 'INTERNAL_ERROR', message: e.message } });
   },
-  ErrorCodes: { NEED_BIND: 'NEED_BIND', VALIDATION_ERROR: 'VALIDATION_ERROR' }
+  ErrorCodes: { NEED_BIND: 'NEED_BIND', VALIDATION_ERROR: 'VALIDATION_ERROR' },
+  getPool() {
+    // isAcceptedFriend() 用：返回空结果集表示非好友、返回一行表示好友。
+    // 通过模块级 mockIsFriend 变量控制，每个用例可在 beforeEach 重置或单独覆写。
+    const _isFriend = typeof globalThis.__vrcInvitesIsFriend === 'boolean' ? globalThis.__vrcInvitesIsFriend : mockIsFriend;
+    return {
+      async query(sql, params) {
+        if (_isFriend) return [[{ id: 1 }]];
+        return [[]];
+      }
+    };
+  }
 }));
 
 const mockSaveNote = jest.fn();
 const mockBoop = jest.fn();
+const mockSendInvite = jest.fn();
 jest.mock('../vrc', () => ({
-  vrchatSendInvite: jest.fn().mockResolvedValue({ status: 200 }),
+  vrchatSendInvite: (...a) => mockSendInvite(...a),
   vrchatSendFriendRequest: jest.fn().mockResolvedValue({ status: 200 }),
   vrchatSaveNote: (...a) => mockSaveNote(...a),
   vrchatBoop: (...a) => mockBoop(...a),
@@ -57,6 +74,9 @@ beforeEach(() => {
   mockBoopRes = { status: 200, body: { success: { message: 'User booped!', status_code: 200 } } };
   mockSaveNote.mockResolvedValue(mockNoteRes);
   mockBoop.mockResolvedValue(mockBoopRes);
+  // 前置好友校验默认通过（历史 boop/world 用例假设为好友）；
+  // 新的"非好友拦截"测试用例会单独覆写 globalThis.__vrcInvitesIsFriend = false
+  globalThis.__vrcInvitesIsFriend = true;
 });
 
 describe('F-24 /api/vrc-invites/note 保存备注', () => {
@@ -132,10 +152,30 @@ describe('F-24 /api/vrc-invites/boop 发送 Boop', () => {
     expect(mockBoop).toHaveBeenCalledWith('usr_00000000-0000-0000-0000-000000000000', 'auth=test-cookie', 'file_abc');
   });
 
-  test('上游非 2xx（如非好友 400）→ sendVrcError 透传', async () => {
-    mockBoop.mockResolvedValue({ status: 400, body: { error: { message: 'These users are not friends', status_code: 400 } } });
+  test('上游非 2xx（如对方 Boop 频控）→ sendVrcError 透传（前置好友校验已通过）', async () => {
+    mockBoop.mockResolvedValue({ status: 400, body: { error: { message: 'Boop rate limit hit', status_code: 400 } } });
     const res = await request(makeApp()).post('/boop').send({ targetUserId: 'usr_00000000-0000-0000-0000-000000000000' });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VRC_UPSTREAM');
+  });
+
+  // 前置好友校验（本轮新增，修"非好友 Boop / 邀请 报错"根因）
+  test('非好友 Boop → 前置拦截 400，不调上游（VRChat 官方对非好友 Boop 返回 400）', async () => {
+    globalThis.__vrcInvitesIsFriend = false;
+    const res = await request(makeApp()).post('/boop').send({ targetUserId: 'usr_00000000-0000-0000-0000-000000000000' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(res.body.error.message).toMatch(/仅可对好友/);
+    expect(mockBoop).not.toHaveBeenCalled();
+  });
+
+  // world 与 boop 共用同一 isAcceptedFriend 前置校验，补直接测试覆盖
+  test('非好友 World 邀请 → 前置拦截 400，不调上游（VRChat 官方对非好友发世界邀请同样返回 400）', async () => {
+    globalThis.__vrcInvitesIsFriend = false;
+    const res = await request(makeApp()).post('/world').send({ targetUserId: 'usr_00000000-0000-0000-0000-000000000000', instanceId: 'wrld_00000000-0000-0000-0000-000000000000:12345~hidden(usr_00000000-0000-0000-0000-000000000000)~region(us)' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(res.body.error.message).toMatch(/仅可对好友/);
+    expect(mockSendInvite).not.toHaveBeenCalled();
   });
 });

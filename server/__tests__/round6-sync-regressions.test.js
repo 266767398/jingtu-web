@@ -287,8 +287,9 @@ describe('长耗时接口的前端超时与按钮恢复', () => {
     const s = srv('routes/groups_members_sync.js');
     const i = s.indexOf("router.post('/group/presence/contribute'");
     const body = s.slice(i, s.indexOf('\n  return router;', i));
-    // 分页上限必须收紧（≤5 页），避免最坏 2×20=40 页串行拉取拖爆 20s 客户端超时
-    expect(body).toMatch(/vrchatGetFriendsOnlineMap\(c,\s*\{\s*maxPages:\s*5\b/);
+    // 分页上限收紧（≤5 页）且仅拉在线好友（onlineOnly:true，离线好友不必下载，
+    // 请求数从最坏 2×maxPages 降到 maxPages——V9.5 贡献提速的核心，避免拖爆客户端超时）
+    expect(body).toMatch(/vrchatGetFriendsOnlineMap\(c,\s*\{\s*maxPages:\s*3\b[\s\S]*?onlineOnly:\s*true\b/);
     // 客户端中断（req.aborted / res.destroyed）时立即停止，不再消耗配额与 DB 写入
     expect(body).toMatch(/req\.aborted\s*\|\|\s*res\.destroyed/);
     expect(body).toMatch(/aborted\s*=\s*true/);

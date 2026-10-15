@@ -659,7 +659,7 @@ async function loadVrcNotifications() {
   if (!listEl) return;
   listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.notif_loading') + '</p>';
   try {
-    const res = await api('/api/vrc-notifications?n=50');
+    const res = await api('/api/vrc-notifications?n=50', { timeout: 20000 });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.message || __('admin_vrc.notif_fail'));
     const list = Array.isArray(data.notifications) ? data.notifications : [];
@@ -711,7 +711,7 @@ async function doSystemVrcLogin() {
         const hint = document.getElementById('sysVrc2faHint');
         if (hint) hint.textContent = method === 'emailOtp' ? __('admin.enter_email_code') : __('admin.enter_auth_code');
         toast(__('admin_vrc.need_2fa'), 'info');
-        document.getElementById('sysVrc2faCode')?.focus();
+        document.getElementById('sysVrc2faCode')?.focus({ preventScroll: true });
         return;
       }
       toast(__('admin_vrc.login_ok_vrc'), 'success');

@@ -49,7 +49,10 @@ function applyTheme(config) {
   const themeBtn = document.getElementById('themeBtn');
   if (themeBtn) {
     const brightness = computeBrightness(config);
-    themeBtn.textContent = brightness === 'dark' ? '🌙' : '☀️';
+    // F6 加固：按钮内含 <span aria-hidden> 承载图标，更新图标不覆盖 aria-label
+    const iconEl = themeBtn.querySelector('span');
+    if (iconEl) { iconEl.textContent = brightness === 'dark' ? '🌙' : '☀️'; }
+    else { themeBtn.textContent = brightness === 'dark' ? '🌙' : '☀️'; }
   }
   if (typeof mapInstance !== 'undefined' && mapInstance) setTimeout(() => mapInstance.invalidateSize(), 100);
 }

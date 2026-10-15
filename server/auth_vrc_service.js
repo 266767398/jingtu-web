@@ -5,12 +5,11 @@
  * routes/auth_routes.js 通过 registerVrcRoutes(router) 原位委托注册。
  */
 const {
-  VRC_API_KEY,
-  vrchatRequest,
   vrchatBasicLogin,
   vrchatGetCurrentUserResult,
   vrchatGetUser,
-  vrchatVerifyTwoFactor
+  vrchatVerifyTwoFactor,
+  triggerVrcEmailOtp
 } = require('./vrc');
 const { fail, ok, getPool, encryptCookie, handleError, sendError, ErrorCodes } = require('./utils');
 const { createCustomLimiter } = require('./middleware/rate_limit');
@@ -214,7 +213,7 @@ router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '当前验证方式无需重发验证码');
       }
       try {
-        await vrchatRequest('POST', `/auth/twofactorauth/emailotp?apiKey=${VRC_API_KEY}`, {}, state.cookie);
+        await triggerVrcEmailOtp(state.cookie);
       } catch (e) {
         logger.warn('auth', '[vrchat-login] 重发邮件验证码失败', e.message);
       }
@@ -255,7 +254,7 @@ router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
       // 触发发送邮件验证码
       if (vrcUser.requiresTwoFactorAuth.includes('emailOtp')) {
         try {
-          await vrchatRequest('POST', `/auth/twofactorauth/emailotp?apiKey=${VRC_API_KEY}`, {}, cookie);
+          await triggerVrcEmailOtp(cookie);
         } catch(e) {
           logger.warn('auth', '[vrchat-login] 触发邮件验证码失败', e.message);
         }
@@ -309,7 +308,14 @@ router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
 });
 
 // ==================== VRChat 独立 2FA 验证 ====================
-router.post('/vrchat-2fa', async (req, res) => {
+// S2 修复：该端点此前只有 per-token 失败计数、无 per-IP 限流，
+// 攻击者可用不同 loginToken 反复爆破验证码。按 IP 收紧到 15 分钟 10 次（对齐 vrc-login）。
+const vrc2faLimiter = createCustomLimiter({
+  name: 'vrc-2fa',
+  max: 10,
+  message: { error: '两步验证请求过于频繁，请稍后再试', retryAfter: 900 }
+});
+router.post('/vrchat-2fa', vrc2faLimiter, async (req, res) => {
   try {
     const { code, method, loginToken } = req.body;
     if (!code || code.length < 4) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入有效的验证码');
@@ -413,7 +419,7 @@ router.post('/vrchat-bind-verify', vrcBindLimiter, requireAuth, async (req, res)
     if (needs2fa && !code && bindToken && resend) {
       if (vrcUser.requiresTwoFactorAuth.includes('emailOtp')) {
         try {
-          await vrchatRequest('POST', `/auth/twofactorauth/emailotp?apiKey=${VRC_API_KEY}`, {}, cookie);
+          await triggerVrcEmailOtp(cookie);
         } catch(e) {
           logger.warn('auth', '[vrchat-bind-verify] 重发邮件验证码失败', e.message);
         }
@@ -448,7 +454,7 @@ router.post('/vrchat-bind-verify', vrcBindLimiter, requireAuth, async (req, res)
       // 触发发送邮件验证码
       if (vrcUser.requiresTwoFactorAuth.includes('emailOtp')) {
         try {
-          await vrchatRequest('POST', `/auth/twofactorauth/emailotp?apiKey=${VRC_API_KEY}`, {}, cookie);
+          await triggerVrcEmailOtp(cookie);
         } catch(e) {
           logger.warn('auth', '[vrchat-bind-verify] 触发邮件验证码失败', e.message);
         }

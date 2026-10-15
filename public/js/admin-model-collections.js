@@ -188,7 +188,7 @@
   async function scanUser(userId) {
     toast(__('model_coll.scanning'), 'info');
     try {
-      const res = await api('/api/collections/admin/user/' + userId + '/scan', { method: 'POST' });
+      const res = await api('/api/collections/admin/user/' + userId + '/scan', { method: 'POST', timeout: 240000 });
       if (res.ok) { const d = await res.json(); toast(__('model_coll.scan_done', { n: d.scanned || 0, m: d.newlyInvalid || 0 }), 'success'); refreshMcAdmin(); }
       else { const d = await res.json().catch(() => ({})); toast(errText(d) || __('model_coll.scan_fail'), 'error'); }
     } catch (e) { if (isApiHandledError(e)) return; toast(__('model_coll.scan_fail') + ': ' + e.message, 'error'); }
@@ -197,7 +197,7 @@
   async function scanAll() {
     toast(__('model_coll.scanning'), 'info');
     try {
-      const res = await api('/api/collections/admin/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ batchSize: 200 }) });
+      const res = await api('/api/collections/admin/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ batchSize: 200 }), timeout: 240000 });
       if (res.ok) { const d = await res.json(); toast(__('model_coll.scan_done', { n: d.scanned || 0, m: d.newlyInvalid || 0 }), 'success'); refreshMcAdmin(); }
       else { const d = await res.json().catch(() => ({})); toast(errText(d) || __('model_coll.scan_fail'), 'error'); }
     } catch (e) { if (isApiHandledError(e)) return; toast(__('model_coll.scan_fail') + ': ' + e.message, 'error'); }

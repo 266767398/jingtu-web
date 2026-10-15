@@ -986,8 +986,11 @@ function _renderMapGrid(worlds) {
         <div class="world-grid-members">
           ${w.members.slice(0, 8).map(m => {
             const wa = mapAvatarSrc(m.avatarUrl, m.vrchatId);
+            // 非好友成员可能只返回 vrcUserId（群成员 API 隐私墙），和 group.js 同一问题；
+            // 必须双写兜底，否则点击地图世界头像打开名片时 data-vrc-id 为空无反应。
+            const _vrcId = m.vrchatId || m.vrcUserId || '';
             return `
-            <div class="world-mini-avatar" title="${esc(m.displayName)}" data-action="map-open-vrc-card" data-vrc-id="${escAttr(m.vrchatId)}" style="cursor:pointer">
+            <div class="world-mini-avatar" title="${esc(m.displayName)}" data-action="map-open-vrc-card" data-vrc-id="${escAttr(_vrcId)}" style="cursor:pointer">
               <img src="${escAttr(wa)}" alt="${esc(m.displayName)}" class="world-mini-avatar-img" loading="lazy" data-avatar-fail-src="${escAttr(wa)}">
               <div class="world-avatar-fallback" style="${wa === '/api/avatar/default' ? 'display:flex' : ''}">${esc((m.displayName || '?').charAt(0).toUpperCase())}</div>
             </div>`;

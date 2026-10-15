@@ -8,10 +8,25 @@ async function loadMembers() {
   membersLoading = true;
   if (container) showSkeleton(container, 'grid', 8);
   try {
-    const res = await api('/api/users/list', { method: 'GET' });
-    if (res.ok) {
+    // P3 分页修复：后端 /api/users/list 默认 100 条/页（paginate defaultSize:100），
+    // 此前一次拉全量会静默截断——成员超 100 人时列表只显示前 100 人。
+    // 改为逐页拉取累积，保持成员页/地图对全量数据的依赖（客户端角色/关键词过滤
+    // 基于完整的 membersCache）。
+    const MEMBERS_PAGE_SIZE = 100;
+    const MEMBERS_MAX_PAGES = 100; // 防御性上限（1 万人足够），防异常 total 死循环
+    let all = [];
+    let total = 0;
+    for (let page = 1; page <= MEMBERS_MAX_PAGES; page++) {
+      const res = await api(`/api/users/list?page=${page}&pageSize=${MEMBERS_PAGE_SIZE}`, { method: 'GET' });
+      if (!res.ok) break;
       const data = await res.json();
-      membersCache = data.users || [];
+      const rows = data.users || [];
+      all = all.concat(rows);
+      if (typeof data.total === 'number') total = data.total;
+      if (!rows.length || all.length >= total) break;
+    }
+    if (all.length) {
+      membersCache = all;
       populateRoleFilter();
       filterMembers();
       if (typeof mapInstance !== 'undefined' && mapInstance) updateMapMarkers();
@@ -1259,8 +1274,8 @@ function renderVrcMemberCard(d, forId) {
       <div class="vrc-card-actions">
         <a href="${profileUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-primary">${__('members.vrc_view_in_vrchat')}</a>
         ${!isSelfCard && !d.isFriend && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" data-action="vrc-friend" data-vrc-id="${escAttr(d.vrchatId)}">🤝 ${__('members.vrc_friend_request_btn')}</button>` : ''}
-        ${!isSelfCard && d.vrchatId && inst && !inst.isOffline && /^wrld_[0-9a-fA-F-]+:.+$/.test(d.location || '') ? `<button type="button" class="btn btn-sm btn-outline" data-action="vrc-invite" data-vrc-id="${escAttr(d.vrchatId)}" data-location="${escAttr(d.location)}">📨 ${__('members.vrc_invite_btn')}</button>` : ''}
-        ${!isSelfCard && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" data-action="vrc-boop" data-vrc-id="${escAttr(d.vrchatId)}" title="${escAttr(__('members.vrc_boop_hint'))}">👋 ${__('members.vrc_boop_btn')}</button>` : ''}
+        ${!isSelfCard && d.isFriend && d.vrchatId && inst && !inst.isOffline && /^wrld_[0-9a-fA-F-]+:.+$/.test(d.location || '') ? `<button type="button" class="btn btn-sm btn-outline" data-action="vrc-invite" data-vrc-id="${escAttr(d.vrchatId)}" data-location="${escAttr(d.location)}">📨 ${__('members.vrc_invite_btn')}</button>` : ''}
+        ${!isSelfCard && d.isFriend && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" data-action="vrc-boop" data-vrc-id="${escAttr(d.vrchatId)}" title="${escAttr(__('members.vrc_boop_hint'))}">👋 ${__('members.vrc_boop_btn')}</button>` : ''}
         ${!isSelfCard && d.vrchatId ? `<button type="button" class="btn btn-sm btn-outline" data-action="vrc-note" data-vrc-id="${escAttr(d.vrchatId)}">📝 ${__('members.vrc_note_btn')}</button>` : ''}
       </div>
     </div>`;
@@ -1292,7 +1307,8 @@ async function vrcSendInvite(targetUserId, instanceId, btn) {
   try {
     const res = await api('/api/vrc-invites/world', {
       method: 'POST',
-      body: JSON.stringify({ targetUserId, instanceId })
+      body: JSON.stringify({ targetUserId, instanceId }),
+      timeout: 20000
     });
     if (res.ok) {
       toast(__('members.vrc_invite_sent'), 'success');
@@ -1313,7 +1329,8 @@ async function vrcSendFriendRequest(targetUserId, btn) {
   try {
     const res = await api('/api/vrc-invites/friend-request', {
       method: 'POST',
-      body: JSON.stringify({ targetUserId })
+      body: JSON.stringify({ targetUserId }),
+      timeout: 20000
     });
     if (res.ok) {
       toast(__('members.vrc_friend_request_sent'), 'success');
@@ -1338,7 +1355,8 @@ async function vrcBoop(targetUserId, btn) {
   try {
     const res = await api('/api/vrc-invites/boop', {
       method: 'POST',
-      body: JSON.stringify({ targetUserId })
+      body: JSON.stringify({ targetUserId }),
+      timeout: 20000
     });
     if (res.ok) {
       toast(__('members.vrc_boop_sent'), 'success');
@@ -1361,7 +1379,8 @@ function vrcEditNote(targetUserId, btn) {
     try {
       const res = await api('/api/vrc-invites/note', {
         method: 'POST',
-        body: JSON.stringify({ targetUserId, note: val })
+        body: JSON.stringify({ targetUserId, note: val }),
+        timeout: 20000
       });
       if (res.ok) {
         toast(val ? __('members.vrc_note_saved') : __('members.vrc_note_cleared'), 'success');

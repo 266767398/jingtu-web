@@ -147,18 +147,25 @@ describe('regressions found by real-browser rendering', () => {
     // 上一轮自己引入的回归：99-design-system.css 的 .btn{display:inline-flex}
     // 与 ui-enhance.css 的 .mobile-tab-menu-btn{display:none} 同为 (0,1,0)
     // 特异性，后加载者胜出，于是桌面端冒出 ☰ 并把「管理」标签挤出视口。
-    // 凡"默认隐藏的按钮"都必须在设计系统层显式重申。
-    const dom = new JSDOM(
-      `<!doctype html><html><head><style>${CSS_ORDER.map(f => read('css', f)).join('\n')}</style></head>` +
-      `<body><button class="btn btn-sm btn-outline mobile-tab-menu-btn"></button></body></html>`
-    );
-    const el = dom.window.document.querySelector('.mobile-tab-menu-btn');
-    expect(dom.window.getComputedStyle(el).display).toBe('none');
+    // P3-e(F5) 已删除死类 .mobile-tab-menu-btn；现行「更多」按钮为
+    // .mobile-more-btn，挂在 .mobile-tab-bar 内 —— 桌面隐藏机制改为父容器：
+    // .mobile-tab-bar 的全局规则（任何媒体块之外）必须保持 display:none，
+    // ≤768px 媒体块内才 display:block（jsdom 对媒体查询按初始视口求值，
+    // 无法区分桌面/移动态，故此处用"全局规则"作静态守卫）。
+    const css = read('css', 'ui-components.css');
+    // 源文件中首个 .mobile-tab-bar 规则块即 L1514 全局默认态
+    const barRule = css.match(/\.mobile-tab-bar\s*\{[^}]*\}/)?.[0] || '';
+    expect(barRule).toMatch(/display:\s*none/);
+    // 后加载文件（设计系统层）不得再次把底部栏/「更多」按钮显示出来
+    const dsCss = read('css', '99-design-system.css');
+    expect(dsCss).not.toMatch(/(^|[\s,})])\.mobile-tab-bar\s*\{[^}]*display:\s*block/);
+    expect(dsCss).not.toMatch(/(^|[\s,})])\.mobile-more-btn\s*\{[^}]*display/);
   });
 
-  test('the "more" button is re-shown inside the mobile breakpoint', () => {
-    const mobileBlock = ds().slice(ds().indexOf('@media (max-width: 768px)'));
-    expect(mobileBlock).toMatch(/\.mobile-tab-menu-btn\s*\{[^}]*display:\s*inline-flex/);
+  test('the mobile tab bar is re-shown inside the mobile breakpoint', () => {
+    const css = read('css', 'ui-components.css');
+    const mobileBlock = css.slice(css.indexOf('@media (max-width: 768px)'));
+    expect(mobileBlock).toMatch(/\.mobile-tab-bar\s*\{[^}]*display:\s*block/);
   });
 
   test('buttons never get squeezed by their flex container', () => {

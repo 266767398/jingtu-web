@@ -303,11 +303,14 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     try {
       const { cookie, result } = await vrcWithFallback(req, async (c) => {
         // 取当前用户自己的好友在线列表（好友视角，状态最准确）。
-        // 分页预算收紧为 5 页（≤500 在线 + ≤500 离线好友）：贡献状态只服务于
-        // 本群成员（通常远小于此规模），不必拉全量好友——原 maxPages:20 最坏
-        // 2×20=40 页串行拉取，国内访问 api.vrchat.cloud 常超 20s 客户端超时
-        // 被 abort（net::ERR_ABORTED），服务端还白耗全局 40/min VRChat 配额。
-        const friendMap = await vrchatGetFriendsOnlineMap(c, { maxPages: 5, delayMs: 0 });
+        // V9.5 提速：onlineOnly=true 只拉在线/活跃好友（offline=false），离线好友不必下载。
+        // 群组在线状态关注的是"谁在线"，离线成员保持离线/旧值即可——请求数从最坏
+        // 2×maxPages 降到 maxPages，贡献延迟从 ~27s 降到秒级（线上实测慢请求主因）。
+        // 分页预算 3 页 ≤300 在线好友，对绝大多数群组足够；贡献只服务本群成员，
+        // 不必拉全量好友——原 maxPages:5 + 双模式最坏 10 页串行拉取，国内访问
+        // api.vrchat.cloud 常超 20s 客户端超时被 abort（net::ERR_ABORTED），
+        // 服务端还白耗全局 40/min VRChat 配额。
+        const friendMap = await vrchatGetFriendsOnlineMap(c, { maxPages: 3, delayMs: 0, onlineOnly: true });
         if (!friendMap || friendMap.size === 0) return { shared: 0 };
         const [rows] = await pool.query(`SELECT vrchat_id FROM group_roster WHERE is_member=1`);
         const ids = rows.map(r => r.vrchat_id);
@@ -316,6 +319,14 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
         const sourceVid = (u[0] && u[0].vrchat_id) ? u[0].vrchat_id : null;
         let shared = 0;
         let aborted = false;
+        // 性能修复：原实现对每个好友逐条 await pool.query 串行入库，
+        // 群成员规模大时会累积数百次数据库往返（线上实测 38s 慢请求，
+        // 既拖垮响应又占满连接池）。改为先收集再分片批量写入，往返次数 N/CHUNK。
+        // CHUNK=500 保守：单条 INSERT ... ON DUPLICATE KEY UPDATE 每 ~9KB/行，
+        // 500 行 ~4.5MB，低于 MySQL 默认 max_allowed_packet=16MB；
+        // 更大群（>500 命中的好友）自动分片，避免单行 SQL 过长被 MySQL 拒掉。
+        const INSERT_CHUNK = 500;
+        const rowsToWrite = [];
         for (const vid of ids) {
           // 客户端已中断（前端超时 abort / 关页）：立即止损——不再消耗 VRChat 配额
           // 与 DB 写入，让出令牌桶给 refresh/sync 等主链路（响应已无法送达，直接返回）
@@ -326,18 +337,26 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
           }
           const f = friendMap.get(vid);
           if (!f) continue; // 只上报本群中"我的好友"
+          rowsToWrite.push([
+            vid, f.isOnline ? 1 : 0, f.status || 'offline', f.worldId || '', f.location || '',
+            toSqlDatetime(f.last_login), sourceVid, f.statusDescription || '', f.trustLevel || ''
+          ]);
+        }
+        for (let i = 0; i < rowsToWrite.length; i += INSERT_CHUNK) {
+          if (req.aborted || res.destroyed) { aborted = true; break; }
+          const chunk = rowsToWrite.slice(i, i + INSERT_CHUNK);
+          const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())').join(', ');
           await pool.query(
             `INSERT INTO group_presence_share (vrchat_id, is_online, vrchat_status, world_name, location, last_login, source_vrchat_id, status_description, trust_level, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+             VALUES ${placeholders}
              ON DUPLICATE KEY UPDATE is_online=VALUES(is_online), vrchat_status=VALUES(vrchat_status),
                world_name=VALUES(world_name), location=VALUES(location), last_login=VALUES(last_login),
                source_vrchat_id=VALUES(source_vrchat_id), status_description=VALUES(status_description),
                trust_level=VALUES(trust_level), updated_at=NOW()`,
-            [vid, f.isOnline ? 1 : 0, f.status || 'offline', f.worldId || '', f.location || '', toSqlDatetime(f.last_login), sourceVid,
-             f.statusDescription || '', f.trustLevel || '']
+            chunk.flat()
           );
-          shared++;
         }
+        shared = rowsToWrite.length;
         return { shared, aborted };
       }, getVRCCookieFn, getUserVRCCookieFn);
       if (!cookie) {

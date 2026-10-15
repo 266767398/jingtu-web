@@ -53,14 +53,15 @@ jest.mock('../vrc', () => ({
   vrchatBasicLogin: jest.fn(),
   vrchatGetCurrentUserResult: jest.fn(),
   vrchatGetUser: jest.fn(),
-  vrchatVerifyTwoFactor: jest.fn()
+  vrchatVerifyTwoFactor: jest.fn(),
+  triggerVrcEmailOtp: jest.fn()
 }));
 
 const auth = require('../auth');
 const authSession = require('../auth_session');
 const { verifyVrc2fa } = require('../auth_vrc_service');
 const authRouter = require('../routes/auth_routes');
-const { vrchatVerifyTwoFactor, vrchatGetCurrentUserResult, vrchatBasicLogin, vrchatRequest } = require('../vrc');
+const { vrchatVerifyTwoFactor, vrchatGetCurrentUserResult, vrchatBasicLogin, vrchatRequest, triggerVrcEmailOtp } = require('../vrc');
 
 // ─────────────────────────── 工具 ───────────────────────────
 function mockQueryBySql(routes) {
@@ -615,6 +616,8 @@ describe('P2-148 auth_vrc_service 2FA', () => {
       needs2fa: true
     });
     vrchatRequest.mockClear().mockResolvedValue({ status: 200, data: {} });
+    // P3 打磨：emailOtp 触发收拢到 triggerVrcEmailOtp（10s 超时、不重试，防拖垮接口）
+    triggerVrcEmailOtp.mockClear().mockResolvedValue(true);
     const app = createApp();
     const step1 = await request(app).post('/api/auth/vrchat-login').send({ username: 'u', password: 'p' });
     expect(step1.status).toBe(200);
@@ -625,9 +628,10 @@ describe('P2-148 auth_vrc_service 2FA', () => {
     expect(res.status).toBe(200);
     expect(res.body.need2fa).toBe(true);
     expect(res.body.message).toContain('重新发送');
-    const emailotpCall = vrchatRequest.mock.calls.find((c) => c[1] && c[1].includes('/twofactorauth/emailotp?'));
-    expect(emailotpCall).toBeTruthy();
-    expect(emailotpCall[3]).toBe('auth=x');
+    // 第一次 triggerVrcEmailOtp 是第一步登录（模式 A）触发的；重发（模式 C）应是第二次
+    const otpCalls = triggerVrcEmailOtp.mock.calls;
+    expect(otpCalls.length).toBe(2);
+    expect(otpCalls[otpCalls.length - 1]).toEqual(['auth=x']);
   });
 
   test('/vrchat-login 模式 C：TOTP 身份验证器无需重发 → 400', async () => {
