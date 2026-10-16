@@ -3,7 +3,7 @@
  * buildSession / sessionUser 被本地登录、VRChat、/init 多个域共用，
  * 抽为独立小模块，避免各 service 间循环依赖。
  */
-const { encryptCookie } = require('./utils');
+const { encryptCookie, decryptCookie } = require('./utils');
 const { ROLE_LABELS } = require('./auth');
 
 // 从用户记录构建session
@@ -26,6 +26,15 @@ function buildSession(req, user, vrchatCookie) {
     if (!encrypted) throw new Error('cookie 加密失败');
     req.session.vrchatCookie = encrypted;
     req.session.vrcCookieSetAt = Date.now(); // V8.2: 记录 cookie 设置时间（用于软性过期判断）
+  } else if (user.vrchat_token_enc) {
+    // V9.3: 密码登录/新会话无新 cookie 时，从 DB 恢复用户绑定的 VRChat 会话 cookie
+    //（AES 加密，与 session 同格式，绑定/登录成功时由 auth_vrc_service 写入）。
+    // 换浏览器/换设备后免重新绑定；仅当解密成功（密文有效）才恢复，否则视为无效候选。
+    const plain = decryptCookie(user.vrchat_token_enc);
+    if (plain) {
+      req.session.vrchatCookie = user.vrchat_token_enc;
+      req.session.vrcCookieSetAt = Date.now();
+    }
   }
 }
 

@@ -93,8 +93,8 @@ async function verifyVrc2fa(code, method, cookie, opts = {}) {
 // @param {object} [opts.bindStatus=false] 响应是否携带 bindStatus:'already_bound'
 function completeVrcLogin(req, res, boundUser, cookie, reason, opts = {}) {
   getPool().query(
-    `UPDATE users SET vrchat_name = ?, vrchat_avatar_url = ?, failed_login_attempts = 0, locked_until = NULL, updated_at = NOW() WHERE id = ?`,
-    [boundUser.vrchat_name, boundUser.vrchat_avatar_url, boundUser.id]
+    `UPDATE users SET vrchat_name = ?, vrchat_avatar_url = ?, vrchat_token_enc = ?, failed_login_attempts = 0, locked_until = NULL, updated_at = NOW() WHERE id = ?`,
+    [boundUser.vrchat_name, boundUser.vrchat_avatar_url, encryptCookie(cookie), boundUser.id]
   ).catch((e) => logger.error('auth-vrc', `[completeVrcLogin] 更新用户信息失败: ${e.message}`));
   req.session.regenerate(async (err) => {
     if (err) { handleError(res, err, 'auth'); return; }
@@ -523,7 +523,7 @@ router.post('/vrchat-bind-verify', vrcBindLimiter, requireAuth, async (req, res)
       }
       if (released.length > 0) {
         await getPool().query(
-          `UPDATE users SET vrchat_id = NULL, vrchat_name = NULL, vrchat_avatar_url = NULL, vrchat_verified = 0, updated_at = NOW() WHERE id IN (?)`,
+          `UPDATE users SET vrchat_id = NULL, vrchat_name = NULL, vrchat_avatar_url = NULL, vrchat_verified = 0, vrchat_token_enc = NULL, updated_at = NOW() WHERE id IN (?)`,
           [released]
         );
         logger.info('auth', `[vrchat-bind-verify] 释放软删除用户占用的 VRChat 绑定: ${vrchatId} → user#${released.join(',')}`);
@@ -541,10 +541,11 @@ router.post('/vrchat-bind-verify', vrcBindLimiter, requireAuth, async (req, res)
       return sendError(res, 500, ErrorCodes.INTERNAL_ERROR, 'VRChat Cookie 加密失败，请管理员检查 ENCRYPT_KEY 配置后重试');
     }
 
-    // 更新绑定信息
+    // 更新绑定信息（V9.3: 同步持久化加密 VRChat cookie 到 users.vrchat_token_enc，
+    // 换浏览器后由 buildSession 从 DB 恢复，免重新绑定）
     await getPool().query(
-      `UPDATE users SET vrchat_id=?, vrchat_name=?, vrchat_avatar_url=?, avatar_type=?, updated_at=NOW() WHERE id=?`,
-      [vrchatId, vrchatName, avatarUrl, avatarUrl ? 'vrchat' : 'none', req.session.userId]
+      `UPDATE users SET vrchat_id=?, vrchat_name=?, vrchat_avatar_url=?, avatar_type=?, vrchat_token_enc=?, updated_at=NOW() WHERE id=?`,
+      [vrchatId, vrchatName, avatarUrl, avatarUrl ? 'vrchat' : 'none', encryptedCookie, req.session.userId]
     );
 
     // P3 修复：写入统一为 vrchatCookie（与 auth_session.buildSession 同字段；
@@ -600,7 +601,7 @@ router.post('/vrchat-unbind', requireAuth, async (req, res) => {
   try {
     const [users] = await getPool().query(`SELECT vrchat_id FROM users WHERE id = ? AND deleted_at IS NULL`, [req.session.userId]);
     if (users.length === 0 || !users[0].vrchat_id) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '未绑定VRChat账号');
-    await getPool().query(`UPDATE users SET vrchat_id = NULL, vrchat_name = NULL, vrchat_avatar_url = NULL, vrchat_verified = 0, updated_at = NOW() WHERE id = ?`, [req.session.userId]);
+    await getPool().query(`UPDATE users SET vrchat_id = NULL, vrchat_name = NULL, vrchat_avatar_url = NULL, vrchat_verified = 0, vrchat_token_enc = NULL, updated_at = NOW() WHERE id = ?`, [req.session.userId]);
     req.session.vrchatId = null;
     req.session.vrchatName = null;
     req.session.vrchatVerified = false;

@@ -19,6 +19,7 @@ jest.mock('../db', () => ({ getPool: () => mockPool }));
 jest.mock('../utils', () => ({
     getPool: () => mockPool,
     encryptCookie: jest.fn((v) => (v ? 'enc:' + v : v)),
+    decryptCookie: jest.fn((v) => (v ? v.replace(/^enc:/, '') : v)),
     getAvatarUrl: jest.fn(() => null),
     ErrorCodes: {
       BAD_REQUEST: 'BAD_REQUEST', FORBIDDEN: 'FORBIDDEN', NOT_FOUND: 'NOT_FOUND',
@@ -219,6 +220,34 @@ describe('P2-148 auth_session.js 会话构建', () => {
     const { encryptCookie } = require('../utils');
     encryptCookie.mockReturnValue(null);
     expect(() => authSession.buildSession(req, baseUser(), 'auth=cookie')).toThrow('cookie 加密失败');
+  });
+
+  test('V9.3 buildSession 无新 cookie 时从 DB 恢复 vrchat_token_enc（换浏览器免重绑）', () => {
+    const req = { session: {} };
+    const user = Object.assign(baseUser(), { vrchat_token_enc: 'enc:db-cookie' });
+    authSession.buildSession(req, user);
+    expect(req.session.vrchatCookie).toBe('enc:db-cookie');
+    expect(req.session.vrcCookieSetAt).toEqual(expect.any(Number));
+  });
+
+  test('V9.3 buildSession 恢复的 DB cookie 解密失败则忽略（不恢复无效密文）', () => {
+    const { decryptCookie } = require('../utils');
+    decryptCookie.mockReturnValue(null);
+    const req = { session: {} };
+    const user = Object.assign(baseUser(), { vrchat_token_enc: 'enc:bad' });
+    authSession.buildSession(req, user);
+    expect(req.session.vrchatCookie).toBeUndefined();
+    decryptCookie.mockReturnValue((v) => (v ? v.replace(/^enc:/, '') : v));
+  });
+
+  test('V9.3 buildSession 显式传入新 cookie 优先于 DB 恢复', () => {
+    const { encryptCookie } = require('../utils');
+    encryptCookie.mockReturnValue('enc:auth=new');
+    const req = { session: {} };
+    const user = Object.assign(baseUser(), { vrchat_token_enc: 'enc:db-cookie' });
+    authSession.buildSession(req, user, 'auth=new');
+    expect(req.session.vrchatCookie).toBe('enc:auth=new');
+    encryptCookie.mockReturnValue((v) => (v ? 'enc:' + v : v));
   });
 
   test('sessionUser 未登录/无 userId 返回 null；已登录映射字段', () => {

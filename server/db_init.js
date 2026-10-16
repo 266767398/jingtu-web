@@ -1541,6 +1541,9 @@ async function initDatabase() {
       // S-6: 超管可选 TOTP 2FA（RFC 6238）——旧库升级补齐；新库已含于 users 建表 DDL
       `ALTER TABLE users ADD COLUMN totp_secret VARCHAR(100) NULL COMMENT 'TOTP 2FA密钥（base32）'`,
       `ALTER TABLE users ADD COLUMN totp_enabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'TOTP 2FA是否启用'`,
+      // V9.3: 用户绑定的 VRChat 会话 cookie（AES-256-GCM 加密，与 session 同格式）。
+      //   换浏览器/新会话时从本列恢复，免去每次换设备都要重新绑定 VRChat。
+      `ALTER TABLE users ADD COLUMN vrchat_token_enc VARCHAR(1000) COMMENT 'VRChat会话cookie AES加密（跨浏览器绑定恢复用）'`,
     ];
     let migrationErrors = [];
     for (const sql of usersSecurityCols) {

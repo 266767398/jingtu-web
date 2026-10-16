@@ -638,6 +638,13 @@ module.exports = function setupVrcAuth() {
           logger.error('session', '保存失效 cookie 清除异常', { error: e.message });
         }
       }
+      // V9.3: 同步清 DB 持久化副本（users.vrchat_token_enc）。否则换浏览器/新会话登录时
+      // buildSession 会从 DB 把这份死 cookie 恢复回来，用户"看似已绑定"却反复吃 401。
+      // 仅在本会话确有用户绑定的 cookie 被清（cleared）且能定位到用户时清理。
+      if (cleared && req.session.userId) {
+        getPool().query(`UPDATE users SET vrchat_token_enc = NULL WHERE id = ?`, [req.session.userId])
+          .catch((e) => logger.warn('session', '清理 DB 持久化 VRChat cookie 失败', { error: e.message }));
+      }
     }
     // 重要：系统级 VRChat cookie 的注销不再在此处理。
     // 原逻辑会在「用户未绑定 VRChat、getVRCCookie 回退到系统 cookie、且上游偶发 401」
