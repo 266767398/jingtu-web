@@ -85,7 +85,7 @@
     if (!panel) { buildPanel(); panel = document.getElementById('smartSearchPanel'); }
     panel.classList.remove('d-none');
     var input = document.getElementById('smartSearchInput');
-    if (input) { input.value = ''; runSearch(''); setTimeout(function() { input.focus(); }, 0); }
+    if (input) { input.value = ''; runSearch(''); setTimeout(function() { input.focus({ preventScroll: true }); }, 0); }
     document.addEventListener('keydown', globalEscHandler, true);
     // F3 修复：面板打开时锁定背景滚动，避免底层页面滚出露底
     if (typeof lockBodyScroll === 'function') lockBodyScroll('smart-search');
@@ -101,7 +101,7 @@
     // F3 修复：解锁背景滚动 + 焦点归还触发搜索的控件
     if (typeof unlockBodyScroll === 'function') unlockBodyScroll('smart-search');
     if (prevFocus && prevFocus !== document.body && typeof prevFocus.focus === 'function') {
-      try { prevFocus.focus(); } catch (e) { /* 元素已移除等场景直接忽略 */ }
+      try { prevFocus.focus({ preventScroll: true }); } catch (e) { /* 元素已移除等场景直接忽略 */ }
     }
     prevFocus = null;
   }

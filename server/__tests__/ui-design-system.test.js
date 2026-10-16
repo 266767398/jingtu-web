@@ -365,8 +365,9 @@ describe('mobile "more" menu accessibility', () => {
     const block = src.slice(i, i + 1200);
     expect(block).toMatch(/Escape/);
     // 关闭后必须把焦点还给触发按钮，否则焦点掉到 body，键盘用户迷失
+    // （允许带 preventScroll 选项：焦点归还但保持视口不跳动）
     const close = src.slice(src.indexOf('function closeMobileTabMenu'), src.indexOf('function closeMobileTabMenu') + 1200);
-    expect(close).toMatch(/\.focus\(\)/);
+    expect(close).toMatch(/\.focus\(\s*\{\s*preventScroll/);
   });
 
   test('the trigger and close controls carry translated accessible names', () => {

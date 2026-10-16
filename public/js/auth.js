@@ -501,7 +501,7 @@ function promptVrcBind() {
     const bindInput = document.getElementById('vrchatInputId');
     if (bindInput) {
       bindInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      bindInput.focus();
+      bindInput.focus({ preventScroll: true });
     }
   }, 400);
 }
@@ -752,7 +752,7 @@ async function resendVrcLoginCode() {
         resetVrcLoginState();
         toast(__('auth.session_expired_relogin'), 'error');
         const userInput = document.getElementById('loginVrcUser');
-        if (userInput) { userInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); userInput.focus(); }
+        if (userInput) { userInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); userInput.focus({ preventScroll: true }); }
       } else if (!err.code || !VRC_BUSINESS_CODES.has(err.code)) {
         setBtn(false, __('auth.resend'));
         toast(errText(err) || __('auth.vrc_login_failed'), 'error');

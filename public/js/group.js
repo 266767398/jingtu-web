@@ -705,7 +705,7 @@ function setupGroupSearch() {
       input.closest('.group-search-box').classList.remove('has-value');
       groupSearch = '';
       loadGroupMembers();
-      input.focus();
+      input.focus({ preventScroll: true });
     });
   }
 }

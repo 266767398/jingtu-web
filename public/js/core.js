@@ -778,7 +778,8 @@ function showModal(id) {
     if (typeof lockBodyScroll === 'function' && !modal.hasAttribute('data-no-scroll-lock')) lockBodyScroll('modal:' + id);
     // 焦点管理：优先聚焦表单输入（input/select/textarea），
     // 而不是 X 关闭按钮——否则回车会误触发关闭弹窗而非提交。
-    const inputs = modal.querySelector('input, select, textarea:not([type="hidden"])');
+    // 跳过 disabled 输入框（如改名弹窗的「当前名称」只读框），否则 focus() 静默失败、焦点滞留背景。
+    const inputs = modal.querySelector('input:not([disabled]):not([type="hidden"]), select:not([disabled]):not([type="hidden"]), textarea:not([disabled]):not([type="hidden"])');
     const focusable = inputs || modal.querySelector('button:not([data-modal-close]), [tabindex]:not([tabindex="-1"])');
     if (focusable) setTimeout(() => focusable.focus({ preventScroll: true }), 100);
   }
@@ -1016,7 +1017,7 @@ function showInput(question, defaultValue, callback) {
       </div>
     </div>`, null, null);
   const input = overlay.querySelector('#inputPromptField');
-  input.focus();
+  input.focus({ preventScroll: true });
   input.select();
   input.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') { const val = input.value; overlay.remove(); callback(val); }

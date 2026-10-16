@@ -200,6 +200,12 @@ function startSchedule() {
   //    绝不误标全员离线。
   let onlineRefreshCursor = 0;
   let onlineRefreshInFlight = false;
+  // F-42：无变化成员的心跳（touchOnly 刷新 synced_at）降频至 5 分钟一次。
+  // 此前每 60s 一轮对全员重写 synced_at=NOW()——状态未变也产生全量磁盘写入，
+  // 是长驻高磁盘 IO 的主因之一。synced_at 仅用于前端展示与 trust 补充候选排序，
+  // 5 分钟精度语义不变；真实状态变化仍走 batchWrites 即时写回，不受降频影响。
+  const TOUCH_HEARTBEAT_MS = 5 * 60 * 1000;
+  let lastTouchAt = 0;
   const ONLINE_REFRESH_BATCH = 50;
   // 群组规模阈值：成员数 <= 此值时每轮刷新全员（实时性强、无游标滞后）；
   // 超过时才启用游标分批，避免大群单次打爆 VRChat API。
@@ -563,8 +569,12 @@ function startSchedule() {
       const fullRows = [];
       for (const w of batchWrites) (w.touchOnly ? touchIds : fullRows).push(w);
 
-      // touchOnly：一次 IN 查询刷所有 synced_at
-      if (touchIds.length > 0) {
+      // touchOnly：一次 IN 查询刷所有 synced_at。
+      // F-42 心跳降频：仅当距上次心跳 ≥ 5 分钟才真正落库，其余轮次零写入；
+      // 本轮存在真实变化行（fullRows）时视为已发生写回，同步顺延心跳窗口。
+      const touchDue = (Date.now() - lastTouchAt) >= TOUCH_HEARTBEAT_MS;
+      if (touchIds.length > 0 && (touchDue || fullRows.length > 0)) {
+        lastTouchAt = Date.now();
         for (let i = 0; i < touchIds.length; i += BATCH_UPDATE_SIZE) {
           const chunk = touchIds.slice(i, i + BATCH_UPDATE_SIZE).map(r => r.vrchatId);
           await pool.query(

@@ -617,7 +617,7 @@ function showCreatePostModal() {
   overlay.addEventListener('click', function(e) { if (e.target === overlay) closeCreatePostModal(); });
   overlay._cleanup = closeCreatePostModal;
   enablePostsOverlayEsc();
-  setTimeout(function() { var el = document.getElementById('createPostContent'); if (el) el.focus(); }, 100);
+  setTimeout(function() { var el = document.getElementById('createPostContent'); if (el) el.focus({ preventScroll: true }); }, 100);
 }
 
 function closeCreatePostModal() {

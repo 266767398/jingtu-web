@@ -1108,8 +1108,8 @@ function closeMobileTabMenu() {
   if (btn) btn.setAttribute('aria-expanded', 'false');
   const menu = document.getElementById('mobileMoreMenu');
   if (menu) menu.classList.remove('show');
-  // 关闭后把焦点还给触发按钮，避免键盘用户焦点掉到 body
-  if (btn) btn.focus();
+  // 关闭后把焦点还给触发按钮，避免键盘用户焦点掉到 body（preventScroll 防视口跳动）
+  if (btn) btn.focus({ preventScroll: true });
 }
 
 // M8: 移动端「更多」菜单 Esc 不依赖焦点在菜单内——原先 keydown 绑在 menu 元素上，
@@ -1208,9 +1208,16 @@ function deactivateModalA11y(modalEl) {
   if (modalEl.hasAttribute('role')) modalEl.removeAttribute('role');
   if (modalEl.hasAttribute('aria-modal')) modalEl.removeAttribute('aria-modal');
   unlockBodyScroll(modalEl);
-  // P1-26: 关闭时把焦点还给打开前的元素，键盘用户不丢焦点
-  if (wasOpen && modalEl._previouslyFocused && modalEl._previouslyFocused.isConnected) {
-    try { modalEl._previouslyFocused.focus(); } catch (e) { /* 元素已不可聚焦则忽略 */ }
+  // P1-26: 关闭时把焦点还给打开前的元素，键盘用户不丢焦点。
+  // 「来回窜」根治：showModal 内部先 closeAllModals 再开新弹窗，若此处无条件归还焦点，
+  // 会在新弹窗聚焦后的一帧内把焦点抢回背景触发按钮、并连带滚动视口（已滚动页面尤为明显）；
+  // 且归还用无 preventScroll 的 focus()，目标在屏外时浏览器自动滚屏造成跳动。
+  // 故仅当没有其他弹窗处于打开态时才归还，并加 preventScroll 保持视口不动。
+  const hasOtherOpenModal = Array.from(document.querySelectorAll('.modal')).some(function (m) {
+    return m !== modalEl && isModalOpen(m);
+  });
+  if (wasOpen && !hasOtherOpenModal && modalEl._previouslyFocused && modalEl._previouslyFocused.isConnected) {
+    try { modalEl._previouslyFocused.focus({ preventScroll: true }); } catch (e) { /* 元素已不可聚焦则忽略 */ }
   }
   modalEl._previouslyFocused = null;
 }

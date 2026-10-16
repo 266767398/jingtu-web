@@ -41,6 +41,11 @@
    同特异性下后者反而覆盖前者；加 body 前缀提升特异性，保证此处设定生效。
    back-to-top 保持低于 modal(1000)，避免弹窗打开时按钮浮到遮罩之上 */
 body .lightbox { z-index: 1050; }
+/* FOUC 防护：.lightbox 默认隐藏规则位于异步加载的 06-members.css（media=print 切回 all），
+   首屏阻塞 CSS 链若不先行隐藏，登录页渲染瞬间 lightbox 整块原始 HTML
+   （1/1 计数/幻灯片/导航/点赞/删除/分享/评论框）会在页面顶部裸奔闪现。
+   06-members.css 的 .lightbox.show { display:flex } 特异性更高，打开逻辑不受影响。 */
+.lightbox { display: none; }
 body .back-to-top { z-index: 900; }
 /* #confirmModal 走 .modal（z-index:1000），但 lightbox 是 1050——相册 lightbox 打开时
    点删除照片，showConfirm 的确认框会被 lightbox 遮罩盖住。提到 1100 与 .confirm-overlay
