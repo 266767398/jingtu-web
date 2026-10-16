@@ -125,12 +125,14 @@ describe('security regressions', () => {
 
   // 迁移接口和系统级 VRChat 控制可探测环境或改写全局登录态，必须只有管理员能访问。
   // H-1 加固：迁移面（含 /migrate /replace-config）提升为仅超级管理员（requireSuperAdmin）。
+  // V9.5 加固：系统 VRChat 控制（login/2fa/logout/save-credentials/clear-credentials/credentials-status）
+  //   收紧为仅超级管理员——前端 admin-vrc.js 这些操作本就按 super_admin 专属展示，后端对齐防 admin 越权接管站点级凭据。
   test('protects migration and system VRChat control routes', () => {
     expect(files.migrationRoute).toMatch(/router\.use\(requireSuperAdmin\)/);
     expect(files.migrationRoute).not.toMatch(/router\.use\(requireAdminCompat\)/);
-    expect(files.vrcSystemRoute).toMatch(/router\.post\('\/login',\s*requireAdminCompat/);
-    expect(files.vrcSystemRoute).toMatch(/router\.post\('\/2fa',\s*requireAdminCompat/);
-    expect(files.vrcSystemRoute).toMatch(/router\.post\('\/logout',\s*requireAdminCompat/);
+    expect(files.vrcSystemRoute).toMatch(/router\.post\('\/login',\s*requireSuperAdmin/);
+    expect(files.vrcSystemRoute).toMatch(/router\.post\('\/2fa',\s*requireSuperAdmin/);
+    expect(files.vrcSystemRoute).toMatch(/router\.post\('\/logout',\s*requireSuperAdmin/);
     expect(files.server).toMatch(/app\.use\('\/api\/migration',\s*adminLimiter\)/);
     expect(files.server).toMatch(/app\.use\('\/api',\s*vrcSystemRouter\)/);
   });

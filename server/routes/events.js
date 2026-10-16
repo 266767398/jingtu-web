@@ -22,7 +22,7 @@
  */
 const express = require('express');
 const { fail, ok, getPool, logOper, validateFields, handleError, sendError, sendVrcError, ErrorCodes, paginate, escapeLike, toSqlDatetime } = require('../utils');
-const { requireAuth, requireAdminCompat, getAvatarUrl, ROLE_LEVEL, currentRole } = require('../auth');
+const { requireAuth, requireAdminCompat, requireSuperAdmin, getAvatarUrl, ROLE_LEVEL, currentRole } = require('../auth');
 const { vrchatGetGroupEvents } = require('../vrc');
 const cacheService = require('../cache_service');
 const webhook = require('../webhook');
@@ -562,7 +562,8 @@ router.get('/', async (req, res) => {
   });
 
   // ==================== 从 VRChat 同步活动 ====================
-  router.post('/sync-vrchat', requireAdminCompat, async (req, res) => {
+  // 前端 syncVRChatEvents（admin-vrc.js）按 super_admin 专属展示；后端收紧为 requireSuperAdmin 对齐（V9.5）
+  router.post('/sync-vrchat', requireSuperAdmin, async (req, res) => {
     const vrcCookie = getVRCCookieFn ? getVRCCookieFn(req) : null;
     if (!vrcCookie) return fail(res, 401, '请先在个人中心绑定VRChat账号，或由管理员在后台登录VRChat系统账号', { code: 'VRC_SYSTEM_OFFLINE' });
     try {

@@ -17,7 +17,7 @@ const {
   VRC_API_KEY
 } = require('../vrc');
 const { fail, ok, handleError , sendError, ErrorCodes } = require('../utils');
-const { requireAdminCompat } = require('../auth');
+const { requireAdminCompat, requireSuperAdmin } = require('../auth');
 const logger = require('../logger');
 
 module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
@@ -31,7 +31,7 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
   } = vrcAuthHelpers || {};
 
   // 系统 VRChat 登录（系统账号）
-  router.post('/login', requireAdminCompat, async (req, res) => {
+  router.post('/login', requireSuperAdmin, async (req, res) => {
     try {
       const { username, password } = req.body;
       if (!username || !password) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入VRChat账号和密码');
@@ -61,7 +61,7 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
   });
 
   // 系统 VRChat 2FA
-  router.post('/2fa', requireAdminCompat, async (req, res) => {
+  router.post('/2fa', requireSuperAdmin, async (req, res) => {
     try {
       const { code, method } = req.body;
       if (!code) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入验证码');
@@ -100,7 +100,7 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
   });
 
   // 系统 VRChat 登出
-  router.post('/logout', requireAdminCompat, async (req, res) => {
+  router.post('/logout', requireSuperAdmin, async (req, res) => {
     try {
       if (authStateRef.cookie) {
         await vrchatRequest('PUT', `/logout?apiKey=${VRC_API_KEY}`, null, authStateRef.cookie);
@@ -116,7 +116,7 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
   });
 
   // F-29: 保存系统账号自动重登凭据（用于会话被拒 / 服务端迁移后自动重新登录，加密存储于 session.json）
-  router.post('/vrc-save-credentials', requireAdminCompat, async (req, res) => {
+  router.post('/vrc-save-credentials', requireSuperAdmin, async (req, res) => {
     try {
       const { username, password, totpSecret } = req.body;
       if (!username || !password) {
@@ -128,7 +128,7 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
   });
 
   // F-29: 清除系统账号自动重登凭据（停止自动重登，恢复仅手动登录/换 cookie 模式）
-  router.post('/vrc-clear-credentials', requireAdminCompat, async (req, res) => {
+  router.post('/vrc-clear-credentials', requireSuperAdmin, async (req, res) => {
     try {
       await clearVRCCredentials();
       ok(res, { cleared: true });
@@ -137,7 +137,7 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
 
   // F-29: 查询当前是否已配置自动重登凭据（供前端渲染保存按钮状态）
   // F-30: 附带熔断/退避状态（供前端展示防封禁退避横幅）
-  router.get('/vrc-credentials-status', requireAdminCompat, async (req, res) => {
+  router.get('/vrc-credentials-status', requireSuperAdmin, async (req, res) => {
     try {
       ok(res, { configured: hasVRCCredentials(), autoRelogin: getAutoReloginStatus() });
     } catch (e) { handleError(res, e, '[vrc-system/credentials-status]'); }
