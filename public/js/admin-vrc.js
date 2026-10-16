@@ -425,8 +425,11 @@ let operLogSearchTimer = null;
 let operLogCurrentPage = 1;
 
 function showAdminOperLog() {
-  const el = document.getElementById('operLog');
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // 原实现只对隐藏面板（d-none）内的 #operLog 做平滑滚动——用户停留在系统 VRChat
+  // 面板时点击该按钮，目标元素不可见，表现「点了没反应」。改为触发侧边栏「操作日志」
+  // 导航项：bindAdminNav 事件委托会调用 showPanel('logs') 真正切换面板并加载日志。
+  const btn = document.querySelector('#adminNav .admin-nav-item[data-target="logs"]');
+  if (btn) btn.click();
 }
 
 function onOperLogSearch(value) {

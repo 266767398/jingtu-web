@@ -3818,6 +3818,16 @@ textarea:disabled,
   gap: 2px;
 }
 
+/* 侧边栏分组标题（V12.1 分类整理：按功能域分组导航） */
+.admin-nav-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary, #888);
+  padding: 12px 12px 2px;
+  letter-spacing: .5px;
+  user-select: none;
+}
+
 .admin-nav-item {
   display: flex;
   align-items: center;
@@ -3907,6 +3917,9 @@ textarea:disabled,
     flex-direction: row;
     flex-wrap: nowrap;
     gap: 6px;
+  }
+  .admin-nav-group-title {
+    display: none;
   }
   .admin-nav-item {
     flex: 0 0 auto;
