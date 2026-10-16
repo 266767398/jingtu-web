@@ -1193,7 +1193,8 @@ function activateModalA11y(modalEl) {
   if (modalEl.hasAttribute('aria-hidden')) {
     modalEl.removeAttribute('aria-hidden');
   }
-  lockBodyScroll(modalEl);
+  // data-no-scroll-lock 弹窗（如头像裁剪）不参与滚动锁：允许弹窗外滚动页面
+  if (!modalEl.hasAttribute('data-no-scroll-lock')) lockBodyScroll(modalEl);
 }
 
 function deactivateModalA11y(modalEl) {

@@ -256,23 +256,18 @@ let wsLongBackoff = false;         // 进入长周期探测模式（不再刷屏
 let wsEverOpened = false;          // 本次会话是否已成功建立过 WS 连接（用于区分认证失败与正常断线）
 
 // 解析 WebSocket 地址：优先使用后端注入的环境变量 window.__WS_URL__（支持部署环境自定义），
-// 否则按当前协议自动选择 ws/wss 并复用当前 host。
+// 否则按当前协议自动选择 ws/wss 并复用当前 host（严格同源）。
 // 重要：必须使用 location.host（与页面同源），否则浏览器不会携带会话 cookie(connect.sid)，
 // WS 升级会被 ws_service 的 verifyClient 以 401 拒绝。
-// 早期 Windows 下 localhost 优先解析为 ::1(IPv6)，若反代仅监听 IPv4 会握手失败；
-// 现已在 nginx 开启双栈监听（listen 80 + listen [::]:80），localhost 经 ::1 可达，无需再改写为 127.0.0.1。
-// §31 规范化：若用户手输 127.0.0.1 访问（绕过 nginx 直连 Node），为与「经 localhost(nginx) 登录」建立的
-// 会话 cookie 同源，将 WebSocket 目标改写回 localhost（走 nginx 反代 /ws）。否则 127.0.0.1 与 localhost
-// 的 host-only cookie 不互通，verifyClient 会因无会话返回 401、浏览器报 "WebSocket connection failed"。
+// 历史坑：曾把 127.0.0.1 无条件改写为 localhost（假定走 nginx 反代 /ws）。但本机是直接访问
+// 127.0.0.1:3456 连 Node（nginx 80 只跑默认站，不反代 /ws），且会话 cookie 是 host-only——
+// 在 127.0.0.1 登录后 cookie 只属于 127.0.0.1，改写后的 localhost WS 握不到该 cookie，
+// verifyClient 返回 401 → 浏览器报 "WebSocket connection failed"、在线状态/同步永不更新
+// （即「服务器好使、本地不好使」的根因）。故一律同源，部署需要显式中继时用 WS_URL 覆盖。
 function resolveWsUrl() {
   if (window.__WS_URL__) return window.__WS_URL__;
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  let host = location.host;
-  if (location.hostname === '127.0.0.1') {
-    // 统一到 localhost 标准入口（nginx 80 端口反代），与登录会话同源
-    host = location.port && location.port !== '80' ? `localhost:${location.port}` : 'localhost';
-  }
-  return `${protocol}//${host}/ws`;
+  return `${protocol}//${location.host}/ws`;
 }
 
 function connectWebSocket() {

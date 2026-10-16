@@ -284,6 +284,15 @@ async function uploadAvatar(file) {
   if (!file) return;
   if (_avatarUploadBusy) return; // 进行中直接忽略，防止并发
   _avatarUploadBusy = true;
+  // 即时预览：裁剪确认后立刻把本地文件显示到头像位（本地即时反馈，不等网络）。
+  // 上传成功后再以服务器 URL 覆盖（updateUserUI）；失败/异常回滚到原头像。
+  const tempUrl = URL.createObjectURL(file);
+  const _h = document.getElementById('headerUserAvatar');
+  const _p = document.getElementById('meAvatar');
+  const prevH = _h ? _h.src : null;
+  const prevP = _p ? _p.src : null;
+  if (_h) _h.src = tempUrl;
+  if (_p) _p.src = tempUrl;
   const formData = new FormData();
   formData.append('avatar', file);
   try {
@@ -298,9 +307,19 @@ async function uploadAvatar(file) {
       renderAvatarPref();
       if (typeof syncAvatarCache === 'function') syncAvatarCache(); // 同步登录页头像缓存
       toast(__('profile.avatar_updated'), 'success');
+    } else {
+      if (_h) _h.src = prevH || '/api/avatar/default';
+      if (_p) _p.src = prevP || '/api/avatar/default';
     }
-  } catch (err) { if (isApiHandledError(err)) return; toast(__('profile.upload_failed') + ': ' + err.message, 'error'); }
-    finally { _avatarUploadBusy = false; } // 无论成败释放锁
+  } catch (err) {
+    if (_h) _h.src = prevH || '/api/avatar/default';
+    if (_p) _p.src = prevP || '/api/avatar/default';
+    if (isApiHandledError(err)) return;
+    toast(__('profile.upload_failed') + ': ' + err.message, 'error');
+  } finally {
+    _avatarUploadBusy = false; // 无论成败释放锁
+    URL.revokeObjectURL(tempUrl);
+  }
 }
 
 // ==================== 头像上传内置裁剪（方形取景，canvas 裁剪后上传） ====================
@@ -341,6 +360,10 @@ function startAvatarCrop(file) {
     zoomEl.value = 1;
     applyAvatarCrop();
     showModal('avatarCropModal');
+    // 裁剪弹窗特殊交互：鼠标移出裁剪取景区时可滚动网站，仅取景区内滚轮缩放。
+    // 弹窗带 data-no-scroll-lock（index.html），showModal 与 activateModalA11y 均跳过
+    // body 滚动锁（分别对应字符串/'modal:'与元素两把锁，先前尝试 showModal 后立即
+    // unlockBodyScroll 会因 a11y 观察者经 rAF 再补锁而失效）。
   };
   img.onerror = function () { _avatarCropOpening = false; URL.revokeObjectURL(objUrl); toast(__('profile.avatar_crop_bad_file'), 'error'); };
   img.src = objUrl;

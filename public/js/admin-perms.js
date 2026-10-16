@@ -9,6 +9,11 @@ let permInspectInit = false;
 async function loadPermissions() {
   const box = document.getElementById('permInspectResult');
   if (!currentUser || currentUser.role !== 'super_admin') {
+    // 非超管只读提示 + 禁用搜索/选择控件：避免输入/选择后毫无反馈（“点了没反应”）
+    const search = document.getElementById('permInspectSearch');
+    const sel = document.getElementById('permInspectUser');
+    if (search) { search.disabled = true; search.placeholder = __('admin_perms.super_admin_only_view'); }
+    if (sel) { sel.disabled = true; sel.innerHTML = '<option value="">' + __('admin_perms.super_admin_only_view') + '</option>'; }
     if (box) box.innerHTML = '<div class="text-muted2 text-13">' + __('admin_perms.super_admin_only_view') + '</div>';
     return;
   }

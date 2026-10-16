@@ -378,7 +378,8 @@ function startSchedule() {
       // 每一轮刷新都把信任等级与自定义状态写回空串（信任光环丢失、全部退回金色默认环）。
       const [existingRows] = await pool.query(
         `SELECT vrchat_id, is_online, is_in_game, status_candidate, status_changed_at, status_trust, vrchat_status,
-                trust_level, status_description
+                trust_level, status_description, display_name, avatar_url, avatar_id, location, world_name, is_friend,
+                is_vrc_plus, age_verified, age_verification_status, profile_pic_override_thumbnail, user_icon
          FROM group_roster WHERE vrchat_id IN (?)`,
         [idsToProcess]
       );
@@ -490,6 +491,35 @@ function startSchedule() {
         const finalInGame = finalOnline ? (isInGame || false) : false;
         if (finalInGame !== prevInGame) {
           changedMembers.push({ vrchatId: m.vrchat_id, groupId: VRC_GROUP_ID, isOnline: finalOnline, isInGame: finalInGame, status, statusDescription: info.statusDescription || '', worldName, isFriend });
+        }
+
+        // 无变化判定（磁盘 IO 优化 F-40）：本轮计算值与上一轮正式状态全等时，
+        // 不写 20 列 CASE WHEN 批量 UPDATE（每轮对全员重写是持续高磁盘 IO 的主因之一），
+        // 降级为 touchOnly 仅刷新 synced_at 心跳——trust 排序/MAX(synced_at)/在线展示语义均不变。
+        const noChange = (
+          (info.displayName || m.vrchat_name || '') === (prev.display_name || '') &&
+          (info.avatarUrl || m.avatar_url || '') === (prev.avatar_url || '') &&
+          (info.currentAvatar || m.avatar_id || '') === (prev.avatar_id || '') &&
+          finalOnline === prevOnline &&
+          finalInGame === prevInGame &&
+          (status || 'offline') === (prev.vrchat_status || 'offline') &&
+          (location || '') === (prev.location || '') &&
+          (worldName || '') === (prev.world_name || '') &&
+          !!isFriend === (prev.is_friend === 1) &&
+          trust === (parseInt(prev.status_trust, 10) || 0) &&
+          candidate === (prev.status_candidate === null ? null : prev.status_candidate) &&
+          (info.isVrcPlus ? 1 : 0) === (prev.is_vrc_plus || 0) &&
+          (info.ageVerified ? 1 : 0) === (prev.age_verified || 0) &&
+          (info.ageVerificationStatus || '') === (prev.age_verification_status || '') &&
+          (info.profilePicOverrideThumbnail || '') === (prev.profile_pic_override_thumbnail || '') &&
+          (info.userIcon || '') === (prev.user_icon || '') &&
+          trustUpgrade(info.trustLevel, prev.trust_level || '') === (prev.trust_level || '') &&
+          (info.statusDescription || prev.status_description || '') === (prev.status_description || '')
+        );
+        if (noChange) {
+          batchWrites.push({ vrchatId: m.vrchat_id, touchOnly: true });
+          touched++;
+          continue;
         }
 
         batchWrites.push({
@@ -801,9 +831,14 @@ function startSchedule() {
         }
       }
 
-      // 批量 UPSERT 当前态快照
+      // 批量 UPSERT 当前态快照（磁盘 IO 优化 F-40：值无变化的行跳过重写，
+      // 当前态表仅作跨轮次 diff 基准，synced_at 无读取方，跳过不影响任何展示/排序）
       if (currentUpserts.length) {
         for (const c of currentUpserts) {
+          const [cid, disp, ava, online, status, world] = c;
+          const p = curMap.get(cid);
+          if (p && (p.display_name || '') === disp && (p.avatar_url || '') === ava && p.is_online === online &&
+              (p.vrchat_status || 'offline') === status && (p.world_name || '') === world) continue;
           await pool.query(
             `INSERT INTO friend_log_current (vrchat_id, display_name, avatar_url, is_online, vrchat_status, world_name)
              VALUES (?,?,?,?,?,?)
@@ -863,9 +898,12 @@ function startSchedule() {
         );
       }
 
-      // 批量 UPSERT 当前态快照
+      // 批量 UPSERT 当前态快照（磁盘 IO 优化 F-40：世界无变化的行跳过重写）
       if (currentUpserts.length) {
         for (const c of currentUpserts) {
+          const [cid, worldId, worldName2] = c;
+          const p = curMap.get(cid);
+          if (p && (p.world_id || '') === (worldId || '') && (p.world_name || '') === (worldName2 || '')) continue;
           await pool.query(
             `INSERT INTO world_visit_current (vrchat_id, world_id, world_name)
              VALUES (?,?,?)
@@ -980,9 +1018,13 @@ function startSchedule() {
         );
       }
 
-      // 批量 UPSERT 当前态快照
+      // 批量 UPSERT 当前态快照（磁盘 IO 优化 F-40：头像无变化的行跳过重写；
+      // avatar_history_current.synced_at 被 avatar.js 用于取最近头像，头像不变时跳过不影响结果）
       if (currentUpserts.length) {
         for (const c of currentUpserts) {
+          const [cid, avatarId, avatarUrl] = c;
+          const p = curMap.get(cid);
+          if (p && (p.avatar_id || '') === (avatarId || '') && (p.avatar_url || '') === (avatarUrl || '')) continue;
           await pool.query(
             `INSERT INTO avatar_history_current (vrchat_id, avatar_id, avatar_url)
              VALUES (?,?,?)

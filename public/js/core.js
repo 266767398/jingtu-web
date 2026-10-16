@@ -773,8 +773,9 @@ function showModal(id) {
   if (modal) {
     modal.style.display = 'flex';
     requestAnimationFrame(() => requestAnimationFrame(() => modal.classList.add('show')));
-    // 锁定背景滚动，避免弹窗背后内容滚动露底
-    if (typeof lockBodyScroll === 'function') lockBodyScroll('modal:' + id);
+    // 锁定背景滚动，避免弹窗背后内容滚动露底。
+    // data-no-scroll-lock 弹窗（如头像裁剪：需在弹窗外滚动页面、仅取景区拦截滚轮缩放）不锁。
+    if (typeof lockBodyScroll === 'function' && !modal.hasAttribute('data-no-scroll-lock')) lockBodyScroll('modal:' + id);
     // 焦点管理：优先聚焦表单输入（input/select/textarea），
     // 而不是 X 关闭按钮——否则回车会误触发关闭弹窗而非提交。
     const inputs = modal.querySelector('input, select, textarea:not([type="hidden"])');

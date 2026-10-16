@@ -895,7 +895,22 @@
           adminDeleteContent(el.getAttribute('data-type'), el.getAttribute('data-id'));
           break;
         case 'admin-event-view':
-          if (typeof window.showEventDetail === 'function') window.showEventDetail(el.getAttribute('data-id'));
+          // showEventDetail 定义于 events.js（懒加载路由模块）。若用户从未打开过活动页、
+          // 空闲预载尚未完成时点击「查看」会静默无反应——先按需确保模块就绪再调用。
+          if (typeof window.showEventDetail === 'function') { window.showEventDetail(el.getAttribute('data-id')); break; }
+          if (typeof _ensureTabModules === 'function') {
+            var _evId = el.getAttribute('data-id');
+            _ensureTabModules('events', function () {
+              if (typeof window.showEventDetail === 'function') window.showEventDetail(_evId);
+            });
+          } else {
+            var _evId2 = el.getAttribute('data-id');
+            var _retryEv = function () {
+              if (typeof window.showEventDetail === 'function') window.showEventDetail(_evId2);
+              else setTimeout(_retryEv, 300);
+            };
+            setTimeout(_retryEv, 300);
+          }
           break;
         case 'admin-event-edit':
           adminEditEvent(el.getAttribute('data-id'));
