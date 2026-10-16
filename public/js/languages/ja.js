@@ -2077,7 +2077,7 @@ window._LANG_JA = {
   "profile.vrc_not_bound": "VRChat アカウントがまだ紐づいていません",
   "profile.vrc_unbind_confirm": "VRChat アカウントを解除するには、本当に続行しますか？",
   "profile.vrc_unbound": "VRChat アカウントが解除されました",
-  "profile.remember_vrc_creds": "VRChat のアカウントとパスワードを記憶する（再ログイン時に入力不要）",
+  "profile.remember_vrc_creds": "VRChat アカウントを記憶する（再ログイン時にアカウント名を自動入力）",
   "profile.vrc_relogin": "VRChat に再ログイン",
   "profile.vrc_homepage": "VRChat ホームページ",
   "profile.vrc_verified": "✅ 認証済み",

@@ -2109,7 +2109,7 @@ window._LANG_RU = {
   "profile.vrc_not_bound": "Не привязано к аккаунту VRChat",
   "profile.vrc_unbind_confirm": "Подтвердить разорванье аккаунта VRChat?",
   "profile.vrc_unbound": "Аккаунт VRChat разорван",
-  "profile.remember_vrc_creds": "Запомнить данные VRChat (повторный вход без ввода)",
+  "profile.remember_vrc_creds": "Запомнить аккаунт VRChat (повторный вход без ввода логина)",
   "profile.vrc_relogin": "Войти в VRChat снова",
   "profile.vrc_homepage": "Домашняя страница VRChat",
   "profile.vrc_verified": "✅ Подтверждено",

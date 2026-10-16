@@ -1945,7 +1945,7 @@ window._LANG_ZH = {
   "profile.vrc_not_bound": "尚未绑定 VRChat 账号",
   "profile.vrc_unbind_confirm": "确定解绑 VRChat 账号吗？",
   "profile.vrc_unbound": "已解绑 VRChat 账号",
-  "profile.remember_vrc_creds": "记住 VRChat 账号密码（重新登录免输入）",
+  "profile.remember_vrc_creds": "记住 VRChat 账号（重新登录免输入账号）",
   "profile.vrc_relogin": "重新登录 VRChat",
   "profile.vrc_homepage": "VRChat 主页",
   "profile.vrc_verified": "✅ 已验证",

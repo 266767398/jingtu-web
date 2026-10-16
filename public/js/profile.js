@@ -648,8 +648,20 @@ async function saveAvatarPref(patch) {
 // ==================== VRChat 绑定（密码验证） ====================
 let _vrcBindTemp = null; // 存储2FA临时状态
 let _vrcBindResendCd = null; // 重发验证码倒计时定时器
-// 本地记住的 VRChat 账号密码（重新登录免输入，仅勾选「记住」时保存）
+// 本地记住的 VRChat 账号（仅用户名，重新登录免输入账号；绝不持久化密码）
 const VRC_CREDS_KEY = 'jingtu_vrc_creds';
+// V9.4 安全加固：清理历史遗留的明文密码记录（旧版本曾把 username+password 一起写入 localStorage）。
+// 第三方平台密码明文存 localStorage 一旦被 XSS 读取即可接管用户 VRChat 账号，故加载时立即剥离 password，仅保留用户名。
+(function _migrateVrcCredsStripPassword() {
+  try {
+    const raw = localStorage.getItem(VRC_CREDS_KEY);
+    if (!raw) return;
+    const c = JSON.parse(raw);
+    if (c && typeof c === 'object' && 'password' in c) {
+      localStorage.setItem(VRC_CREDS_KEY, JSON.stringify({ username: c.username || '' }));
+    }
+  } catch (e) { /* 解析失败或 localStorage 不可用则忽略 */ }
+})();
 let _vrcReloginActive = false; // 重新登录流程标记（失败时回落显示绑定表单）
 
 /**
@@ -879,14 +891,13 @@ function resetVrcBindResend() {
   if (btn) { btn.disabled = true; btn.textContent = __('profile.resend_code'); }
 }
 
-// 绑定成功时按「记住账号密码」勾选状态保存/清除本地凭据
+// 绑定成功时按「记住账号」勾选状态保存/清除本地用户名（V9.4：不再持久化密码）
 function saveVrcCredsIfChecked() {
   const cb = document.getElementById('rememberVrcCreds');
   const username = document.getElementById('vrchatInputId')?.value?.trim();
-  const password = document.getElementById('vrchatBindPwd')?.value;
   try {
-    if (cb && cb.checked && username && password) {
-      localStorage.setItem(VRC_CREDS_KEY, JSON.stringify({ username, password }));
+    if (cb && cb.checked && username) {
+      localStorage.setItem(VRC_CREDS_KEY, JSON.stringify({ username }));
     } else {
       localStorage.removeItem(VRC_CREDS_KEY);
     }
@@ -1032,11 +1043,11 @@ function renderVRChatBindStatus() {
     statusEl.innerHTML = '<span class="text-13 text-muted2">' + __('profile.not_bound') + '</span>';
     bindForm.classList.remove('d-none');
     boundStatus.classList.add('d-none');
-    // 本地已记住凭据 → 默认勾选「记住账号密码」，提示可快捷重新登录
+    // 本地已记住账号 → 默认勾选「记住账号」，提示可快捷重新登录
     const rememberCb = document.getElementById('rememberVrcCreds');
     if (rememberCb) {
       let hasCreds = false;
-      try { const c = JSON.parse(localStorage.getItem(VRC_CREDS_KEY) || 'null'); hasCreds = !!(c && c.username && c.password); } catch (e) {}
+      try { const c = JSON.parse(localStorage.getItem(VRC_CREDS_KEY) || 'null'); hasCreds = !!(c && c.username); } catch (e) {}
       rememberCb.checked = hasCreds;
     }
   }

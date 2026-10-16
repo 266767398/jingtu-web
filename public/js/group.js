@@ -201,7 +201,7 @@ function renderGroupMembers(members) {
         <div class="gm-avatar-link" style="cursor:pointer">
           ${avatar ? `<img src="${escAttr(avatar)}" class="gm-avatar" alt="${esc(displayName)}" data-avatar="${escAttr(proxied || '')}" loading="lazy" data-avatar-fail-src="${escAttr(avatar)}">` : ''}
           <img src="/api/avatar/default" class="gm-avatar" alt="${esc(displayName)}" data-gm-default-avatar="1" style="display:none" loading="lazy">
-          <div class="gm-avatar-fallback" style="${avatar ? '' : 'display:flex'}">${displayName.charAt(0).toUpperCase()}</div>
+          <div class="gm-avatar-fallback" style="${avatar ? '' : 'display:flex'}">${esc(displayName.charAt(0).toUpperCase())}</div>
         </div>
         ${!isFriend ? '<div class="gm-friend-badge" title="' + __('group.non_friend_tooltip') + '">👤</div>' : ''}
         ${blacklisted ? '<div class="gm-bl-badge" title="' + __('group.blacklisted_tooltip') + '">🚫</div>' : ''}

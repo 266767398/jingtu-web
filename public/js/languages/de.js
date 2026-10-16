@@ -2077,7 +2077,7 @@ window._LANG_DE = {
   "profile.vrc_not_bound": "VRChat-Konto noch nicht gebunden",
   "profile.vrc_unbind_confirm": "Binde VRChat-Konto wirklich los?",
   "profile.vrc_unbound": "VRChat-Konto wurde erfolgreich losgebunden",
-  "profile.remember_vrc_creds": "VRChat-Anmeldedaten merken (Neuanmeldung ohne Eingabe)",
+  "profile.remember_vrc_creds": "VRChat-Konto merken (Login ohne erneute Eingabe)",
   "profile.vrc_relogin": "Bei VRChat erneut anmelden",
   "profile.vrc_homepage": "VRChat-Startseite",
   "profile.vrc_verified": "✅ Verifiziert",

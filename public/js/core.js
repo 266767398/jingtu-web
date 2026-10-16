@@ -936,12 +936,12 @@ function promptVrcReLogin(detail) {
       setTimeout(function () {
         const el = document.getElementById('vrchatBindForm') || document.getElementById('vrchatBoundStatus');
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // 已记住 VRChat 账号密码 → 直接自动发送验证码并弹出验证码输入框，免手动重输
+        // 已记住 VRChat 账号 → 进入重新登录流程（V9.4：仅记用户名，密码需手动输入）
         if (typeof reloginVRChat === 'function') {
           let hasCreds = false;
           try {
             const c = JSON.parse(localStorage.getItem('jingtu_vrc_creds') || 'null');
-            hasCreds = !!(c && c.username && c.password);
+            hasCreds = !!(c && c.username);
           } catch (e) {}
           if (hasCreds) reloginVRChat();
         }

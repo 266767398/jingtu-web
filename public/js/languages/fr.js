@@ -2077,7 +2077,7 @@ window._LANG_FR = {
   "profile.vrc_not_bound": "Pas encore lié à un compte VRChat",
   "profile.vrc_unbind_confirm": "Êtes-vous sûr de vouloir délier votre compte VRChat ?",
   "profile.vrc_unbound": "Votre compte VRChat a été délié",
-  "profile.remember_vrc_creds": "Mémoriser les identifiants VRChat (reconnexion sans saisie)",
+  "profile.remember_vrc_creds": "Mémoriser le compte VRChat (reconnexion sans saisie du login)",
   "profile.vrc_relogin": "Se reconnecter à VRChat",
   "profile.vrc_homepage": "Page d'accueil VRChat",
   "profile.vrc_verified": "✅ Vérifié",

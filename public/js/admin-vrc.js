@@ -174,12 +174,12 @@ function renderVrcBlacklistList() {
       : `<span class="vrc-blacklist-banned vrc-blacklist-unbanned">${__('admin_vrc.bl_unbanned')}</span>`;
     const trustLabel = it.trustLevelCn || it.trustLevel;
     const trustDot = trustLabel
-      ? `<span class="vrc-blacklist-trust" title="${__('admin_vrc.bl_trust', {t: trustLabel})}">●</span>`
+      ? `<span class="vrc-blacklist-trust" title="${escAttr(__('admin_vrc.bl_trust', {t: trustLabel}))}">●</span>`
       : '';
     return `<div class="vrc-blacklist-item">
       <div class="vrc-blacklist-head">
         ${avatarHtml}
-        <span class="vrc-blacklist-name">${name}${trustDot}</span>
+        <span class="vrc-blacklist-name">${esc(name)}${trustDot}</span>
         ${it.vrchatId ? `<span class="vrc-blacklist-id">${esc(it.vrchatId)}</span>` : ''}
         ${sourceBadge}${bannedBadge}
         <button class="btn btn-xs btn-outline" data-vrc-action="blacklist-edit" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_edit')}">✏️ ${__('admin_vrc.bl_edit')}</button>

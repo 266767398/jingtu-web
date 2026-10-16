@@ -2240,7 +2240,7 @@ window._LANG_EN = {
   "profile.vrc_not_bound": "VRChat account not bound",
   "profile.vrc_unbind_confirm": "Confirm unbinding VRChat account?",
   "profile.vrc_unbound": "VRChat account has been unbound",
-  "profile.remember_vrc_creds": "Remember VRChat credentials (skip entering on re-login)",
+  "profile.remember_vrc_creds": "Remember VRChat account (pre-fill username on re-login)",
   "profile.vrc_relogin": "Log in to VRChat again",
   "profile.vrc_homepage": "VRChat Homepage",
   "profile.vrc_verified": "✅ Verified",
