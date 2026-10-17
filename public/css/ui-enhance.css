@@ -1129,7 +1129,9 @@ body.home-active .tab-indicator { opacity: 0 !important; }
   .hs-item { min-width: 0; padding: 7px 4px; gap: 4px; }
   .hs-item + .hs-item::before { left: -2px; }
   .hs-value { font-size: 0.95rem; }
-  .hs-label { font-size: 0.68rem; }
+  /* 手机端审计（2026-10-17）：0.68rem(≈10.9px) 中文标签过小，
+     实测 0.75rem(12px) 在 360px 视口下 5 项统计仍不溢出，提升可读性 */
+  .hs-label { font-size: 0.75rem; }
 }
 /* 窄屏把数字和标签改为上下排列，这样每一项只需要一个字宽，5 项仍能挤在一行。
    之前用 flex-basis 强制换行，结果是 3+2 的不对称两行，反而比原来的卡片还高。
