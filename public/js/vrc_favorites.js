@@ -37,7 +37,12 @@
     loadingMore: false,
     loadSeq: 0,           // P3-63: 最新请求优先标记，旧请求返回后不覆盖新结果
     fillSeq: 0,           // F1-45: 补全轮次独立版本号——加载更多/停止补全时作废在途 fill 轮次
-    staticBound: false
+    staticBound: false,
+    // F-20.6「零加载」快照模式：打开页一次性拉全量本地快照，之后
+    // 切 Kind/分组/翻页全部在前端完成（零网络）；手动刷新才回源 VRChat
+    snapshotMode: false,
+    all: { world: [], avatar: [], friend: [] }, // 本地快照全量条目（按 kind）
+    pool: []              // 当前 kind+group 过滤后的候选池（快照模式下翻页数据源）
   };
 
   function $(id) { return document.getElementById(id); }
@@ -58,6 +63,61 @@
       loadGroups();
       loadItems(reset);
     }, 300);
+  }
+
+  // F-20.6: 切 Kind/分组的统一入口——快照模式下纯前端过滤（零网络），
+  // 非快照模式（手动刷新后）退回网络分页防抖
+  function onFilterChange() {
+    if (state.snapshotMode) applyClientFilter();
+    else scheduleReload(true);
+  }
+
+  // 一次性拉全量本地快照：分组 + 三类条目，此后列表浏览零请求
+  async function loadSnapshot() {
+    try {
+      const d = await api('/api/vrc-favorites/snapshot', { timeout: 15000 });
+      if (!d || d.empty || !d.cached) {
+        // 首次无本地数据：回退常规加载（绑定接口会自动触发官方同步）
+        state.snapshotMode = false;
+        loadGroups();
+        loadItems(true);
+        return;
+      }
+      state.snapshotMode = true;
+      state.groups = d.groups || [];
+      state.all = {
+        world: d.items.world || [],
+        avatar: d.items.avatar || [],
+        friend: d.items.friend || []
+      };
+      renderGroups();
+      applyClientFilter();
+    } catch (e) {
+      // 快照拉取失败不影响使用：走常规路径
+      state.snapshotMode = false;
+      loadGroups();
+      loadItems(true);
+    }
+  }
+
+  // 快照模式下的客户端过滤：按当前 kind + group 筛出候选池，渲染首页
+  function applyClientFilter() {
+    const arr = state.all[state.kind] || [];
+    state.pool = state.group
+      ? arr.filter(i => i && Array.isArray(i.tags) && i.tags.indexOf(state.group) >= 0)
+      : arr.slice();
+    state.offset = 0;
+    state.items = [];
+    renderClientSlice();
+  }
+
+  // 快照模式下的本地翻页渲染（每页 pageSize 条，与网络分页手感一致）
+  function renderClientSlice() {
+    const slice = state.pool.slice(state.offset, state.offset + state.pageSize);
+    state.items = slice;
+    state.hasMore = state.offset + state.pageSize < state.pool.length;
+    renderItems();
+    renderLoadMore();
   }
 
   async function loadGroups(force) {
@@ -112,7 +172,7 @@
           if (g && g.type) state.kind = g.type;
         }
         renderGroups();
-        scheduleReload(true);
+        onFilterChange();
       });
     });
   }
@@ -339,6 +399,19 @@ async function loadItems(reset, force) {
 
   async function loadMore() {
     if (state.loading || state.loadingMore || !state.hasMore) return;
+    // 快照模式：翻页纯本地切片，零请求、零等待
+    if (state.snapshotMode) {
+      state.loadingMore = true;
+      const prev = state.offset;
+      state.offset += state.pageSize;
+      const slice = state.pool.slice(prev, state.offset);
+      state.items = state.items.concat(slice);
+      state.hasMore = state.offset < state.pool.length;
+      appendItems(slice);
+      renderLoadMore();
+      state.loadingMore = false;
+      return;
+    }
     stopFill();
     state.loadingMore = true;
     renderLoadMore();
@@ -387,6 +460,8 @@ async function loadItems(reset, force) {
       });
       if (input) input.value = '';
       toast(__('vrcfav.add_ok', '已加入官方收藏'), 'success');
+      // 官方侧已变更：退出快照模式走实时加载，保持与官方一致
+      state.snapshotMode = false;
       loadGroups();
       loadItems(true);
     } catch (e) {
@@ -399,6 +474,7 @@ async function loadItems(reset, force) {
     try {
       await api('/api/vrc-favorites/items/' + encodeURIComponent(fvrtId), { method: 'DELETE', timeout: 20000 });
       toast(__('vrcfav.remove_ok', '已移除'), 'success');
+      state.snapshotMode = false;
       loadItems(true);
     } catch (e) {
       toast(e.message, 'error');
@@ -602,6 +678,7 @@ async function loadItems(reset, force) {
       try {
         await api(`/api/vrc-favorites/groups/${encodeURIComponent(g.type)}/${encodeURIComponent(g.name)}?ownerUserId=${encodeURIComponent(g.ownerUserId || '')}`, { method: 'DELETE', timeout: 20000 });
         toast(__('vrcfav.clear_ok', '分组已清空'), 'success');
+        state.snapshotMode = false;
         loadGroups();
         loadItems(true);
       } catch (e) {
@@ -624,7 +701,7 @@ async function loadItems(reset, force) {
         state.group = '';
         qsa('.coll-kind', kindBar).forEach(b => b.classList.toggle('active', b === btn));
         renderGroups();
-        scheduleReload(true);
+        onFilterChange();
       });
     }
 
@@ -635,8 +712,9 @@ async function loadItems(reset, force) {
 
     const refreshBtn = $('vrcfavRefreshBtn');
     if (refreshBtn) refreshBtn.addEventListener('click', () => {
-      // 手动刷新：绕过本地快照回源 VRChat 实时拉取，并同时触发后台同步作业，
+      // 手动刷新：退出快照模式，绕过本地快照回源 VRChat 实时拉取，并同时触发后台同步作业，
       // 让后续访问/其他页面也命中最新快照（省 API、秒开）
+      state.snapshotMode = false;
       if (typeof window.vrcSync !== 'undefined' && window.vrcSync.startFavSync) {
         window.vrcSync.startFavSync({ startMsg: __('vrcsync.resyncing') });
       }
@@ -673,7 +751,8 @@ async function loadItems(reset, force) {
   // ============ 入口 ============
   window.loadVrcFavorites = function () {
     bindStatic();
-    loadGroups();
-    loadItems(true);
+    // F-20.6「零加载」：优先拉本地全量快照，秒开 + 客户端过滤/翻页零网络；
+    // 无快照时 loadSnapshot 自动回退到常规加载（首次绑定会自动触发官方同步）
+    loadSnapshot();
   };
 })();

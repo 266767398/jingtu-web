@@ -462,6 +462,7 @@
   "GET /api/vrc-favorites/detail/:type/:id",
   "POST /api/vrc-favorites/sync",
   "GET /api/vrc-favorites/sync-status",
+  "GET /api/vrc-favorites/snapshot",
   "POST /api/vrc-invites/world",
   "POST /api/vrc-invites/friend-request",
   "POST /api/vrc-invites/note",

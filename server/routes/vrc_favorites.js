@@ -647,5 +647,27 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
     } catch (e) { handleError(res, e, 'vrcfav.sync-status'); }
   });
 
+  // F-20.6 收藏页「零加载」：一次返回全量本地快照（分组 + 三类条目），
+  // 前端拿到后分组过滤 / 翻页全部本地完成，不再逐次打网络。
+  // 本地无快照时 empty=true，由前端回退到常规实时加载（首次绑定自动触发官方同步）。
+  router.get('/snapshot', requireAuth, async (req, res) => {
+    try {
+      const uid = req.session.userId;
+      const out = { groups: [], items: { world: [], avatar: [], friend: [] }, cached: false, empty: false };
+      const g = await snapGet(userSnapScope(uid, 'groups'));
+      if (g) { out.groups = g.payload; out.cached = true; }
+      for (const type of ['world', 'avatar', 'friend']) {
+        const s = await snapGet(userSnapScope(uid, 'items:' + type));
+        if (s) out.items[type] = s.payload;
+      }
+      const hasAny = out.groups.length || out.items.world.length || out.items.avatar.length || out.items.friend.length;
+      if (!hasAny) { out.empty = true; return ok(res, out); }
+      // 一次性标记本站收藏状态（仅标记本地快照中的条目）
+      const all = [...out.items.world, ...out.items.avatar, ...out.items.friend];
+      await attachLocalCollected(uid, all);
+      ok(res, out);
+    } catch (e) { handleError(res, e, 'vrcfav.snapshot'); }
+  });
+
   return router;
 };
