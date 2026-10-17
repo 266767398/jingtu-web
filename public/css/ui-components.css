@@ -130,7 +130,10 @@
 /* F1 修复：posts 发布/编辑/详情等自制遮罩复用 .modal 类，但 04-components.css
    中 .modal 默认 display:none（仅 .modal.show 才显示），它们又不挂 .show class，
    导致只看到遮罩背景、弹窗内容黑屏。这里补一条显示规则，并把 .modal 的
-   「全屏 flex 容器」形态重置为弹出卡片形态（relative + 卡片底色）。 */
+   「全屏 flex 容器」形态重置为弹出卡片形态（relative + 卡片底色）。
+   P1 修复：animations.css 的 .modal { opacity:0; visibility:hidden } 同样只认
+   .show class——.modal-overlay 体系不挂 .show，若不覆写 visibility/opacity，
+   弹窗内容仍会整体不可见（只剩半透明黑遮罩）。 */
 .modal-overlay .modal {
     display: flex;
     flex-direction: column;
@@ -145,6 +148,8 @@
     max-height: 85vh;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     animation: slideUp .3s ease;
+    opacity: 1;
+    visibility: visible;
 }
 .modal-overlay .modal.show { display: flex; }
 

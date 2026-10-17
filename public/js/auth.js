@@ -189,6 +189,12 @@ function showApp() {
     document.getElementById('mainContainer')?.classList.remove('d-none');
     document.getElementById('appFooter')?.classList.remove('d-none');
     updateUserUI();
+    // 深链 #me：首屏 switchTab 早于登录态恢复，showProfile() 因 currentUser 为空提前返回，
+    // 个人中心数据与 VRChat 绑定按钮状态（未绑定应禁用同步按钮）从未渲染。
+    // 登录完成后重渲染当前 Tab 补上（走 loader 包裹器，懒加载模块未就绪也会先确保）。
+    if (typeof window.switchTab === 'function' && typeof activeTab !== 'undefined' && activeTab === 'me') {
+      window.switchTab('me', true);
+    }
     // 登录成功后把当前展示头像写入浏览器缓存，供下次登录页预览复用
     syncAvatarCache();
     // 首页公开内容已在 init() 中提前加载，登录态恢复后只需更新用户相关 UI，

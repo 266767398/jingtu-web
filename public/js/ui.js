@@ -988,8 +988,12 @@ function reconcileBodyScroll() {
     if (owner === 'generic-lightbox') {
       return !!document.querySelector('.generic-lightbox.show');
     }
+    if (owner === 'album-lightbox') {
+      return !!document.querySelector('.lightbox.show');
+    }
     if (owner === 'vrc-bind-guide') {
-      return !!document.querySelector('.vrc-bind-guide');
+      // 实际遮罩 class 是 .vrc-bind-guide-overlay（内层卡片才是 .vrc-bind-guide-modal）
+      return !!document.querySelector('.vrc-bind-guide-overlay');
     }
     if (owner.indexOf('modal:') === 0) {
       const el = document.getElementById(owner.slice('modal:'.length));
@@ -1132,6 +1136,37 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initMobileTabMenu);
 } else {
   initMobileTabMenu();
+}
+
+// ==================== 个人中心选项条：鼠标滚轮 → 横向滚动 ====================
+// 移动端 .me-sidenav 是横排 overflow-x:auto 选项条（触屏滑动原生可用），
+// 但普通鼠标的竖向滚轮在横向容器上默认无效（浏览器只把 deltaY 交给页面纵向滚动），
+// 导致窄窗口/平板接鼠标时无法用滚轮切换选项。这里在「横向确有溢出」时把
+// deltaY 映射为 scrollLeft；触控板横向手势（deltaX）优先。到达两端后不再拦截，
+// 让页面恢复正常的纵向滚动，避免把用户"锁"在选项条里。
+function initMeSidenavWheel() {
+  const nav = document.querySelector('.me-sidenav');
+  if (!nav || nav._meWheelInit) return;
+  nav._meWheelInit = true;
+  nav.addEventListener('wheel', function (e) {
+    // 桌面竖排（无横向溢出）交给原生纵向滚动
+    if (nav.scrollWidth <= nav.clientWidth + 1) return;
+    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    if (!delta) return;
+    const max = Math.max(0, nav.scrollWidth - nav.clientWidth);
+    const cur = nav.scrollLeft;
+    const next = Math.max(0, Math.min(max, cur + delta));
+    // 已到边缘：不拦截，页面继续滚动。scrollLeft 可能是小数（DPR 缩放），
+    // 亚像素差值一律视为到边界，否则末尾会误拦截页面滚动。
+    if (Math.abs(next - cur) < 1) return;
+    nav.scrollLeft = next;
+    e.preventDefault();
+  }, { passive: false });
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initMeSidenavWheel);
+} else {
+  initMeSidenavWheel();
 }
 
 function openGenericLightbox(element) {

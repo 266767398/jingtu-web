@@ -577,13 +577,16 @@ function renderAvatarPref() {
 }
 
 // 我的信息页头像信任光环渲染：.me-avatar-wrap 套用与群组成员一致的信任环（has-trust-ring + --tc）。
-// 光环开关关闭时不显示；信任等级缺失/未绑定时保持默认样式。
+// 光环开关关闭时不显示；信任等级缺失时：
+//   · 已绑定 VRChat（名册暂无该用户/等级未同步）→ 用默认金色，保证开关有可见效果；
+//   · 未绑定 VRChat → 不显示（无账号可对应信任等级）。
 function applyMeAvatarHalo() {
   const wrap = document.querySelector('.me-avatar-wrap');
   if (!wrap) return;
   const haloOn = currentUser.haloVisible !== false;
-  const trustColor = (typeof window.trustColorOf === 'function' && currentUser.trustLevel)
-    ? window.trustColorOf(currentUser.trustLevel) : '';
+  const trustColor = currentUser.trustLevel
+    ? ((typeof window.trustColorOf === 'function' && window.trustColorOf(currentUser.trustLevel)) || '')
+    : (currentUser.vrchatId ? '#ffd700' : '');
   wrap.classList.toggle('has-trust-ring', !!(haloOn && trustColor));
   if (haloOn && trustColor) wrap.style.setProperty('--tc', trustColor);
   else wrap.style.removeProperty('--tc');
@@ -1035,14 +1038,19 @@ function renderVRChatBindStatus() {
 
     // 同步按钮原生 title 悬浮详情：原生 title 不走 data-i18n 引擎，用 __() 覆写（随语言切换重渲染刷新）
     const resyncBtnEl = document.getElementById('vrcResyncLocalBtn');
-    if (resyncBtnEl) resyncBtnEl.title = __('profile.vrc_resync_tip');
+    if (resyncBtnEl) { resyncBtnEl.disabled = false; resyncBtnEl.title = __('profile.vrc_resync_tip'); }
     const pullBtnEl = document.getElementById('vrcPullSyncBtn');
-    if (pullBtnEl) pullBtnEl.title = __('profile.vrc_pull_sync_tip');
+    if (pullBtnEl) { pullBtnEl.disabled = false; pullBtnEl.title = __('profile.vrc_pull_sync_tip'); }
   } else {
     // 未绑定
     statusEl.innerHTML = '<span class="text-13 text-muted2">' + __('profile.not_bound') + '</span>';
     bindForm.classList.remove('d-none');
     boundStatus.classList.add('d-none');
+    // 同步按钮保留可见但禁用：避免用户以为「同步」功能不存在，同时明确提示需先绑定
+    const resyncBtnEl = document.getElementById('vrcResyncLocalBtn');
+    if (resyncBtnEl) { resyncBtnEl.disabled = true; resyncBtnEl.title = __('profile.vrc_sync_need_bind'); }
+    const pullBtnEl = document.getElementById('vrcPullSyncBtn');
+    if (pullBtnEl) { pullBtnEl.disabled = true; pullBtnEl.title = __('profile.vrc_sync_need_bind'); }
     // 本地已记住账号 → 默认勾选「记住账号」，提示可快捷重新登录
     const rememberCb = document.getElementById('rememberVrcCreds');
     if (rememberCb) {

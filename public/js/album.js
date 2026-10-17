@@ -143,6 +143,8 @@ function showLightbox(photoId) {
     lightbox.style.display = 'flex';
     requestAnimationFrame(() => requestAnimationFrame(() => lightbox.classList.add('show')));
   }
+  // 全屏查看器打开时锁背景滚动，避免滚轮/触摸把遮罩下的页面滚走
+  if (typeof lockBodyScroll === 'function') lockBodyScroll('album-lightbox');
 }
 
 function updateLightbox() {
@@ -225,6 +227,7 @@ function stopSlideshow() {
 }
 function closeLightbox() {
   stopSlideshow();
+  if (typeof unlockBodyScroll === 'function') unlockBodyScroll('album-lightbox');
   const lightbox = document.getElementById('lightbox');
   if (lightbox) {
     lightbox.classList.remove('show');

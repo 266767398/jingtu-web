@@ -15,7 +15,7 @@
 const express = require('express');
 const { ok, getPool, handleError, sendError, ErrorCodes, logOper } = require('../utils');
 const { requireAuth, requireSuperAdmin } = require('../auth');
-const { vrchatGetGroupBans, vrchatBanGroupMember, vrchatUnbanGroupMember } = require('../vrc');
+const { vrchatGetGroupBans, vrchatBanGroupMember, vrchatUnbanGroupMember, vrchatGetUser } = require('../vrc');
 const logger = require('../logger');
 
 const GROUP_ID = process.env.GROUP_ID || 'vrc_group';
@@ -30,6 +30,77 @@ function setSystemVRCCookieFn(fn) { _systemCookieFn = fn; }
 function getSystemVRCCookie() {
   if (typeof _systemCookieFn !== 'function') return null;
   try { return _systemCookieFn({ session: {} }) || null; } catch (e) { return null; }
+}
+
+// ==================== 黑名单玩家资料富化 ====================
+// 被封禁者通常既不在 group_roster 也不在 users（被踢出/主动退群），GET 的 JOIN 取不到
+// 名字与头像。这里用系统 VRChat 账号按 vrchat_id 回源 GET /users/{id} 补齐，带内存缓存
+// 与并发去重，避免每次打开黑名单都打爆 VRChat API 额度。
+const BL_PROFILE_OK_TTL_MS = 10 * 60 * 1000;
+const BL_PROFILE_FAIL_TTL_MS = 5 * 60 * 1000;
+const BL_PROFILE_MAX_LOOKUP = 20;
+const _blProfileCache = new Map();    // uid -> { name, avatar, ts, ok }
+const _blProfileInflight = new Map(); // uid -> Promise
+
+// VRChat 头像字段优先级（与 routes/avatar.js 的 /api/avatar/user 保持一致）
+function blAvatarUrlOf(d) {
+  if (!d || typeof d !== 'object') return '';
+  return d.profilePicOverrideThumbnail || d.currentAvatarThumbnailImageUrl
+    || d.currentAvatarImageUrl || d.iconUrl || '';
+}
+
+// 同步时代名册为空会写入「群成员 usr_xxx」占位名，这类值视为没有名字
+function blIsPlaceholderName(s) {
+  return !s || /^群成员\s*usr_/i.test(String(s).trim());
+}
+
+async function resolveBlacklistProfile(cookie, uid) {
+  const now = Date.now();
+  const hit = _blProfileCache.get(uid);
+  if (hit && now - hit.ts < (hit.ok ? BL_PROFILE_OK_TTL_MS : BL_PROFILE_FAIL_TTL_MS)) return hit;
+  const inflight = _blProfileInflight.get(uid);
+  if (inflight) return inflight;
+  const p = (async () => {
+    let entry;
+    try {
+      const userRes = await vrchatGetUser(uid, cookie);
+      if (!userRes || userRes.status !== 200) {
+        entry = { name: '', avatar: '', ts: Date.now(), ok: false, status: userRes && userRes.status };
+      } else {
+        const d = userRes.data || {};
+        entry = {
+          name: String(d.displayName || '').trim().slice(0, 255),
+          avatar: blAvatarUrlOf(d),
+          ts: Date.now(),
+          ok: true
+        };
+      }
+    } catch (e) {
+      entry = { name: '', avatar: '', ts: Date.now(), ok: false };
+    }
+    _blProfileCache.set(uid, entry);
+    if (_blProfileCache.size > 2000) {
+      for (const [k, v] of _blProfileCache) {
+        if (Date.now() - v.ts > BL_PROFILE_OK_TTL_MS) _blProfileCache.delete(k);
+      }
+    }
+    return entry;
+  })();
+  _blProfileInflight.set(uid, p);
+  p.finally(() => _blProfileInflight.delete(uid)).catch(() => {});
+  return p;
+}
+
+// 官网账号页：优先用库里已存的 URL（群封禁同步自带），否则按 vrchat_id 拼官方地址
+function blProfileUrlOf(it) {
+  const rawUrl = String(it.url || '').trim();
+  if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+  let pid = String(it.vrchatId || '').trim();
+  if (!pid) {
+    const m = rawUrl.match(/\/user\/(usr_[0-9a-fA-F-]+)/i);
+    if (m) pid = m[1];
+  }
+  return pid ? 'https://vrchat.com/home/user/' + encodeURIComponent(pid) : '';
 }
 
 /**
@@ -156,6 +227,33 @@ module.exports = function createAdminVrcBlacklistRouter() {
         avatarUrl: r.avatarUrl || r.registeredAvatar || null,
         trustLevelCn: TRUST_CN[r.trustLevel] || r.trustLevel || null
       }));
+      // 富化兜底：JOIN 取不到名字/头像的（被封禁者已不在名册/用户表），
+      // 用系统 VRChat 账号按 vrchat_id 回源补齐（内存缓存 + 并发去重，上限防打爆额度）
+      const sysCookie = getSystemVRCCookie();
+      if (sysCookie) {
+        const missing = items
+          .filter(it => it.vrchatId && /^usr_/i.test(it.vrchatId) && (!it.memberName || !it.avatarUrl))
+          .slice(0, BL_PROFILE_MAX_LOOKUP);
+        if (missing.length) {
+          const profiles = await Promise.all(missing.map(it => resolveBlacklistProfile(sysCookie, it.vrchatId)));
+          let authStale = false;
+          missing.forEach((it, i) => {
+            const p = profiles[i];
+            if (!p || !p.ok) {
+              if (p && (p.status === 401 || p.status === 403)) authStale = true;
+              return;
+            }
+            if (!it.memberName && blIsPlaceholderName(it.username) && p.name) it.memberName = p.name;
+            if (!it.avatarUrl && p.avatar) it.avatarUrl = p.avatar;
+          });
+          if (authStale) {
+            // 系统账号会话失效：本次已返回的照常返回，但后续(失败缓存5min内)不再重复回源
+            logger.warn('vrc-blacklist', '⚠️ [黑名单列表] 系统 VRChat 会话被拒(401/403)，已停止资料回源');
+          }
+        }
+      }
+      // 官网账号页链接：优先库内 URL，否则按 vrchat_id 拼官方主页
+      items.forEach(it => { it.profileUrl = blProfileUrlOf(it); });
       res.json({ items });
     } catch (e) { handleError(res, e, '[admin/vrc-blacklist/list]'); }
   });

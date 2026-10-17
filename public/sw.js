@@ -1,4 +1,4 @@
-// 境途同游 — Service Worker v2.25 (20261015:
+﻿// 境途同游 — Service Worker v2.25 (20261015:
 //  ① 不再预缓存 '/' HTML —— 服务端对每个响应注入一次性 CSP nonce，被缓存下来的
 //     HTML 携带的是「那次响应」的旧 nonce。一旦该缓存被 SW 命中（离线兜底、或旧
 //     SW 残留未及时换代），就会与当次 CSP 头错配 → 页面内联脚本（含尾部事件绑定块
@@ -7,7 +7,7 @@
 //  ② 替换 group-hero.png 新横幅，强制老用户重装 SW 重抓首屏背景，避免
 //     stale-while-revalidate 继续返回旧横幅缓存)
 // UI-2 修复：CACHE 版本随前端版本戳 20261017c 同步 bump，确保旧 SW 换代时清缓存
-const CACHE = 'jingtu-v2.27';
+const CACHE = 'jingtu-v2.38';
 const STATIC_ASSETS = [
   '/offline.html',
   '/css/style.css',

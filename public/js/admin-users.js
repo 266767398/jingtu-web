@@ -877,6 +877,26 @@ function scrollToAdminSection(id) {
 }
 
 // ==================== 个人中心页面 ====================
+// 个人中心「数据统计」4 张卡（发帖/照片/活动/评论）：拉 /api/profile/stats 填充。
+// 统计不是关键路径，请求失败时保持占位 '-'，不弹错打扰用户。
+async function updateMeStats() {
+  const setVal = (id, v) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const n = Number(v);
+    el.textContent = (v === null || v === undefined || Number.isNaN(n)) ? '-' : String(n);
+  };
+  try {
+    const res = await api('/api/profile/stats', { method: 'GET' });
+    if (!res.ok) return;
+    const d = await res.json();
+    setVal('meTotalPosts', d.posts);
+    setVal('meTotalPhotos', d.photos);
+    setVal('meTotalEvents', d.events);
+    setVal('meTotalComments', d.comments);
+  } catch (e) { /* 统计拉取失败保持 '-' */ }
+}
+
 async function loadMePage() {
   if (!currentUser) return;
   
@@ -908,11 +928,9 @@ async function loadMePage() {
   // 密码强度（模拟）
   const ps = el('mePasswordStrength'); if (ps) ps.textContent = __('me.pwd_unknown');
 
-  // 个人中心的 4 张统计卡（发帖/照片/活动/评论）。
-  // 填充它们的 updateMeStats() 原先只被 ui.js 里那份同名 loadMePage 调用，
-  // 而那份被本文件（后加载）静默覆盖了 —— 于是 #meTotalPosts 等四个元素
-  // 从来没被写过值，接口 /api/profile/stats 一直是好的，只是没人调。
-  if (typeof updateMeStats === 'function') updateMeStats();
+  // 个人中心的 4 张统计卡（发帖/照片/活动/评论）由 updateMeStats() 填充
+  //（本文件定义，见上方）：拉 /api/profile/stats 一次写全。失败保持 '-'。
+  updateMeStats();
 }
 
 // showChangePasswordModal 已删除：它无人调用，且会对 index.html 里并不存在的

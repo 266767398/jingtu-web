@@ -163,9 +163,16 @@ function renderVrcBlacklistList() {
   }
   listEl.innerHTML = shown.map(it => {
     const name = it.memberName || it.username || it.vrchatId || '-';
-    const avatarHtml = it.avatarUrl
-      ? `<img class="vrc-blacklist-avatar" src="${escAttr(it.avatarUrl)}" alt="" loading="lazy">`
-      : '<span class="vrc-blacklist-avatar vrc-blacklist-avatar-fallback">🚫</span>';
+    // 头像：优先后端已解析头像；assets.amlcdn.com 老 CDN 国内 TLS 阻断不直连，
+    // 无头像时走后端 /api/avatar/user 按 ID 解析真实头像（系统账号回源 + 缓存 + 限速）
+    let avatarUrl = it.avatarUrl || '';
+    if (/^https?:\/\/[^/]*assets\.amlcdn\.com\//i.test(avatarUrl)) avatarUrl = '';
+    const vrcFallback = it.vrchatId ? `/api/avatar/user?u=${encodeURIComponent(it.vrchatId)}` : '';
+    const avatarSrc = proxyAvatar(avatarUrl || vrcFallback) || '/api/avatar/default';
+    const avatarFailed = typeof window.__avatarFailCached === 'function' && window.__avatarFailCached(avatarSrc);
+    const avatarHtml = avatarFailed
+      ? '<span class="vrc-blacklist-avatar vrc-blacklist-avatar-fallback">🚫</span>'
+      : `<img class="vrc-blacklist-avatar" src="${escAttr(avatarSrc)}" alt="" loading="lazy">`;
     const sourceBadge = it.source === 'group'
       ? `<span class="vrc-blacklist-source">${__('admin_vrc.bl_source_group')}</span>`
       : `<span class="vrc-blacklist-source vrc-blacklist-source-manual">${__('admin_vrc.bl_source_manual')}</span>`;
@@ -176,12 +183,19 @@ function renderVrcBlacklistList() {
     const trustDot = trustLabel
       ? `<span class="vrc-blacklist-trust" title="${escAttr(__('admin_vrc.bl_trust', {t: trustLabel}))}">●</span>`
       : '';
+    // 官网账号页：后端已统一带 profileUrl；再做一层前端兜底
+    const profileUrl = it.profileUrl || it.url
+      || (it.vrchatId ? 'https://vrchat.com/home/user/' + encodeURIComponent(it.vrchatId) : '');
+    const profileBtn = profileUrl
+      ? `<a class="btn btn-xs btn-outline vrc-blacklist-profile" href="${escAttr(profileUrl)}" target="_blank" rel="noopener noreferrer" title="${escAttr(__('admin_vrc.bl_profile'))}">🌐 ${__('admin_vrc.bl_profile')}</a>`
+      : '';
     return `<div class="vrc-blacklist-item">
       <div class="vrc-blacklist-head">
         ${avatarHtml}
         <span class="vrc-blacklist-name">${esc(name)}${trustDot}</span>
         ${it.vrchatId ? `<span class="vrc-blacklist-id">${esc(it.vrchatId)}</span>` : ''}
         ${sourceBadge}${bannedBadge}
+        ${profileBtn}
         <button class="btn btn-xs btn-outline" data-vrc-action="blacklist-edit" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_edit')}">✏️ ${__('admin_vrc.bl_edit')}</button>
         <button class="btn btn-xs btn-outline" data-vrc-action="blacklist-remove" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_remove')}">🗑️ ${__('admin_vrc.bl_remove')}</button>
       </div>
@@ -190,9 +204,21 @@ function renderVrcBlacklistList() {
       <div class="vrc-blacklist-meta">${__('admin_vrc.bl_added_by')} ${esc(it.createdByName || __('admin_vrc.bl_system_sync'))} · ${fmtDate(it.createdAt)}${it.syncedAt ? ' · ' + __('admin_vrc.bl_synced_at') + ' ' + fmtDate(it.syncedAt) : ''}</div>
     </div>`;
   }).join('');
-  // 头像加载失败时兜底隐藏（CSP script-src 无 unsafe-inline，内联 onerror 会被拦截，改用事件监听）
+  // 头像加载失败兜底：代理失败先反解直连重试一次，仍失败换默认占位（CSP script-src 无 unsafe-inline，内联 onerror 会被拦截）
   listEl.querySelectorAll('img.vrc-blacklist-avatar').forEach(function (img) {
-    img.addEventListener('error', function () { this.style.display = 'none'; });
+    img.addEventListener('error', function () {
+      if (!this.dataset.retried) {
+        this.dataset.retried = '1';
+        const direct = (typeof window.avatarDirectOf === 'function' && window.avatarDirectOf(this.src)) || '';
+        if (direct && direct !== this.src) { this.src = direct; return; }
+      }
+      const wrap = this.parentElement;
+      const fb = document.createElement('span');
+      fb.className = 'vrc-blacklist-avatar vrc-blacklist-avatar-fallback';
+      fb.textContent = '🚫';
+      if (wrap && wrap.contains(this)) wrap.replaceChild(fb, this);
+      else this.style.display = 'none';
+    });
   });
 }
 
