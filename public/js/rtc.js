@@ -295,6 +295,33 @@ function rtcClearPrivate() {
   rtcPrivate = null;
 }
 
+// P-1：WS 断线重连后通话收尾。
+// 服务端在 WS 连接关闭时会清空全部 RTC 房间（ws_service.js close 处理），
+// 而本地 rtcPrivate/rtcGroupRoom 仍是「活跃」状态——重连后所有 offer/answer/candidate
+// 都发给一个不在房间里的对端，通话会静默卡死（无任何提示，表现为互相听不见）。
+// 重连成功（onopen）时调用本函数：自动清理本地通话/语音房状态并明确提示用户重拨/重进，
+// 消除「通话黑洞」。
+function rtcHandleWsReconnect() {
+  const hadPrivate = rtcPrivate && rtcPrivate.status && rtcPrivate.status !== 'idle';
+  const hadGroup = !!(rtcGroupRoom && rtcGroupRoom.groupId);
+  if (hadPrivate) {
+    // 记住对端名用于提示（getChatUserName 仅在 chat.js 场景可用，容错兜底）
+    let peerName = '';
+    try { peerName = typeof getChatUserName === 'function' ? getChatUserName(rtcPrivate.peerId) : ''; } catch (e) {}
+    const isRinging = rtcPrivate.status === 'ringing';
+    rtcClearPrivate();
+    toast(__('rtc.reconnect_hangup') + (peerName ? '（' + peerName + '）' : ''), 'warn', 5000);
+    if (isRinging) { try { hideRtcIncomingPopup(); } catch (e) {} }
+    return;
+  }
+  if (hadGroup) {
+    const gid = rtcGroupRoom.groupId;
+    rtcClearGroupRoom();
+    toast(__('rtc.reconnect_leave_group'), 'warn', 5000);
+    void gid;
+  }
+}
+
 // 桌面音频轨输出路由：未挂到任何 audio/video 元素的远程轨永远无声
 // （即便 track.enabled=true 也听不到），必须挂到音频元素上"共享声音"开关才有实际作用。
 function routeScreenAudioTrack(elId, track) {
@@ -1057,6 +1084,8 @@ function handleRtcMessage(msg) {
   if (type === 'rtc:offer') {
     const inv = rtcPrivate;
     if (!inv || inv.status !== 'active' || !inv.pc) return;
+    // 信令来源校验：非当前通话对端发来的 offer 一律丢弃（防第三方注入 SDP 扰乱通话）
+    if (String(msg.senderId) !== String(inv.peerId)) return;
     if (!msg.sdp) return;
     // 记录对端屏幕共享状态：供 onTrack 识别桌面音频轨并默认静音（防回音）
     inv.screenShareActive = !!msg.screenShare;
@@ -1078,21 +1107,26 @@ function handleRtcMessage(msg) {
   if (type === 'rtc:answer') {
     const inv = rtcPrivate;
     if (!inv || !inv.pc || !msg.sdp) return;
+    // 信令来源校验：非对端的 answer/candidate 丢弃（防第三方注入替换远端描述）
+    if (String(msg.senderId) !== String(inv.peerId)) return;
     inv.pc.setRemoteDescription({ type: 'answer', sdp: msg.sdp }).catch(() => {});
     return;
   }
   if (type === 'rtc:candidate') {
     const inv = rtcPrivate;
     if (!inv || !inv.pc || !msg.candidate) return;
+    if (String(msg.senderId) !== String(inv.peerId)) return;
     inv.pc.addIceCandidate(new RTCIceCandidate(msg.candidate)).catch(() => {});
     return;
   }
   if (type === 'rtc:hangup') {
-    if (rtcPrivate && rtcPrivate.peerId === msg.senderId) {
+    // 仅对端（senderId === peerId）可触发挂断：服务端按认证身份盖 senderId，
+    // 第三方伪造 rtc:hangup 时不再无条件清空本端通话（原实现任意人可挂断他人通话）
+    if (rtcPrivate && String(rtcPrivate.peerId) === String(msg.senderId)) {
       toast(__('rtc.remote_hangup'), 'info');
+      rtcPlayHangup();
+      rtcClearPrivate();
     }
-    rtcPlayHangup();
-    rtcClearPrivate();
     return;
   }
   if (type === 'rtc:error') {

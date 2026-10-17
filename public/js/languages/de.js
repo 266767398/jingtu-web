@@ -1146,6 +1146,8 @@ window._LANG_DE = {
   "rtc.declined": "Der Gesprächspartner hat abgelehnt",
   "rtc.canceled": "Der Gesprächspartner hat den Anruf abgebrochen",
   "rtc.remote_hangup": "Der Gesprächspartner hat aufgelegt",
+  "rtc.reconnect_hangup": "Verbindung wiederhergestellt. Der Anruf wurde beendet, bitte erneut wählen.",
+  "rtc.reconnect_leave_group": "Verbindung wiederhergestellt. Sie haben den Voice-Room verlassen, bitte treten Sie erneut bei.",
   "rtc.error": "Fehler beim Anruf, bitte erneut versuchen",
   "rtc.room_empty": "Noch keine anderen Mitglieder. Laden Sie Freunde ein",
   "rtc.ptt_hold": "Gedrückt halten zum Sprechen",

@@ -547,24 +547,45 @@ function debounce(key, fn) {
   debounceTimers.set(key, timer);
 }
 
+// P-2: location_visible 短 TTL 内存缓存——高频位置消息不再逐条查库（4.5s/人/次 × 在线人数）。
+// 隐私开关切换时由 users_profile.js 的 /me/location 路由调用 invalidateLocationVisibleCache 立即失效，
+// TTL 到期兜底，隐私关闭最迟 10s 生效（与 debounce 延迟同量级）。
+const LOCATION_VISIBLE_TTL = 10000;
+const locationVisibleCache = new Map(); // userId -> { value: boolean, at: timestamp }
+function invalidateLocationVisibleCache(userId) {
+  if (userId != null) locationVisibleCache.delete(String(userId));
+}
+
 async function handleLocationUpdate(userId, msg, ws) {
-  const lat = parseFloat(msg.lat);
-  const lng = parseFloat(msg.lng);
+  const rawLat = parseFloat(msg.lat);
+  const rawLng = parseFloat(msg.lng);
   // 坐标必须合法，否则既不落库也不广播，避免污染地图
-  if (!Number.isFinite(lat) || !Number.isFinite(lng) ||
-      lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+  if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng) ||
+      rawLat < -90 || rawLat > 90 || rawLng < -180 || rawLng > 180) {
     return;
   }
+  // P-4: 坐标截断至 5 位小数（≈1.1m，GPS 精度内无损），降低高精度坐标指纹化风险；
+  // accuracy 同步校验为有限数（原实现 msg.accuracy || null 直接透传任意 JSON 值）
+  const lat = Math.round(rawLat * 1e5) / 1e5;
+  const lng = Math.round(rawLng * 1e5) / 1e5;
+  const accRaw = parseFloat(msg.accuracy);
+  const accuracy = Number.isFinite(accRaw) && accRaw >= 0 ? Math.round(accRaw) : null;
 
   // WS-6: 隐私门前置——location_visible=0 的用户不记录在线位置、不广播任何位置标记，
-  // 杜绝「关闭位置共享仍被 hasLocation 标志暴露 GPS 开启状态」的泄漏。
+  // 杜绝「关闭位置共享仍被 hasLocation 标志暴露 GPS 开启状态」的泄漏。（P-2: 走 TTL 缓存）
   let visible = false;
-  try {
-    const [vis] = await getPool().query(
-      'SELECT location_visible FROM users WHERE id = ? AND deleted_at IS NULL', [userId]);
-    visible = vis.length > 0 && vis[0].location_visible === 1;
-  } catch (e) {
-    visible = false;
+  const cached = locationVisibleCache.get(String(userId));
+  if (cached && Date.now() - cached.at < LOCATION_VISIBLE_TTL) {
+    visible = cached.value;
+  } else {
+    try {
+      const [vis] = await getPool().query(
+        'SELECT location_visible FROM users WHERE id = ? AND deleted_at IS NULL', [userId]);
+      visible = vis.length > 0 && vis[0].location_visible === 1;
+      locationVisibleCache.set(String(userId), { value: visible, at: Date.now() });
+    } catch (e) {
+      visible = false;
+    }
   }
   if (!visible) return;
 
@@ -577,7 +598,7 @@ async function handleLocationUpdate(userId, msg, ws) {
     vrchatId: userInfo0?.vrchatId || '',
     lat,
     lng,
-    accuracy: msg.accuracy || null,
+    accuracy,
     timestamp: Date.now()
   };
 
@@ -784,8 +805,13 @@ function handleGroupLocation(userId, msg) {
 
   // P1-42：位置投毒防线——非群成员拒收、坐标必须有限数、隐私闸与单人定位一致
   getGroupMembers(groupId).then(memberSet => {
-    if (!memberSet.has(userId)) return; 
+    if (!memberSet.has(userId)) return;
     if (!Number.isFinite(Number(msg.lat)) || !Number.isFinite(Number(msg.lng))) return;
+
+    // P-4: 与单人定位同口径——坐标截断 5 位小数、accuracy 校验为有限数
+    const gLat = Math.round(Number(msg.lat) * 1e5) / 1e5;
+    const gLng = Math.round(Number(msg.lng) * 1e5) / 1e5;
+    const gAccRaw = parseFloat(msg.accuracy);
 
     const userInfo = onlineUsers.get(userId);
     const locationData = {
@@ -795,9 +821,9 @@ function handleGroupLocation(userId, msg) {
       // WS-2: 服务端权威身份，不信任客户端
       displayName: userInfo?.displayName || '',
       avatarUrl: userInfo?.avatarUrl || '',
-      lat: Number(msg.lat),
-      lng: Number(msg.lng),
-      accuracy: msg.accuracy || null,
+      lat: gLat,
+      lng: gLng,
+      accuracy: Number.isFinite(gAccRaw) && gAccRaw >= 0 ? Math.round(gAccRaw) : null,
       timestamp: Date.now()
     };
 
@@ -1226,6 +1252,11 @@ async function handleRtcSignal(userId, msg, ws) {
     return;
   }
   if (type === 'rtc:offer' && targetId && targetId !== userId) {
+    // P-5: 放行前校验双方均已在 canonical 房间（invite→accept 流程建立），
+    // 与群房信令同口径，杜绝绕过呼叫直接向任意在线用户灌 SDP/ICE。
+    // （WS 断线即清房，重连后的旧通话由前端 rtcHandleWsReconnect 收尾，不存在恢复期卡死）
+    const offerRoom = rtcRooms.get(rtcPrivateRoomKey(userId, targetId));
+    if (!offerRoom || !offerRoom.has(userId) || !offerRoom.has(targetId)) return;
     broadcastToUser(targetId, {
       type: 'rtc:offer', senderId: userId, targetId, roomId: rtcPrivateRoomKey(userId, targetId),
       sdp: msg.sdp, timestamp: Date.now()
@@ -1233,6 +1264,8 @@ async function handleRtcSignal(userId, msg, ws) {
     return;
   }
   if (type === 'rtc:answer' && targetId && targetId !== userId) {
+    const answerRoom = rtcRooms.get(rtcPrivateRoomKey(userId, targetId));
+    if (!answerRoom || !answerRoom.has(userId) || !answerRoom.has(targetId)) return;
     broadcastToUser(targetId, {
       type: 'rtc:answer', senderId: userId, targetId, roomId: rtcPrivateRoomKey(userId, targetId),
       sdp: msg.sdp, timestamp: Date.now()
@@ -1240,6 +1273,8 @@ async function handleRtcSignal(userId, msg, ws) {
     return;
   }
   if (type === 'rtc:candidate' && targetId && targetId !== userId) {
+    const candRoom = rtcRooms.get(rtcPrivateRoomKey(userId, targetId));
+    if (!candRoom || !candRoom.has(userId) || !candRoom.has(targetId)) return;
     broadcastToUser(targetId, {
       type: 'rtc:candidate', senderId: userId, targetId, roomId: rtcPrivateRoomKey(userId, targetId),
       candidate: msg.candidate, timestamp: Date.now()
@@ -1363,6 +1398,7 @@ module.exports = {
   broadcastToGroup,
   broadcastToGroupWithTier,
   broadcastAllExcept,
+  invalidateLocationVisibleCache,
   gracefulShutdown,
   getOnlineUsers,
   invalidateGroupMemberCache,

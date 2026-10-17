@@ -19,21 +19,72 @@ const resetTokens = new Map();
 setInterval(() => {
   const now = Date.now();
   for (const [token, state] of resetTokens) {
-    if (state.expireAt < now) resetTokens.delete(token);
+    if (state.expireAt < now) {
+      resetTokens.delete(token);
+      removePersistedToken(token);
+    }
   }
 }, 60000).unref();
+
+// P-6: token 持久化（DB 兜底）——内存 Map 仍是热路径（读/校验/消耗行为不变），
+// 另将未过期 token 写入 password_reset_tokens 表，进程重启后未使用的重置请求仍可用。
+// DB 不可用/表不存在时静默降级纯内存模式，不影响单实例功能（与旧行为一致）。
+const RESET_TBL = 'password_reset_tokens';
+let _resetDbRestored = false;
+
+async function restoreResetTokensFromDb() {
+  if (_resetDbRestored) return;
+  _resetDbRestored = true;
+  try {
+    const [rows] = await getPool().query(
+      `SELECT token, user_id, code, expire_at FROM ${RESET_TBL} WHERE used = 0 AND expire_at > NOW()`
+    );
+    (rows || []).forEach((r) => {
+      if (resetTokens.has(r.token)) return;
+      resetTokens.set(r.token, {
+        userId: r.user_id,
+        code: String(r.code),
+        expireAt: new Date(r.expire_at).getTime(),
+        attempts: 0
+      });
+    });
+    if (rows && rows.length) logger.info('auth', `[reset] 已从 DB 恢复 ${rows.length} 个未过期重置 token`);
+  } catch (e) {
+    logger.warn('auth', '[reset] 从 DB 恢复重置 token 失败（纯内存模式）:', e.message);
+  }
+}
+
+function persistResetToken(token, state) {
+  try {
+    getPool().query(
+      `INSERT INTO ${RESET_TBL} (token, user_id, code, expire_at) VALUES (?, ?, ?, FROM_UNIXTIME(?))
+       ON DUPLICATE KEY UPDATE code = VALUES(code), expire_at = VALUES(expire_at), used = 0`,
+      [token, state.userId, state.code, Math.floor(state.expireAt / 1000)]
+    ).catch((e) => logger.warn('auth', '[reset] 持久化 token 失败（内存模式继续）:', e.message));
+  } catch (e) { /* getPool 本身异常同样降级 */ }
+}
+
+function removePersistedToken(token) {
+  try {
+    getPool().query(`DELETE FROM ${RESET_TBL} WHERE token = ?`, [token]).catch(() => {});
+  } catch (e) { /* 忽略 */ }
+}
 
 // §30：校验验证码并记录失败次数，超过 5 次删除 token
 function consumeResetCode(token, code) {
   const state = resetTokens.get(token);
   if (!state || state.expireAt < Date.now()) {
-    if (state) resetTokens.delete(token);
+    if (state) {
+      resetTokens.delete(token);
+      removePersistedToken(token);
+    }
     return { expired: true };
   }
   if (state.code !== code.trim()) {
     state.attempts = (state.attempts || 0) + 1;
     if (state.attempts > 5) {
       resetTokens.delete(token);
+      removePersistedToken(token);
       return { expired: true };
     }
     return { mismatch: true, attempts: state.attempts };
@@ -44,6 +95,7 @@ function consumeResetCode(token, code) {
 function registerResetRoutes(router) {
   router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
   try {
+    restoreResetTokensFromDb(); // fire-and-forget：重启后首次请求异步回填 DB 中未过期 token
     const { email } = req.body;
     if (!email) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入邮箱地址');
 
@@ -64,6 +116,7 @@ function registerResetRoutes(router) {
     const expireAt = Date.now() + 15 * 60 * 1000;
 
     resetTokens.set(token, { userId: user.id, code, expireAt, attempts: 0 });
+    persistResetToken(token, { userId: user.id, code, expireAt });
 
     try {
       const resetHtml = `<div style="max-width:600px;margin:0 auto;padding:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
@@ -102,6 +155,7 @@ function registerResetRoutes(router) {
 
   router.post('/verify-reset-code', passwordResetLimiter, async (req, res) => {
   try {
+    restoreResetTokensFromDb();
     const { token, code } = req.body;
     if (!token || !code) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
 
@@ -121,6 +175,7 @@ function registerResetRoutes(router) {
 
   router.post('/reset-password', passwordResetLimiter, async (req, res) => {
   try {
+    restoreResetTokensFromDb();
     const { token, code, newPassword } = req.body;
     if (!token || !newPassword) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
 
@@ -135,6 +190,7 @@ function registerResetRoutes(router) {
     // AUTH-2: 校验通过后立即原子注销 token（先于任何异步 DB 操作），
     // 两个并发 reset-password 同参请求只有一个能通过，杜绝双消耗/后写覆盖。
     resetTokens.delete(token);
+    removePersistedToken(token);
 
     const strength = validatePasswordStrength(newPassword);
     if (!strength.valid) {

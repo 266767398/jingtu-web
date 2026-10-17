@@ -70,7 +70,7 @@ async function initDatabase() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         token VARCHAR(64) NOT NULL UNIQUE,
         user_id INT NOT NULL,
-        code VARCHAR(6) NOT NULL,
+        code VARCHAR(8) NOT NULL,
         expire_at DATETIME NOT NULL,
         used TINYINT(1) DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -1456,6 +1456,17 @@ async function initDatabase() {
         // P1-47: 目标列缺失属升级事故（补列清单漏列），按严重错误告警而非静默 warning
         else if (e.errno === 1054 || e.code === 'ER_BAD_FIELD_ERROR') { logger.error('db-init', '  ❌ roster index 严重错误（目标列缺失，请检查 rosterCols 补列清单）:', e.message); }
         else { logger.warn('db-init', '  ⚠️ roster index:', e.message); }
+      }
+    }
+
+    // P-6: 老库兼容——password_reset_tokens.code 从 VARCHAR(6) 扩到 VARCHAR(8)
+    // （AUTH-3 把 OTP 熵从 6 位提升到 8 位，落库持久化需同宽，否则 8 位码被 MySQL 截断丢失）
+    try { await holder.pool.query(`ALTER TABLE password_reset_tokens MODIFY COLUMN code VARCHAR(8) NOT NULL`); }
+    catch (e) {
+      if (e.errno === 1054 || e.errno === 1146 || e.code === 'ER_BAD_FIELD_ERROR' || e.code === 'ER_NO_SUCH_TABLE') {
+        // 表不存在（全新部署 CREATE IF NOT EXISTS 已建 8 位列）或表中压根无 code 列，无需处理
+      } else {
+        logger.warn('db-init', '  ⚠️ password_reset_tokens.code MODIFY:', e.message);
       }
     }
 

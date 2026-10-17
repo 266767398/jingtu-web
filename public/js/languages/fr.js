@@ -1146,6 +1146,8 @@ window._LANG_FR = {
   "rtc.declined": "L'appel a été refusé",
   "rtc.canceled": "L'appel a été annulé",
   "rtc.remote_hangup": "L'interlocuteur a raccroché",
+  "rtc.reconnect_hangup": "Connexion rétablie. L'appel a été interrompu, veuillez rappeler.",
+  "rtc.reconnect_leave_group": "Connexion rétablie. Vous avez quitté le salon vocal, veuillez le rejoindre.",
   "rtc.error": "Erreur lors de l'appel, veuillez réessayer",
   "rtc.room_empty": "Aucun autre membre pour l'instant. Invitez des amis",
   "rtc.ptt_hold": "Maintenir pour parler",

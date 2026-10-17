@@ -1224,6 +1224,8 @@ window._LANG_ZH = {
   "rtc.declined": "对方拒绝了通话",
   "rtc.canceled": "对方已取消通话",
   "rtc.remote_hangup": "对方已挂断",
+  "rtc.reconnect_hangup": "网络已恢复，原通话已断开，请重新拨打",
+  "rtc.reconnect_leave_group": "网络已恢复，语音房已退出，请重新加入",
   "rtc.error": "通话出错，请重试",
   "rtc.room_empty": "暂无其他成员，邀请好友加入吧",
   "rtc.ptt_hold": "按住说话",

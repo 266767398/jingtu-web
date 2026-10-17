@@ -295,6 +295,11 @@ function connectWebSocket() {
         avatarUrl: currentUser.avatarUrl || ''
       }));
     }
+    // P-1：WS 重连成功后收尾「僵尸通话」——断线期间服务端已清空 RTC 房间，
+    // 本地仍活跃的通话/语音房需自动清理并提示重拨/重进，避免静默卡死。
+    if (typeof rtcHandleWsReconnect === 'function') {
+      try { rtcHandleWsReconnect(); } catch (e) {}
+    }
   };
   wsClient.onmessage = (e) => {
     try {

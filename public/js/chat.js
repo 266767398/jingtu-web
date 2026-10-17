@@ -23,7 +23,37 @@ function formatChatTime(timestamp) {
 
 let chatLoading = false;
 
+// P-8: 最近渲染消息 id 去重缓存（LRU，上限 300 条）。
+// 场景：WS 抖动导致 chat:new/group:new 偶发重推，或分页加载与实时推送在临界时刻
+// 同一条消息被渲染两次（历史上出现过相同内容重复出现两行的偶发问题）。
+// 实时路径 appendReceivedMessage/appendGroupMessage 渲染前检查，历史翻页 prepend*
+// 在渲染时跳过缓存中已有的 id（与实时撞车时不双份）。整体重建（renderMessages）
+// 也会记录渲染过的 id，保证之后 WS 重推同一条时被幂等跳过。
+const _recentRenderedMsgIds = new Map();
+const _RECENT_MSG_MAX = 300;
+function markMsgRendered(msgId) {
+  if (msgId == null) return;
+  if (_recentRenderedMsgIds.has(msgId)) return true; // 已在缓存 → 重复
+  _recentRenderedMsgIds.set(msgId, Date.now());
+  if (_recentRenderedMsgIds.size > _RECENT_MSG_MAX) {
+    const oldestKey = _recentRenderedMsgIds.keys().next().value;
+    _recentRenderedMsgIds.delete(oldestKey);
+  }
+  return false;
+}
+
 // ==================== Tab 主入口 ====================
+let _chatListRefreshTimer = null;
+// P-3: 会话列表被动刷新防抖——群聊/私信消息频发时（chat:new/group:new 每当不在当前会话
+// 就触发 loadChatConversations 全量三接口拉取），防抖 2.5s 合并为一次，避免请求风暴。
+function scheduleChatListRefresh() {
+  clearTimeout(_chatListRefreshTimer);
+  _chatListRefreshTimer = setTimeout(() => {
+    _chatListRefreshTimer = null;
+    loadChatConversations();
+  }, 2500);
+}
+
 async function loadChatConversations(resetView = false) {
   if (!currentUser || chatLoading) return;
   chatLoading = true;
@@ -300,6 +330,8 @@ function renderMessages(messages, otherId) {
   const chatBox = document.getElementById('chatBox');
   if (!chatBox) return;
   if (!messages || messages.length === 0) { renderEmpty(chatBox, { icon: '💬', text: __('chat.first_message_emoji'), cls: 'chat-empty-msg' }); return; }
+  // P-8: 整体重建也记录已渲染 id，之后 WS 重推同一条不双份
+  messages.forEach(m => { if (m.id != null) markMsgRendered(m.id); });
   chatBox.innerHTML = messages.map(m => {
     const isMe = m.senderId === currentUser.id;
     const recallBtn = canRecallPrivateMsg(m)
@@ -454,6 +486,8 @@ function renderGroupMessages(messages, members) {
   if (!messages || messages.length === 0) { renderEmpty(chatBox, { icon: '💬', text: __('chat.group_start'), cls: 'chat-empty-msg' }); return; }
   const memberMap = {};
   members.forEach(m => { memberMap[m.id] = m; });
+  // P-8: 同 renderMessages，整体重建记录已渲染 id
+  messages.forEach(m => { if (m.id != null) markMsgRendered(m.id); });
   chatBox.innerHTML = messages.map(m => {
     const isMe = m.senderId === currentUser.id;
     const sender = memberMap[m.senderId] || {};
@@ -554,8 +588,8 @@ function handleChatMessage(msg) {
       api('/api/chat/messages/read-batch', { method: 'PATCH', body: JSON.stringify({ messageIds: [m.id] }) }).catch(() => {});
     }
     if (chatActiveUserId !== talkTo) {
-      // 不在当前对话中才重载列表（更新未读数）
-      loadChatConversations();
+      // 不在当前对话中才重载列表（更新未读数）；P-3: 防抖合并
+      scheduleChatListRefresh();
     }
   }
   if (msg.type === 'chat:sent') {
@@ -567,12 +601,12 @@ function handleChatMessage(msg) {
     }
     return;
   }
-  // 群聊消息 — 只在用户不在该群详情页时重载列表
+  // 群聊消息 — 只在用户不在该群详情页时重载列表（P-3: 防抖合并）
   if (msg.type === 'group:new') {
     if (chatActiveGroupId === msg.groupId) {
       appendGroupMessage(msg.message);
     } else {
-      loadChatConversations();
+      scheduleChatListRefresh();
     }
   }
   // 自发群消息回执（服务端 group:sent）：渲染自己刚发出的消息
@@ -639,6 +673,8 @@ function appendReceivedMessage(msg, isSent = false) {
   if (!chatBox) return;
   const otherId = msg.senderId === currentUser.id ? msg.receiverId : msg.senderId;
   if (chatActiveUserId !== otherId && !isSent) return;
+  // P-8: WS 实时路径幂等——同一条消息（重推/回执/临界时刻）只渲染一次
+  if (markMsgRendered(msg.id)) return;
   const emptyMsg = chatBox.querySelector('.chat-empty-msg');
   if (emptyMsg) emptyMsg.remove();
   const isMe = msg.senderId === currentUser.id;
@@ -656,6 +692,8 @@ function appendReceivedMessage(msg, isSent = false) {
 function appendGroupMessage(msg) {
   const chatBox = document.getElementById('chatBox');
   if (!chatBox) return;
+  // P-8: 同 appendReceivedMessage，实时群消息幂等去重
+  if (markMsgRendered(msg.id)) return;
   const emptyMsg = chatBox.querySelector('.chat-empty-msg');
   if (emptyMsg) emptyMsg.remove();
   const isMe = msg.senderId === currentUser.id;
@@ -820,7 +858,10 @@ function prependMessages(messages) {
   if (!chatBox || !messages || messages.length === 0) return;
   const prevScroll = chatBox.scrollTop;
   const prevHeight = chatBox.scrollHeight;
-  const newContent = messages.map(m => {
+  // P-8: 历史分页反向去重——若某条已在实时路径渲染过（临界时刻），跳过避免双份
+  const toRender = messages.filter(m => m.id == null || !_recentRenderedMsgIds.has(m.id));
+  if (!toRender.length) return;
+  const newContent = toRender.map(m => {
     const isMe = m.senderId === currentUser.id;
     return `<div class="chat-msg ${isMe ? 'chat-msg-me' : 'chat-msg-other'}">
       <div class="chat-msg-bubble">${chatMediaBlock(m)}${m.content ? esc(m.content) : ''}</div>
@@ -837,7 +878,10 @@ function prependGroupMessages(messages) {
   if (!chatBox || !messages || messages.length === 0) return;
   const prevScroll = chatBox.scrollTop;
   const prevHeight = chatBox.scrollHeight;
-  const newContent = messages.map(m => {
+  // P-8: 与 prependMessages 一致——临界时刻实时已渲染的消息在历史翻页中跳过
+  const toRender = messages.filter(m => m.id == null || !_recentRenderedMsgIds.has(m.id));
+  if (!toRender.length) return;
+  const newContent = toRender.map(m => {
     const isMe = m.senderId === currentUser.id;
     if (m.msgType === 'location' && m.lat != null && m.lng != null) {
       return `<div class="chat-msg chat-msg-other">

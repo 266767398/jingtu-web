@@ -719,10 +719,17 @@ function updateMyLocationMarker(lat, lng) {
 // 恒返回空数组，地图上一个标记都不会出现，而用户界面还显示"正在共享位置"。
 let _lastLocationHttpSync = 0;
 const LOCATION_HTTP_MIN_INTERVAL = 20000;
+// WS 实时广播节流：watchPosition(enableHighAccuracy) 在 GPS 强信号下可 ~1Hz 回调，
+// 原实现每次回调都发 WS，服务端每条消息都要查一次 location_visible（隐私门前置查询）。
+// 4.5s 节流（略小于 5s 上报循环间隔，避免循环发送被整拍跳过）兼顾实时性与服务端负载。
+const LOCATION_WS_MIN_INTERVAL = 4500;
+let _lastLocationWsSend = 0;
 
 function sendLocationViaWS(lat, lng, accuracy) {
   const wsOk = wsClient && wsClient.readyState === WebSocket.OPEN && currentUser;
-  if (wsOk) {
+  const now = Date.now();
+  if (wsOk && (now - _lastLocationWsSend >= LOCATION_WS_MIN_INTERVAL)) {
+    _lastLocationWsSend = now;
     wsClient.send(JSON.stringify({
       type: 'location:update',
       userId: currentUser.id,

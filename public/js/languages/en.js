@@ -1123,6 +1123,8 @@ window._LANG_EN = {
   "rtc.declined": "The call was declined",
   "rtc.canceled": "The call was canceled",
   "rtc.remote_hangup": "The other party hung up",
+  "rtc.reconnect_hangup": "Connection restored. The previous call ended, please call again.",
+  "rtc.reconnect_leave_group": "Connection restored. You left the voice room, please rejoin.",
   "rtc.error": "Call failed. Please try again",
   "rtc.room_empty": "No other members yet. Invite friends to join",
   "rtc.ptt_hold": "Hold to talk",

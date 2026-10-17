@@ -1146,6 +1146,8 @@ window._LANG_JA = {
   "rtc.declined": "通話が拒否されました",
   "rtc.canceled": "通話がキャンセルされました",
   "rtc.remote_hangup": "相手が通話を終了しました",
+  "rtc.reconnect_hangup": "接続が復旧しました。通話は切断されたため、かけ直してください",
+  "rtc.reconnect_leave_group": "接続が復旧しました。ボイスルームから退出したため、再度入室してください",
   "rtc.error": "通話エラーが発生しました。もう一度お試しください",
   "rtc.room_empty": "他のメンバーはいません。友達を招待しましょう",
   "rtc.ptt_hold": "押して話す",

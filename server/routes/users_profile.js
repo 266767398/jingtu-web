@@ -13,6 +13,7 @@ const {
   ok, getPool, validateFields, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, normalizeSelfTags
 } = require('../utils');
 const { VRC_API, VRC_API_KEY } = require('../vrc');
+const wsService = require('../ws_service');
 const logger = require('../logger');
 
 const ROOT_DIR = path.join(__dirname, '..', '..');
@@ -544,6 +545,10 @@ router.put('/me/location', requireAuth, async (req, res) => {
       updates.location = loc;
     }
     if (visible !== undefined) updates.location_visible = visible ? 1 : 0;
+    // P-2: 隐私开关切换立即失效 WS 层的 location_visible TTL 缓存（否则最迟 10s 才生效）
+    if (visible !== undefined && wsService && typeof wsService.invalidateLocationVisibleCache === 'function') {
+      try { wsService.invalidateLocationVisibleCache(req.session.userId); } catch (e) {}
+    }
     // 记录位置时间戳，否则地图气泡的"更新时间"永远为空
     if (updates.lat !== undefined || updates.lng !== undefined) {
       updates.location_updated_at = new Date();
