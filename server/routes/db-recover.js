@@ -263,8 +263,9 @@ router.post('/db-recover', requireRecoveryToken, async (req, res) => {
       await initDatabase();
       reinitialized = true;
     } catch (e) {
-      // 配置已写入磁盘；初始化失败（如表不存在）提示用户手动跑 db_init.js
-      initWarning = '数据库已连接，但表结构初始化失败：' + e.message + '（可能需要先在服务器运行 `node db_init.js`）';
+      // SEC-1 修复：不回显上游 MySQL 错误细节（表名/列名/版本等），详情仅入服务端日志
+      logger.warn('[db-recover] 表结构初始化失败：' + e.message);
+      initWarning = '数据库已连接，但表结构初始化失败（详情见服务端日志），可能需要先在服务器运行 `node db_init.js`';
     }
   } else {
     applyDbConfig({ host, port, user, password, database });

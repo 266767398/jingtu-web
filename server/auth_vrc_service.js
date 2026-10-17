@@ -24,8 +24,8 @@ const MAX_2FA_ATTEMPTS = 5;
 // S-6: VRChat 登录审计写入 login_history（provider=vrc）；记录失败不影响登录主流程
 async function insertVrcLoginHistory(req, user, reason = 'VRChat登录') {
   try {
-    const cf = req.headers['x-forwarded-for'];
-    const ip = String(cf ? String(cf).split(',')[0].trim() : (req.socket && req.socket.remoteAddress) || '').slice(0, 64);
+    // SEC-3 修复：同 auth_local_service，改用 req.ip 尊重 trust proxy 配置
+    const ip = String(req.ip || (req.socket && req.socket.remoteAddress) || '').slice(0, 64);
     const ua = String(req.headers['user-agent'] || '').slice(0, 500);
     await getPool().query(
       `INSERT INTO login_history (user_id, login_id, provider, success, ip, user_agent, reason)

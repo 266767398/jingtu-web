@@ -554,6 +554,7 @@ function renderBackups(backups) {
             <td style="padding:8px;font-size:12px">${createdText}</td>
             <td style="padding:8px;font-size:12px">
               <button class="btn btn-sm btn-outline" style="padding:2px 8px" data-i18n="admin.download" data-action="download-backup" data-filename="${escAttr(encodedFilename)}">下载</button>
+              ${currentUser && currentUser.role === 'super_admin' ? `<button class="btn btn-sm" style="padding:2px 8px;background:var(--warning-bg,#fff7e6);color:var(--warning,#d48806);border:1px solid var(--warning,#d48806)" data-i18n="admin.backup_restore" data-action="restore-backup" data-filename="${escAttr(encodedFilename)}">还原</button>` : ''}
               <button class="btn btn-sm btn-red" style="padding:2px 8px" data-i18n="admin.delete" data-action="delete-backup" data-filename="${escAttr(encodedFilename)}">删除</button>
             </td>
           </tr>
@@ -591,6 +592,43 @@ async function doDeleteBackup(encodedFilename) {
   } catch (err) {
     if (isApiHandledError(err)) return;
     toast(__('admin.backup_delete_failed') + ': ' + err.message, 'error');
+  }
+}
+
+// BUG-1 修复：补全备份还原前端入口（后端 POST /api/admin/backups/restore/:filename 为 requireSuperAdmin）
+function restoreBackup(encodedFilename) {
+  if (!currentUser || currentUser.role !== 'super_admin') {
+    toast(__('permission_denied'), 'error');
+    return;
+  }
+  const filename = decodeURIComponent(encodedFilename);
+  // 还原是破坏性操作：先二次确认，再要求输入文件名防误触
+  showConfirm(__('admin.backup_restore_confirm', { filename }), function () {
+    const input = prompt(__('admin.backup_restore_type_filename'));
+    if (input !== filename) {
+      toast(__('admin.backup_restore_filename_mismatch'), 'error');
+      return;
+    }
+    doRestoreBackup(encodedFilename);
+  });
+}
+
+async function doRestoreBackup(encodedFilename) {
+  try {
+    toast(__('admin.db_backup_restoring'), 'info');
+    const res = await api(`/api/admin/backups/restore/${encodedFilename}`, { method: 'POST' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success) {
+        toast(__('admin.backup_restore_success') + ': ' + data.filename, 'success');
+        loadBackups();
+      } else {
+        toast(errText(data) || __('admin.backup_restore_failed'), 'error');
+      }
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('admin.backup_restore_failed') + ': ' + err.message, 'error');
   }
 }
 
@@ -762,6 +800,7 @@ document.addEventListener('click', function (e) {
   if (actEl) {
     const action = actEl.getAttribute('data-action');
     if (action === 'download-backup') { downloadBackup(actEl.getAttribute('data-filename')); return; }
+    if (action === 'restore-backup') { restoreBackup(actEl.getAttribute('data-filename')); return; }
     if (action === 'delete-backup') { deleteBackup(actEl.getAttribute('data-filename')); return; }
   }
   if (e.target && e.target.closest && e.target.closest('#adminAddBtn')) { showAddAdminModal(); return; }

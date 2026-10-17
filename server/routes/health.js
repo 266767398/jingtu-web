@@ -8,12 +8,13 @@
  */
 const express = require('express');
 const { getPool } = require('../utils');
-const { requireAdminCompat } = require('../auth');
-const os = require('os');
+const { requireSuperAdmin } = require('../auth');
 
 const router = express.Router();
 
-router.get('/health/detailed', requireAdminCompat, async (req, res) => {
+// SEC-2 修复：/health/detailed 返回 CPU/内存/loadavg 等系统信息，
+// 与 database.js processlist 同口径收紧至 super_admin（普通 admin 不需要系统级运维数据）
+router.get('/health/detailed', requireSuperAdmin, async (req, res) => {
   const startTime = Date.now();
 
   try {

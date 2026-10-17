@@ -314,8 +314,11 @@ function applyRememberCookie(res, user, remember) {
 // 登录历史审计（S-6）统一写入；记录失败不影响登录主流程
 async function insertLoginHistory(req, { userId, loginId, provider = 'local', success = 1, reason = '' }) {
   try {
-    const cf = req.headers['x-forwarded-for'];
-    const ip = String(cf ? String(cf).split(',')[0].trim() : (req.socket && req.socket.remoteAddress) || '').slice(0, 64);
+    // SEC-3 修复：不再无条件信任 X-Forwarded-For 头。
+    // 改用 Express 的 req.ip——它会根据 app.set('trust proxy') 配置决定是否解析
+    // X-Forwarded-For。未配置 TRUST_PROXY 时 trust proxy=false，req.ip 取 socket
+    // 直连地址，伪造 XFF 头无法污染登录审计 IP（与 security.js 限流同口径）。
+    const ip = String(req.ip || (req.socket && req.socket.remoteAddress) || '').slice(0, 64);
     const ua = String(req.headers['user-agent'] || '').slice(0, 500);
     await getPool().query(
       `INSERT INTO login_history (user_id, login_id, provider, success, ip, user_agent, reason)

@@ -30,11 +30,36 @@ module.exports = function (authStateRef, notificationService) {
   const ASSETS_DIR = path.join(ROOT_DIR, 'assets');
   const ALBUM_DIR = path.join(ASSETS_DIR, 'album');
 
+  // DB-1 修复：与 files.js isWithinUploads 对齐，用 realpath 解析符号链接后做严格前缀校验，
+  // 防止 ALBUM_DIR 内存在符号链接指向外部目录时 path.resolve 方案被绕过。
+  // 历史上 path.resolve 只能解析 `..`，不能穿透符号链接。
+  function realpathForCheck(fullPath) {
+    try {
+      return fs.realpathSync(fullPath);
+    } catch (e) {
+      let tail = [];
+      let cur = fullPath;
+      for (let i = 0; i < 20; i++) {
+        try {
+          return path.resolve(fs.realpathSync(cur), ...tail.reverse());
+        } catch (e2) {
+          const parent = path.dirname(cur);
+          if (parent === cur) return null;
+          tail.push(path.basename(cur));
+          cur = parent;
+        }
+      }
+      return null;
+    }
+  }
+  let realAlbumDir;
+  try { realAlbumDir = fs.realpathSync(ALBUM_DIR); } catch (e) { realAlbumDir = path.resolve(ALBUM_DIR); }
+
   // §L2: 防御性路径断言，确保任何落盘路径都严格位于 ALBUM_DIR 内（防路径穿越回归）
   function isWithinAlbum(fullPath) {
-    const root = path.resolve(ALBUM_DIR);
-    const target = path.resolve(fullPath);
-    return target === root || target.startsWith(root + path.sep);
+    const resolved = realpathForCheck(fullPath);
+    if (!resolved) return false;
+    return resolved === realAlbumDir || resolved.startsWith(realAlbumDir + path.sep);
   }
 
   function getUserId(req) {

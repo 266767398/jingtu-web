@@ -182,8 +182,11 @@
 }
 
 @keyframes progress {
-  from { width: 0; }
+  from { transform: scaleX(0); }
 }
+
+/* UI-1 修复：进度条动画改用 transform: scaleX（GPU 合成层），避免 width 逐帧触发 layout/reflow。
+   配合 transform-origin: left 从左侧展开，最终宽度由元素自身 width 决定。 */
 
 @keyframes fadeInScale {
   from { opacity: 0; transform: scale(0.9); }
@@ -402,6 +405,7 @@
 /* ========== 进度条动画 ========== */
 
 .progress-bar {
+  transform-origin: left;
   animation: progress var(--transition-time-slow) ease-out forwards;
 }
 

@@ -934,6 +934,7 @@ function setupGroupAdminPanels() {
   bindGroupAdminPanel('groupRolesSection', loadGroupRoles);
   bindGroupAdminPanel('groupAuditLogsSection', loadGroupAuditLogs);
   bindGroupAdminPanel('groupBansSection', loadGroupBans);
+  bindGroupAdminPanel('groupInvitesSection', loadGroupInvites);
   bindGroupAdminClick('groupAnnPublishBtn', publishGroupAnnouncement);
   bindGroupAdminClick('groupGalCreateBtn', createGroupGallery);
   bindGroupAdminClick('groupRoleCreateBtn', createGroupRole);
@@ -942,6 +943,8 @@ function setupGroupAdminPanels() {
   bindGroupAdminClick('groupBanBtn', banGroupMemberAction);
   bindGroupAdminClick('groupCalFollowBtn', () => groupCalendarAction('follow'));
   bindGroupAdminClick('groupCalUnfollowBtn', () => groupCalendarAction('unfollow'));
+  bindGroupAdminClick('groupInviteSendBtn', sendGroupInvites);
+  bindGroupAdminClick('groupInviteRefreshBtn', loadGroupInvites);
 }
 
 // ---- 群公告 ----
@@ -1209,6 +1212,57 @@ async function banGroupMemberAction() {
     el.value = '';
     toast(__('group.op_done'), 'success');
     loadGroupBans();
+  });
+}
+
+// ---- 群邀请管理（BUG-3 修复） ----
+async function loadGroupInvites() {
+  const list = document.getElementById('groupInvitesList');
+  const countEl = document.getElementById('groupInvitesCount');
+  if (!list) return;
+  try {
+    const res = await api('/api/group/invites?pageSize=50');
+    if (!res.ok) { await groupAdminFail(res); return; }
+    const data = await res.json();
+    const items = data.invites || [];
+    if (countEl) countEl.textContent = '(' + (data.total || items.length) + ')';
+    if (!items.length) { renderEmpty(list, { icon: '✉️', text: '暂无邀请记录' }); return; }
+    list.innerHTML = items.map(inv => {
+      const statusMap = { pending: '待处理', accepted: '已接受', rejected: '已拒绝', expired: '已过期' };
+      const statusColor = inv.status === 'pending' ? 'var(--accent)' : inv.status === 'accepted' ? 'var(--success,#52c41a)' : 'var(--muted)';
+      const expires = inv.expiresAt ? new Date(inv.expiresAt).toLocaleString() : '-';
+      return `<div class="group-change-item" data-invite-id="${esc(inv.id)}">
+        <span class="group-change-name">${esc(inv.vrchatName || inv.vrchatId)}</span>
+        <span class="group-ban-vid mono">${esc(inv.vrchatId)}</span>
+        <span style="color:${statusColor};font-size:12px">${esc(statusMap[inv.status] || inv.status)}</span>
+        <span class="text-muted2 text-12">邀请人：${esc(inv.inviterName || '-')}</span>
+        <span class="text-muted2 text-12">到期：${esc(expires)}</span>
+      </div>`;
+    }).join('');
+  } catch {}
+}
+
+async function sendGroupInvites() {
+  const idsEl = document.getElementById('groupInviteIds');
+  const msgEl = document.getElementById('groupInviteMsg');
+  if (!idsEl) return;
+  const raw = idsEl.value.trim();
+  if (!raw) { toast('请输入至少一个 VRChat ID', 'error'); return; }
+  const vrchatIds = raw.split(/[\s,;]+/).map(s => s.trim()).filter(s => s.startsWith('usr_'));
+  if (!vrchatIds.length) { toast('VRChat ID 格式应为 usr_xxx', 'error'); return; }
+  if (vrchatIds.length > 100) { toast('单次最多邀请 100 人', 'error'); return; }
+  const message = msgEl ? msgEl.value.trim() : '';
+  showConfirm(`确定向 ${vrchatIds.length} 个用户发送群邀请吗？`, async function () {
+    try {
+      const res = await api('/api/group/invites/batch', { method: 'POST', body: { vrchatIds, message } });
+      if (!res.ok) { await groupAdminFail(res); return; }
+      const data = await res.json();
+      const ok = (data.results || []).filter(r => r.status === 'invited').length;
+      toast(`已发送 ${ok}/${vrchatIds.length} 个邀请`, 'success');
+      idsEl.value = '';
+      if (msgEl) msgEl.value = '';
+      loadGroupInvites();
+    } catch {}
   });
 }
 
