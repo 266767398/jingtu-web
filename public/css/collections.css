@@ -111,6 +111,9 @@
 }
 .coll-card-btn:hover { border-color: var(--accent); color: var(--accent); }
 .coll-card-btn.danger:hover { border-color: #e23; color: #e23; }
+/* 已收藏态（官方收藏→本站收藏切换）：accent 描边 + 淡填充，一眼可辨已保存 */
+.coll-card-btn.is-collected { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+.coll-card-btn.is-collected:hover { background: color-mix(in srgb, var(--accent) 18%, var(--card)); }
 
 .coll-loadmore-wrap { text-align: center; }
 .coll-empty, .coll-loading, .coll-error, #collList .jt-empty, #collList .jt-skel-grid { grid-column: 1/-1; }

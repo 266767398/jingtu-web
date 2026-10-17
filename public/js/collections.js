@@ -245,9 +245,8 @@
       if (my !== state.loadSeq) return;
       state.items = state.items.concat(data.items || []);
       const list = $('collList');
-      const cur = list.innerHTML;
-      const more = data.items.map(cardHtml).join('');
-      list.innerHTML = cur + more;
+      // insertAdjacentHTML 追加：免去整表重解析，长列表「加载更多」更顺滑
+      list.insertAdjacentHTML('beforeend', data.items.map(cardHtml).join(''));
       bindCardEvents();
       renderLoadMore();
     } catch (e) { toast(e.message, 'error'); }

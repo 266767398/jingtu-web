@@ -231,7 +231,7 @@ async function viewLoginHistory(userId) {
     listEl.innerHTML = rows.map((r) => {
       const okTxt = r.success ? '✅ ' + __('admin_users.success') : '❌ ' + __('admin_users.fail');
       const provider = r.provider === 'vrc' ? 'VRChat' : __('admin_users.provider_local');
-      const time = esc(String(r.created_at || '') + '');
+      const time = esc(fmtDateTime(r.created_at) || '-');
       const ip = esc(String(r.ip || '-') + '');
       const reason = esc(String(r.reason || '') + '');
       const ua = esc(String(r.user_agent || '') + '');
@@ -365,7 +365,7 @@ async function generateCodes() {
             expEl.className = 'text-13 text-muted mt-8';
             wrapEl.insertBefore(expEl, wrapEl.firstChild);
           }
-          expEl.textContent = __('modal.gen_expires_until', { date: String(exp).replace('T', ' ').slice(0, 19) });
+          expEl.textContent = __('modal.gen_expires_until', { date: fmtDateTime(exp) });
           expEl.classList.remove('d-none');
         } else if (expEl) {
           expEl.classList.add('d-none');

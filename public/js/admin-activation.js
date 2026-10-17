@@ -251,7 +251,6 @@ function exportActivationCodesCsv() {
     toast(__('admin.activation.no_export'), 'warn');
     return;
   }
-  const fmtTimePlain = function (t) { return String(t || '').replace('T', ' ').slice(0, 19); };
   const head = [
     __('admin.activation.csv_code'), __('admin.activation.csv_status'), __('admin.activation.csv_note'),
     __('admin.activation.csv_creator'), __('admin.activation.csv_created_at'), __('admin.activation.csv_expires'),
@@ -263,11 +262,11 @@ function exportActivationCodesCsv() {
       activationCodeStatusText(c),
       c.note || '',
       c.created_by || '',
-      fmtTimePlain(c.created_at),
-      c.expires_at ? fmtTimePlain(c.expires_at) : __('admin.activation.permanent'),
+      fmtDateTime(c.created_at),
+      c.expires_at ? fmtDateTime(c.expires_at) : __('admin.activation.permanent'),
       c.used_by || '',
       c.used_display_name || '',
-      fmtTimePlain(c.used_at)
+      fmtDateTime(c.used_at)
     ];
   });
   const csv = '\uFEFF' + [head].concat(rows).map(function (r) {

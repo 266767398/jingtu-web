@@ -164,7 +164,7 @@
           var live = s.status === 'live';
           return '<div class="card-list-item flex-row gap-8 items-center flex-wrap">' +
             '<div class="flex-1 min-w-0"><div class="text-14 fw-600">' + escapeHtml(s.title || __('auto_admin_ui_3')) + '</div>' +
-            __('auto_admin_ui_4') + escapeHtml(s.displayName || s.username || '-') + __('auto_admin_ui_5') + (s.startedAt || '-') + '</div></div>' +
+            __('auto_admin_ui_4') + escapeHtml(s.displayName || s.username || '-') + __('auto_admin_ui_5') + (s.startedAt ? fmtDateTime(s.startedAt) : '-') + '</div></div>' +
             '<span class="badge ' + (live ? 'badge-live' : 'badge-ended') + '">' + (live ? __('live.live_now') : __('auto_admin_ui_6')) + '</span>' +
             (live ? '<button class="btn btn-sm btn-danger" data-action="admin-live-end" data-live-id="' + escJsStr(String(s.id)) + '">⏹ ' + __('admin_ui.end_live') + '</button>' : '') +
             '<button class="btn btn-sm btn-outline" data-action="admin-live-delete" data-live-id="' + escJsStr(String(s.id)) + '">🗑 ' + __('auto_admin_ui_7') + '</button>' +
@@ -650,7 +650,7 @@
     if (status) status.innerHTML = __('auto_admin_ui_81');
     api('/api/vrc-monitor').then(function (r) { return r.json(); }).then(function (d) {
       d = d || {};
-      if (status) status.innerHTML = __('auto_admin_ui_82') + (d.online ? 'text-green' : 'text-red') + '">' + (d.online ? __('admin_ui.online') : __('auto_admin_ui_83')) + __('auto_admin_ui_84') + (d.friendCount != null ? d.friendCount : '-') + __('auto_admin_ui_85') + (d.lastSync || '-') + '</div>';
+      if (status) status.innerHTML = __('auto_admin_ui_82') + (d.online ? 'text-green' : 'text-red') + '">' + (d.online ? __('admin_ui.online') : __('auto_admin_ui_83')) + __('auto_admin_ui_84') + (d.friendCount != null ? d.friendCount : '-') + __('auto_admin_ui_85') + (d.lastSync ? fmtDateTime(d.lastSync) : '-') + '</div>';
       if (detail) detail.innerHTML = escapeHtml(d.note) + (d.health ? __('auto_admin_ui_86') + escapeHtml(d.health) + '</div>' : '');
     }).catch(function () { if (status) status.innerHTML = __('auto_admin_ui_87'); });
   }

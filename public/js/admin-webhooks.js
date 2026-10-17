@@ -58,7 +58,7 @@
         '<div class="admin-user-info">' +
         '<div class="admin-user-name">' + esc(w.url) + '</div>' +
         '<div class="admin-user-meta">' + evChips + '</div>' +
-        '<div class="admin-user-meta">' + __('auto_admin_wh_10') + ': ' + esc(w.secret || '-') + ' · ' + __('auto_admin_wh_12') + ': ' + esc((w.created_at || '').replace('T', ' ')) + '</div>' +
+        '<div class="admin-user-meta">' + __('auto_admin_wh_10') + ': ' + esc(w.secret || '-') + ' · ' + __('auto_admin_wh_12') + ': ' + esc(fmtDateTime(w.created_at) || '-') + '</div>' +
         '</div>' +
         '<div class="admin-user-actions">' +
         '<span class="badge ' + (w.enabled ? 'badge-live' : 'badge-ended') + '">' + (w.enabled ? __('auto_admin_wh_11') : __('auto_admin_wh_36')) + '</span>' +

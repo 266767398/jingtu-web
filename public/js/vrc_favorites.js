@@ -47,8 +47,9 @@
   function api(path, opts) { return window.apiJson(path, opts); }
 
   // ============ 分组 ============
-  // P5-56: 1 秒防连点——快速切换 Kind/分组时吸收中间点击，只加载最后一次
+  // P5-56: 快速切换 Kind/分组时吸收中间点击，只加载最后一次
   //（玩家正在看的那个页面），避免把请求连续塞进 VRChat 全站令牌桶排队到 12s 超时。
+  // 快照命中时秒开，因此防抖从 1s 收窄到 300ms，切换手感更跟手。
   let _reloadTimer = null;
   function scheduleReload(reset) {
     if (_reloadTimer) clearTimeout(_reloadTimer);
@@ -56,7 +57,7 @@
       _reloadTimer = null;
       loadGroups();
       loadItems(reset);
-    }, 1000);
+    }, 300);
   }
 
   async function loadGroups(force) {
@@ -117,6 +118,14 @@
   }
 
   // ============ 条目 ============
+// 本站收藏切换按钮：未收藏 =「收藏到本站」；已收藏 =「✅已收藏」，再次点击即取消收藏
+function collectToggleBtn(it, target, localKind) {
+  if (it && it.localCollected) {
+    return `<button class="coll-card-btn is-collected" data-act="uncollect" data-kind="${escAttr(localKind)}" data-id="${escAttr(target)}" data-local-id="${escAttr(it.localCollectionId || '')}" title="${esc(__('vrcfav.uncollect', '取消收藏'))}">✅ ${__('vrcfav.collected_btn', '已收藏')}</button>`;
+  }
+  return `<button class="coll-card-btn" data-act="collect" data-kind="${escAttr(localKind)}" data-id="${escAttr(target)}">⭐ ${__('vrcfav.collect', '收藏到本站')}</button>`;
+}
+
 function cardHtml(it) {
   const target = it.favoriteId || '';
   const kind = KIND_LABEL[it.type] || it.type || '';
@@ -125,7 +134,7 @@ function cardHtml(it) {
   const localKind = LOCAL_KIND[it.type] || '';
   const thumbCls = it.type === 'world' ? ' coll-card-thumb--landscape' : '';
   const collectBtn = (target && localKind)
-    ? `<button class="coll-card-btn" data-act="collect" data-kind="${escAttr(localKind)}" data-id="${escAttr(target)}">⭐ ${__('vrcfav.collect', '收藏到本站')}</button>`
+    ? collectToggleBtn(it, target, localKind)
     : '';
   return `
     <div class="coll-card" data-fvrt="${escAttr(it.id || '')}">
@@ -147,7 +156,8 @@ function cardHtml(it) {
 function appendItems(items) {
   const list = $('vrcfavList');
   if (!list) return;
-  list.innerHTML += items.map(cardHtml).join('');
+  // insertAdjacentHTML 追加：比 list.innerHTML += 免去整表重解析，长列表加载更顺滑
+  list.insertAdjacentHTML('beforeend', items.map(cardHtml).join(''));
 }
 
 async function loadItems(reset, force) {
@@ -396,6 +406,7 @@ async function loadItems(reset, force) {
   }
 
   // 官方收藏条目一键收进本站本地收藏库（/api/collections），默认私密
+  // 收藏成功「不跳转」——按钮就地切换为「✅已收藏」（再点即取消收藏），toast 提示已保存
   async function collectToLocal(btn) {
     const target = btn.dataset.id || '';
     const kind = btn.dataset.kind || '';
@@ -405,7 +416,7 @@ async function loadItems(reset, force) {
     // 后端收到 name+thumbnail 后不再回源 VRChat（省流量，收藏后立即可见）
     const it = state.items.find(x => String(x.favoriteId) === String(target)) || {};
     try {
-      await api('/api/collections', {
+      const d = await api('/api/collections', {
         method: 'POST',
         body: JSON.stringify({
           kind,
@@ -414,15 +425,66 @@ async function loadItems(reset, force) {
           name: it.name || '',
           author: it.authorName || '',
           thumbnail: it.thumbnailImageUrl || ''
-        })
+        }),
+        timeout: 20000
       });
+      const localId = d && d.item && d.item.id;
+      if (it) { it.localCollected = true; it.localCollectionId = localId || it.localCollectionId || null; }
       toast(__('vrcfav.collect_ok', '已收藏到本站'), 'success');
-      // 收藏进本地库后自动切到「📚 收藏」子视图并刷新列表，避免用户以为没存上
-      if (typeof window.switchVrcView === 'function') window.switchVrcView('collections');
+      setCollectBtnCollected(btn, target, kind, it.localCollectionId);
     } catch (e) {
       const msg = e.message || '';
-      if (/已在收藏中|已收藏|已存在|already/i.test(msg)) toast(__('vrcfav.collected', '该内容已在本站收藏中'), 'info');
-      else toast(msg || __('vrcfav.collect_fail', '收藏到本站失败'), 'error');
+      if (/已在收藏中|已收藏|已存在|already/i.test(msg)) {
+        // 已在本站收藏：同样切到已收藏态（本地 id 未知时，取消收藏会兜底按 target 查找）
+        if (it) it.localCollected = true;
+        setCollectBtnCollected(btn, target, kind, it.localCollectionId || '');
+        toast(__('vrcfav.collected', '该内容已在本站收藏中'), 'info');
+      } else {
+        toast(msg || __('vrcfav.collect_fail', '收藏到本站失败'), 'error');
+      }
+    } finally {
+      delete btn.dataset.busy;
+    }
+  }
+
+  // 已收藏态：按钮就地变为「✅已收藏 / 取消收藏」样式
+  function setCollectBtnCollected(btn, target, kind, localId) {
+    btn.dataset.act = 'uncollect';
+    btn.dataset.localId = String(localId || '');
+    btn.dataset.kind = kind;
+    btn.dataset.id = target;
+    btn.className = 'coll-card-btn is-collected';
+    btn.title = __('vrcfav.uncollect', '取消收藏');
+    btn.innerHTML = '✅ ' + __('vrcfav.collected_btn', '已收藏');
+  }
+
+  // 取消本站收藏（已收藏按钮的再次点击）：直接删除本地收藏记录，按钮还原为「收藏到本站」
+  async function uncollectLocal(btn) {
+    const target = btn.dataset.id || '';
+    const kind = btn.dataset.kind || '';
+    let localId = btn.dataset.localId || '';
+    if (!target || !kind || btn.dataset.busy) return;
+    btn.dataset.busy = '1';
+    try {
+      if (!localId) {
+        // 兜底：按 target_id 从本地收藏里查出记录 id（收藏成功但未拿到 id 的历史场景）
+        const rd = await api('/api/collections?search=' + encodeURIComponent(target) + '&kind=' + encodeURIComponent(kind) + '&pageSize=5', { timeout: 10000 });
+        const hit = ((rd && rd.items) || []).find(x => String(x.target_id) === String(target));
+        localId = hit && hit.id;
+      }
+      if (!localId) { toast(__('vrcfav.uncollect_not_found', '未找到该本地收藏，请刷新后重试'), 'warn'); return; }
+      await api('/api/collections/' + localId, { method: 'DELETE', timeout: 10000 });
+      const it = state.items.find(x => String(x.favoriteId) === String(target));
+      if (it) { it.localCollected = false; it.localCollectionId = null; }
+      toast(__('vrcfav.uncollect_ok', '已取消收藏'), 'success');
+      // 还原为收藏按钮
+      btn.dataset.act = 'collect';
+      btn.dataset.localId = '';
+      btn.className = 'coll-card-btn';
+      btn.removeAttribute('title');
+      btn.innerHTML = '⭐ ' + __('vrcfav.collect', '收藏到本站');
+    } catch (e) {
+      toast(e.message || __('vrcfav.uncollect_fail', '取消收藏失败'), 'error');
     } finally {
       delete btn.dataset.busy;
     }
@@ -596,6 +658,7 @@ async function loadItems(reset, force) {
         if (!btn) return;
         if (btn.dataset.act === 'remove') removeFavorite(btn.dataset.id);
         if (btn.dataset.act === 'collect') collectToLocal(btn);
+        if (btn.dataset.act === 'uncollect') uncollectLocal(btn);
         if (btn.dataset.act === 'setavatar') setVrcAvatar(btn.dataset.id);
         if (btn.dataset.act === 'detail') showVrcDetail(btn.dataset.id);
         if (btn.dataset.act === 'copyid' && btn.dataset.id) {

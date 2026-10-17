@@ -132,6 +132,30 @@ const favSync = {
 
 function snapScopeOfType(type) { return 'items:' + (type || 'world'); }
 
+// F-20.5: 标记当前页条目是否已在本站收藏库（collections）中，并带上本地收藏 id，
+// 供前端渲染「已收藏 / 取消收藏」切换按钮。一次 IN 查询覆盖整页，避免逐条轮询。
+async function attachLocalCollected(uid, items) {
+  if (!Array.isArray(items) || !items.length) return items;
+  const targets = items.map(it => it && it.favoriteId).filter(Boolean);
+  if (!targets.length) return items;
+  try {
+    const pool = getPool();
+    const [rows] = await pool.query(
+      `SELECT id, kind, target_id FROM collections WHERE user_id=? AND target_id IN (?)`,
+      [uid, targets]
+    );
+    const byTarget = new Map();
+    for (const r of rows) if (!byTarget.has(r.target_id)) byTarget.set(r.target_id, r);
+    for (const it of items) {
+      if (!it || !it.favoriteId) continue;
+      const hit = byTarget.get(it.favoriteId);
+      it.localCollected = !!hit;
+      it.localCollectionId = hit ? hit.id : null;
+    }
+  } catch (e) { /* 标记失败不影响收藏列表主流程 */ }
+  return items;
+}
+
 async function snapGet(scope) {
   try {
     const pool = getPool();
@@ -506,6 +530,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
         const snap = await snapGet(scope);
         if (snap) {
           // 命中本地快照即返回，不自动拉官方（仅手动刷新才回源）
+          await attachLocalCollected(req.session.userId, snap.payload);
           return ok(res, { items: snap.payload, cached: true });
         }
       }
@@ -530,6 +555,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
       pruneFavCacheIfDue();
       // 首页全量列表顺带写回快照，供下次秒开（仅无分组过滤时）
       if (offset === 0 && !tag) await snapSet(userSnapScope(req.session.userId, snapScopeOfType(type || 'world')), items);
+      await attachLocalCollected(req.session.userId, items);
       ok(res, { items });
     } catch (e) { handleError(res, e, 'vrcfav.items'); }
   });

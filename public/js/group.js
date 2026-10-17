@@ -750,8 +750,8 @@ async function refreshGroupStatus() {
   const btn = document.getElementById('refreshGroupBtn');
   if (btn) {
     btn.disabled = true;
-    // 活反馈：内嵌旋转 spinner + 动态文案，避免"正在刷新在线状态…"长时间静止像卡死
-    btn.innerHTML = '<span class="spinner-sm" aria-hidden="true"></span> ' + __('group.refreshing');
+    // 活反馈：内嵌圆形进度环 + 动态文案，避免"正在刷新在线状态…"长时间静止像卡死
+    btn.innerHTML = '<span class="ring-progress" aria-hidden="true"></span> ' + __('group.refreshing');
   }
   vrcTaskBarShow(__('group.refreshing'));
 
@@ -817,7 +817,7 @@ async function syncGroupMembers() {
   if (!btn) return;
   if (btn.disabled) return; // 已在同步中，忽略重复点击
   btn.disabled = true;
-  btn.textContent = __('group.syncing');
+  btn.innerHTML = '<span class="ring-progress" aria-hidden="true"></span> ' + __('group.syncing');
   vrcTaskBarShow(__('group.syncing'));
 
   try {

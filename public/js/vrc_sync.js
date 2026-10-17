@@ -77,7 +77,7 @@
   }
 
   function showBusy(text) {
-    setState('vrc-sync-busy', '<span class="vrc-sync-spinner"></span><span>' + esc(text) + '</span>');
+    setState('vrc-sync-busy', '<span class="ring-progress" aria-hidden="true"></span><span>' + esc(text) + '</span>');
   }
 
   function showResult(text, opts) {
