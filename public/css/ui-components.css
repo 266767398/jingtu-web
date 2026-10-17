@@ -3912,7 +3912,11 @@ textarea:disabled,
     overflow-x: auto;
     overflow-y: hidden;
     padding: 8px;
+    /* iOS 惯性滚动；隐藏横向滚动条（Android Chrome 会占一行高度，靠边缘裁切提示可滑） */
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
+  .admin-sidebar::-webkit-scrollbar { display: none; }
   .admin-nav {
     flex-direction: row;
     flex-wrap: nowrap;
@@ -3923,6 +3927,9 @@ textarea:disabled,
   }
   .admin-nav-item {
     flex: 0 0 auto;
+    /* 手机端审计修复（2026-10-17）：桌面端 width:100% 未被覆盖，
+       每个菜单项占满整行（24 项累计 7454px），横向滑动变成"大色块"滚动 */
+    width: auto;
     white-space: nowrap;
     padding: 8px 12px;
   }

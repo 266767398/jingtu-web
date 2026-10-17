@@ -72,9 +72,23 @@
       // 数据统计支持手动刷新，重复进入时重绘
       try { loadAdminAnalytics(); } catch (e) {}
     }
+    // 选中项横向导航自动滚入可视区（经「更多菜单」等入口切换时，选中项可能不在当前横向可视范围）
+    var activeNav = document.querySelector('#adminNav .admin-nav-item.active');
+    if (activeNav && typeof activeNav.scrollIntoView === 'function') {
+      try { activeNav.scrollIntoView({ inline: 'nearest', block: 'nearest' }); } catch (_) { /* 旧浏览器忽略 */ }
+    }
     // 滚动到顶部
     var main = document.querySelector('#tab-admin .admin-main');
     if (main) main.scrollTop = 0;
+    // 手机端修复（2026-10-17）：移动布局下 .admin-main 无独立滚动容器
+    //（overflowY visible），滚动发生在 window 上，main.scrollTop=0 无效——
+    // 若页面已下滚，切换面板后内容停留在深处位置。改为同时滚动到面板顶部。
+    if (main && getComputedStyle(main).overflowY === 'visible') {
+      var shell = document.querySelector('.admin-shell') || main;
+      var header = document.getElementById('appHeader');
+      var top = shell.getBoundingClientRect().top + window.scrollY - (header ? header.offsetHeight : 0) - 8;
+      window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
+    }
   }
 
   // 运维面板可用性探测（用原生 fetch 而非 api()：/api/ops/status 仅超管可查，
