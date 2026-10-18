@@ -595,6 +595,7 @@ app.use('/api/moderations', require('./routes/moderations')(getVRCCookieUserOnly
 app.use('/api/checkin', require('./routes/checkin'));
 app.use('/api/achievements', require('./routes/achievements'));
 app.use('/api/user-like', require('./routes/user_like')(notificationService));
+app.use('/api/feedback', require('./routes/feedback')());
 
 // ==================== 聊天私信系统 V6.12 ====================
 app.use('/api/chat', require('./routes/chat')(notificationService));

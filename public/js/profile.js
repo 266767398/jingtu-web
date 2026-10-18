@@ -637,6 +637,8 @@ async function saveAvatarPref(patch) {
       updateUserUI();
       renderAvatarPref();
       if (typeof syncAvatarCache === 'function') syncAvatarCache(); // 同步登录页头像缓存
+      // 光环开关联动：通知群组成员列表就地重渲，无需刷新页面
+      document.dispatchEvent(new CustomEvent('haloVisibleChanged'));
       toast(__('profile.avatar_pref_saved'), 'success');
     }
   } catch (err) {

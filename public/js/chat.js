@@ -54,6 +54,13 @@ function scheduleChatListRefresh() {
   }, 2500);
 }
 
+// QQ 风格左右分栏：宽屏时会话列表与聊天详情同屏显示，窄屏仍保持整页切换。
+// 用 #chatPanel 上的 chat-detail-open 类表达「当前是否有打开的会话」，CSS 据此控制布局。
+function setChatDetailOpen(open) {
+  const panel = document.getElementById('chatPanel');
+  if (panel) panel.classList.toggle('chat-detail-open', !!open);
+}
+
 async function loadChatConversations(resetView = false) {
   if (!currentUser || chatLoading) return;
   chatLoading = true;
@@ -63,6 +70,7 @@ async function loadChatConversations(resetView = false) {
     document.getElementById('chatConversationView')?.classList.remove('d-none');
     document.getElementById('chatDetailView')?.classList.add('d-none');
     document.getElementById('chatInputArea')?.classList.add('d-none');
+    setChatDetailOpen(false);
   }
   try {
     const [convRes, groupRes, unreadRes] = await Promise.all([
@@ -156,6 +164,7 @@ async function openChat(userId) {
   document.getElementById('chatConversationView')?.classList.add('d-none');
   document.getElementById('chatDetailView')?.classList.remove('d-none');
   document.getElementById('chatInputArea')?.classList.remove('d-none');
+  setChatDetailOpen(true);
   document.getElementById('chatBox').innerHTML = '<div class="chat-loading">' + __('chat.loading') + '</div>';
 
   try {
@@ -298,6 +307,7 @@ function closeChatDetail() {
   document.getElementById('chatConversationView')?.classList.remove('d-none');
   document.getElementById('chatDetailView')?.classList.add('d-none');
   document.getElementById('chatInputArea')?.classList.add('d-none');
+  setChatDetailOpen(false);
 }
 
 function stopTypingIndicator() {
@@ -362,6 +372,7 @@ async function openGroupChat(groupId) {
   document.getElementById('chatConversationView')?.classList.add('d-none');
   document.getElementById('chatDetailView')?.classList.remove('d-none');
   document.getElementById('chatInputArea')?.classList.remove('d-none');
+  setChatDetailOpen(true);
   document.getElementById('chatBox').innerHTML = '<div class="chat-loading">' + __('chat.loading_group') + '</div>';
 
   try {

@@ -112,10 +112,12 @@ async function initMap() {
       await new Promise(r => setTimeout(r, 50));
     }
 
-    // 创建地图
+    // 创建地图：限制缩放范围，防止缩放过小（地图变长条带）或过大（瓦片越界消失）
     mapInstance = L.map(mapContainer, {
       zoomControl: true,
-      attributionControl: true
+      attributionControl: true,
+      minZoom: 3,
+      maxZoom: 19
     }).setView([35, 105], 4); // 中国中心
 
     // ============ 瓦片源（候选预检 + 自动选主 + 逐级降级 + 本地兜底） ============

@@ -110,6 +110,13 @@ async function loadGroupStats() {
 }
 
 // ==================== 渲染成员卡片 ====================
+// 光环开关联动：个人中心切换「显示信任光环」后，事件通知群成员列表就地重渲，
+// 无需刷新页面即可让光环显示/隐藏即时生效。
+document.addEventListener('haloVisibleChanged', function () {
+  if (typeof groupMembersCache !== 'undefined' && groupMembersCache) {
+    renderGroupMembers(groupMembersCache);
+  }
+});
 // F-头像重试：订阅 __avatarRetryReady（ui.js 头像失败自动重试器发出）。
 // 系统 VRChat 会话恢复后，曾在失败冷却中的 /api/avatar/user 头像会收到重试事件，
 // 此时把网格中所有仍停留在占位（data-failed/data-loaded 已设置）的对应 img 重新触发懒加载。
@@ -208,6 +215,9 @@ function renderGroupMembers(members) {
       </div>
       <div class="gm-status-pill ${status.dotClass}" title="${esc(status.title || '')}">${esc(statusText)}</div>
       <span class="gm-name" title="${esc(displayName)}">${esc(displayName)}</span>
+      ${m.siteUserId && m.siteUserId !== (window.currentUser && window.currentUser.id)
+        ? `<button type="button" class="gm-follow-btn ${m.isFollowing ? 'following' : ''}" data-action="group-follow" data-site-user-id="${escAttr(String(m.siteUserId))}" data-following="${m.isFollowing ? '1' : '0'}" title="${m.isFollowing ? '取消关注' : '关注'}">${m.isFollowing ? '✓ 已关注' : '+ 关注'}</button>`
+        : ''}
     </div>`;
   }).join('');
   // 默认头像兜底图：加载成功 → 显示自身并隐藏首字母占位；失败 → 移除。
@@ -1410,6 +1420,40 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!targetPage || targetPage === groupPage) return;
     groupPage = targetPage;
     renderGroupMembers(groupMembersCache);
+  });
+  // 群组成员卡片「关注/取消关注」按钮：阻止冒泡避免同时打开 VRChat 名片
+  document.addEventListener('click', async (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('[data-action="group-follow"]') : null;
+    if (!btn) return;
+    e.stopPropagation();
+    const siteUserId = parseInt(btn.getAttribute('data-site-user-id'), 10);
+    if (!siteUserId) return;
+    const isFollowing = btn.getAttribute('data-following') === '1';
+    btn.disabled = true;
+    try {
+      if (isFollowing) {
+        const res = await api('/api/follows/' + siteUserId, { method: 'DELETE' });
+        if (res.ok) {
+          btn.setAttribute('data-following', '0');
+          btn.classList.remove('following');
+          btn.textContent = '+ 关注';
+          btn.title = '关注';
+        }
+      } else {
+        const res = await api('/api/follows', { method: 'POST', body: { targetUserId: siteUserId } });
+        if (res.ok) {
+          btn.setAttribute('data-following', '1');
+          btn.classList.add('following');
+          btn.textContent = '✓ 已关注';
+          btn.title = '取消关注';
+        }
+      }
+    } catch (err) {
+      if (isApiHandledError(err)) return;
+      toast('操作失败', 'error');
+    } finally {
+      btn.disabled = false;
+    }
   });
   // 黑名单视图：新增 / 删除按钮（删除仅超管渲染，非超管点不到）
   const blvAddBtn = document.getElementById('blvAddBtn');

@@ -29,6 +29,9 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       const filter = req.query.filter || 'all';
       const search = (req.query.search || '').trim();
       // LEFT JOIN vrc_blacklist：成员是否在黑名单（超管后台维护），前端成员卡片据此打徽标
+      // LEFT JOIN users：通过 vrchat_id 反查网站用户 ID，供「关注」按钮使用
+      // LEFT JOIN user_follows：当前登录用户是否已关注该网站用户
+      const me = req.session.userId;
       let sql = `SELECT gr.vrchat_id AS vrchatId, gr.vrchat_name AS vrchatName, gr.display_name AS displayName, gr.avatar_url AS avatarUrl,
                 gr.profile_pic_override_thumbnail AS profilePicOverrideThumbnail,
                 gr.is_member AS isMember, gr.is_online AS isOnline, gr.is_in_game AS isInGame, gr.vrchat_status AS vrchatStatus,
@@ -37,10 +40,15 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
                 gr.joined_at AS joinedAt, gr.left_at AS leftAt, gr.role_ids AS roleIds,
                 gr.membership_status AS membershipStatus, gr.is_friend AS isFriend, gr.synced_at AS syncedAt,
                 gr.trust_level AS trustLevel, gr.trust_level_cn AS trustLevelCn,
-                IF(bl.vrchat_id IS NOT NULL, 1, 0) AS blacklisted
+                IF(bl.vrchat_id IS NOT NULL, 1, 0) AS blacklisted,
+                u.id AS siteUserId,
+                IF(f.follower_id IS NOT NULL, 1, 0) AS isFollowing
                 FROM group_roster gr
                 LEFT JOIN vrc_blacklist bl ON gr.vrchat_id = bl.vrchat_id
+                LEFT JOIN users u ON u.vrchat_id = gr.vrchat_id AND u.deleted_at IS NULL
+                LEFT JOIN user_follows f ON f.follower_id = ? AND f.following_id = u.id
                 WHERE gr.is_member=1`;
+      const params = [me];
       if (filter === 'online') sql += ` AND gr.is_online=1`;
       else if (filter === 'offline') sql += ` AND gr.is_online=0`;
       else if (filter === 'nonfriend') sql += ` AND gr.is_friend=0`;
@@ -50,7 +58,6 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       // 游戏内在线：客户端在任意世界/Home 内（is_in_game=1）。
       else if (filter === 'ingame') sql += ` AND gr.is_in_game=1`;
 
-      const params = [];
       if (search) {
         // 玩家搜索：匹配显示名 / VRChat 名称 / VRChat ID（大小写不敏感）
         sql += ` AND (LOWER(gr.display_name) LIKE ? ESCAPE '!' OR LOWER(gr.vrchat_name) LIKE ? ESCAPE '!' OR LOWER(gr.vrchat_id) LIKE ? ESCAPE '!')`;

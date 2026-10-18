@@ -701,6 +701,11 @@ async function loadItems(reset, force) {
         state.group = '';
         qsa('.coll-kind', kindBar).forEach(b => b.classList.toggle('active', b === btn));
         renderGroups();
+        // BUG 修复：切换分类后若本地快照中没有该类型的分组，立即回源拉取最新分组，
+        // 避免快照不完整（如同步时某类型分组拉取失败）导致分组列表空白
+        if (state.snapshotMode && groupsOfKind().length === 0) {
+          loadGroups(true).catch(() => {});
+        }
         onFilterChange();
       });
     }

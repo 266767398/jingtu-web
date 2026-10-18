@@ -1063,6 +1063,30 @@ async function initDatabase() {
         FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
+      // V6.XX: 用户点赞操作日志表（赞/取消各记一条，用于每日操作次数上限）
+      `CREATE TABLE IF NOT EXISTS user_like_actions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        from_user_id INT NOT NULL COMMENT '操作者用户ID',
+        to_user_id INT NOT NULL COMMENT '目标用户ID',
+        action_type ENUM('like','unlike') NOT NULL COMMENT '操作类型',
+        action_date DATE NOT NULL COMMENT '操作日期（北京时间）',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_from_date(from_user_id, action_date),
+        INDEX idx_to_user(to_user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+      // V6.XX: 用户反馈/建议表（左下角悬浮按钮提交）
+      `CREATE TABLE IF NOT EXISTS feedback (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NULL COMMENT '提交用户ID（未登录为NULL）',
+        content TEXT NOT NULL COMMENT '反馈内容',
+        contact VARCHAR(255) NULL COMMENT '联系方式（可选）',
+        status ENUM('pending','read','resolved') NOT NULL DEFAULT 'pending',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user(user_id),
+        INDEX idx_status(status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
       // ==================== 好友系统 (V7.10) ====================
       // 单向行 + status 表示 user_id 对 friend_id 的视角；accepted 写两条对称行便于双向查询
       `CREATE TABLE IF NOT EXISTS user_friends (

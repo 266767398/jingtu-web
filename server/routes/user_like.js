@@ -17,6 +17,7 @@ module.exports = function (notificationService) {
   }
 
   // P3-52: 每日赞人上限（默认 20 人/天），防脚本批量刷赞 + 通知扇出轰炸
+  // V6.XX：赞/取消都算一次操作，当天可反复切换；上限统计改为查 user_like_actions 操作日志
   const DAILY_LIKE_CAP = parseInt(process.env.USER_LIKE_DAILY_CAP) || 20;
 
 router.post('/:userId/like', requireAuth, async (req, res) => {
@@ -39,6 +40,7 @@ router.post('/:userId/like', requireAuth, async (req, res) => {
 
     const today = todayBeijing();
 
+    // 当天已赞过同一目标：不重复插入，直接提示（前端应展示「已赞」状态并提供取消按钮）
     const [existing] = await getPool().query(
       `SELECT 1 FROM user_like WHERE from_user_id = ? AND to_user_id = ? AND like_date = ?`,
       [currentUserId, targetUserId, today]
@@ -48,31 +50,37 @@ router.post('/:userId/like', requireAuth, async (req, res) => {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '今天已经给该用户点过赞了，明天再来吧！');
     }
 
-    // P3-52: 每日赞人上限校验（同一用户每日最多赞 N 个不同目标）
-    const [givenToday] = await getPool().query(
-      `SELECT COUNT(*) as cnt FROM user_like WHERE from_user_id = ? AND like_date = ?`,
+    // 每日操作上限：赞/取消各计一次，查 user_like_actions 当日操作总数
+    const [actionsToday] = await getPool().query(
+      `SELECT COUNT(*) as cnt FROM user_like_actions WHERE from_user_id = ? AND action_date = ?`,
       [currentUserId, today]
     );
-    if (givenToday[0].cnt >= DAILY_LIKE_CAP) {
-      return sendError(res, 400, ErrorCodes.BAD_REQUEST, `今天点赞的人数已达上限（${DAILY_LIKE_CAP} 人），明天再来吧！`);
+    if (actionsToday[0].cnt >= DAILY_LIKE_CAP) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, `今天点赞操作次数已达上限（${DAILY_LIKE_CAP} 次），明天再来吧！`);
     }
 
-    await getPool().query(
+    const pool = getPool();
+    await pool.query(
       `INSERT INTO user_like (from_user_id, to_user_id, like_date) VALUES (?, ?, ?)`,
       [currentUserId, targetUserId, today]
     );
+    // 记录操作日志（赞算一次）
+    await pool.query(
+      `INSERT INTO user_like_actions (from_user_id, to_user_id, action_type, action_date) VALUES (?, ?, 'like', ?)`,
+      [currentUserId, targetUserId, today]
+    );
 
-    const [[{ likeCount }]] = await getPool().query(
+    const [[{ likeCount }]] = await pool.query(
       `SELECT COUNT(*) as likeCount FROM user_like WHERE to_user_id = ?`,
       [targetUserId]
     );
 
-    const [[{ todayLikes }]] = await getPool().query(
+    const [[{ todayLikes }]] = await pool.query(
       `SELECT COUNT(*) as todayLikes FROM user_like WHERE from_user_id = ? AND like_date = ?`,
       [currentUserId, today]
     );
 
-    const [fromUser] = await getPool().query(
+    const [fromUser] = await pool.query(
       `SELECT display_name FROM users WHERE id = ?`,
       [currentUserId]
     );
@@ -92,10 +100,74 @@ router.post('/:userId/like', requireAuth, async (req, res) => {
       success: true,
       likeCount: likeCount,
       todayLikes: todayLikes,
+      likedToday: true,
       message: '点赞成功！'
     });
   } catch (e) {
     handleError(res, e, '[user-like/like]');
+  }
+});
+
+// V6.XX: 取消点赞（删除当天对该目标的点赞记录，并记一次 unlike 操作）
+router.delete('/:userId/like', requireAuth, async (req, res) => {
+  try {
+    const targetUserId = parseInt(req.params.userId);
+    const currentUserId = req.session.userId;
+
+    if (!targetUserId) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
+    }
+    if (targetUserId === currentUserId) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '不能对自己操作');
+    }
+
+    const today = todayBeijing();
+    const pool = getPool();
+
+    const [existing] = await pool.query(
+      `SELECT id FROM user_like WHERE from_user_id = ? AND to_user_id = ? AND like_date = ?`,
+      [currentUserId, targetUserId, today]
+    );
+    if (existing.length === 0) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, '今天没有给该用户点过赞，无需取消');
+    }
+
+    // 每日操作上限：取消也算一次
+    const [actionsToday] = await pool.query(
+      `SELECT COUNT(*) as cnt FROM user_like_actions WHERE from_user_id = ? AND action_date = ?`,
+      [currentUserId, today]
+    );
+    if (actionsToday[0].cnt >= DAILY_LIKE_CAP) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST, `今天点赞操作次数已达上限（${DAILY_LIKE_CAP} 次），明天再来吧！`);
+    }
+
+    await pool.query(
+      `DELETE FROM user_like WHERE from_user_id = ? AND to_user_id = ? AND like_date = ?`,
+      [currentUserId, targetUserId, today]
+    );
+    await pool.query(
+      `INSERT INTO user_like_actions (from_user_id, to_user_id, action_type, action_date) VALUES (?, ?, 'unlike', ?)`,
+      [currentUserId, targetUserId, today]
+    );
+
+    const [[{ likeCount }]] = await pool.query(
+      `SELECT COUNT(*) as likeCount FROM user_like WHERE to_user_id = ?`,
+      [targetUserId]
+    );
+    const [[{ todayLikes }]] = await pool.query(
+      `SELECT COUNT(*) as todayLikes FROM user_like WHERE from_user_id = ? AND like_date = ?`,
+      [currentUserId, today]
+    );
+
+    res.json({
+      success: true,
+      likeCount: likeCount,
+      todayLikes: todayLikes,
+      likedToday: false,
+      message: '已取消点赞'
+    });
+  } catch (e) {
+    handleError(res, e, '[user-like/unlike]');
   }
 });
 
@@ -134,13 +206,23 @@ router.get('/:userId/stats', requireAuth, async (req, res) => {
     );
     const likedToday = hasLikedToday.length > 0;
 
+    // 今日已用操作次数（赞+取消合计），前端据此展示剩余额度
+    const [actionsTodayResult] = await getPool().query(
+      `SELECT COUNT(*) as actionsToday FROM user_like_actions WHERE from_user_id = ? AND action_date = ?`,
+      [currentUserId, today]
+    );
+    const actionsToday = actionsTodayResult[0].actionsToday;
+
     res.json({
       userId,
       totalLikes,
       todayLikes,
       givenToday,
+      actionsToday,
+      dailyCap: DAILY_LIKE_CAP,
       likedToday,
-      canLike: !likedToday && userId !== currentUserId
+      canLike: !likedToday && userId !== currentUserId,
+      canUnlike: likedToday && userId !== currentUserId
     });
   } catch (e) {
     handleError(res, e, '[user-like/stats]');

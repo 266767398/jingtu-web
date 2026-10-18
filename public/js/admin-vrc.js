@@ -125,6 +125,9 @@ async function syncVRChatEvents() {
 // banned 表示当前是否在 VRChat 群黑名单中；每条可单独编辑详情并直接写回本地库。
 // 列表本地搜索过滤（blSearch 输入框），不产生额外请求。
 let _vrcBlacklistCache = [];
+// 黑名单分页（纯客户端切片，与群组成员列表同款）
+const BL_PAGE_SIZE = 50;
+let _blPage = 1;
 
 async function loadVrcBlacklist() {
   if (!currentUser || currentUser.role !== 'super_admin') return;
@@ -136,6 +139,7 @@ async function loadVrcBlacklist() {
     if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(errText(err) || __('admin_vrc.load_failed')); }
     const data = await res.json();
     _vrcBlacklistCache = data.items || [];
+    _blPage = 1;
     renderVrcBlacklistList();
   } catch (e) {
     const msg = String((e && e.message) || __('admin_vrc.load_failed'));
@@ -148,7 +152,11 @@ function renderVrcBlacklistList() {
   const listEl = document.getElementById('vrcBlacklistList');
   if (!listEl) return;
   const items = _vrcBlacklistCache;
-  if (!items.length) { listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_empty') + '</p>'; return; }
+  if (!items.length) {
+    listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_empty') + '</p>';
+    renderVrcBlacklistPagination(0, 0);
+    return;
+  }
   const kw = (document.getElementById('blSearch')?.value || '').trim().toLowerCase();
   const shown = kw
     ? items.filter(function (it) {
@@ -159,9 +167,15 @@ function renderVrcBlacklistList() {
     : items;
   if (!shown.length) {
     listEl.innerHTML = '<p class="text-muted2 text-13">' + __('admin_vrc.bl_no_result') + '</p>';
+    renderVrcBlacklistPagination(0, 0);
     return;
   }
-  listEl.innerHTML = shown.map(it => {
+  // 分页：纯客户端切片，与群组成员列表同款
+  const totalPages = Math.max(1, Math.ceil(shown.length / BL_PAGE_SIZE));
+  if (_blPage > totalPages) _blPage = totalPages;
+  if (_blPage < 1) _blPage = 1;
+  const pageItems = shown.slice((_blPage - 1) * BL_PAGE_SIZE, _blPage * BL_PAGE_SIZE);
+  listEl.innerHTML = pageItems.map(it => {
     const name = it.memberName || it.username || it.vrchatId || '-';
     // 头像：优先后端已解析头像；assets.amlcdn.com 老 CDN 国内 TLS 阻断不直连，
     // 无头像时走后端 /api/avatar/user 按 ID 解析真实头像（系统账号回源 + 缓存 + 限速）
@@ -220,11 +234,46 @@ function renderVrcBlacklistList() {
       else this.style.display = 'none';
     });
   });
+  renderVrcBlacklistPagination(shown.length, totalPages);
 }
+
+// 黑名单分页栏：与群组成员列表同款（首页/上页/页码/下页/末页 + 共N条·第x/y页）
+function renderVrcBlacklistPagination(totalCount, totalPages) {
+  const pagEl = document.getElementById('vrcBlacklistPagination');
+  if (!pagEl) return;
+  if (!totalPages || totalPages <= 1) { pagEl.innerHTML = ''; return; }
+  let html = '';
+  if (_blPage > 1) {
+    html += `<button type="button" class="pagination-btn" data-bl-page="1" title="首页">&laquo;</button>`;
+    html += `<button type="button" class="pagination-btn" data-bl-page="${_blPage - 1}">&lsaquo;</button>`;
+  }
+  const start = Math.max(1, _blPage - 2);
+  const end = Math.min(totalPages, _blPage + 2);
+  for (let i = start; i <= end; i++) {
+    html += `<button type="button" class="pagination-btn${i === _blPage ? ' active' : ''}" data-bl-page="${i}">${i}</button>`;
+  }
+  if (_blPage < totalPages) {
+    html += `<button type="button" class="pagination-btn" data-bl-page="${_blPage + 1}">&rsaquo;</button>`;
+    html += `<button type="button" class="pagination-btn" data-bl-page="${totalPages}" title="末页">&raquo;</button>`;
+  }
+  html += `<span class="text-muted2 text-12 ml-8">共 ${totalCount} 条 · 第 ${_blPage}/${totalPages} 页</span>`;
+  pagEl.innerHTML = html;
+}
+
+// 黑名单分页点击：仅翻页重排缓存数据，不重新请求
+document.addEventListener('click', (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-bl-page]') : null;
+  if (!btn) return;
+  const targetPage = parseInt(btn.getAttribute('data-bl-page'), 10);
+  if (!targetPage || targetPage === _blPage) return;
+  _blPage = targetPage;
+  renderVrcBlacklistList();
+});
 
 // 黑名单搜索框输入（本地过滤，无需重新请求）
 function onVrcBlacklistSearch() {
   clearTimeout(window._blSearchTimer);
+  _blPage = 1;
   window._blSearchTimer = setTimeout(renderVrcBlacklistList, 250);
 }
 

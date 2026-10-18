@@ -65,7 +65,8 @@ describe('关注 POST /api/follows', () => {
       .mockResolvedValueOnce([[]])                                  // existing check
       .mockResolvedValueOnce([[]])                                  // blockRel check
       .mockResolvedValueOnce([{ insertId: 1, affectedRows: 1 }])    // insert
-      .mockResolvedValueOnce([[{ display_name: 'Me' }]]);           // notify name
+      .mockResolvedValueOnce([[{ display_name: 'Me' }]])           // notify name
+      .mockResolvedValueOnce([[]]);                                 // 互关检查：对方未关注我
     const res = await request(buildApp()).post('/api/follows').send({ targetUserId: 2 });
     expect(res.status).toBe(200);
     expect(res.body.following).toBe(true);

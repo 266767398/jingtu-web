@@ -748,6 +748,9 @@ function goToProfile(userId) {
 
 
 // ==================== 用户点赞功能 ====================
+// V6.XX：支持赞/取消切换；_profileLikedToday 标记当前是否已赞，按钮点击时据此决定 POST/DELETE
+let _profileLikedToday = false;
+
 async function loadProfileLikeStats(userId) {
   try {
     const res = await api(`/api/user-like/${userId}/stats`, { method: 'GET' });
@@ -756,19 +759,25 @@ async function loadProfileLikeStats(userId) {
       const likeCount = document.getElementById('profileLikeCount');
       const likeBtn = document.getElementById('profileLikeBtn');
       const likeStatus = document.getElementById('profileLikeStatus');
-      
+
+      _profileLikedToday = !!stats.likedToday;
+
       if (likeCount) likeCount.textContent = stats.totalLikes || 0;
-      
+
       if (stats.likedToday) {
         if (likeBtn) {
-          likeBtn.disabled = true;
+          likeBtn.disabled = false;
           likeBtn.className = 'btn btn-sm btn-outline text-muted';
+          likeBtn.innerHTML = '💔 <span id="profileLikeCount">' + (stats.totalLikes || 0) + '</span>';
+          likeBtn.title = '取消今天的点赞';
         }
         if (likeStatus) likeStatus.textContent = __('likes.today_liked');
       } else {
         if (likeBtn) {
           likeBtn.disabled = false;
           likeBtn.className = 'btn btn-sm btn-accent';
+          likeBtn.innerHTML = '❤️ <span id="profileLikeCount">' + (stats.totalLikes || 0) + '</span>';
+          likeBtn.title = '';
         }
         if (likeStatus) likeStatus.textContent = __('likes.daily_once');
       }
@@ -779,22 +788,42 @@ async function loadProfileLikeStats(userId) {
 async function profileLikeUser() {
   const profileUserId = document.getElementById('profileUserId')?.value;
   if (!profileUserId || !currentUser) return;
-  
+
   const likeBtn = document.getElementById('profileLikeBtn');
   const likeCount = document.getElementById('profileLikeCount');
   const likeStatus = document.getElementById('profileLikeStatus');
-  
+
   try {
-    const res = await api(`/api/user-like/${profileUserId}/like`, { method: 'POST' });
-    if (res.ok) {
-      const data = await res.json();
-      toast(data.message || __('profile_page.like_success'), 'success');
-      if (likeCount) likeCount.textContent = data.likeCount || 0;
-      if (likeBtn) {
-        likeBtn.disabled = true;
-        likeBtn.className = 'btn btn-sm btn-outline text-muted';
+    if (_profileLikedToday) {
+      // 已赞 → 取消点赞
+      const res = await api(`/api/user-like/${profileUserId}/like`, { method: 'DELETE' });
+      if (res.ok) {
+        const data = await res.json();
+        toast(data.message || '已取消点赞', 'success');
+        _profileLikedToday = false;
+        if (likeCount) likeCount.textContent = data.likeCount || 0;
+        if (likeBtn) {
+          likeBtn.className = 'btn btn-sm btn-accent';
+          likeBtn.innerHTML = '❤️ <span id="profileLikeCount">' + (data.likeCount || 0) + '</span>';
+          likeBtn.title = '';
+        }
+        if (likeStatus) likeStatus.textContent = __('likes.daily_once');
       }
-      if (likeStatus) likeStatus.textContent = __('likes.today_liked');
+    } else {
+      // 未赞 → 点赞
+      const res = await api(`/api/user-like/${profileUserId}/like`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        toast(data.message || __('profile_page.like_success'), 'success');
+        _profileLikedToday = true;
+        if (likeCount) likeCount.textContent = data.likeCount || 0;
+        if (likeBtn) {
+          likeBtn.className = 'btn btn-sm btn-outline text-muted';
+          likeBtn.innerHTML = '💔 <span id="profileLikeCount">' + (data.likeCount || 0) + '</span>';
+          likeBtn.title = '取消今天的点赞';
+        }
+        if (likeStatus) likeStatus.textContent = __('likes.today_liked');
+      }
     }
   } catch (err) {
     if (isApiHandledError(err)) return;

@@ -89,6 +89,48 @@ module.exports = function (notificationService) {
           `${myName} 关注了你`, { targetType: 'user', targetId: me }
         );
       }
+
+      // V6.XX：互关自动建立好友关系——若对方已关注我，则双向写 accepted 好友行（幂等，INSERT IGNORE）
+      const [mutual] = await pool.query(
+        `SELECT 1 FROM user_follows WHERE follower_id = ? AND following_id = ?`,
+        [targetUserId, me]
+      );
+      if (mutual.length > 0) {
+        // 已存在任意方向的好友关系（accepted/pending/blocked）则不覆盖，避免破坏现有状态
+        const [existingFriend] = await pool.query(
+          `SELECT status FROM user_friends WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?) LIMIT 1`,
+          [me, targetUserId, targetUserId, me]
+        );
+        if (existingFriend.length === 0) {
+          const conn = await pool.getConnection();
+          try {
+            await conn.beginTransaction();
+            await conn.query(
+              `INSERT IGNORE INTO user_friends (user_id, friend_id, status, requested_by) VALUES (?, ?, 'accepted', ?)`,
+              [me, targetUserId, me]
+            );
+            await conn.query(
+              `INSERT IGNORE INTO user_friends (user_id, friend_id, status, requested_by) VALUES (?, ?, 'accepted', ?)`,
+              [targetUserId, me, me]
+            );
+            await conn.commit();
+            if (notificationService) {
+              const [meU] = await pool.query(`SELECT display_name FROM users WHERE id = ?`, [me]);
+              const myName = meU[0]?.display_name || '用户';
+              await notificationService.notifyUser(
+                targetUserId, 'friend_accepted', '互相关注，已自动成为好友',
+                `你和 ${myName} 互相关注，已自动成为好友`, { targetType: 'user', targetId: me }
+              );
+            }
+          } catch (e) {
+            try { await conn.rollback(); } catch {}
+            // 好友关系建立失败不影响关注成功
+          } finally {
+            conn.release();
+          }
+        }
+      }
+
       return ok(res, {ok: true, following: true});
     } catch (e) {
       handleError(res, e, '[follows/follow]');

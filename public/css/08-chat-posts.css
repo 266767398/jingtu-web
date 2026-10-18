@@ -6,6 +6,41 @@
 /* RTC 浮层/弹窗都绝对定位在聊天面板内，先给容器定位基准 */
 #chatPanel { position: relative; }
 #chatDetailView { position: relative; }
+
+/* ===== QQ 风格左右分栏（宽屏）=====
+   宽屏下会话列表固定在左侧，聊天详情占满右侧，两者同屏显示；
+   JS 仍会切换 d-none，这里用 !important 在宽屏覆盖，让两栏始终可见。
+   窄屏（≤768px）保持原有整页切换行为。 */
+.chat-detail-empty {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+.chat-detail-empty-icon { font-size: 44px; opacity: .5; }
+
+@media (min-width: 769px) {
+  #chatConversationView,
+  #chatDetailView { display: flex !important; }
+  #chatConversationView {
+    flex: 0 0 300px;
+    border-right: 1px solid var(--border);
+  }
+  #chatDetailView {
+    flex: 1;
+    border-left: none;
+  }
+  /* 未打开会话：右侧显示占位提示，隐藏详情内容 */
+  #chatPanel:not(.chat-detail-open) #chatDetailHeader,
+  #chatPanel:not(.chat-detail-open) #groupLocationBar,
+  #chatPanel:not(.chat-detail-open) #chatBox,
+  #chatPanel:not(.chat-detail-open) #chatInputArea { display: none !important; }
+  #chatPanel:not(.chat-detail-open) #chatDetailEmpty { display: flex; }
+  #chatPanel.chat-detail-open #chatDetailEmpty { display: none; }
+}
 .rtc-hidden { display: none !important; }
 /* 私聊通话浮层 */
 .rtc-call-overlay {

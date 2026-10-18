@@ -154,9 +154,10 @@ function isValidCodeFormat(code) {
  * @param {string} operator 操作者（离线工具传 'offline-cli'，后台传超管 login_id）
  * @param {string} note 备注（批次用途等，可选）
  * @param {number} [expiresDays] 有效期天数（1~3650；0/缺省 = 永久有效）
- * @returns {Promise<Array<{code, created_at, created_by, note, expires_at, used, used_by, used_at}>>}
+ * @param {number} [operatorId] 操作者用户 ID（列表接口据此回查真实账号名）
+ * @returns {Promise<Array<{code, created_at, created_by, created_by_id, note, expires_at, used, used_by, used_at}>>}
  */
-async function generateCodes(count, operator, note, expiresDays) {
+async function generateCodes(count, operator, note, expiresDays, operatorId) {
   const n = Math.max(1, Math.min(200, parseInt(count, 10) || 1));
   const days = Math.max(0, Math.min(3650, parseInt(expiresDays, 10) || 0));
   const expiresAt = days > 0 ? new Date(Date.now() + days * 86400000).toISOString() : null;
@@ -173,6 +174,7 @@ async function generateCodes(count, operator, note, expiresDays) {
         code,
         created_at: now,
         created_by: operator || 'unknown',
+        created_by_id: Number.isInteger(operatorId) ? operatorId : null,
         note: String(note || ''),
         expires_at: expiresAt,
         used: false,
@@ -339,6 +341,7 @@ async function importCodes(incoming, operator) {
       code: normalized,
       created_at: (item && typeof item.created_at === 'string' && item.created_at) || new Date().toISOString(),
       created_by: (item && typeof item.created_by === 'string' && item.created_by) || operator || 'unknown',
+      created_by_id: (item && Number.isInteger(item.created_by_id)) ? item.created_by_id : null,
       note: (item && typeof item.note === 'string') ? item.note.slice(0, 100) : '',
       expires_at: (item && typeof item.expires_at === 'string' && item.expires_at) || null,
       used: !!(item && item.used),

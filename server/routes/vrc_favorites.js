@@ -5,7 +5,7 @@
 // 用户自己绑定的 cookie（getVRCCookieUserOnly），防止未绑定用户借系统
 // 账号改写官方收藏。上游错误统一走 sendVrcError 透传真实原因。
 const express = require('express');
-const { ok, fail, sendVrcError, handleError, ErrorCodes } = require('../utils');
+const { ok, fail, sendVrcError, handleError, ErrorCodes, decryptCookie } = require('../utils');
 const { requireAuth } = require('../auth');
 const { getPool } = require('../db');
 const {
@@ -448,9 +448,32 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
   const router = express.Router();
 
   // Cookie 解析中间件：读操作用户优先/系统兜底；写操作仅用户自己的绑定
-  router.use((req, res, next) => {
+  // BUG 修复：写操作 cookie 缺失时，尝试从 DB（users.vrchat_token_enc）恢复，
+  // 避免会话丢失但 DB 仍有绑定 cookie 时误报「未绑定」。
+  router.use(async (req, res, next) => {
     req.vrcCookieRead = getVRCCookie(req);
     req.vrcCookieWrite = getVRCCookieUserOnly(req);
+    if (!req.vrcCookieWrite && req.session && req.session.userId) {
+      try {
+        const [rows] = await getPool().query(
+          `SELECT vrchat_token_enc, vrchat_id FROM users WHERE id = ? AND deleted_at IS NULL`,
+          [req.session.userId]
+        );
+        const u = rows && rows[0];
+        if (u && u.vrchat_token_enc) {
+          const plain = decryptCookie(u.vrchat_token_enc);
+          if (plain) {
+            // DB 有有效 cookie：恢复到会话，本次即可使用
+            req.session.vrchatCookie = u.vrchat_token_enc;
+            req.session.vrcCookieSetAt = Date.now();
+            req.vrcCookieWrite = plain;
+          } else {
+            // DB cookie 解密失败（如 ENCRYPT_KEY 变更）：清除无效副本，避免反复误报
+            await getPool().query(`UPDATE users SET vrchat_token_enc = NULL WHERE id = ?`, [req.session.userId]);
+          }
+        }
+      } catch (e) { /* DB 恢复失败不阻断，按无 cookie 处理 */ }
+    }
     next();
   });
 
@@ -481,7 +504,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
 
   // 重命名分组（ownerUserId 来自分组列表，防越权由 VRChat 上游校验归属）
   router.put('/groups/:type/:name', requireAuth, async (req, res) => {
-    if (!req.vrcCookieWrite) return fail(res, 400, '请先在个人中心绑定你的 VRChat 账号后再操作官方收藏', { code: ErrorCodes.NEED_BIND });
+    if (!req.vrcCookieWrite) return fail(res, 400, 'VRChat 登录态已失效，请在个人中心重新绑定 VRChat 账号', { code: ErrorCodes.NEED_BIND });
     const { type, name } = req.params;
     if (!isValidType(type)) return fail(res, 400, '不支持的收藏类型', { code: ErrorCodes.INVALID_TARGET_TYPE });
     const displayName = (req.body?.displayName || '').trim();
@@ -498,7 +521,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
 
   // 清空分组（删除分组内全部条目，分组本身保留）
   router.delete('/groups/:type/:name', requireAuth, async (req, res) => {
-    if (!req.vrcCookieWrite) return fail(res, 400, '请先在个人中心绑定你的 VRChat 账号后再操作官方收藏', { code: ErrorCodes.NEED_BIND });
+    if (!req.vrcCookieWrite) return fail(res, 400, 'VRChat 登录态已失效，请在个人中心重新绑定 VRChat 账号', { code: ErrorCodes.NEED_BIND });
     const { type, name } = req.params;
     if (!isValidType(type)) return fail(res, 400, '不支持的收藏类型', { code: ErrorCodes.INVALID_TARGET_TYPE });
     const ownerUserId = (req.query.ownerUserId || '').trim();
@@ -562,7 +585,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
 
   // 添加收藏（tag 传分组名，不存在时 VRChat 自动建组）
   router.post('/items', requireAuth, async (req, res) => {
-    if (!req.vrcCookieWrite) return fail(res, 400, '请先在个人中心绑定你的 VRChat 账号后再操作官方收藏', { code: ErrorCodes.NEED_BIND });
+    if (!req.vrcCookieWrite) return fail(res, 400, 'VRChat 登录态已失效，请在个人中心重新绑定 VRChat 账号', { code: ErrorCodes.NEED_BIND });
     const type = (req.body?.type || '').trim();
     const favoriteId = (req.body?.favoriteId || '').trim();
     const tag = (req.body?.tag || '').trim();
@@ -588,7 +611,7 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
 
   // 移除单条收藏（:id 为 fvrt_ 开头的收藏条目 ID）
   router.delete('/items/:id', requireAuth, async (req, res) => {
-    if (!req.vrcCookieWrite) return fail(res, 400, '请先在个人中心绑定你的 VRChat 账号后再操作官方收藏', { code: ErrorCodes.NEED_BIND });
+    if (!req.vrcCookieWrite) return fail(res, 400, 'VRChat 登录态已失效，请在个人中心重新绑定 VRChat 账号', { code: ErrorCodes.NEED_BIND });
     try {
       const upstream = await vrchatRemoveFavorite(req.vrcCookieWrite, req.params.id);
       if (upstream.status < 200 || upstream.status >= 300) return sendVrcError(res, upstream, '移除收藏');

@@ -205,7 +205,7 @@ module.exports = function createAdminUsersRouter() {
       const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 100) : '';
       const expiresDays = Math.max(0, Math.min(3650, parseInt(req.body?.expiresDays, 10) || 0));
       const operator = req.session.displayName || req.session.loginId || String(req.session.userId || 'super_admin');
-      const created = await activationCodes.generateCodes(count, operator, note, expiresDays);
+      const created = await activationCodes.generateCodes(count, operator, note, expiresDays, req.session.userId);
       // 安全：操作日志不记录码原文（未使用的码等同现金，防止日志页/数据库泄露即得全部有效码），明细走激活码面板查看
       await logOper(req.session.userId, '生成激活码',
         `生成 ${created.length} 个激活码${expiresDays > 0 ? `（有效期 ${expiresDays} 天）` : ''}${note ? `（备注：${note}）` : ''}`);
@@ -222,7 +222,30 @@ module.exports = function createAdminUsersRouter() {
       // 安全：未使用的码等同凭据，禁止浏览器/代理缓存
       res.set('Cache-Control', 'no-store');
       const list = await activationCodes.listCodes();
-      ok(res, { total: list.total, used: list.used, unused: list.unused, revoked: list.revoked, expired: list.expired || 0, codes: list.codes });
+      // created_by 回查真实账号名：生成时存了 created_by_id，列表按 ID 批量取 login_id/display_name，
+      // 优先展示「显示名(账号名)」，让操作者可追溯（JSON 文件存储无法 JOIN，只能在接口层补查）
+      const codes = list.codes || [];
+      const ids = [...new Set(codes.map(c => c.created_by_id).filter(Number.isInteger))];
+      const nameMap = {};
+      if (ids.length > 0) {
+        try {
+          const [rows] = await getPool().query(
+            `SELECT id, login_id, display_name FROM users WHERE id IN (?)`,
+            [ids]
+          );
+          for (const r of rows) {
+            const login = r.login_id || '';
+            const disp = r.display_name || '';
+            nameMap[r.id] = login && disp && disp !== login ? `${disp}(${login})` : (login || disp || '');
+          }
+        } catch (e2) { /* 账号回查失败不阻塞列表 */ }
+      }
+      for (const c of codes) {
+        if (Number.isInteger(c.created_by_id) && nameMap[c.created_by_id]) {
+          c.created_by = nameMap[c.created_by_id];
+        }
+      }
+      ok(res, { total: list.total, used: list.used, unused: list.unused, revoked: list.revoked, expired: list.expired || 0, codes });
     } catch (e) {
       if (e instanceof activationCodes.ActivationCodeError) return fail(res, 500, e.message, { code: e.reason });
       handleError(res, e, '[admin/activation-codes/list]');
