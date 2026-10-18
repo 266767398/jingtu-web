@@ -318,5 +318,29 @@ module.exports = function createAdminUsersRouter() {
     }
   });
 
+  // 修改激活码备注（仅改 note，不影响码状态；任意状态的码均可改，便于后期补充批次用途）
+  router.post('/admin/activation-codes/note', requireRole('super_admin'), async (req, res) => {
+    try {
+      const code = typeof req.body?.code === 'string' ? req.body.code : '';
+      const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 100) : '';
+      if (!code) return fail(res, 400, '请提供要修改备注的激活码', { code: 'EMPTY_CODE' });
+      const operator = req.session.displayName || req.session.loginId || String(req.session.userId || 'super_admin');
+      const result = await activationCodes.updateCodeNote(code, note, operator);
+      if (!result.ok) {
+        const msgs = {
+          INVALID_FORMAT: '激活码格式不正确',
+          NOT_FOUND: '激活码不存在'
+        };
+        return fail(res, 400, msgs[result.reason] || '备注更新失败', { code: result.reason });
+      }
+      // 安全：操作日志不记录码原文（未使用的码等同现金），只记录动作与备注文本
+      await logOper(req.session.userId, '修改激活码备注', `修改 1 个激活码的备注${note ? `（备注：${note}）` : '（已清空备注）'}`);
+      ok(res, { code: result.entry.code, note: result.entry.note, message: '备注已更新' });
+    } catch (e) {
+      if (e instanceof activationCodes.ActivationCodeError) return fail(res, 500, e.message, { code: e.reason });
+      handleError(res, e, '[admin/activation-codes/note]');
+    }
+  });
+
   return router;
 };

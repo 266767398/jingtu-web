@@ -312,6 +312,32 @@ async function revokeCode(code, operator, reason) {
 }
 
 /**
+ * 修改激活码备注（仅改 note，不影响 used / revoked / expires 等状态）
+ * 备注为说明性字段，任意状态的码都可修改，便于后期补充批次用途或使用说明。
+ *
+ * @param {string} code 激活码（自动归一化大写去空格）
+ * @param {string} note 新备注（最长 100 字，空字符串表示清空）
+ * @param {string} operator 操作者（超管 login_id / displayName，写入审计字段）
+ * @returns {Promise<{ok:true, entry:object}
+ *           |{ok:false, reason:'INVALID_FORMAT'|'NOT_FOUND'|'WRITE_FAILED', error?:Error}>}
+ */
+async function updateCodeNote(code, note, operator) {
+  const normalized = normalizeCode(code);
+  if (!CODE_PATTERN.test(normalized)) return { ok: false, reason: 'INVALID_FORMAT' };
+  const noteStr = String(note == null ? '' : note).slice(0, 100);
+  return withProcessMutex(() => withFileLock(async () => {
+    const data = readData();
+    const entry = data.codes.find(c => c.code === normalized);
+    if (!entry) return { ok: false, reason: 'NOT_FOUND' };
+    entry.note = noteStr;
+    entry.note_updated_at = new Date().toISOString();
+    entry.note_updated_by = String(operator || 'unknown');
+    try { await writeData(data); } catch (e) { return { ok: false, reason: 'WRITE_FAILED', error: e.cause || e }; }
+    return { ok: true, entry };
+  }));
+}
+
+/**
  * 批量导入激活码（本地软件启动推送 / 离线文件导入；幂等合并）
  * - 逐条校验格式；已存在的码原样跳过（不覆盖，不触碰网站侧 used/revoked 状态）
  * - 与生成/消耗同一把进程锁 + 文件锁，保证与网站侧并发操作互斥
@@ -426,6 +452,7 @@ module.exports = {
   listCodes,
   revokeCode,
   deleteCode,
+  updateCodeNote,
   setFilePath,
   getCodeFilePath,
   normalizeCode,

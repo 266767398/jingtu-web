@@ -292,6 +292,7 @@
   "POST /api/admin/activation-codes/sync",
   "POST /api/admin/activation-codes/revoke",
   "POST /api/admin/activation-codes/delete",
+  "POST /api/admin/activation-codes/note",
   "POST /api/name-change/request",
   "GET /api/name-change/my-requests",
   "GET /api/name-change/pending",

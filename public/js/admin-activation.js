@@ -60,6 +60,7 @@ function initActivationPanelEvents() {
     if (action === 'revoke') revokeActivationCode(code);
     else if (action === 'delete') deleteActivationCode(code);
     else if (action === 'copy') copyToClipboard(code).then(function () { toast(__('admin.copied'), 'success'); });
+    else if (action === 'note') editActivationCodeNote(code);
   });
 }
 
@@ -141,6 +142,7 @@ function renderActivationCodes() {
       : '';
     const deleteBtn = '<button class="btn btn-sm btn-outline" data-code-action="delete" data-code="' + codeEsc + '" style="color:#dc2626">🗑 ' + __('admin.activation.delete_btn') + '</button>';
     const copyBtn = '<button class="btn btn-sm btn-outline" data-code-action="copy" data-code="' + codeEsc + '">📋 ' + __('admin.activation.copy_btn') + '</button>';
+    const noteBtn = '<button class="btn btn-sm btn-outline" data-code-action="note" data-code="' + codeEsc + '">✏️ ' + __('admin.activation.edit_note_btn') + '</button>';
     return '<div class="admin-user-card">'
       + '<div class="admin-user-info">'
       + '<div class="admin-user-name activation-code-text">' + esc(c.code) + '</div>'
@@ -148,7 +150,7 @@ function renderActivationCodes() {
       + '<div class="admin-user-role">' + __('admin.activation.created_by') + ' ' + esc(c.created_by || '-') + ' · ' + fmtTime(c.created_at) + notePart + '</div>'
       + usedInfo + revokedInfo + expiresInfo
       + '</div>'
-      + '<div class="admin-user-actions">' + copyBtn + revokeBtn + deleteBtn + '</div>'
+      + '<div class="admin-user-actions">' + copyBtn + noteBtn + revokeBtn + deleteBtn + '</div>'
       + '</div>';
   }).join('');
 }
@@ -219,6 +221,35 @@ async function doDeleteActivationCode(code, reason) {
   } catch (err) {
     if (isApiHandledError(err)) return;
     toast(__('admin.activation.delete_fail_prefix') + err.message, 'error');
+  }
+}
+
+// 编辑备注：预填当前备注（可留空清空），提交 /api/admin/activation-codes/note
+function editActivationCodeNote(code) {
+  const cur = _activationCodes.find(function (c) { return c.code === code; });
+  showInput(__('admin.activation.note_prompt'), (cur && cur.note) || '', function (note) {
+    if (note === null) return;
+    doUpdateActivationCodeNote(code, String(note).trim());
+  });
+}
+
+async function doUpdateActivationCodeNote(code, note) {
+  try {
+    const res = await api('/api/admin/activation-codes/note', {
+      method: 'POST',
+      body: { code: code, note: note }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      toast(data.message || __('admin.activation.note_updated'), 'success');
+      loadActivationCodesPanel();
+    } else {
+      const e = await res.json().catch(() => ({}));
+      toast(errText(e) || __('admin.activation.note_update_fail'), 'error');
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('admin.activation.note_update_fail_prefix') + err.message, 'error');
   }
 }
 
