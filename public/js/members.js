@@ -356,6 +356,11 @@ function paintMemberCard(u) {
     if (currentUser && currentUser.id === u.id) {
       html += `<a href="#" data-action="member-edit-profile" class="btn btn-sm btn-outline">${__('members.edit_profile')}</a>`;
     }
+    if (currentUser && currentUser.id !== u.id) {
+      // 关注/互关按钮容器：数据异步拉取后填入（renderMemberCardSkeleton 会清空）
+      // data-uid 用于防串台：切到他人民片后，迟到响应不覆盖新名片按钮
+      html += `<span id="memberFollowBtn" data-uid="${escAttr(String(u.id))}"></span>`;
+    }
     if (currentUser) {
       html += `<button data-action="member-notes" data-member-id="${u.id}" data-member-name="${escAttr(u.displayName || u.loginId)}" class="btn btn-sm btn-outline">📝 ${__('members.notes')}</button>`;
       if (currentUser.id !== u.id) {
@@ -364,8 +369,62 @@ function paintMemberCard(u) {
     }
     html += `<a href="#" data-action="member-profile" data-member-id="${u.id}" class="btn btn-sm btn-outline">${__('members.full_profile')}</a>`;
     linksEl.innerHTML = html || '';
+    if (currentUser && currentUser.id !== u.id) refreshMemberFollowBtn(u.id);
   }
   if (modal) showModal('memberModal');
+}
+
+// ==================== 名片关注/互关（成员卡片关注功能） ====================
+// 状态：未关注→关注；对方已关注我且我未关注→回关；已关注未互关→已关注（可取消）；
+// 互关（已是好友）→互关（可取消，取消会同时解除好友关系并弹确认）。
+async function refreshMemberFollowBtn(userId) {
+  const el = document.getElementById('memberFollowBtn');
+  if (!el || !currentUser || String(currentUser.id) === String(userId)) return;
+  // 防串台：等待响应期间若已切到他人民片（容器被重建为他人 uid），丢弃迟到响应
+  if (String(el.dataset.uid) !== String(userId)) return;
+  try {
+    const res = await api(`/api/follows/status/${userId}`, { method: 'GET' });
+    if (!res.ok) return;
+    const d = await res.json();
+    if (String((document.getElementById('memberFollowBtn') || {}).dataset?.uid) !== String(userId)) return;
+    const following = !!d.following, followedBy = !!d.followedBy;
+    let label, action, cls;
+    if (following && followedBy) { label = __('follows.mutual'); action = 'member-unfollow'; cls = 'btn-outline'; }
+    else if (following) { label = __('follows.followed'); action = 'member-unfollow'; cls = 'btn-outline'; }
+    else if (followedBy) { label = __('follows.follow_back'); action = 'member-follow'; cls = 'btn-accent'; }
+    else { label = __('follows.follow'); action = 'member-follow'; cls = 'btn-accent'; }
+    const mutual = following && followedBy ? '1' : '0';
+    el.innerHTML = `<button class="btn btn-sm ${cls}" data-action="${action}" data-member-id="${userId}" data-mutual="${mutual}">${esc(label)}</button>`;
+  } catch (e) { /* 静默：关注按钮拉取失败不影响名片展示 */ }
+}
+
+async function memberFollow(userId, follow, mutual) {
+  if (!currentUser) { toast(__('please_login'), 'error'); return; }
+  if (!follow && mutual) {
+    const ok = await new Promise((resolve) => showConfirm(
+      __('follows.confirm_unfollow_friend'),
+      () => resolve(true), () => resolve(false)
+    ));
+    if (!ok) return;
+  }
+  try {
+    const opts = { method: follow ? 'POST' : 'DELETE' };
+    if (follow) {
+      opts.headers = { 'Content-Type': 'application/json' };
+      opts.body = JSON.stringify({ targetUserId: parseInt(userId, 10) });
+    }
+    const res = await api(follow ? '/api/follows' : '/api/follows/' + userId, opts);
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      toast(errText(d) || __('follows.operation_failed'), 'error');
+      return;
+    }
+    toast(follow ? __('follows.followed') : __('follows.unfollowed'), 'success');
+    refreshMemberFollowBtn(userId);
+  } catch (e) {
+    if (isApiHandledError(e)) return;
+    toast(e.message, 'error');
+  }
 }
 
 function renderMemberCardSkeleton(userId, failed) {
@@ -1646,6 +1705,14 @@ function _bindMembersDelegation() {
         e.preventDefault();
         closeModal('memberModal');
         if (typeof goToProfile === 'function') goToProfile(uid);
+        break;
+      case 'member-follow':
+        e.preventDefault();
+        memberFollow(uid, true, false);
+        break;
+      case 'member-unfollow':
+        e.preventDefault();
+        memberFollow(uid, false, el.getAttribute('data-mutual') === '1');
         break;
       case 'close-notes':
         closeModal('memberNotesModal');

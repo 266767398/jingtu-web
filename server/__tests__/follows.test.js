@@ -89,14 +89,30 @@ describe('关注 POST /api/follows', () => {
 
 describe('取消关注 DELETE /api/follows/:targetUserId', () => {
   test('正常取关 → following:false', async () => {
-    mockPool.query.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    mockPool.query
+      .mockResolvedValueOnce([[]])              // 互关检查：对方未关注我
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // 删除 user_follows
     const res = await request(buildApp()).delete('/api/follows/2');
     expect(res.status).toBe(200);
     expect(res.body.following).toBe(false);
+    expect(res.body.removedFriend).toBe(false);
+  });
+
+  test('互关取关 → 同步删除好友关系并返回 removedFriend:true', async () => {
+    mockPool.query
+      .mockResolvedValueOnce([[{ 1: 1 }]])      // 互关检查：对方也关注我
+      .mockResolvedValueOnce([{ affectedRows: 1 }]) // 删除 user_follows
+      .mockResolvedValueOnce([{ affectedRows: 1 }]); // 删除 accepted 好友关系
+    const res = await request(buildApp()).delete('/api/follows/2');
+    expect(res.status).toBe(200);
+    expect(res.body.following).toBe(false);
+    expect(res.body.removedFriend).toBe(true);
   });
 
   test('未关注 → NOT_FOLLOWING(404)', async () => {
-    mockPool.query.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    mockPool.query
+      .mockResolvedValueOnce([[]])              // 互关检查
+      .mockResolvedValueOnce([{ affectedRows: 0 }]); // 未关注
     const res = await request(buildApp()).delete('/api/follows/2');
     expect(res.status).toBe(404);
     expectCode(res, 'NOT_FOLLOWING');

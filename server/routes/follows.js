@@ -146,6 +146,11 @@ module.exports = function (notificationService) {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
       }
       const pool = getPool();
+      // 取消关注前先判断是否互关：互关会自动建立好友关系，取消关注时需同步解除好友关系
+      const [mutual] = await pool.query(
+        `SELECT 1 FROM user_follows WHERE follower_id = ? AND following_id = ?`,
+        [targetUserId, me]
+      );
       const [r] = await pool.query(
         `DELETE FROM user_follows WHERE follower_id = ? AND following_id = ?`,
         [me, targetUserId]
@@ -153,7 +158,16 @@ module.exports = function (notificationService) {
       if (r.affectedRows === 0) {
         return sendError(res, 404, ErrorCodes.NOT_FOLLOWING, '你还没有关注该用户');
       }
-      return ok(res, {ok: true, following: false});
+      // 互关场景：双向删除 accepted 好友关系（拉黑关系不动，避免误删黑名单）
+      let removedFriend = false;
+      if (mutual.length > 0) {
+        const [fr] = await pool.query(
+          `DELETE FROM user_friends WHERE status = 'accepted' AND ((user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?))`,
+          [me, targetUserId, targetUserId, me]
+        );
+        removedFriend = fr.affectedRows > 0;
+      }
+      return ok(res, {ok: true, following: false, removedFriend});
     } catch (e) {
       handleError(res, e, '[follows/unfollow]');
     }
@@ -178,15 +192,22 @@ module.exports = function (notificationService) {
 
       const [rows] = await pool.query(
         `SELECT u.id, u.display_name, u.vrchat_name, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url,
-                f.created_at AS followedAt
+                f.created_at AS followedAt,
+                EXISTS(SELECT 1 FROM user_follows f2 WHERE f2.follower_id = u.id AND f2.following_id = ?) AS mutual,
+                EXISTS(SELECT 1 FROM user_friends fr WHERE fr.status = 'accepted' AND ((fr.user_id = ? AND fr.friend_id = u.id) OR (fr.user_id = u.id AND fr.friend_id = ?))) AS isFriend
          FROM user_follows f
          JOIN users u ON u.id = f.following_id
          WHERE f.follower_id = ? AND u.deleted_at IS NULL
          ORDER BY f.created_at DESC
          LIMIT ? OFFSET ?`,
-        [userId, pageSize, offset]
+        [userId, userId, userId, userId, pageSize, offset]
       );
-      const list = rows.map(r => ({ ...toUserSummary(r), followedAt: r.followedAt }));
+      const list = rows.map(r => ({
+        ...toUserSummary(r),
+        followedAt: r.followedAt,
+        mutual: !!r.mutual,
+        isFriend: !!r.isFriend
+      }));
       res.json({ list, page, pageSize, total });
     } catch (e) {
       handleError(res, e, '[follows/following]');
@@ -212,15 +233,22 @@ module.exports = function (notificationService) {
 
       const [rows] = await pool.query(
         `SELECT u.id, u.display_name, u.vrchat_name, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url,
-                f.created_at AS followedAt
+                f.created_at AS followedAt,
+                EXISTS(SELECT 1 FROM user_follows f2 WHERE f2.follower_id = ? AND f2.following_id = u.id) AS mutual,
+                EXISTS(SELECT 1 FROM user_friends fr WHERE fr.status = 'accepted' AND ((fr.user_id = ? AND fr.friend_id = u.id) OR (fr.user_id = u.id AND fr.friend_id = ?))) AS isFriend
          FROM user_follows f
          JOIN users u ON u.id = f.follower_id
          WHERE f.following_id = ? AND u.deleted_at IS NULL
          ORDER BY f.created_at DESC
          LIMIT ? OFFSET ?`,
-        [userId, pageSize, offset]
+        [userId, userId, userId, userId, pageSize, offset]
       );
-      const list = rows.map(r => ({ ...toUserSummary(r), followedAt: r.followedAt }));
+      const list = rows.map(r => ({
+        ...toUserSummary(r),
+        followedAt: r.followedAt,
+        mutual: !!r.mutual,
+        isFriend: !!r.isFriend
+      }));
       res.json({ list, page, pageSize, total });
     } catch (e) {
       handleError(res, e, '[follows/followers]');

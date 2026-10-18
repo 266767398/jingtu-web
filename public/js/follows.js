@@ -29,6 +29,7 @@
         <div class="social-meta">
           <div class="social-name">${esc(name(u))}</div>
           ${u && u.vrchatName ? `<div class="social-sub text-13 text-muted2">${esc(u.vrchatName)}</div>` : ''}
+          ${badges(u)}
         </div>
         <div class="social-actions">${actionsHtml}</div>
       </div>`;
@@ -36,6 +37,19 @@
 
   function btn(action, id, label, cls) {
     return `<button class="btn btn-sm ${cls || 'btn-outline'}" data-action="${action}" data-id="${id}">${esc(label)}</button>`;
+  }
+
+  // 互关/好友徽章：关注列表展示关系状态，互关即好友
+  function badges(u) {
+    let h = '';
+    if (u && u.mutual) h += `<span class="badge badge-success social-badge">${esc(__('follows.mutual'))}</span>`;
+    if (u && u.isFriend) h += `<span class="badge social-badge">${esc(__('follows.friend_badge'))}</span>`;
+    return h ? `<div class="social-badges">${h}</div>` : '';
+  }
+
+  // 取消关注按钮：互关场景标记 data-mutual=1，供操作时弹「将同时删除好友关系」确认
+  function unfollowBtn(r) {
+    return `<button class="btn btn-sm btn-danger" data-action="unfollow" data-id="${r.id}" data-mutual="${r.mutual ? '1' : '0'}">${esc(__('follows.unfollow'))}</button>`;
   }
 
   // ==================== 渲染入口 ====================
@@ -73,7 +87,7 @@
       if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
       const list = (d.list || []);
       if (!list.length) { el.innerHTML = `<div class="text-muted2 p-16">${esc(__('follows.no_following'))}</div>`; return; }
-      el.innerHTML = list.map(r => userRowHtml(r, btn('unfollow', r.id, __('follows.unfollow'), 'btn-danger'))).join('');
+      el.innerHTML = list.map(r => userRowHtml(r, unfollowBtn(r))).join('');
     } catch (e) {
       if (isApiHandledError(e)) return;
       el.innerHTML = `<div class="text-muted2 p-16">${esc(e.message)}</div>`;
@@ -89,8 +103,10 @@
       if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
       const list = (d.list || []);
       if (!list.length) { el.innerHTML = `<div class="text-muted2 p-16">${esc(__('follows.no_followers'))}</div>`; return; }
-      // 粉丝列表：提供关注/取关切换（后端幂等）
-      el.innerHTML = list.map(r => userRowHtml(r, btn('follow', r.id, __('follows.follow'), 'btn-accent'))).join('');
+      // 粉丝列表：互关显示「取消关注」，否则显示「回关」（关注回来即互关，自动成为好友）
+      el.innerHTML = list.map(r => userRowHtml(r,
+        r.mutual ? unfollowBtn(r) : btn('follow', r.id, __('follows.follow_back'), 'btn-accent')
+      )).join('');
     } catch (e) {
       if (isApiHandledError(e)) return;
       el.innerHTML = `<div class="text-muted2 p-16">${esc(e.message)}</div>`;
@@ -115,7 +131,15 @@
   }
 
   // ==================== 操作 ====================
-  async function doAction(action, id) {
+  async function doAction(action, id, mutual) {
+    // 互关场景取消关注：会同时删除好友关系，需二次确认（用户明确要求加确认/取消）
+    if (action === 'unfollow' && mutual) {
+      const ok = await new Promise((resolve) => showConfirm(
+        __('follows.confirm_unfollow_friend'),
+        () => resolve(true), () => resolve(false)
+      ));
+      if (!ok) return;
+    }
     try {
       let r;
       if (action === 'follow') r = await req('POST', '/api/follows', { targetUserId: id });
@@ -142,7 +166,7 @@
       root.addEventListener('click', (e) => {
         const b = e.target.closest('[data-action]');
         if (!b) return;
-        doAction(b.dataset.action, parseInt(b.dataset.id));
+        doAction(b.dataset.action, parseInt(b.dataset.id), b.dataset.mutual === '1');
       });
     }
     // 搜索输入框每次渲染都会被重建，必须重新绑定，否则二次进入 tab 后搜索失效

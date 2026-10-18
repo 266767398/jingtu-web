@@ -61,6 +61,57 @@ function setChatDetailOpen(open) {
   if (panel) panel.classList.toggle('chat-detail-open', !!open);
 }
 
+// ==================== 消息 / 好友 左侧栏子切换（好友与聊天合并） ====================
+// 聊天左侧栏顶部有「消息 / 好友」两个子视图：消息=会话列表+群聊；好友=好友列表，点好友直接开聊。
+let chatLeftView = 'msg'; // msg | friends
+
+function applyChatLeftView() {
+  const friends = chatLeftView === 'friends';
+  const list = document.getElementById('chatConversationList');
+  const pane = document.getElementById('chatFriendsPane');
+  if (list) list.classList.toggle('d-none', friends);
+  if (pane) pane.classList.toggle('d-none', !friends);
+  document.querySelectorAll('#chatConversationView .chat-subnav-btn').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-action') === (friends ? 'chat-sub-friends' : 'chat-sub-msg'));
+  });
+}
+
+function setChatLeftView(view) {
+  chatLeftView = view === 'friends' ? 'friends' : 'msg';
+  applyChatLeftView();
+  if (chatLeftView === 'friends') loadChatFriends();
+}
+
+async function loadChatFriends() {
+  const pane = document.getElementById('chatFriendsPane');
+  if (!pane || !currentUser) return;
+  pane.innerHTML = '<div class="chat-loading">' + __('common.loading') + '</div>';
+  try {
+    const res = await api('/api/friends?status=accepted', { method: 'GET' });
+    if (!res.ok) { pane.innerHTML = `<div class="chat-empty">${esc(__('chat.load_failed'))}</div>`; return; }
+    const d = await res.json().catch(() => ({}));
+    const list = d.list || [];
+    if (!list.length) {
+      renderEmpty(pane, { icon: '🤝', text: __('chat.friends_empty'), cls: 'chat-empty' });
+      return;
+    }
+    pane.innerHTML = `<div class="chat-section-title">${__('chat.tab_friends')}</div>` + list.map(f => {
+      const avatarSrc = f.avatarUrl ? escAttr(f.avatarUrl) : '/api/avatar/default';
+      return `<div class="chat-conv-item" data-action="chat-open-dm" data-uid="${f.id}" tabindex="0" role="button" aria-label="${escAttr(f.displayName || '')}">
+        <img src="${avatarSrc}" class="chat-conv-avatar" loading="lazy" data-avatar-fail-src="${escAttr(f.avatarUrl || '/api/avatar/default')}" />
+        <div class="chat-conv-info">
+          <div class="chat-conv-name">${esc(f.displayName || __('common.user'))}</div>
+          <div class="chat-conv-msg">${f.vrchatName ? esc(f.vrchatName) : ''}</div>
+        </div>
+        <span class="chat-conv-time">💬</span>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    if (isApiHandledError(e)) return;
+    pane.innerHTML = `<div class="chat-empty">${esc(__('chat.load_failed'))}</div>`;
+  }
+}
+
 async function loadChatConversations(resetView = false) {
   if (!currentUser || chatLoading) return;
   chatLoading = true;
@@ -145,6 +196,8 @@ function renderChatMain(convs, groups) {
   if (!groupHtml && !dmHtml) {
     renderEmpty(document.getElementById('chatConversationListContent'), { icon: '💬', text: __('chat.no_history') });
   }
+  // 刷新后恢复左侧栏子视图状态（消息/好友）
+  applyChatLeftView();
 }
 
 // ==================== 私信（保留 V6.12） ====================
@@ -990,6 +1043,12 @@ function _bindChatDelegation() {
         break;
       case 'chat-search-clear':
         clearChatSearch();
+        break;
+      case 'chat-sub-msg':
+        setChatLeftView('msg');
+        break;
+      case 'chat-sub-friends':
+        setChatLeftView('friends');
         break;
       case 'chat-create-group':
         showCreateGroupModal();
