@@ -1275,6 +1275,7 @@ window._LANG_JA = {
   "profile_page.user_profile": "ユーザープロフィール",
   "profile_page.unknown_user": "不明なユーザー",
   "profile_page.edit_profile": "プロフィールを編集",
+  "profile_page.back": "← 戻る",
   "profile_page.new_album": "新しいアルバム",
   "profile_page.upload_video": "動画をアップロード",
   "profile_page.vrc_home": "VRChatホーム",

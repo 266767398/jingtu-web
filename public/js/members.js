@@ -369,7 +369,7 @@ function paintMemberCard(u) {
     }
     html += `<a href="#" data-action="member-profile" data-member-id="${u.id}" class="btn btn-sm btn-outline">${__('members.full_profile')}</a>`;
     linksEl.innerHTML = html || '';
-    if (currentUser && currentUser.id !== u.id) refreshMemberFollowBtn(u.id);
+    if (currentUser && currentUser.id !== u.id) refreshFollowBtn('memberFollowBtn', u.id);
   }
   if (modal) showModal('memberModal');
 }
@@ -377,16 +377,18 @@ function paintMemberCard(u) {
 // ==================== 名片关注/互关（成员卡片关注功能） ====================
 // 状态：未关注→关注；对方已关注我且我未关注→回关；已关注未互关→已关注（可取消）；
 // 互关（已是好友）→互关（可取消，取消会同时解除好友关系并弹确认）。
-async function refreshMemberFollowBtn(userId) {
-  const el = document.getElementById('memberFollowBtn');
+// containerId 支持多个挂载点：成员名片 #memberFollowBtn / 完整资料页 #profileFollowBtn
+async function refreshFollowBtn(containerId, userId) {
+  const el = document.getElementById(containerId);
   if (!el || !currentUser || String(currentUser.id) === String(userId)) return;
-  // 防串台：等待响应期间若已切到他人民片（容器被重建为他人 uid），丢弃迟到响应
+  // 防串台：等待响应期间若目标容器已被重建为他人 uid，丢弃迟到响应
   if (String(el.dataset.uid) !== String(userId)) return;
   try {
     const res = await api(`/api/follows/status/${userId}`, { method: 'GET' });
     if (!res.ok) return;
     const d = await res.json();
-    if (String((document.getElementById('memberFollowBtn') || {}).dataset?.uid) !== String(userId)) return;
+    const elNow = document.getElementById(containerId);
+    if (!elNow || String(elNow.dataset.uid) !== String(userId)) return;
     const following = !!d.following, followedBy = !!d.followedBy;
     let label, action, cls;
     if (following && followedBy) { label = __('follows.mutual'); action = 'member-unfollow'; cls = 'btn-outline'; }
@@ -394,7 +396,7 @@ async function refreshMemberFollowBtn(userId) {
     else if (followedBy) { label = __('follows.follow_back'); action = 'member-follow'; cls = 'btn-accent'; }
     else { label = __('follows.follow'); action = 'member-follow'; cls = 'btn-accent'; }
     const mutual = following && followedBy ? '1' : '0';
-    el.innerHTML = `<button class="btn btn-sm ${cls}" data-action="${action}" data-member-id="${userId}" data-mutual="${mutual}">${esc(label)}</button>`;
+    elNow.innerHTML = `<button class="btn btn-sm ${cls}" data-action="${action}" data-member-id="${userId}" data-mutual="${mutual}">${esc(label)}</button>`;
   } catch (e) { /* 静默：关注按钮拉取失败不影响名片展示 */ }
 }
 
@@ -420,7 +422,9 @@ async function memberFollow(userId, follow, mutual) {
       return;
     }
     toast(follow ? __('follows.followed') : __('follows.unfollowed'), 'success');
-    refreshMemberFollowBtn(userId);
+    // 同步刷新所有已渲染的关注按钮（成员名片 + 完整资料页）
+    refreshFollowBtn('memberFollowBtn', userId);
+    if (document.getElementById('profileFollowBtn')) refreshFollowBtn('profileFollowBtn', userId);
   } catch (e) {
     if (isApiHandledError(e)) return;
     toast(e.message, 'error');

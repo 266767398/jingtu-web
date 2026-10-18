@@ -1267,6 +1267,7 @@ window._LANG_EN = {
   "profile_page.user_profile": "User Profile",
   "profile_page.unknown_user": "Unknown User",
   "profile_page.edit_profile": "Edit Profile",
+  "profile_page.back": "← Back",
   "profile_page.new_album": "New Album",
   "profile_page.upload_video": "Upload Video",
   "profile_page.vrc_home": "VRChat Homepage",

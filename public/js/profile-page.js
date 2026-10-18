@@ -16,6 +16,10 @@ async function loadUserProfile(userId) {
   if (!container) return;
   const my = ++_profileLoadSeq;
 
+  // 记录来源标签页，供资料页「返回」按钮回到原页面
+  const activeContent = document.querySelector('.tab-content:not(.d-none)');
+  window._profileReturnTab = activeContent ? activeContent.id.replace(/^tab-/, '') : 'members';
+
   // 切换到资料标签
   switchTabSilent('profile-user');
   profilePageMode = 'view';
@@ -165,12 +169,18 @@ function renderProfileHeader(user, isOwner) {
     }
     if (!isOwner && currentUser) {
       html += '<button class="btn btn-sm btn-accent" id="profileLikeBtn" data-action="profile-like">❤️ <span id="profileLikeCount">0</span></button>';
+      // 关注/互关按钮：与成员名片同款逻辑（refreshFollowBtn 异步填充）
+      html += '<span id="profileFollowBtn" data-uid="' + escAttr(String(user.id)) + '"></span>';
       html += '<span id="profileLikeStatus" class="text-13 text-muted ml-2"></span>';
     }
     if (user.vrchatId) {
       html += `<a class="btn btn-sm btn-outline" href="https://vrchat.com/home/user/${esc(user.vrchatId)}" target="_blank" rel="noopener">${__('profile_page.vrc_home')}</a>`;
     }
     actionsEl.innerHTML = html;
+    // 拉取关注状态并填充关注按钮（与成员名片共用 refreshFollowBtn）
+    if (!isOwner && currentUser && typeof refreshFollowBtn === 'function') {
+      refreshFollowBtn('profileFollowBtn', user.id);
+    }
   }
 
   // 加载点赞状态
@@ -1124,6 +1134,12 @@ function _bindProfilePageDelegation() {
     if (!el) return;
     var action = el.getAttribute('data-action');
     switch (action) {
+      case 'profile-back':
+        // 返回进入资料页前的标签页（成员/聊天/好友等）
+        if (typeof switchTab === 'function') {
+          switchTab(window._profileReturnTab || 'members');
+        }
+        break;
       case 'profile-edit':
         showEditProfileModal();
         break;

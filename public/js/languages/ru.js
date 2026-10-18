@@ -1266,6 +1266,7 @@ window._LANG_RU = {
   "profile_page.user_profile": "Профиль пользователя",
   "profile_page.unknown_user": "Неизвестный пользователь",
   "profile_page.edit_profile": "Изменить профиль",
+  "profile_page.back": "← Назад",
   "profile_page.new_album": "Новый альбом",
   "profile_page.upload_video": "Загрузить видео",
   "profile_page.vrc_home": "Главная VRChat",

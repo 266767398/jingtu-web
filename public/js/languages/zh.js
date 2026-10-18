@@ -1373,6 +1373,7 @@ window._LANG_ZH = {
   "profile_page.user_profile": "用户资料",
   "profile_page.unknown_user": "未知用户",
   "profile_page.edit_profile": "编辑资料",
+  "profile_page.back": "← 返回",
   "profile_page.new_album": "新建相册",
   "profile_page.upload_video": "上传视频",
   "profile_page.vrc_home": "VRChat 主页",

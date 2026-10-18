@@ -8,7 +8,7 @@
 //     stale-while-revalidate 继续返回旧横幅缓存)
 // UI-2 修复：CACHE 版本随前端版本戳 20261017c 同步 bump，确保旧 SW 换代时清缓存
 // V6.9X BUG修复+新功能：CACHE 版本随前端版本戳 20261018c 同步 bump（完整资料页+封面上传）
-const CACHE = 'jingtu-v2.46';
+const CACHE = 'jingtu-v2.47';
 const STATIC_ASSETS = [
   '/offline.html',
   '/css/style.css',

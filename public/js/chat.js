@@ -72,7 +72,9 @@ function applyChatLeftView() {
   if (list) list.classList.toggle('d-none', friends);
   if (pane) pane.classList.toggle('d-none', !friends);
   document.querySelectorAll('#chatConversationView .chat-subnav-btn').forEach(b => {
-    b.classList.toggle('active', b.getAttribute('data-action') === (friends ? 'chat-sub-friends' : 'chat-sub-msg'));
+    const on = b.getAttribute('data-action') === (friends ? 'chat-sub-friends' : 'chat-sub-msg');
+    b.classList.toggle('active', on);
+    if (on) b.setAttribute('aria-selected', 'true'); else b.removeAttribute('aria-selected');
   });
 }
 
