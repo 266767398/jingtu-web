@@ -7,7 +7,7 @@
  *
  * 依赖：utils.getPool
  */
-const { getPool } = require('../utils');
+const { getPool, formatDateOnly } = require('../utils');
 
 // VRCX ExportFriendsListDialog 风格：CSV 字段转义（含逗号/引号/控制字符时加引号并转义内部引号）
 function csvField(v) {
@@ -79,7 +79,7 @@ async function collectUserData(userId) {
         vrchat_id: u.vrchat_id,
         vrchat_name: u.vrchat_name,
         email: u.email,
-        birthday: u.birthday,
+        birthday: formatDateOnly(u.birthday),
         location: u.location,
         lat: u.lat,
         lng: u.lng

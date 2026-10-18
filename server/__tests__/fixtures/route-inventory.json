@@ -86,6 +86,7 @@
   "GET /api/users/me/profile",
   "PUT /api/users/me/profile",
   "POST /api/users/me/avatar",
+  "POST /api/users/me/cover",
   "POST /api/users/me/avatar-vrchat",
   "DELETE /api/users/me/avatar",
   "POST /api/users/me/avatar-pref",

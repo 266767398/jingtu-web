@@ -69,6 +69,9 @@ function renderProfileHeader(user, isOwner) {
   const coverBg = document.getElementById('profileCoverBg');
   const coverImg = user.coverImage || user.preferences?.coverImage || '';
   if (coverBg) {
+    // V6.10: coverPosition 控制封面显示位置（top/center/bottom），适配不同尺寸的照片区域
+    const pos = (user.coverPosition === 'top' || user.coverPosition === 'bottom') ? user.coverPosition : 'center';
+    coverBg.style.backgroundPosition = pos;
     if (coverImg) {
       coverBg.style.backgroundImage = `url(${escCssUrl(coverImg)})`;
       const probe = new Image();
@@ -99,6 +102,17 @@ function renderProfileHeader(user, isOwner) {
     }
   }
 
+  // 角色徽章
+  const roleEl = document.getElementById('profileRole');
+  if (roleEl) {
+    const role = user.role || 'member';
+    const roleLabel = role === 'super_admin' ? __('members.role_super_admin')
+      : role === 'admin' ? __('members.role_admin')
+      : __('members.role_member');
+    roleEl.textContent = roleLabel;
+    roleEl.className = 'profile-role-badge role-' + role;
+  }
+
   // 个性签名
   const mottoEl = document.getElementById('profileMotto');
   if (mottoEl) {
@@ -118,7 +132,7 @@ function renderProfileHeader(user, isOwner) {
     }
   }
 
-  // 统计数据
+  // 统计数据（头部）
   const statsEl = document.getElementById('profileStats');
   if (statsEl) {
     const albumCount = profileAlbums.length;
@@ -129,7 +143,15 @@ function renderProfileHeader(user, isOwner) {
       <div class="profile-stat">🖼️ <span>${__('profile_page.n_photos', {n: photoCount})}</span></div>
       <div class="profile-stat">🎬 <span>${__('profile_page.n_videos', {n: videoCount})}</span></div>
     `;
+    // 底部静态统计（原有占位，补齐真实数值）
+    const photoCountEl = document.getElementById('profilePhotoCount');
+    if (photoCountEl) photoCountEl.textContent = photoCount;
+    const videoCountEl = document.getElementById('profileVideoCount');
+    if (videoCountEl) videoCountEl.textContent = videoCount;
   }
+
+  // 详细信息：生日/所在地/网站/社交链接（隐私墙在后端已过滤，null 则不展示）
+  renderProfileDetails(user, isOwner);
 
   // 操作按钮
   const actionsEl = document.getElementById('profileActions');
@@ -169,6 +191,46 @@ function renderProfileHeader(user, isOwner) {
     } else {
       bioCard.classList.add('d-none');
     }
+  }
+}
+
+// ==================== 渲染详细信息（生日/所在地/网站/社交链接） ====================
+// 后端已按隐私过滤：生日仅本人/好友返回，所在地按 location_visible 返回，空值直接隐藏
+function renderProfileDetails(user, isOwner) {
+  const detailsEl = document.getElementById('profileDetails');
+  if (!detailsEl) return;
+  const chips = [];
+  // 生日（仅本人/好友可见，后端已过滤为空）
+  if (user.birthday) {
+    chips.push('<span class="profile-detail-chip">🎂 ' + esc(user.birthday) + '</span>');
+  }
+  // 所在地
+  if (user.location) {
+    chips.push('<span class="profile-detail-chip">📍 ' + esc(user.location) + '</span>');
+  }
+  // 个人网站
+  if (user.website) {
+    chips.push(`<span class="profile-detail-chip">🌐 <a href="${escAttr(user.website)}" target="_blank" rel="noopener">${esc(__('modal.website_label'))}</a></span>`);
+  }
+  // 社交链接（B站/微博/GitHub）
+  const socialLinks = user.socialLinks || user.social_links || {};
+  if (socialLinks && typeof socialLinks === 'object') {
+    if (socialLinks.bilibili) {
+      chips.push(`<span class="profile-detail-chip">📺 <a href="${escAttr(socialLinks.bilibili)}" target="_blank" rel="noopener">B站</a></span>`);
+    }
+    if (socialLinks.weibo) {
+      chips.push(`<span class="profile-detail-chip">📣 <a href="${escAttr(socialLinks.weibo)}" target="_blank" rel="noopener">微博</a></span>`);
+    }
+    if (socialLinks.github) {
+      chips.push(`<span class="profile-detail-chip">🐙 <a href="${escAttr(socialLinks.github)}" target="_blank" rel="noopener">GitHub</a></span>`);
+    }
+  }
+  if (chips.length) {
+    detailsEl.innerHTML = chips.join('');
+    detailsEl.classList.remove('d-none');
+  } else {
+    detailsEl.classList.add('d-none');
+    detailsEl.innerHTML = '';
   }
 }
 
@@ -419,6 +481,14 @@ function showEditProfileModal() {
   document.getElementById('editLocation').value = profileUser.location || '';
   document.getElementById('editWebsite').value = profileUser.website || profileUser.preferences?.website || '';
   document.getElementById('editCoverImage').value = profileUser.coverImage || profileUser.preferences?.coverImage || '';
+  // 封面显示位置
+  var coverPosEl = document.getElementById('editCoverPosition');
+  if (coverPosEl) {
+    var pos = profileUser.coverPosition || profileUser.preferences?.coverPosition;
+    coverPosEl.value = (pos === 'top' || pos === 'bottom' || pos === 'center') ? pos : 'center';
+  }
+  // 封面预览
+  updateCoverPreview(profileUser.coverImage || profileUser.preferences?.coverImage || '');
   // 生日
   var birthdayEl = document.getElementById('editBirthday');
   if (birthdayEl) birthdayEl.value = profileUser.birthday || '';
@@ -434,6 +504,46 @@ function showEditProfileModal() {
   var githubEl = document.getElementById('editSocialGithub');
   if (githubEl) githubEl.value = socialLinks.github || '';
   showModal('editProfileModal');
+}
+
+// 封面预览：有图显示缩略背景，无图显示"未设置"占位
+function updateCoverPreview(url) {
+  var preview = document.getElementById('editCoverPreview');
+  if (!preview) return;
+  if (url) {
+    preview.style.backgroundImage = 'url(' + url.replace(/["'()\\]/g, c => '\\' + c) + ')';
+    preview.style.backgroundSize = 'cover';
+    preview.style.backgroundPosition = 'center';
+    preview.innerHTML = '';
+  } else {
+    preview.style.backgroundImage = '';
+    preview.innerHTML = '<span class="text-muted">' + __('modal.cover_none') + '</span>';
+  }
+}
+
+/**
+ * 上传封面
+ */
+async function uploadProfileCover(file) {
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { toast(__('profile_page.select_image'), 'error'); return; }
+  if (file.size > 10 * 1024 * 1024) { toast(__('profile_page.cover_too_large'), 'error'); return; }
+  try {
+    var formData = new FormData();
+    formData.append('cover', file);
+    var res = await apiForm('/api/users/me/cover', formData);
+    if (res.ok) {
+      var data = await res.json();
+      toast(__('profile_page.cover_updated'), 'success');
+      // 更新预览与 URL 输入框
+      updateCoverPreview(data.coverUrl);
+      var urlInput = document.getElementById('editCoverImage');
+      if (urlInput) urlInput.value = data.coverUrl;
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('profile_page.cover_upload_failed'), 'error');
+  }
 }
 
 /**
@@ -467,6 +577,7 @@ async function saveEditProfile() {
   const location = document.getElementById('editLocation')?.value?.trim();
   const website = document.getElementById('editWebsite')?.value?.trim();
   const coverImage = document.getElementById('editCoverImage')?.value?.trim();
+  const coverPosition = document.getElementById('editCoverPosition')?.value;
   const birthday = document.getElementById('editBirthday')?.value?.trim() || null;
   const socialBilibili = document.getElementById('editSocialBilibili')?.value?.trim() || '';
   const socialWeibo = document.getElementById('editSocialWeibo')?.value?.trim() || '';
@@ -479,12 +590,15 @@ async function saveEditProfile() {
   if (coverImage !== undefined) { body.coverImage = coverImage; }
   if (website !== undefined) { body.website = website; }
   if (birthday !== undefined) { body.birthday = birthday || null; }
-  // 社交链接
+  if (coverPosition !== undefined) {
+    body.coverPosition = (coverPosition === 'top' || coverPosition === 'bottom') ? coverPosition : 'center';
+  }
+  // 社交链接（始终提交，清空输入时后端才能同步清空旧链接）
   const socialLinks = {};
   if (socialBilibili) socialLinks.bilibili = socialBilibili;
   if (socialWeibo) socialLinks.weibo = socialWeibo;
   if (socialGithub) socialLinks.github = socialGithub;
-  if (Object.keys(socialLinks).length > 0) body.socialLinks = socialLinks;
+  body.socialLinks = socialLinks;
 
   if (Object.keys(body).length === 0) { toast(__('profile_page.nothing_to_update'), 'info'); return; }
 
@@ -499,11 +613,14 @@ async function saveEditProfile() {
       if (coverImage !== undefined) { profileUser.coverImage = coverImage; if (!profileUser.preferences) profileUser.preferences = {}; profileUser.preferences.coverImage = coverImage; }
       if (website !== undefined) { if (!profileUser.preferences) profileUser.preferences = {}; profileUser.preferences.website = website; }
       if (birthday !== undefined) profileUser.birthday = birthday;
+      profileUser.socialLinks = socialLinks;
+      if (coverPosition !== undefined) { if (!profileUser.preferences) profileUser.preferences = {}; profileUser.preferences.coverPosition = body.coverPosition; profileUser.coverPosition = body.coverPosition; }
       if (currentUser) {
         if (motto !== undefined) { currentUser.motto = motto; if (!currentUser.preferences) currentUser.preferences = {}; currentUser.preferences.motto = motto; }
         if (bio !== undefined) currentUser.bio = bio;
         if (website !== undefined) { if (!currentUser.preferences) currentUser.preferences = {}; currentUser.preferences.website = website; }
         if (birthday !== undefined) currentUser.birthday = birthday;
+        if (coverPosition !== undefined) { if (!currentUser.preferences) currentUser.preferences = {}; currentUser.preferences.coverPosition = body.coverPosition; currentUser.coverPosition = body.coverPosition; }
       }
       closeModal('editProfileModal');
       renderProfileHeader(profileUser, true);

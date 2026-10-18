@@ -500,4 +500,23 @@ function toSqlDatetime(value) {
   return null;
 }
 
-module.exports = { getPool, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, escapeLike, toSqlDatetime, validateFields, normalizeSelfTags, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };
+// 将 MySQL DATE 字段规范化为 'YYYY-MM-DD' 纯日期字符串。
+// 背景：mysql2 默认把 DATE 转成 Date 对象，JSON 序列化后是 UTC ISO 字符串
+//（如 '2000-05-20T00:00:00.000Z'），浏览器时区非 UTC+8 时会把生日显示成前一天，
+// 且 <input type="date"> 无法回填 ISO 字符串。SQLite 模式返回的是 'YYYY-MM-DD' 字符串。
+// 本函数统一收敛：Date 按项目 DB 时区（+08:00，无夏令时）取日期分量，
+// 字符串截取前 10 位（兼容 ISO / 'YYYY-MM-DD' / 'YYYY-MM-DD HH:MM:SS'）。
+function formatDateOnly(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    // mysql2 按 +08:00 解析 DATE，Date 内部是 UTC；加 8 小时还原北京时间的日期分量
+    const cn = new Date(value.getTime() + 8 * 3600 * 1000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${cn.getUTCFullYear()}-${p(cn.getUTCMonth() + 1)}-${p(cn.getUTCDate())}`;
+  }
+  const s = String(value).trim();
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
+module.exports = { getPool, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, escapeLike, toSqlDatetime, formatDateOnly, validateFields, normalizeSelfTags, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };

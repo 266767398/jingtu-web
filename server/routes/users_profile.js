@@ -10,7 +10,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const { requireAuth, getAvatarUrl, encryptAES, decryptAES } = require('../auth');
 const {
-  ok, getPool, validateFields, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, normalizeSelfTags
+  ok, getPool, validateFields, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, normalizeSelfTags, formatDateOnly
 } = require('../utils');
 const { VRC_API, VRC_API_KEY } = require('../vrc');
 const wsService = require('../ws_service');
@@ -62,6 +62,40 @@ const avatarStorage = multer.diskStorage({
 const avatarUpload = multer({
   storage: avatarStorage,
   limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: createFileFilter(['IMAGE'])
+});
+
+// ==================== 封面上传配置 ====================
+const COVER_DIR = path.join(ROOT_DIR, 'uploads', 'covers');
+if (!fs.existsSync(COVER_DIR)) fs.mkdirSync(COVER_DIR, { recursive: true });
+
+// 清理某用户的旧封面文件（best-effort）：每次上传用时间戳唯一文件名，
+// 只删除本次请求开始之前已存在的 cover_{id}_* 文件，防止并发互删（语义同 cleanupOldAvatars）
+function cleanupOldCovers(userId, keepName, notBeforeTs) {
+  try {
+    const files = fs.readdirSync(COVER_DIR);
+    const id = String(userId);
+    const threshold = typeof notBeforeTs === 'number' ? notBeforeTs : Number.MAX_SAFE_INTEGER;
+    for (const f of files) {
+      if (f === keepName) continue;
+      if (!f.startsWith(`cover_${id}_`)) continue;
+      try {
+        const st = fs.statSync(path.join(COVER_DIR, f));
+        if (st.mtimeMs < threshold) fs.unlinkSync(path.join(COVER_DIR, f));
+      } catch {}
+    }
+  } catch {}
+}
+
+const coverStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, COVER_DIR),
+  filename: (req, file, cb) => {
+    cb(null, `cover_${req.session.userId}_${Date.now()}${path.extname(file.originalname)}`);
+  }
+});
+const coverUpload = multer({
+  storage: coverStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: createFileFilter(['IMAGE'])
 });
 
@@ -118,7 +152,7 @@ router.get('/me/profile', requireAuth, async (req, res) => {
       // 供「我的信息」头像光环显示；未绑定/无记录 → null，前端回退金色默认环。
       trustLevel: u.self_trust_level || null,
       trustLevelCn: u.self_trust_level_cn || null,
-      birthday: u.birthday,
+      birthday: formatDateOnly(u.birthday),
       location: u.location,
       lat: u.lat,
       lng: u.lng,
@@ -148,7 +182,7 @@ router.put('/me/profile', requireAuth, async (req, res) => {
     if (req.session.userId === 0) {
       return sendError(res, 403, ErrorCodes.FORBIDDEN, '游客不能修改资料');
     }
-    const { displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage, selfTags, tagsVisible } = req.body;
+    const { displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage, coverPosition, selfTags, tagsVisible } = req.body;
     const updates = {};
 
     if (displayName !== undefined) {
@@ -201,6 +235,13 @@ router.put('/me/profile', requireAuth, async (req, res) => {
     if (coverImage !== undefined) {
       if (!isSafeUrl(coverImage)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '封面图地址格式不正确');
       prefsObj.coverImage = coverImage;
+    }
+    // coverPosition 存到 preferences.coverPosition（封面显示位置：top/center/bottom）
+    if (coverPosition !== undefined) {
+      if (typeof coverPosition !== 'string' || !['top', 'center', 'bottom'].includes(coverPosition)) {
+        return sendError(res, 400, ErrorCodes.BAD_REQUEST, '封面显示位置必须是 top/center/bottom');
+      }
+      prefsObj.coverPosition = coverPosition;
     }
     // V6.10: socialLinks 存到 preferences.social_links（平面对象 string→string，防深层结构滥用）
     if (socialLinks !== undefined) {
@@ -341,6 +382,57 @@ router.post('/me/avatar', requireAuth, secureUpload(avatarUpload.single('avatar'
   } catch (e) { handleError(res, e, '[users/avatar]'); }
   finally {
     // 无论成功/失败，删除 multer 临时文件，避免 uploads/avatars 目录堆积 avatar_{id}_* 残留
+    if (tmpPath) { try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {} }
+  }
+});
+
+// ==================== 上传自定义封面 ====================
+// 封面区域尺寸不固定，上传时只限制尺寸上限，不裁剪；显示位置由前端 coverPosition 控制
+router.post('/me/cover', requireAuth, secureUpload(coverUpload.single('cover')), async (req, res) => {
+  if (!req.file) {
+    return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请选择封面图片');
+  }
+  let tmpPath = req.file ? req.file.path : null;
+  try {
+    const startedAt = Date.now();
+    const ts = Date.now();
+    const finalName = `cover_${req.session.userId}_${ts}.jpg`;
+    const finalPath = path.join(COVER_DIR, finalName);
+
+    // 压缩为长边 ≤1920 的 JPG（不放大、不裁剪），保留原比例；封面尺寸随区域变化
+    await sharp(req.file.path)
+      .resize(1920, null, { withoutEnlargement: true })
+      .jpeg({ quality: 85 })
+      .toFile(finalPath);
+
+    if (!fs.existsSync(finalPath) || fs.statSync(finalPath).size === 0) {
+      throw new Error('封面上传失败：目标文件未写入');
+    }
+
+    cleanupOldCovers(req.session.userId, finalName, startedAt);
+
+    const url = `/uploads/covers/${finalName}`;
+
+    // 同步 preferences.coverImage（公开主页读取端以 preferences 为真相源）
+    try {
+      const [cur] = await getPool().query(`SELECT preferences FROM users WHERE id = ?`, [req.session.userId]);
+      let prefs = cur.length && cur[0].preferences
+        ? (typeof cur[0].preferences === 'string' ? JSON.parse(cur[0].preferences) : cur[0].preferences)
+        : {};
+      if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) prefs = {};
+      prefs.coverImage = url;
+      await getPool().query(`UPDATE users SET preferences = ?, updated_at = NOW() WHERE id = ?`,
+        [JSON.stringify(prefs), req.session.userId]);
+    } catch (e) {
+      logger.warn('users', '⚠️ 封面上传后 preferences 同步失败:', e.message);
+    }
+
+    ok(res, { coverUrl: url, message: '封面上传成功' });
+    // 操作日志
+    await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '上传封面', ?)`,
+      [req.session.userId, `上传自定义封面: ${req.file.originalname}`]);
+  } catch (e) { handleError(res, e, '[users/cover]'); }
+  finally {
     if (tmpPath) { try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {} }
   }
 });

@@ -8,7 +8,7 @@
  *   description: 管理后台用户管理接口
  */
 const express = require('express');
-const { fail, ok, getPool, handleError, logOper, sendError, ErrorCodes, paginate, escapeLike } = require('../utils');
+const { fail, ok, getPool, handleError, logOper, sendError, ErrorCodes, paginate, escapeLike, formatDateOnly } = require('../utils');
 const {
   requireAdminCompat, requireRole,
   hashPassword, validatePasswordStrength, verifyPassword,
@@ -91,7 +91,7 @@ module.exports = function createAdminUsersRouter() {
                 u.email, u.birthday, u.preferences
          FROM users u WHERE ${w} ORDER BY u.created_at DESC LIMIT ? OFFSET ?`, [...params, pageSize, offset]
       );
-      const mapped = rows.map(u => ({ ...u, avatarUrl: getAvatarUrl(u) }));
+      const mapped = rows.map(u => ({ ...u, avatarUrl: getAvatarUrl(u), birthday: formatDateOnly(u.birthday) }));
       res.json({ users: mapped, total: count[0].total, page, pageSize, totalPages: Math.ceil(count[0].total / pageSize) });
     } catch (e) { handleError(res, e, '[admin/users]'); }
   });

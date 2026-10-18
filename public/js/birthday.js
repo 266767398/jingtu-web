@@ -60,7 +60,8 @@ function isToday(birthday) {
   if (!birthday) return false;
   const today = new Date();
   const todayStr = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-  return birthday.endsWith(todayStr);
+  // 后端统一返回 'YYYY-MM-DD'（好友）或 'MM-DD'（非好友）；取末 5 位兼容两种格式
+  return String(birthday).slice(-5) === todayStr;
 }
 
 // ==================== 生日派对活动 ====================

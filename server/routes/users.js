@@ -13,7 +13,7 @@ const {
   requireAuth, requireRole,
   getAvatarUrl, currentRole, hasRole
 } = require('../auth');
-const { fail, ok, getPool, validateFields, handleError, sendError, ErrorCodes, paginate, logOper, escapeLike, proxyVrcAvatar } = require('../utils');
+const { fail, ok, getPool, validateFields, handleError, sendError, ErrorCodes, paginate, logOper, escapeLike, proxyVrcAvatar, formatDateOnly } = require('../utils');
 const { passwordResetLimiter } = require('../middleware/rate_limit');
 const logger = require('../logger');
 
@@ -40,7 +40,7 @@ function sanitizeUser(u) {
     role: u.role,
     avatarType: u.avatar_type,
     avatarUrl: getAvatarUrl(u),
-    birthday: u.birthday,
+    birthday: formatDateOnly(u.birthday),
     location: u.location_visible ? u.location : null,
     lat: u.location_visible ? u.lat : null,
     lng: u.location_visible ? u.lng : null,
@@ -407,10 +407,9 @@ router.get('/birthdays', requireAuth, async (req, res) => {
 
     // IDOR-5: 非好友隐藏出生年份（格式化 YYYY-MM-DD → MM-DD），避免暴露精确年龄
     const mapped = rows.map(r => {
-      let birthday = r.birthday;
+      let birthday = formatDateOnly(r.birthday);
       if (birthday && !friendSet.has(String(r.id))) {
-        const b = new Date(birthday);
-        birthday = `${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
+        birthday = birthday.slice(5); // 'YYYY-MM-DD' → 'MM-DD'
       }
       return { id: r.id, displayName: r.displayName, birthday, avatarUrl: r.avatarUrl };
     });
@@ -419,8 +418,7 @@ router.get('/birthdays', requireAuth, async (req, res) => {
       if (!r.birthday) return false;
       const parts = String(r.birthday).split('-');
       if (parts.length === 2) return parseInt(parts[0], 10) === month && parseInt(parts[1], 10) === day;
-      const b = new Date(r.birthday);
-      return b.getMonth() + 1 === month && b.getDate() === day;
+      return parseInt(parts[1], 10) === month && parseInt(parts[2], 10) === day;
     });
 
     res.json({ birthdays: mapped, todayCount: todayBirthdays.length, todayBirthdays });
@@ -872,14 +870,9 @@ router.get('/:id/card', requireAuth, async (req, res, next) => {
         } catch (e) { logger.warn('users', '[card] 好友关系查询失败，按非好友处理:', e.message); }
       }
     }
-    let birthday = u.birthday;
+    let birthday = formatDateOnly(u.birthday);
     if (birthday && !canSeeFullBirthday) {
-      const b = new Date(birthday);
-      if (!Number.isNaN(b.getTime())) {
-        birthday = `${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
-      } else {
-        birthday = null;
-      }
+      birthday = birthday.slice(5); // 隐藏出生年份，仅返回 MM-DD
     }
     res.json({
       id: u.id,

@@ -14,7 +14,7 @@ const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
 const { requireAuth } = require('../auth');
-const { ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, normalizeSelfTags  } = require('../utils');;
+const { ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, normalizeSelfTags, formatDateOnly  } = require('../utils');;
 const logger = require('../logger');
 const { extractVideoThumbnail, getVideoDuration } = require('../video_utils');
 
@@ -188,7 +188,7 @@ router.get('/export', requireAuth, async (req, res) => {
     
     const data = {
       exportedAt: new Date().toISOString(),
-      user: users[0] || null,
+      user: users[0] ? { ...users[0], birthday: formatDateOnly(users[0].birthday) } : null,
       profile: profile[0] || null,
       posts: posts.map ? posts : [],
       photos: photos.map ? photos : [],
@@ -360,7 +360,12 @@ router.get('/:userId', async (req, res) => {
       motto: prefs.motto ?? (profileRow ? profileRow.motto : '') ?? '',
       bio: prefs.bio ?? (profileRow ? profileRow.bio : '') ?? '',
       website: prefs.website ?? (profileRow ? profileRow.website : '') ?? '',
-      coverImage: prefs.coverImage ?? (profileRow ? profileRow.coverImage : '') ?? ''
+      coverImage: prefs.coverImage ?? (profileRow ? profileRow.coverImage : '') ?? '',
+      // 社交链接与封面显示位置：真相源为 preferences（与编辑弹窗写入端一致）
+      socialLinks: (prefs.social_links && typeof prefs.social_links === 'object' && !Array.isArray(prefs.social_links))
+        ? prefs.social_links : {},
+      coverPosition: (prefs.coverPosition && ['top', 'center', 'bottom'].includes(prefs.coverPosition))
+        ? prefs.coverPosition : 'center'
     };
     // location 优先取 users 主表（隐私：非好友/游客按隐私设置隐藏）
     profile.location = (user.location && (canSeeSensitive || user.location_visible)) ? user.location : '';
@@ -419,7 +424,7 @@ router.get('/:userId', async (req, res) => {
         // 隐私墙：vrchatId / vrchatName / birthday 仅本人或好友可见（游客/陌生者隐藏）
         vrchatId: canSeeSensitive ? user.vrchatId : null,
         vrchatName: canSeeSensitive ? user.vrchatName : null,
-        birthday: canSeeSensitive ? user.birthday : null
+        birthday: canSeeSensitive ? formatDateOnly(user.birthday) : null
       },
       profile,
       albums,
