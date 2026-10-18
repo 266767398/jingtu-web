@@ -260,8 +260,9 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
       // 实例人数查询整体限时：VRChat 限流时 vrcAcquire 会排队（最长 12s），若成批实例
       // 每个都等满排队超时，/group/worlds 会被拖到几十秒（用户看到的「群组加载超时」）。
-      // 这里整体限时 8s，超时后未查完的实例直接走 DB 估算人数，接口秒级返回。
-      const INSTANCE_TOTAL_TIMEOUT = 8000;
+      // 这里整体限时 5s（V8.5 8s→5s：令牌桶被定时刷新占满时更快回落到 DB 估算人数兜底），
+      // 超时后未查完的实例直接走 DB 估算人数，接口秒级返回。
+      const INSTANCE_TOTAL_TIMEOUT = 5000;
       const drain = (async () => {
         for (let i = 0; i < instanceList.length; i += CONCURRENCY) {
           const batch = instanceList.slice(i, i + CONCURRENCY);

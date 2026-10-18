@@ -162,6 +162,9 @@ function l1Put(key, buf, ct) {
  */
 const CDN_RATE_LIMIT = 200;
 const CDN_RATE_WINDOW_MS = 60 * 1000;
+// V8.5 头像代理快速降级阈值：CDN 令牌桶排队深度超过该值时跳过回源走旧缓存/占位。
+// 200/min 桶 refill ≈ 3.3/s，排队 40 ≈ 12s 等待——超过即认为处于高峰，让路给已缓存资源。
+const AVATAR_PROXY_BACKLOG_SKIP = 40;
 let cdnTokens = CDN_RATE_LIMIT;
 let cdnLastTs = Date.now();
 const cdnQueue = [];
@@ -198,6 +201,13 @@ function cdnAcquire() {
     cdnQueue.push(run);
     if (!cdnDripTimer) cdnDripTimer = setTimeout(cdnDrip, 200);
   });
+}
+
+// CDN 令牌桶排队深度感知：>0 表示有回源请求正在排队等令牌。
+// V8.5 头像代理快速降级：CDN 被大量回源挤爆时（定时刷新/整群冷查），
+// 排队深度超过阈值就跳过注定要等的回源，直接走旧缓存/占位，避免头像请求空等令牌。
+function cdnBacklog() {
+  return cdnQueue.length;
 }
 
 // （原单源 fetchRemote 已迁至 server/media_providers.js，并升级为多源 failover：
@@ -553,6 +563,20 @@ module.exports = function (authStateRef, getVRCCookieFn) {
     if (avatarRateLimited(clientIp)) return sendPlaceholderOk(res);
 
     // 4) 回源：经 CDN 全局令牌桶限速 + 多源 failover（官方 CDN →/← 镜像池，熔断冷却跳过死源）
+    // V8.5 快速降级：CDN 令牌桶排队过深时（整群冷查/定时刷新峰值），回源注定要排队等令牌，
+    // 直接跳过硬等，优先旧缓存/占位兜底——头像稍后刷新可见，不拖慢当前请求。
+    if (cdnBacklog() > AVATAR_PROXY_BACKLOG_SKIP) {
+      logger.debug('avatar', `头像代理快速降级：CDN 令牌桶排队 ${cdnBacklog()} > ${AVATAR_PROXY_BACKLOG_SKIP}，跳过回源`);
+      try {
+        if (fs.existsSync(cacheFile)) {
+          const buf = fs.readFileSync(cacheFile);
+          let ct = 'image/jpeg';
+          try { ct = fs.readFileSync(cacheFile + '.ct', 'utf8'); } catch (e3) { /* 缺 content-type 文件则回退 */ }
+          return sendBuffer(res, buf, ct);
+        }
+      } catch (e3) { /* ignore */ }
+      return sendPlaceholderOk(res);
+    }
     try {
       await cdnAcquire();
       const { buffer, contentType } = await mediaProviders.fetchWithFailover(u);

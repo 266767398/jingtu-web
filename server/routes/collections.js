@@ -499,7 +499,9 @@ router.get('/search-models', async (req, res) => {
 //   - 精选：sort=order&featured=true（VRCX "Featured"）
 // 本端点做服务端代理：规避浏览器跨域、输入校验、本地缓存、上游失败优雅降级。
 const vrcWorldSearchCache = new Map();
-const VRC_WORLD_CACHE_TTL = 10 * 60 * 1000;
+// V8.5 热门世界排行 TTL 10min → 30min：世界排行数据变化慢，减少回源频次；
+// 令牌桶被定时刷新占满时，缓存命中可让用户请求零排队秒回。
+const VRC_WORLD_CACHE_TTL = 30 * 60 * 1000;
 
 // 归一化世界列表字段（对齐前端展示与收藏录入所需的字段）
 function normalizeWorldList(raw, n) {

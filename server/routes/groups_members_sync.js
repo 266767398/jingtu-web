@@ -14,7 +14,8 @@ const { fail, ok, getPool, handleError, sendVrcError, ErrorCodes, toSqlDatetime 
 const { requireAuth } = require('../auth');
 const {
   vrchatGetCurrentUserResult,
-  vrchatGetUser, vrchatResolveOnlineStatuses, vrchatGetFriendsOnlineMap
+  vrchatGetUser, vrchatResolveOnlineStatuses, vrchatGetFriendsOnlineMap,
+  vrcBacklog
 } = require('../vrc');
 const logger = require('../logger');
 const schedule = require('../schedule');
@@ -176,6 +177,16 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       // 仅用「群友共享状态」兜底，而不是把整个刷新接口打成 500。
       let onlineMap = new Map();
       let degraded = false;
+      // V8.5 快速降级：令牌桶已有较多请求排队（多为定时任务或其他用户）时，
+      // 手动刷新不再排队硬等（vrcAcquire 最长 12s 超时），直接走群友共享态 + DB 旧值兜底，
+      // 避免 /group/members/refresh 被拖到 20s+。额度恢复后下次刷新自然拿到实时数据。
+      // 阈值 2 与定时任务让路阈值（schedule.js 信任补充 vrcBacklog()>2）保持一致：
+      // 定时刷新主体并发 5，排队深度通常在 3~5，此时手动刷新立即降级。
+      const VRC_BACKLOG_SKIP = 2;
+      if (vrcBacklog() > VRC_BACKLOG_SKIP) {
+        degraded = true;
+        logger.warn('groups', `refresh 令牌桶繁忙（排队 ${vrcBacklog()} > ${VRC_BACKLOG_SKIP}），跳过 VRChat 在线解析，使用群友共享状态兜底`);
+      } else {
       try {
         const { cookie: vrcCookie, result: onlineResult } = await vrcWithFallback(req, async (cookie) => {
           // 探活：若该 cookie 已过期（401），让 vrcWithFallback 有机会降级重试。
@@ -208,6 +219,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
           throw e;
         }
       }
+      } // ┄ V8.5 else 收束：令牌桶繁忙时跳过 VRChat 在线解析，走共享态兜底 ┄
 
       // 方案 B：加载群友共享的在线状态（最近 15 分钟内上报，好友视角可信）
       const [sharedRows] = await pool.query(
