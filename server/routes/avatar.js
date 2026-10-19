@@ -21,6 +21,7 @@ const { requireAdminCompat } = require('../auth');
 const mediaProviders = require('../media_providers');
 const { vrchatGetUser } = require('../vrc');
 const { getPool } = require('../db');
+const logger = require('../logger');
 
 const ALLOWED_HOSTS = [
   'api.vrchat.cloud',

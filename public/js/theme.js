@@ -65,6 +65,7 @@ function initTheme() {
   const config = loadThemeConfig();
   document.querySelectorAll('.theme-mode-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === config.mode));
   document.querySelectorAll('.theme-brightness-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.brightness === config.brightness));
+  syncAnimSwitch();
   applyTheme(config);
   // 先清除旧的定时器，再重新设置
   if (_themeScheduleTimer) { clearInterval(_themeScheduleTimer); _themeScheduleTimer = null; }
@@ -130,4 +131,201 @@ function resetTheme() {
   initTheme();
   closeThemePanel();
   toast(__('ui.theme_reset'), 'success');
+}
+
+// ==================== 动态效果开关（force-anim 逃生舱 UI）====================
+// 背景：桌面端若系统/浏览器开启「减少动态效果」(prefers-reduced-motion: reduce)，
+// 站点会按无障碍规范把所有 CSS 动画立即结束（看起来像"动画卡住/静止"），
+// 而手机端通常没开该偏好所以动画正常。这里把 loader.js 的 ?anim=on 逃生舱
+// 暴露成主题面板里的可视化开关，用户可一键强制开启动画。
+function syncAnimSwitch() {
+  const forced = document.documentElement.classList.contains('force-anim');
+  document.querySelectorAll('[data-anim]').forEach(btn => {
+    btn.classList.toggle('active', forced ? btn.dataset.anim === 'on' : btn.dataset.anim === 'auto');
+  });
+}
+
+function setAnimMode(mode) {
+  try {
+    if (mode === 'on') localStorage.setItem('jingtu_anim', 'on');
+    else localStorage.removeItem('jingtu_anim');
+  } catch (e) { /* localStorage 不可用则仅本次生效 */ }
+  document.documentElement.classList.toggle('force-anim', mode === 'on');
+  syncAnimSwitch();
+}
+document.addEventListener('click', function (e) {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-anim]') : null;
+  if (!btn) return;
+  setAnimMode(btn.dataset.anim);
+});
+
+// ==================== 用户单独的网站背景 ====================
+// 与主题（亮度/强调色）相互独立：背景图来自用户资料 preferences.backgroundImage，
+// 登录后整站展示（loadMe 时应用）。空值 = 恢复主题默认背景。
+function applyUserSiteBackground(url) {
+  const layer = document.getElementById('siteBgLayer');
+  if (!layer) return;
+  // 有背景图时给 body 打标记：CSS 据此把卡片/面板/页脚等 UI 半透明化，让背景透出
+  document.body.classList.toggle('has-site-bg', !!url);
+  if (url) {
+    layer.style.backgroundImage = `url(${escCssUrl(url)})`;
+    // 图片探测失败（文件被清理/URL 失效）时静默回退默认背景，避免留下破图底色
+    const probe = new Image();
+    probe.onerror = function () {
+      layer.style.backgroundImage = '';
+      document.body.classList.remove('has-site-bg');
+    };
+    probe.src = url;
+  } else {
+    layer.style.backgroundImage = '';
+  }
+}
+
+// 刷新「我的 → 主题与外观」中的背景预览（预览框按图片实际宽高比自适应，不再固定裁剪）
+function refreshSiteBgUI(url) {
+  const preview = document.getElementById('meSiteBgPreview');
+  if (!preview) return;
+  if (url) {
+    preview.style.backgroundImage = `url(${escCssUrl(url)})`;
+    preview.style.backgroundSize = 'cover';
+    preview.style.backgroundPosition = 'center';
+    preview.style.aspectRatio = '';
+    preview.innerHTML = '';
+    const probe = new Image();
+    probe.onload = function () { preview.style.aspectRatio = (probe.naturalWidth / probe.naturalHeight).toFixed(3); };
+    probe.src = url;
+  } else {
+    preview.style.backgroundImage = '';
+    preview.style.backgroundSize = '';
+    preview.style.aspectRatio = '';
+    preview.innerHTML = '<span class="text-muted2">' + __('me.site_bg_none') + '</span>';
+  }
+}
+
+async function uploadSiteBackground(file) {
+  if (!file) return false;
+  if (!file.type.startsWith('image/')) { toast(__('profile_page.select_image'), 'error'); return false; }
+  if (file.size > 15 * 1024 * 1024) { toast(__('me.site_bg_too_large'), 'error'); return false; }
+  try {
+    const formData = new FormData();
+    formData.append('background', file);
+    const res = await apiForm('/api/users/me/background', formData);
+    if (res.ok) {
+      const data = await res.json();
+      applyUserSiteBackground(data.backgroundUrl);
+      refreshSiteBgUI(data.backgroundUrl);
+      if (currentUser) {
+        if (!currentUser.preferences) currentUser.preferences = {};
+        currentUser.preferences.backgroundImage = data.backgroundUrl;
+        currentUser.backgroundImage = data.backgroundUrl;
+      }
+      toast(__('me.site_bg_updated'), 'success');
+      return true;
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return false;
+    toast(__('me.site_bg_upload_failed'), 'error');
+  }
+  return false;
+}
+
+async function clearSiteBackground() {
+  try {
+    const res = await api('/api/users/me/background', { method: 'DELETE' });
+    if (res.ok) {
+      applyUserSiteBackground('');
+      refreshSiteBgUI('');
+      if (currentUser) {
+        if (!currentUser.preferences) currentUser.preferences = {};
+        currentUser.preferences.backgroundImage = '';
+        currentUser.backgroundImage = '';
+      }
+      toast(__('me.site_bg_cleared'), 'success');
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('me.site_bg_upload_failed'), 'error');
+  }
+}
+
+// ==================== 用户横幅（封面照片） ====================
+// 横幅即公开主页/成员详情的封面图，存在 preferences.coverImage（与编辑资料弹窗同一字段）。
+// ALSO NOTE: 在「我的 → 主题与外观」管理，他人可查看（公开）。
+function applyBannerPreview(url) {
+  const preview = document.getElementById('meBannerPreview');
+  if (!preview) return;
+  if (url) {
+    preview.style.backgroundImage = `url(${escCssUrl(url)})`;
+    preview.style.backgroundSize = 'cover';
+    preview.style.backgroundPosition = 'center';
+    preview.style.aspectRatio = '';
+    preview.innerHTML = '';
+    const probe = new Image();
+    probe.onload = function () { preview.style.aspectRatio = (probe.naturalWidth / probe.naturalHeight).toFixed(3); };
+    probe.src = url;
+  } else {
+    preview.style.backgroundImage = '';
+    preview.style.backgroundSize = '';
+    preview.style.aspectRatio = '';
+    preview.innerHTML = '<span class="text-muted2">' + __('me.banner_none') + '</span>';
+  }
+}
+
+// 登录后同步横幅预览（由 auth.js loadMe 调用）
+function refreshBannerUI(url) {
+  applyBannerPreview(url);
+}
+
+async function uploadBanner(file) {
+  if (!file) return false;
+  if (!file.type.startsWith('image/')) { toast(__('profile_page.select_image'), 'error'); return false; }
+  if (file.size > 10 * 1024 * 1024) { toast(__('me.banner_too_large'), 'error'); return false; }
+  try {
+    const formData = new FormData();
+    formData.append('cover', file);
+    const res = await apiForm('/api/users/me/cover', formData);
+    if (res.ok) {
+      const data = await res.json();
+      applyBannerPreview(data.coverUrl);
+      if (currentUser) {
+        if (!currentUser.preferences) currentUser.preferences = {};
+        currentUser.preferences.coverImage = data.coverUrl;
+        currentUser.coverImage = data.coverUrl;
+      }
+      // 同步完整资料页横幅（若已打开）与成员名片，无需再点保存
+      if (typeof loadUserProfile === 'function' && typeof profileUser !== 'undefined' && profileUser && String(profileUser.id) === String(currentUser.id)) {
+        loadUserProfile(currentUser.id);
+      }
+      toast(__('me.banner_updated'), 'success');
+      return true;
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return false;
+    toast(__('me.banner_upload_failed'), 'error');
+  }
+  return false;
+}
+
+async function clearBanner() {
+  try {
+    const res = await api('/api/users/me/profile', {
+      method: 'PUT',
+      body: { coverImage: '' }
+    });
+    if (res.ok) {
+      applyBannerPreview('');
+      if (currentUser) {
+        if (!currentUser.preferences) currentUser.preferences = {};
+        currentUser.preferences.coverImage = '';
+        currentUser.coverImage = '';
+      }
+      if (typeof loadUserProfile === 'function' && typeof profileUser !== 'undefined' && profileUser && String(profileUser.id) === String(currentUser.id)) {
+        loadUserProfile(currentUser.id);
+      }
+      toast(__('me.banner_cleared'), 'success');
+    }
+  } catch (err) {
+    if (isApiHandledError(err)) return;
+    toast(__('me.banner_upload_failed'), 'error');
+  }
 }

@@ -1,4 +1,4 @@
-﻿﻿#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
   境途WEB 统一运维工具（PowerShell 主程序，Windows）
   ----------------------------------------------------------
@@ -60,6 +60,15 @@ function Stop-NodeByScript([string]$pattern) {
 
 function Write-Line([string]$text, [string]$color = 'White') {
     if ($color -and $color -ne 'White') { Write-Host $text -ForegroundColor $color } else { Write-Host $text }
+}
+
+# 判断一个 PID 是否为本项目 site 进程（命令行含 server\server.js）。
+# 用于区分「端口被本启动器 / 其它方式（如 ServBay 站点）占用」，防止双实例误会。
+function Test-SiteProcess([int]$targetPid) {
+    try {
+        $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $targetPid) -ErrorAction SilentlyContinue
+        return ($p -and $p.CommandLine -and $p.CommandLine -match 'server[\\/]server\.js')
+    } catch { return $false }
 }
 
 # 中文在控制台占两列，用 {0,-10} 按字符数补齐会让表格错位，这里按显示宽度补
@@ -545,20 +554,33 @@ function Start-Site {
         Write-Line "[警告] Nginx 未能启动，网站将只能通过 http://localhost:$SitePort 直接访问（80 入口不可用）" $Cfg.C_Warn
     }
     if ($null -ne (Test-Port $SitePort)) {
+        $existPid = Test-Port $SitePort
         $url = Get-SiteUrl
-        Write-Line ("[提示] 网站已在运行 PID:" + (Test-Port $SitePort) + "  " + $url) $Cfg.C_Warn
+        $srcNote = if (Test-SiteProcess $existPid) { '（由其它方式启动，如 ServBay 站点，非本启动器）' } else { '' }
+        Write-Line ("[提示] 网站已在运行 PID:" + $existPid + $srcNote + "  " + $url) $Cfg.C_Warn
         if (-not $NoBrowser) { try { Start-Process $url | Out-Null } catch {} }
         return
     }
     Write-Line '正在启动网站...' $Cfg.C_Info
     $node = Get-NodePath
-    Start-Process -FilePath $node -ArgumentList (Join-StartArg @($SiteScript)) -WorkingDirectory $SiteDir `
+    $launched = Start-Process -FilePath $node -ArgumentList (Join-StartArg @($SiteScript)) -WorkingDirectory $SiteDir `
         -WindowStyle Hidden -RedirectStandardOutput (Join-Path $LogDir 'site.log') `
-        -RedirectStandardError  (Join-Path $LogDir 'site.err')
+        -RedirectStandardError  (Join-Path $LogDir 'site.err') -PassThru
     $wait = 0
     while ($null -eq (Test-Port $SitePort) -and $wait -lt 15) { Start-Sleep -Seconds 1; $wait++ }
     $procId = Test-Port $SitePort
     if ($null -ne $procId) {
+        # 防双实例：启动窗口内若端口被其它启动器（如 ServBay）抢先占用，最终监听者不是
+        # 本次拉起的进程。此时结束自己拉起的实例，避免留下「进程活着但无端口」的僵尸，
+        # 否则两份定时任务/数据库写入/VRChat API 请求会同时运行。
+        if ($procId -ne $launched.Id) {
+            try { Stop-Process -Id $launched.Id -Force -ErrorAction SilentlyContinue } catch {}
+            $url = Get-SiteUrl
+            Write-Line ("[警告] 端口 {0} 已被其它进程(PID {1})抢先占用，为防双实例已取消本次启动；网站仍可访问 → {2}" -f $SitePort, $procId, $url) $Cfg.C_Warn
+            Write-Line '[提示] 如需改用本启动器接管，请先执行 jingtu.bat stop 停止现存实例，再执行 start。' $Cfg.C_Info
+            if (-not $NoBrowser) { try { Start-Process $url | Out-Null } catch {} }
+            return
+        }
         $url = Get-SiteUrl
         Write-Line "[成功] 网站已启动 PID:$procId  $url" $Cfg.C_Ok
         if (-not $NoBrowser) { try { Start-Process $url | Out-Null } catch {} }

@@ -494,6 +494,9 @@ module.exports = function (notificationService) {
         return res.json({ items: [], total: 0, page, pageSize });
       }
       const ph = ids.map(() => '?').join(',');
+      // album/event_sign 的 user_vrcid 存的是数字用户ID（字符串形式），同时兼容历史上存 vrchat_name 的旧数据
+      const idStrs = ids.map(String);
+      const phStr = idStrs.map(() => '?').join(',');
 
       // 三类动态分别查询（各自 LIMIT 保证足够候选，最终统一排序截断）
       // 1) 动态 posts
@@ -510,20 +513,20 @@ module.exports = function (notificationService) {
         `SELECT s.id, s.event_id, s.user_vrcid, s.user_name, s.sign_time,
                 e.title AS event_title
          FROM event_sign s JOIN event e ON e.id = s.event_id
-         WHERE s.user_vrcid IN (
+         WHERE (s.user_vrcid IN (${phStr}) OR s.user_vrcid IN (
            SELECT vrchat_name FROM users WHERE id IN (${ph}) AND vrchat_name IS NOT NULL AND vrchat_name != ''
-         ) AND s.is_sign = 1 AND s.sign_time IS NOT NULL
-         ORDER BY s.sign_time DESC LIMIT ?`, pageSize
+         )) AND s.is_sign = 1 AND s.sign_time IS NOT NULL
+         ORDER BY s.sign_time DESC LIMIT ?`, [...idStrs, ...ids, pageSize]
       );
       // 3) 相册照片 album_photo
       const [photos] = await pool.query(
         `SELECT a.id, a.upload_vrcid, a.upload_name, a.photo_desc, a.photo_path, a.thumb_path,
                 a.like_count, a.create_time
          FROM album_photo a
-         WHERE a.upload_vrcid IN (
+         WHERE (a.upload_vrcid IN (${phStr}) OR a.upload_vrcid IN (
            SELECT vrchat_name FROM users WHERE id IN (${ph}) AND vrchat_name IS NOT NULL AND vrchat_name != ''
-         ) AND a.visibility IN ('public','members_only') AND a.is_recycle = 0
-         ORDER BY a.create_time DESC LIMIT ?`, pageSize
+         )) AND a.visibility IN ('public','members_only') AND a.is_recycle = 0
+         ORDER BY a.create_time DESC LIMIT ?`, [...idStrs, ...ids, pageSize]
       );
 
       // 归一化为统一 feed item

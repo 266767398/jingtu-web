@@ -643,12 +643,8 @@ function bindEvents() {
       });
     }
   });
-  const loginPwd = document.getElementById('loginPassword');
-  if (loginPwd) {
-    loginPwd.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') doPasswordLogin();
-    });
-  }
+  // 密码登录回车提交统一在 index.html 事件绑定区处理（bindKeydown('loginPassword')），
+  // 此处不再重复绑定，避免一次回车并发两次登录请求。
   const loginVrcPwd = document.getElementById('loginVrcPass');
   if (loginVrcPwd) {
     loginVrcPwd.addEventListener('keydown', (e) => {

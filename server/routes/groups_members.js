@@ -42,6 +42,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
                 gr.trust_level AS trustLevel, gr.trust_level_cn AS trustLevelCn,
                 IF(bl.vrchat_id IS NOT NULL, 1, 0) AS blacklisted,
                 u.id AS siteUserId,
+                u.halo_visible AS haloVisible,
                 IF(f.follower_id IS NOT NULL, 1, 0) AS isFollowing
                 FROM group_roster gr
                 LEFT JOIN vrc_blacklist bl ON gr.vrchat_id = bl.vrchat_id
@@ -74,6 +75,8 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       const [rows] = await getPool().query(sql, params);
       for (const r of rows) {
         try { r.roleIds = JSON.parse(r.roleIds || '[]'); } catch { r.roleIds = []; }
+        // haloVisible：该成员自己的光环可见性（null=未绑定网站账号，默认显示）
+        r.haloVisible = r.haloVisible === null ? null : r.haloVisible !== 0;
       }
       res.json({ members: rows, total: rows.length });
     } catch (e) {

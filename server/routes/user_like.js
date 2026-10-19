@@ -60,15 +60,31 @@ router.post('/:userId/like', requireAuth, async (req, res) => {
     }
 
     const pool = getPool();
-    await pool.query(
-      `INSERT INTO user_like (from_user_id, to_user_id, like_date) VALUES (?, ?, ?)`,
-      [currentUserId, targetUserId, today]
-    );
-    // 记录操作日志（赞算一次）
-    await pool.query(
-      `INSERT INTO user_like_actions (from_user_id, to_user_id, action_type, action_date) VALUES (?, ?, 'like', ?)`,
-      [currentUserId, targetUserId, today]
-    );
+    // 事务：user_like 主记录 + user_like_actions 操作日志双写原子；
+    // 并发双击/重复请求命中 uk_user_date 唯一键时按「已赞」幂等处理，不再抛 500
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.query(
+        `INSERT INTO user_like (from_user_id, to_user_id, like_date) VALUES (?, ?, ?)`,
+        [currentUserId, targetUserId, today]
+      );
+      // 记录操作日志（赞算一次）
+      await conn.query(
+        `INSERT INTO user_like_actions (from_user_id, to_user_id, action_type, action_date) VALUES (?, ?, 'like', ?)`,
+        [currentUserId, targetUserId, today]
+      );
+      await conn.commit();
+    } catch (e) {
+      try { await conn.rollback(); } catch (_) {}
+      if (e && e.code === 'ER_DUP_ENTRY') {
+        // 已点赞过（含并发竞态）：跳过写入，幂等继续返回计数
+      } else {
+        throw e;
+      }
+    } finally {
+      conn.release();
+    }
 
     const [[{ likeCount }]] = await pool.query(
       `SELECT COUNT(*) as likeCount FROM user_like WHERE to_user_id = ?`,

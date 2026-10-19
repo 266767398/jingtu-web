@@ -406,7 +406,7 @@ describe('security regressions', () => {
   // 资料写入曾零校验直落库，且 coverImage 被静默丢弃；PUT /me/profile 必须全字段校验并接收 coverImage。
   test('validates profile updates and keeps the coverImage field', () => {
     const putProfile = sliceBetween(files.usersProfileRoute, "router.put('/me/profile'", "router.post('/me/avatar'");
-    expect(putProfile).toMatch(/const \{ displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage, coverPosition, selfTags, tagsVisible \} = req\.body/);
+    expect(putProfile).toMatch(/const \{ displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage, coverPosition, backgroundImage, selfTags, tagsVisible \} = req\.body/);
     expect(putProfile).toMatch(/!\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(birthday\)/);
     expect(putProfile).toMatch(/const isSafeUrl = \(v\) => typeof v === 'string' && v\.length <= 500 && \(/);
     expect(putProfile).toMatch(/\^https\?:\\\/\\\/\\S\+\$\/i\.test\(v\) \|\| \/\^\\\/\[A-Za-z0-9\._\\\-~\/\]\*\$\/\.test\(v\)/);

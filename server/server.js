@@ -103,6 +103,27 @@ app.set('etag', false);
 const server = http.createServer(app);
 const PORT = parseInt(process.env.PORT, 10) || 3456;
 
+// ==================== 对外入口统一 ====================
+// 入口约定：
+//  - 本机浏览器（http://localhost 或 127.0.0.1）规范走 80（Nginx 反代前门）；
+//    若直接访问 :3456 页面导航，302 到 80 同路径，消除「80 / 3456 两个都能打开页面」的双入口困惑。
+//  - 局域网设备（飞牛/NAS 等经 192.168.x.x:3456）直连 3456 正常提供服务，不做跳转，
+//    因为跳转到 http://localhost 会指向设备自身而不是本站。
+// API/静态资源/WebSocket 一律不受影响。
+app.use((req, res, next) => {
+  const host = String(req.headers.host || '').toLowerCase();
+  // 仅对 本机(localhost/127.0.0.1):3456 的页面导航做入口归一；局域网 IP 直连放行。
+  const m = /^(localhost|127\.0\.0\.1):(\d+)$/.exec(host);
+  if (!m || parseInt(m[2], 10) !== PORT) return next();
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  const accept = String(req.headers.accept || '');
+  if (!/text\/html/i.test(accept)) return next();
+  const p = req.path || '';
+  if (p.startsWith('/api/') || p.startsWith('/uploads/') || p.startsWith('/assets/')
+      || p === '/ws' || p.startsWith('/ws/')) return next();
+  return res.redirect(302, `http://localhost${req.originalUrl}`);
+});
+
 // ==================== 常量 ====================
 // P3-79: GROUP_ID 必须显式配置——未配置时生产环境拒绝启动（防止误同步到无关 VRChat 群组）；
 // 仅测试/开发（NODE_ENV=test 或 SQLite 引擎）环境保留默认值便于本地运行与测试加载。
@@ -1074,9 +1095,12 @@ async function init() {
     }
     throw e;
   });
-  server.listen(PORT, '0.0.0.0', () => {
-    logger.info('[server]', `境途同游 V8.2 已启动: http://localhost:${PORT}`);
-    logger.info('[server]', `局域网访问: http://<本机IP>:${PORT}`);
+  // 绑定地址：0.0.0.0 保证局域网设备（飞牛/NAS 等）经 http://<本机局域网IP>:3456 直连可达；
+  // 若只在单一机器本机访问，可在 .env 设 APP_BIND=127.0.0.1。
+  const BIND_HOST = process.env.APP_BIND || '0.0.0.0';
+  server.listen(PORT, BIND_HOST, () => {
+    logger.info('[server]', `境途同游 V8.2 已启动（监听 ${BIND_HOST}:${PORT}）`);
+    logger.info('[server]', `入口：本机浏览器走 http://localhost（Nginx 80 反代；直连本机 ${PORT} 页面会跳转到 80）；局域网设备走 http://<本机IP>:${PORT}`);
 
     // 启动后台子系统（均有环境守卫 / try-catch，缺失配置时安全跳过，不会拖垮主进程）
     cache.initCache().catch((e) => logger.warn('[init]', '缓存初始化异常:', e.message));

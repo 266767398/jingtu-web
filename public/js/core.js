@@ -1104,3 +1104,28 @@ window.addEventListener('unhandledrejection', (e) => {
   const reason = e && e.reason ? e.reason : __('core.unknown_error');
   console.error('[unhandledrejection]', reason && reason.message ? reason.message : reason);
 });
+
+// ==================== VRChat 信任等级色阶（全局单源） ====================
+// 顶部导航头像、成员列表/弹窗头像、群成员卡片、「我的信息」头像的信任光环统一用这套色阶。
+// 色值与 VRCX 对齐：恶劣玩家(灰) → 游客(白) → 新用户(蓝) → 用户(绿) → 常驻玩家(橙) → 资深玩家(紫)。
+// 定义在 core.js 是因为顶部导航需要它在 members.js 懒加载之前即可用；
+// members.js 中的同名声色表已改为引用本全局，避免两处漂移。
+window.VRC_TRUST_COLOR = {
+  'negative': '#9e9e9e',  // 恶劣玩家（灰）：会被其他玩家自动屏蔽
+  'visitor': '#ffffff',   // 游客（白）：新加入，权限有限
+  'new': '#2196f3',       // 新用户（蓝）：可上传模型和世界，但上传的世界默认私人
+  'user': '#4caf50',      // 用户（绿）：大多数功能开放
+  'known': '#ff9800',     // 常驻玩家（橙）
+  'trusted': '#1565c0',   // 信任（深蓝，API 罕见值兜底）
+  'vetted': '#fb8c00',    // 审核（深橙，API 罕见值兜底）
+  'veteran': '#9c27b0',   // 资深玩家（紫）
+  'legend': '#7b1fa2'     // 传奇（紫红，API 罕见值兜底，UI 不主推）
+};
+// 小写归一化查找，兼容 VRChat API 偶发大小写差异（API 返回值为全小写）
+window.trustColorOf = function trustColorOf(level) {
+  if (!level) return '';
+  return (window.VRC_TRUST_COLOR[(level || '').toLowerCase()]) || '';
+};
+// 默认信任环颜色：未绑定 VRChat / 名册暂无该用户信任等级时，渲染与 VRChat 默认相同的金色环，
+// 保证「信任环开关」在任何头像上都有可见效果（不随等级变化，仅表示"有环"）。
+window.DEFAULT_TRUST_COLOR = '#ffd700';

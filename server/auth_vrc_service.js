@@ -9,7 +9,8 @@ const {
   vrchatGetCurrentUserResult,
   vrchatGetUser,
   vrchatVerifyTwoFactor,
-  triggerVrcEmailOtp
+  triggerVrcEmailOtp,
+  resolveTrustLevelFromTags
 } = require('./vrc');
 const { fail, ok, getPool, encryptCookie, handleError, sendError, ErrorCodes } = require('./utils');
 const { createCustomLimiter } = require('./middleware/rate_limit');
@@ -505,6 +506,9 @@ router.post('/vrchat-bind-verify', vrcBindLimiter, requireAuth, async (req, res)
 
     const vrchatName = vrcUser.displayName || (username || '');
     const avatarUrl = vrcUser.currentAvatarThumbnailImageUrl || vrcUser.userIcon || vrcUser.iconUrl || '';
+    // V6.17: 绑定瞬间回填自身信任等级（/auth/user 返回完整 tags，是含 system_trust_* 的数据源），
+    // 未入群/名册暂无记录的用户「我的信息」头像光环也能立即显示信誉颜色而非默认金色。
+    const boundTrust = resolveTrustLevelFromTags(vrcUser.tags || []) || '';
 
     // 检查该 VRChat ID 是否已被其他人绑定（含软删除用户——vrchat_id 带 UNIQUE 索引，
     // 软删除用户若未释放绑定仍会占住索引，导致下方 UPDATE 撞唯一键返回 500"服务器内部错误"）
@@ -544,8 +548,8 @@ router.post('/vrchat-bind-verify', vrcBindLimiter, requireAuth, async (req, res)
     // 更新绑定信息（V9.3: 同步持久化加密 VRChat cookie 到 users.vrchat_token_enc，
     // 换浏览器后由 buildSession 从 DB 恢复，免重新绑定）
     await getPool().query(
-      `UPDATE users SET vrchat_id=?, vrchat_name=?, vrchat_avatar_url=?, avatar_type=?, vrchat_token_enc=?, updated_at=NOW() WHERE id=?`,
-      [vrchatId, vrchatName, avatarUrl, avatarUrl ? 'vrchat' : 'none', encryptedCookie, req.session.userId]
+      `UPDATE users SET vrchat_id=?, vrchat_name=?, vrchat_avatar_url=?, avatar_type=?, vrchat_token_enc=?, trust_level=?, trust_checked_at=NOW(), updated_at=NOW() WHERE id=?`,
+      [vrchatId, vrchatName, avatarUrl, avatarUrl ? 'vrchat' : 'none', encryptedCookie, boundTrust, req.session.userId]
     );
 
     // P3 修复：写入统一为 vrchatCookie（与 auth_session.buildSession 同字段；

@@ -339,7 +339,7 @@ module.exports = function (authStateRef, notificationService) {
         await getPool().query(`UPDATE album_photo SET like_count = (SELECT COUNT(*) FROM album_like WHERE photo_id = ?) WHERE id = ?`, [req.params.id, req.params.id]);
         const [photo] = await getPool().query(`SELECT upload_vrcid FROM album_photo WHERE id = ?`, [req.params.id]);
         if (photo.length > 0 && photo[0].upload_vrcid && photo[0].upload_vrcid !== uid && notificationService) {
-          const [uploader] = await getPool().query(`SELECT id FROM users WHERE login_id = ?`, [photo[0].upload_vrcid]);
+          const [uploader] = await getPool().query(`SELECT id FROM users WHERE id = ?`, [photo[0].upload_vrcid]);
           if (uploader.length > 0) {
             const [user] = await getPool().query(`SELECT display_name FROM users WHERE id = ?`, [uid]);
             const userName = user[0]?.display_name || '用户';
@@ -401,7 +401,7 @@ module.exports = function (authStateRef, notificationService) {
       await getPool().query(`INSERT INTO album_comment (photo_id, user_vrcid, user_name, comment) VALUES (?, ?, ?, ?)`,
         [req.params.id, req.session.loginId || uid, name, content]);
       if (photo.length > 0 && photo[0].upload_vrcid && photo[0].upload_vrcid !== uid && notificationService) {
-        const [uploader] = await getPool().query(`SELECT id FROM users WHERE login_id = ?`, [photo[0].upload_vrcid]);
+        const [uploader] = await getPool().query(`SELECT id FROM users WHERE id = ?`, [photo[0].upload_vrcid]);
         if (uploader.length > 0) {
           notificationService.notifyUser(
             uploader[0].id,

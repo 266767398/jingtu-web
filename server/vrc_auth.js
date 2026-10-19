@@ -16,6 +16,7 @@ const wsService = require('./ws_service');
 const VRCPipeline = require('./vrc_pipeline');
 const schedule = require('./schedule');
 const { getPool, encryptCookie, decryptCookie } = require('./utils');
+const notificationService = require('./notification-service');
 const {
   vrchatBasicLogin,
   vrchatVerifyTwoFactor,
@@ -331,14 +332,19 @@ module.exports = function setupVrcAuth() {
     });
 
     if (notification.notificationType === 'group.announcement') {
+      // 群组公告 → 每个成员的站内通知（铃铛），不再写入本站公告页：
+      // 系统账号可能加入多个 VRChat 群组，若直接 INSERT 到 announcement，
+      // 别群公告会被误当成「本站公告」展示在公告 Tab（用户反馈的语义混淆）。
+      // 正确归属：公告是「面向每个用户」的快讯，应进个人通知，由本人决定是否阅读。
       (async () => {
         try {
-          const pool = getPool();
-          await pool.query(
-            `INSERT INTO announcement (title, content, create_admin, visibility) VALUES (?, ?, ?, 'members_only')`,
-            [notification.title, notification.message, 'VRChat']
+          await notificationService.notifyAllMembers(
+            'vrc',
+            `📢 ${notification.title || '群组公告'}`,
+            (notification.message || '').slice(0, 500),
+            { targetType: 'vrc_group_announcement' }
           );
-        } catch (e) { logger.error('[announcement]', '群组公告存储失败:', e.message); }
+        } catch (e) { logger.error('[announcement]', '群组公告通知扇出失败:', e.message); }
       })();
     }
   });

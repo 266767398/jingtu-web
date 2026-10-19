@@ -186,14 +186,17 @@ function renderGroupMembers(members) {
     const avatar = avatarFailed ? '/api/avatar/default' : proxied;
     const displayName = m.displayName || m.vrchatName || m.vrchatId;
     // VRCX 风格信任等级色阶：在头像外围以彩色信任环呈现，复用成员名片同一套 VRC_TRUST_COLOR（小写归一化）
-    const trustColor = (typeof window.trustColorOf === 'function')
+    // 无信任等级时用默认环色，保证开关打开时每个头像都有环。
+    const trustColor = ((typeof window.trustColorOf === 'function')
       ? window.trustColorOf(m.trustLevel)
-      : ((window.VRC_TRUST_COLOR && m.trustLevel && window.VRC_TRUST_COLOR[(m.trustLevel || '').toLowerCase()]) || '');
-    // 【光环显示开关】用户可在「我的信息 → 头像显示设置」关闭信任光环；
-    // 关闭后全站（含群成员卡片）不渲染彩色信任环，统一回落到默认金色环。
-    const haloOn = !window.currentUser || window.currentUser.haloVisible !== false;
-    const ringClass = (trustColor && haloOn) ? ' has-trust-ring' : '';
-    const ringStyle = (trustColor && haloOn) ? ` style="--tc:${trustColor}"` : '';
+      : ((window.VRC_TRUST_COLOR && m.trustLevel && window.VRC_TRUST_COLOR[(m.trustLevel || '').toLowerCase()]) || '')) || window.DEFAULT_TRUST_COLOR;
+    // 【光环显示开关】每个用户可在「我的信息 → 头像显示设置」关闭自己的信任光环；
+    // 语义为「我的光环是否对别人可见」——别人浏览时按该成员自己的 haloVisible 渲染，
+    // 而不是按浏览者自己的开关（避免某用户关掉开关导致全站光环消失）。
+    // 非网站用户（无绑定 users 记录）haloVisible 为 null → 默认显示光环。
+    const haloOn = m.haloVisible !== false;
+    const ringClass = haloOn ? ' has-trust-ring' : '';
+    const ringStyle = haloOn ? ` style="--tc:${trustColor}"` : '';
     // 【P2-62】状态行只显示玩家自定义状态文字，无自定义时仅显示圆点（不再兜底__('auto_group_3')）
     const statusText = status.text;
 
@@ -207,7 +210,7 @@ function renderGroupMembers(members) {
       <div class="gm-avatar-wrap${ringClass}"${ringStyle}>
         <div class="gm-avatar-link" style="cursor:pointer">
           ${avatar ? `<img src="${escAttr(avatar)}" class="gm-avatar" alt="${esc(displayName)}" data-avatar="${escAttr(proxied || '')}" loading="lazy" data-avatar-fail-src="${escAttr(avatar)}">` : ''}
-          <img src="/api/avatar/default" class="gm-avatar" alt="${esc(displayName)}" data-gm-default-avatar="1" style="display:none" loading="lazy">
+          <img src="/api/avatar/default" class="gm-avatar" alt="${esc(displayName)}" data-gm-default-avatar="1" ${avatar ? 'style="display:none"' : ''} loading="lazy">
           <div class="gm-avatar-fallback" style="${avatar ? '' : 'display:flex'}">${esc(displayName.charAt(0).toUpperCase())}</div>
         </div>
         ${!isFriend ? '<div class="gm-friend-badge" title="' + __('group.non_friend_tooltip') + '">👤</div>' : ''}
@@ -215,18 +218,22 @@ function renderGroupMembers(members) {
       </div>
       <div class="gm-status-pill ${status.dotClass}" title="${esc(status.title || '')}">${esc(statusText)}</div>
       <span class="gm-name" title="${esc(displayName)}">${esc(displayName)}</span>
-      ${m.siteUserId && m.siteUserId !== (window.currentUser && window.currentUser.id)
+      ${m.siteUserId && m.siteUserId !== (currentUser && currentUser.id)
         ? `<button type="button" class="gm-follow-btn ${m.isFollowing ? 'following' : ''}" data-action="group-follow" data-site-user-id="${escAttr(String(m.siteUserId))}" data-following="${m.isFollowing ? '1' : '0'}" title="${m.isFollowing ? '取消关注' : '关注'}">${m.isFollowing ? '✓ 已关注' : '+ 关注'}</button>`
         : ''}
     </div>`;
   }).join('');
-  // 默认头像兜底图：加载成功 → 显示自身并隐藏首字母占位；失败 → 移除。
-  // 原内联 onload/onerror 被 CSP 拦截，改为渲染后逐张绑定（onerror 属性赋值同时让
-  // core.js 全局错误捕获跳过这些图，避免 __avatarFail 重试链改写"移除"语义）。
+  // 默认头像兜底图：仅当该成员没有主头像（avatar 为空，未渲染主 img）时才显示自身
+  // 并隐藏首字母占位；有主头像的成员保持隐藏（主头像加载失败时 __avatarFail 已把
+  // 主 img 的 src 换成 /api/avatar/default，无需这张重复图，否则会出现双头像错位）。
+  // 失败 → 移除。原内联 onload/onerror 被 CSP 拦截，改为渲染后逐张绑定（onerror
+  // 属性赋值同时让 core.js 全局错误捕获跳过这些图，避免 __avatarFail 重试链改写"移除"语义）。
   grid.querySelectorAll('img[data-gm-default-avatar]').forEach(function (img) {
+    var hasMain = img.previousElementSibling && img.previousElementSibling.tagName === 'IMG';
     img.onload = function () {
       if (img.dataset.gmDefDone) return;
       img.dataset.gmDefDone = '1';
+      if (hasMain) { img.style.display = 'none'; return; }
       img.style.display = '';
       var fb = img.parentNode && img.parentNode.querySelector('.gm-avatar-fallback');
       if (fb) fb.style.display = 'none';
@@ -309,8 +316,10 @@ async function loadVrcBlacklistView() {
       // 官网账号页：后端已统一带 profileUrl；再做一层前端兜底
       const profileUrl = it.profileUrl || it.url
         || (it.vrchatId ? 'https://vrchat.com/home/user/' + encodeURIComponent(it.vrchatId) : '');
-      const profileBtn = profileUrl
-        ? `<a class="btn btn-xs btn-outline vrc-blacklist-profile" href="${escAttr(profileUrl)}" target="_blank" rel="noopener noreferrer" title="${escAttr(__('admin_vrc.bl_profile'))}">🌐 ${__('admin_vrc.bl_profile')}</a>`
+      // scheme 校验：仅 http/https 才可进 href，防 javascript:/data: 注入
+      const safeProfileUrl = (profileUrl && safeHref(profileUrl)) ? profileUrl : '';
+      const profileBtn = safeProfileUrl
+        ? `<a class="btn btn-xs btn-outline vrc-blacklist-profile" href="${escAttr(safeProfileUrl)}" target="_blank" rel="noopener noreferrer" title="${escAttr(__('admin_vrc.bl_profile'))}">🌐 ${__('admin_vrc.bl_profile')}</a>`
         : '';
       return `
       <div class="vrc-blacklist-item">
@@ -322,7 +331,7 @@ async function loadVrcBlacklistView() {
           ${profileBtn}
           ${canManage ? `<button class="btn btn-xs btn-outline ml-auto" data-vrc-action="blacklist-view-remove" data-id="${escAttr(String(it.id))}" title="${__('admin_vrc.bl_remove')}">🗑️ ${__('admin_vrc.bl_remove')}</button>` : ''}
         </div>
-        ${it.url ? `<div class="vrc-blacklist-url">🔗 <a href="${escAttr(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.url)}</a></div>` : ''}
+        ${(it.url && safeHref(it.url)) ? `<div class="vrc-blacklist-url">🔗 <a href="${escAttr(it.url)}" target="_blank" rel="noopener noreferrer">${esc(it.url)}</a></div>` : ''}
         ${it.reason ? `<div class="vrc-blacklist-reason">${__('admin_vrc.bl_reason_label')}${esc(it.reason)}</div>` : ''}
         <div class="vrc-blacklist-meta">${__('admin_vrc.bl_added_by')} ${esc(it.createdByName || __('admin_vrc.bl_system_sync'))} · ${fmtDate(it.createdAt)}${it.syncedAt ? ' · ' + __('admin_vrc.bl_synced_at') + ' ' + fmtDate(it.syncedAt) : ''}</div>
       </div>

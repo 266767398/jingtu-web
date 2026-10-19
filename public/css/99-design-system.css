@@ -712,6 +712,12 @@ label:has(> input[type="radio"]) {
   background: var(--card2);
 }
 
+/* 右上角头像信任光环：与成员/群组头像一致，按 VRChat 信任等级着色（联动「显示信任光环」开关） */
+.user-avatar-sm.has-trust-ring {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px var(--tc), 0 0 0 4px var(--card, #1a1d29);
+}
+
 .user-name {
   overflow: hidden;
   text-overflow: ellipsis;

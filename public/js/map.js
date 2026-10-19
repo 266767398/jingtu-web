@@ -477,7 +477,9 @@ function sweepStaleMarkers() {
 function updateMapMarkers() {
   if (!mapInstance) return;
   // 如果 membersCache 为空，先加载数据再重试
-  if (!window.membersCache || window.membersCache.length === 0) {
+  // 注：membersCache 是 core.js 顶层 let（不在 window 上），必须直接引用模块全局，
+  // 用 window.membersCache 会恒为 undefined，导致成员位置图层永远渲染不出来。
+  if (!membersCache || membersCache.length === 0) {
     if (typeof loadMembers === 'function') {
       loadMembers();
     }
@@ -485,7 +487,7 @@ function updateMapMarkers() {
   }
   // P3-XX：成员列表坐标同样按新鲜度过滤——locationVisible 恒为 1 但长时间未更新的
   // 成员（关页不点停止共享）不在地图上钉死位置
-  const visibleMembers = window.membersCache.filter(m => m.lat && m.lng && m.locationVisible && !isStaleLocationData(m));
+  const visibleMembers = membersCache.filter(m => m.lat && m.lng && m.locationVisible && !isStaleLocationData(m));
   const countEl = document.getElementById('mapCount');
   if (countEl) countEl.textContent = __('members.visible_positions', {n: visibleMembers.length});
 

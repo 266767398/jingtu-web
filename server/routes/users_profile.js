@@ -10,9 +10,9 @@ const multer = require('multer');
 const sharp = require('sharp');
 const { requireAuth, getAvatarUrl, encryptAES, decryptAES } = require('../auth');
 const {
-  ok, getPool, validateFields, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, normalizeSelfTags, formatDateOnly
+  ok, getPool, validateFields, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, normalizeSelfTags, formatDateOnly, decryptCookie
 } = require('../utils');
-const { VRC_API, VRC_API_KEY } = require('../vrc');
+const { VRC_API, VRC_API_KEY, vrchatGetUser, resolveTrustLevelFromTags } = require('../vrc');
 const wsService = require('../ws_service');
 const logger = require('../logger');
 
@@ -99,15 +99,88 @@ const coverUpload = multer({
   fileFilter: createFileFilter(['IMAGE'])
 });
 
+// ==================== 网站背景上传配置 ====================
+// 用户单独的站点背景图（与封面 cover 相互独立）：封面用于个人主页横幅，
+// 背景用于登录后整站页面背景。同样落 preferences.backgroundImage（JSON，无需改表）。
+const BACKGROUND_DIR = path.join(ROOT_DIR, 'uploads', 'backgrounds');
+if (!fs.existsSync(BACKGROUND_DIR)) fs.mkdirSync(BACKGROUND_DIR, { recursive: true });
+
+function cleanupOldBackgrounds(userId, keepName, notBeforeTs) {
+  try {
+    const files = fs.readdirSync(BACKGROUND_DIR);
+    const id = String(userId);
+    const threshold = typeof notBeforeTs === 'number' ? notBeforeTs : Number.MAX_SAFE_INTEGER;
+    for (const f of files) {
+      if (f === keepName) continue;
+      if (!f.startsWith(`bg_${id}_`)) continue;
+      try {
+        const st = fs.statSync(path.join(BACKGROUND_DIR, f));
+        if (st.mtimeMs < threshold) fs.unlinkSync(path.join(BACKGROUND_DIR, f));
+      } catch {}
+    }
+  } catch {}
+}
+
+const backgroundStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, BACKGROUND_DIR),
+  filename: (req, file, cb) => {
+    cb(null, `bg_${req.session.userId}_${Date.now()}${path.extname(file.originalname)}`);
+  }
+});
+const backgroundUpload = multer({
+  storage: backgroundStorage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: createFileFilter(['IMAGE'])
+});
+
 // ==================== 我的资料 ====================
+// ==================== 自身 VRChat 信任等级回填（V6.17） ====================
+// 「我的信息」头像光环按信任等级着色，数据源优先 group_roster（群名册）。
+// 已绑定 VRChat 但名册暂无记录的用户（未入群/名册未同步），trustLevel 恒为空 → 光环永远默认金色。
+// 这里用用户自己持久化的 VRChat cookie（users.vrchat_token_enc）后台回填真实等级
+//（/users/{id} 是含 system_trust_* tags 的唯一数据源，与 schedule.js 信任补充同口径）。
+// 后台执行不阻塞 /me/profile 响应；trust_checked_at 6h 去重避免反复查同一人。
+const USER_TRUST_REFRESH_MS = 6 * 60 * 60 * 1000;
+const USER_TRUST_CN = { negative: '恶劣玩家', visitor: '游客', new: '新用户', user: '用户', known: '常驻玩家', trusted: '信任', vetted: '审核', veteran: '资深玩家', legend: '资深玩家' };
+const _userTrustInflight = new Set();
+
+async function refreshUserTrustLevel(userId, vrchatId, encToken) {
+  if (!vrchatId || !encToken || _userTrustInflight.has(userId)) return;
+  _userTrustInflight.add(userId);
+  try {
+    const cookie = decryptCookie(encToken);
+    if (!cookie) return;
+    const resp = await vrchatGetUser(vrchatId, cookie);
+    const userData = resp && resp.status >= 200 && resp.status < 300 ? resp.data : null;
+    if (userData && Array.isArray(userData.tags)) {
+      const tl = resolveTrustLevelFromTags(userData.tags) || '';
+      const tlCn = USER_TRUST_CN[tl] || tl;
+      await getPool().query(
+        `UPDATE users SET trust_level = ?, trust_checked_at = NOW() WHERE id = ?`,
+        [tl, userId]
+      );
+      logger.info('[me-profile]', `✅ 已回填用户 #${userId} 的 VRChat 信任等级: ${tl || '(空)'}（${tlCn}）`);
+    } else {
+      // 未拿到 tags（隐私墙/接口异常）：仅标记已尝试，避免每轮重复查询
+      await getPool().query(`UPDATE users SET trust_checked_at = NOW() WHERE id = ?`, [userId]);
+    }
+  } catch (e) {
+    logger.warn('[me-profile]', `⚠️ 用户 #${userId} 信任等级回填失败: ${e.message}`);
+    try { await getPool().query(`UPDATE users SET trust_checked_at = NOW() WHERE id = ?`, [userId]); } catch (e2) { /* 忽略 */ }
+  } finally {
+    _userTrustInflight.delete(userId);
+  }
+}
+
 router.get('/me/profile', requireAuth, async (req, res) => {
   try {
     let rows;
     try {
       [rows] = await getPool().query(
         `SELECT u.id, u.login_id, u.display_name, u.vrchat_id, u.vrchat_name, u.vrchat_verified, u.role, u.banned, u.avatar_type,
-                u.custom_avatar_path, u.vrchat_avatar_url, u.avatar_visible, u.halo_visible, u.qq_number_enc, u.birthday, u.email, u.last_login,
+                u.custom_avatar_path, u.vrchat_avatar_url, u.avatar_visible, u.halo_visible, u.qq_number_enc, u.birthday, u.email, gr.last_login,
                 u.location, u.lat, u.lng, u.location_visible, u.preferences, u.created_at, u.updated_at,
+                u.trust_level AS self_user_trust, u.trust_checked_at AS self_trust_checked_at, u.vrchat_token_enc AS self_vrc_token_enc,
                 gr.trust_level AS self_trust_level, gr.trust_level_cn AS self_trust_level_cn
          FROM users u
          LEFT JOIN group_roster gr ON gr.vrchat_id = u.vrchat_id AND gr.vrchat_id IS NOT NULL AND gr.vrchat_id != ''
@@ -118,8 +191,9 @@ router.get('/me/profile', requireAuth, async (req, res) => {
       if (e.code === 'ER_BAD_FIELD_ERROR') {
         [rows] = await getPool().query(
           `SELECT u.id, u.login_id, u.display_name, u.vrchat_id, u.vrchat_name, u.vrchat_verified, u.role, u.banned, u.avatar_type,
-                  u.custom_avatar_path, u.vrchat_avatar_url, u.avatar_visible, u.halo_visible, u.qq_number_enc, u.birthday,
-                  u.location, u.lat, u.lng, u.location_visible, u.preferences, u.created_at, u.updated_at
+                  u.custom_avatar_path, u.vrchat_avatar_url, u.avatar_visible, u.halo_visible, u.qq_number_enc, u.birthday, u.email,
+                  u.location, u.lat, u.lng, u.location_visible, u.preferences, u.created_at, u.updated_at,
+                  u.trust_level AS self_user_trust, u.trust_checked_at AS self_trust_checked_at, u.vrchat_token_enc AS self_vrc_token_enc
            FROM users u WHERE u.id = ?`,
           [req.session.userId]
         );
@@ -131,6 +205,22 @@ router.get('/me/profile', requireAuth, async (req, res) => {
       return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
     }
     const u = rows[0];
+
+    // 自身信任等级：优先群名册（group_roster，schedule 定时同步）；名册无该用户记录时
+    // 回退 users.trust_level（绑定/个人页后台回填的真实等级）。两者皆无 → null，前端回退金色默认环。
+    const selfTrust = u.self_trust_level || u.self_user_trust || null;
+    const selfTrustCn = u.self_trust_level_cn || (selfTrust && selfTrust === u.self_user_trust
+      ? (USER_TRUST_CN[u.self_user_trust] || u.self_user_trust) : null);
+
+    // 已绑定 VRChat 但名册无记录 → 后台回填真实信任等级（非阻塞，6h 去重），
+    // 让「我的信息」头像光环显示信誉颜色而非恒为默认金色（V6.17）。
+    if (!u.self_trust_level && u.vrchat_id && u.self_vrc_token_enc) {
+      const checkedTs = u.self_trust_checked_at ? new Date(u.self_trust_checked_at).getTime() : 0;
+      if (Date.now() - checkedTs >= USER_TRUST_REFRESH_MS) {
+        refreshUserTrustLevel(req.session.userId, u.vrchat_id, u.self_vrc_token_enc);
+      }
+    }
+
     res.json({
       id: u.id,
       loginId: u.login_id,
@@ -143,15 +233,15 @@ router.get('/me/profile', requireAuth, async (req, res) => {
       banned: !!u.banned,
       avatarType: u.avatar_type,
       avatarVisible: u.avatar_visible === 0 ? false : true,
-      // 信任光环显示开关（1=显示，0=隐藏），供前端控制全站信任环渲染
+      // 信任光环显示开关（1=显示，0=隐藏）：仅控制「自己的光环对别人是否可见」，
+      // 别人浏览时按对方自己的 haloVisible 渲染，单个用户关闭不会让全站光环消失。
       haloVisible: u.halo_visible !== 0,
       customAvatarPath: u.custom_avatar_path || null,
       avatarUrl: getAvatarUrl(u),
       qq: decryptAES(u.qq_number_enc),
-      // 自身信任等级（来自群成员表 group_roster，左连避免未绑定 VRChat 时炸接口）。
       // 供「我的信息」头像光环显示；未绑定/无记录 → null，前端回退金色默认环。
-      trustLevel: u.self_trust_level || null,
-      trustLevelCn: u.self_trust_level_cn || null,
+      trustLevel: selfTrust,
+      trustLevelCn: selfTrustCn,
       birthday: formatDateOnly(u.birthday),
       location: u.location,
       lat: u.lat,
@@ -162,6 +252,8 @@ router.get('/me/profile', requireAuth, async (req, res) => {
       motto: u.preferences?.motto || '',
       website: u.preferences?.website || '',
       coverImage: u.preferences?.coverImage || '',
+      // 用户单独的网站背景图（登录后整站背景，个人主页/成员详情同步展示）
+      backgroundImage: u.preferences?.backgroundImage || '',
       socialLinks: u.preferences?.social_links || null,
       selfTags: Array.isArray(u.preferences?.self_tags) ? u.preferences.self_tags : [],
       tagsVisible: !!u.preferences?.tags_visible,
@@ -182,7 +274,7 @@ router.put('/me/profile', requireAuth, async (req, res) => {
     if (req.session.userId === 0) {
       return sendError(res, 403, ErrorCodes.FORBIDDEN, '游客不能修改资料');
     }
-    const { displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage, coverPosition, selfTags, tagsVisible } = req.body;
+    const { displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage, coverPosition, backgroundImage, selfTags, tagsVisible } = req.body;
     const updates = {};
 
     if (displayName !== undefined) {
@@ -242,6 +334,11 @@ router.put('/me/profile', requireAuth, async (req, res) => {
         return sendError(res, 400, ErrorCodes.BAD_REQUEST, '封面显示位置必须是 top/center/bottom');
       }
       prefsObj.coverPosition = coverPosition;
+    }
+    // backgroundImage 存到 preferences.backgroundImage（用户单独的整站背景图）
+    if (backgroundImage !== undefined) {
+      if (!isSafeUrl(backgroundImage)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '背景图地址格式不正确');
+      prefsObj.backgroundImage = backgroundImage;
     }
     // V6.10: socialLinks 存到 preferences.social_links（平面对象 string→string，防深层结构滥用）
     if (socialLinks !== undefined) {
@@ -435,6 +532,72 @@ router.post('/me/cover', requireAuth, secureUpload(coverUpload.single('cover')),
   finally {
     if (tmpPath) { try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {} }
   }
+});
+
+// ==================== 上传用户单独网站背景 ====================
+// 与封面独立：登录后整站页面背景（登录页/个人主页/成员详情同步展示）。
+// 落 preferences.backgroundImage（JSON），公开读取端与 /me/profile 均下发该字段。
+router.post('/me/background', requireAuth, secureUpload(backgroundUpload.single('background')), async (req, res) => {
+  if (!req.file) {
+    return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请选择背景图片');
+  }
+  let tmpPath = req.file ? req.file.path : null;
+  try {
+    const startedAt = Date.now();
+    const ts = Date.now();
+    const finalName = `bg_${req.session.userId}_${ts}.jpg`;
+    const finalPath = path.join(BACKGROUND_DIR, finalName);
+
+    // 保留原始分辨率，仅统一转码为 JPG（此前缩到长边1920会让高清屏上背景变糊、与实际上传尺寸不一致）
+    await sharp(req.file.path)
+      .jpeg({ quality: 88 })
+      .toFile(finalPath);
+
+    if (!fs.existsSync(finalPath) || fs.statSync(finalPath).size === 0) {
+      throw new Error('背景上传失败：目标文件未写入');
+    }
+
+    cleanupOldBackgrounds(req.session.userId, finalName, startedAt);
+
+    const url = `/uploads/backgrounds/${finalName}`;
+
+    // 同步 preferences.backgroundImage
+    try {
+      const [cur] = await getPool().query(`SELECT preferences FROM users WHERE id = ?`, [req.session.userId]);
+      let prefs = cur.length && cur[0].preferences
+        ? (typeof cur[0].preferences === 'string' ? JSON.parse(cur[0].preferences) : cur[0].preferences)
+        : {};
+      if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) prefs = {};
+      prefs.backgroundImage = url;
+      await getPool().query(`UPDATE users SET preferences = ?, updated_at = NOW() WHERE id = ?`,
+        [JSON.stringify(prefs), req.session.userId]);
+    } catch (e) {
+      logger.warn('users', '⚠️ 背景上传后 preferences 同步失败:', e.message);
+    }
+
+    ok(res, { backgroundUrl: url, message: '背景上传成功' });
+    // 操作日志
+    await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '上传背景', ?)`,
+      [req.session.userId, `上传自定义背景: ${req.file.originalname}`]);
+  } catch (e) { handleError(res, e, '[users/background]'); }
+  finally {
+    if (tmpPath) { try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {} }
+  }
+});
+
+// 清除用户单独网站背景（恢复默认）
+router.delete('/me/background', requireAuth, async (req, res) => {
+  try {
+    const [cur] = await getPool().query(`SELECT preferences FROM users WHERE id = ?`, [req.session.userId]);
+    let prefs = cur.length && cur[0].preferences
+      ? (typeof cur[0].preferences === 'string' ? JSON.parse(cur[0].preferences) : cur[0].preferences)
+      : {};
+    if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) prefs = {};
+    prefs.backgroundImage = '';
+    await getPool().query(`UPDATE users SET preferences = ?, updated_at = NOW() WHERE id = ?`,
+      [JSON.stringify(prefs), req.session.userId]);
+    ok(res, { message: '背景已恢复默认' });
+  } catch (e) { handleError(res, e, '[users/background]'); }
 });
 
 // ==================== 切换到 VRChat 头像 ====================

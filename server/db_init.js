@@ -261,7 +261,9 @@ async function initDatabase() {
         custom_avatar_path VARCHAR(255) COMMENT '自定义头像路径',
         vrchat_avatar_url VARCHAR(500) COMMENT 'VRChat头像URL（currentAvatarThumbnailImageUrl）',
         avatar_visible TINYINT DEFAULT 1 COMMENT '头像是否显示（1=显示，0=隐藏；与 avatar_type 选哪种解耦）',
-        halo_visible TINYINT DEFAULT 1 COMMENT '信任光环显示开关（1=显示，0=隐藏；控制全站信任环渲染，默认开）',
+        halo_visible TINYINT DEFAULT 1 COMMENT '信任光环显示开关（1=显示，0=隐藏；仅控制自己的光环对他人是否可见）',
+        trust_level VARCHAR(50) DEFAULT '' COMMENT '自身VRChat信任等级缓存（名册无记录时由绑定/个人页回填）',
+        trust_checked_at DATETIME NULL COMMENT '信任等级最近回填时间',
         online_visible TINYINT DEFAULT 1 COMMENT '在线状态是否公开展示（1=可见，0=隐身）',
         qq_number_enc VARCHAR(500) COMMENT 'QQ号 AES-256-CBC加密',
         birthday DATE NULL COMMENT '生日（自愿填写）',
@@ -1554,6 +1556,53 @@ async function initDatabase() {
       }
     }
 
+    // V9.6: user_profile 老库补列 —— 老库主键为历史 vrchat_id（VARCHAR NOT NULL），
+    // 只有 motto/bio/updated_at；当前代码期望 user_id + cover_image/location/website/
+    // social_links/privacy_settings。CREATE TABLE IF NOT EXISTS 不会给已存在的旧表加列，
+    // 而写入端 INSERT 不提供 vrchat_id，旧主键 NOT NULL 无默认值会直接 ER_NO_DEFAULT_FOR_FIELD，
+    // 表现为「保存资料/上传封面 500」。此处把旧主键迁为普通唯一索引，并补齐新结构列。
+    // MySQL 5.7 无 ADD COLUMN IF NOT EXISTS，用 try/catch 忽略重复列/索引（1060/1061）；
+    // 新库没有 vrchat_id 列/主键，对应语句报 1054/1091，同样忽略。
+    const userProfileCols = [
+      `ALTER TABLE user_profile DROP PRIMARY KEY`,
+      `ALTER TABLE user_profile MODIFY COLUMN vrchat_id VARCHAR(100) NULL`,
+      `ALTER TABLE user_profile ADD UNIQUE KEY uq_user_profile_vrchat_id (vrchat_id)`,
+      `ALTER TABLE user_profile ADD COLUMN user_id INT NULL COMMENT '用户ID（网站 users.id）'`,
+      `ALTER TABLE user_profile ADD UNIQUE KEY uq_user_profile_user_id (user_id)`,
+      `ALTER TABLE user_profile ADD COLUMN cover_image VARCHAR(500) DEFAULT '' COMMENT '主页封面图'`,
+      `ALTER TABLE user_profile ADD COLUMN location VARCHAR(200) DEFAULT '' COMMENT '所在地'`,
+      `ALTER TABLE user_profile ADD COLUMN website VARCHAR(500) DEFAULT '' COMMENT '个人网站'`,
+      `ALTER TABLE user_profile ADD COLUMN social_links JSON COMMENT '社交链接JSON'`,
+      `ALTER TABLE user_profile ADD COLUMN privacy_settings JSON COMMENT '隐私设置JSON'`,
+    ];
+    for (const sql of userProfileCols) {
+      try {
+        await holder.pool.query(sql);
+        logger.info('db-init', `  ✓ 迁移: user_profile ${sql.replace(/^ALTER TABLE user_profile /, '')}`);
+      } catch (e) {
+        if (e.errno === 1060 || e.code === 'ER_DUP_FIELDNAME' ||
+            e.errno === 1061 || e.code === 'ER_DUP_KEYNAME' ||
+            e.errno === 1054 || e.code === 'ER_BAD_FIELD_ERROR' ||
+            e.errno === 1091 || e.code === 'ER_CANT_DROP_FIELD_OR_KEY') {
+          /* 列/索引已存在，或新库无 vrchat_id 主键：无需处理 */
+        } else {
+          logger.warn('db-init', '  ⚠️ user_profile migration:', e.message);
+        }
+      }
+    }
+    // 老库存量资料按 users.vrchat_id 回填 user_id，让历史数据在新结构下可继续读取
+    try {
+      const [bf] = await holder.pool.query(
+        `UPDATE user_profile p JOIN users u ON u.vrchat_id = p.vrchat_id
+         SET p.user_id = u.id WHERE p.user_id IS NULL`
+      );
+      if (bf.affectedRows > 0) {
+        logger.info('db-init', `  ✓ 迁移: user_profile 历史资料回填 user_id（${bf.affectedRows} 行）`);
+      }
+    } catch (e) {
+      logger.warn('db-init', '  ⚠️ user_profile backfill:', e.message);
+    }
+
     // V6.6: 为 users 表添加安全列（使用 try/catch 兼容 MySQL 5.7）
     const usersSecurityCols = [
       `ALTER TABLE users ADD COLUMN approved TINYINT DEFAULT 0`,
@@ -1968,8 +2017,17 @@ async function initDatabase() {
     }
 
     // P2-XX §11.8.8: users 表添加 halo_visible（信任光环显示开关，默认开启）
-    try { await holder.pool.query(`ALTER TABLE users ADD COLUMN halo_visible TINYINT DEFAULT 1 COMMENT '信任光环显示开关（1=显示，0=隐藏；控制全站信任环渲染，默认开）'`); } catch (e) {
+    try { await holder.pool.query(`ALTER TABLE users ADD COLUMN halo_visible TINYINT DEFAULT 1 COMMENT '信任光环显示开关（1=显示，0=隐藏；仅控制自己的光环对他人是否可见）'`); } catch (e) {
       if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ halo_visible migration:', e.message);
+    }
+
+    // V6.17 §11.8.9: users 表添加自身信任等级缓存（我的信息头像光环：名册无该用户记录时，
+    // 由 VRChat 绑定 / 个人页打开时回填，避免光环恒为默认金色环）
+    try { await holder.pool.query(`ALTER TABLE users ADD COLUMN trust_level VARCHAR(50) DEFAULT '' COMMENT '自身VRChat信任等级缓存（名册无记录时由绑定/个人页回填）'`); } catch (e) {
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ users.trust_level migration:', e.message);
+    }
+    try { await holder.pool.query(`ALTER TABLE users ADD COLUMN trust_checked_at DATETIME NULL COMMENT '信任等级最近回填时间'`); } catch (e) {
+      if (e.errno !== 1060 && e.code !== 'ER_DUP_FIELDNAME') logger.warn('db-init', '  ⚠️ users.trust_checked_at migration:', e.message);
     }
 
     // V6.XX：vrc_blacklist 黑名单联动增强——来源/封禁状态/同步时间/详情更新时间

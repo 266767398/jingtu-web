@@ -179,11 +179,12 @@ router.get('/export', requireAuth, async (req, res) => {
   try {
     const pool = getPool();
     const [users] = await pool.query('SELECT id, login_id, display_name, email, birthday, created_at FROM users WHERE id = ?', [uid]);
-    const [profile] = await pool.query('SELECT * FROM profiles WHERE user_id = ?', [uid]);
+    const [profile] = await pool.query('SELECT user_id AS userId, motto, bio, cover_image AS coverImage, location, website, social_links, privacy_settings, updated_at FROM user_profile WHERE user_id = ?', [uid]);
     const [posts] = await pool.query('SELECT id, content, created_at FROM posts WHERE user_id = ?', [uid]);
     // §34: photos→album_photo（字段 url→photo_path、caption→photo_desc、created_at→create_time，用别名保持响应兼容）；comments→post_comment
     const [photos] = await pool.query('SELECT id, photo_path AS url, photo_desc AS caption, create_time AS created_at FROM album_photo WHERE upload_vrcid = ?', [String(uid)]);
-    const [events] = await pool.query('SELECT id, title, description, created_at FROM event WHERE created_by = ?', [uid]);
+    // event 表无 created_by/created_at，实际为 create_user_id / create_time（V6.14.1 迁移补列）
+    const [events] = await pool.query('SELECT id, title, description, create_time AS created_at FROM event WHERE create_user_id = ?', [uid]);
     const [comments] = await pool.query('SELECT id, content, created_at FROM post_comment WHERE user_id = ?', [uid]);
     
     const data = {
@@ -237,7 +238,7 @@ router.delete('/delete', requireAuth, async (req, res) => {
       ['DELETE FROM post_comment WHERE user_id = ?', [uid]],
       ['DELETE FROM posts WHERE user_id = ?', [uid]],
       ['DELETE FROM album_comment WHERE user_vrcid = ?', [loginId]],
-      ['DELETE FROM album_like WHERE user_vrcid = ?', [loginId]],
+      ['DELETE FROM album_like WHERE user_vrcid = ?', [String(uid)]],
       ['DELETE FROM album_comment WHERE photo_id IN (SELECT id FROM album_photo WHERE upload_vrcid = ?)', [String(uid)]],
       ['DELETE FROM album_like WHERE photo_id IN (SELECT id FROM album_photo WHERE upload_vrcid = ?)', [String(uid)]],
       ['DELETE FROM album_photo WHERE upload_vrcid = ?', [String(uid)]],
@@ -361,6 +362,8 @@ router.get('/:userId', async (req, res) => {
       bio: prefs.bio ?? (profileRow ? profileRow.bio : '') ?? '',
       website: prefs.website ?? (profileRow ? profileRow.website : '') ?? '',
       coverImage: prefs.coverImage ?? (profileRow ? profileRow.coverImage : '') ?? '',
+      // 用户单独的整站背景图（个人主页/成员详情同步展示）
+      backgroundImage: prefs.backgroundImage ?? '',
       // 社交链接与封面显示位置：真相源为 preferences（与编辑弹窗写入端一致）
       socialLinks: (prefs.social_links && typeof prefs.social_links === 'object' && !Array.isArray(prefs.social_links))
         ? prefs.social_links : {},

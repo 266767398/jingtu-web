@@ -39,37 +39,37 @@
 <link rel="dns-prefetch" href="https://assets.amlcdn.com">
 <link rel="dns-prefetch" href="https://assets.vrchat.com">
 <!-- 首屏关键 CSS：阻塞渲染（页面骨架 / 设计令牌 / 基础 UI / 导航 / 首页内容） -->
-<link rel="stylesheet" href="/css/style.css?v=20261018e">
-  <link rel="stylesheet" href="/css/99-design-system.css?v=20261018e">
-  <link rel="stylesheet" href="/css/ui-components.css?v=20261018e">
-  <link rel="stylesheet" href="/css/ui-enhance.css?v=20261018e">
-<link rel="stylesheet" href="/css/nav-scroller.css?v=20261018e">
-<link rel="stylesheet" href="/css/home-featured.css?v=20261018e">
-<link rel="stylesheet" href="/css/home-enhance.css?v=20261018e">
-<link rel="stylesheet" href="/css/animations.css?v=20261018e">
+<link rel="stylesheet" href="/css/style.css?v=20261019p">
+  <link rel="stylesheet" href="/css/99-design-system.css?v=20261019p">
+  <link rel="stylesheet" href="/css/ui-components.css?v=20261019p">
+  <link rel="stylesheet" href="/css/ui-enhance.css?v=20261019p">
+<link rel="stylesheet" href="/css/nav-scroller.css?v=20261019p">
+<link rel="stylesheet" href="/css/home-featured.css?v=20261019p">
+<link rel="stylesheet" href="/css/home-enhance.css?v=20261019p">
+<link rel="stylesheet" href="/css/animations.css?v=20261019p">
 <!-- 点赞动效（like-burst）：给 post/album 等点赞按钮加心爆裂动画 + 无障碍兜底 -->
-<link rel="stylesheet" href="/css/likes-anim.css?v=20261018e">
+<link rel="stylesheet" href="/css/likes-anim.css?v=20261019p">
 <!-- 功能隐藏：直播入口 #tab-btn-live / 管理侧栏 live / #tab-live 面板统一不显示。
      兜底性兜底：即使 JS 误把 #tab-live 设为 active，也会被 CSS 强制隐藏。 -->
-<link rel="stylesheet" href="/css/feature-disabled.css?v=20261018e">
+<link rel="stylesheet" href="/css/feature-disabled.css?v=20261019p">
 <!-- 非首屏 CSS：改为非阻塞异步加载（media=print 命中后切回 all），避免拖慢 LCP；
      首屏默认落在 home Tab，members/collections/social/地图/“更多”菜单等样式多为
      第二屏或弹层，异步加载后由浏览器空闲补全，导航到对应 Tab 时已就绪（P2-21） -->
-<link rel="stylesheet" href="/css/06b-presence.css?v=20261018e" media="print">
-<link rel="stylesheet" href="/css/06-members.css?v=20261018e" media="print">
-<link rel="stylesheet" href="/css/collections.css?v=20261018e" media="print">
-<link rel="stylesheet" href="/css/10-social.css?v=20261018e" media="print">
-<link rel="stylesheet" href="/css/baidu-modern.css?v=20261018e" media="print">
+<link rel="stylesheet" href="/css/06b-presence.css?v=20261019p" media="print">
+<link rel="stylesheet" href="/css/06-members.css?v=20261019p" media="print">
+<link rel="stylesheet" href="/css/collections.css?v=20261019p" media="print">
+<link rel="stylesheet" href="/css/10-social.css?v=20261019p" media="print">
+<link rel="stylesheet" href="/css/baidu-modern.css?v=20261019p" media="print">
 <!-- V9.4 地图 VRChat 世界面板样式（异步加载） -->
-<link rel="stylesheet" href="/css/worlds-panel.css?v=20261018e" media="print">
-<noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20261018e"></noscript>
+<link rel="stylesheet" href="/css/worlds-panel.css?v=20261019p" media="print">
+<noscript><link rel="stylesheet" href="/css/worlds-panel.css?v=20261019p"></noscript>
 <!-- 无 JS 兜底：保证禁用 JS 时样式仍加载 -->
 <noscript>
-  <link rel="stylesheet" href="/css/06b-presence.css?v=20261018e">
-  <link rel="stylesheet" href="/css/06-members.css?v=20261018e">
-  <link rel="stylesheet" href="/css/collections.css?v=20261018e">
-  <link rel="stylesheet" href="/css/10-social.css?v=20261018e">
-  <link rel="stylesheet" href="/css/baidu-modern.css?v=20261018e">
+  <link rel="stylesheet" href="/css/06b-presence.css?v=20261019p">
+  <link rel="stylesheet" href="/css/06-members.css?v=20261019p">
+  <link rel="stylesheet" href="/css/collections.css?v=20261019p">
+  <link rel="stylesheet" href="/css/10-social.css?v=20261019p">
+  <link rel="stylesheet" href="/css/baidu-modern.css?v=20261019p">
 </noscript>
   <meta name="description" content="境途同游是一个面向 VRChat 玩家的社群平台，提供群组相册、活动报名、动态分享、成员地图与实时聊天，记录你在虚拟世界里的每一次同游。">
   <meta property="og:type" content="website">
@@ -101,12 +101,12 @@
         return 'zh';
       }
       // 解析期 document.write 外部脚本为阻塞式，保证在 i18n.js 之前就绪
-      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261018e"><\/script>');
+      document.write('<script src="/js/languages/' + detectLang() + '.js?v=20261019p"><\/script>');
     })();
   </script>
   <!-- SEO 注入器：根据 location.origin 写 og:url / og:site_name，并注入 Organization + WebSite JSON-LD。
        必须在 i18n 之后（依赖 window.__）、在 loader.js / ui.js 之前（确保 og:url 尽早被爬虫读取）。 -->
-  <script src="/js/seo.js?v=20261018e"></script>
+  <script src="/js/seo.js?v=20261019p"></script>
   <!-- 首屏性能量化（P2-21）：?perf=1 时上报 LCP/FCP 到 console，便于回归比对；
        生产默认关闭，零副作用。仅观测，不改写任何渲染行为。 -->
   <script>
@@ -140,6 +140,9 @@
   </script>
 </head>
 <body>
+
+<!-- 用户单独的网站背景层：登录后按本人 backgroundImage 展示，位于内容之下（见 theme.js applyUserSiteBackground） -->
+<div id="siteBgLayer" class="site-bg-layer" aria-hidden="true"></div>
 
 <a href="#mainContainer" class="skip-link">跳转到主要内容</a>
 
@@ -458,6 +461,7 @@
             <div class="theme-section-title">🎨 主题设置</div>
             <div class="theme-row"><span>切换模式</span><div class="theme-btns"><button type="button" class="theme-mode-btn active" data-mode="manual">👆 手动</button><button type="button" class="theme-mode-btn" data-mode="auto">🖥️ 跟随系统</button></div></div>
             <div class="theme-row"><span>亮度方案</span><div class="theme-btns"><button type="button" class="theme-brightness-btn active" data-bright="dark">🌙 暗色</button><button type="button" class="theme-brightness-btn" data-bright="light">☀️ 亮色</button></div></div>
+            <div class="theme-row"><span>动态效果</span><div class="theme-btns"><button type="button" id="themeAnimBtn" class="theme-mode-btn" data-anim="auto">🖥️ 跟随系统</button><button type="button" class="theme-mode-btn" data-anim="on">✨ 强制开启</button></div></div>
             <div class="theme-row"><span>主题色</span><div class="theme-colors"><button type="button" class="theme-color-btn active theme-c-0" data-color="#7c5cfc" title="紫色"></button><button type="button" class="theme-color-btn theme-c-1" data-color="#3b82f6" title="蓝色"></button><button type="button" class="theme-color-btn theme-c-2" data-color="#ec4899" title="粉色"></button><button type="button" class="theme-color-btn theme-c-3" data-color="#10b981" title="绿色"></button><button type="button" class="theme-color-btn theme-c-4" data-color="#f59e0b" title="金色"></button><button type="button" class="theme-color-btn theme-c-5" data-color="#ef4444" title="红色"></button><button type="button" class="theme-color-btn theme-c-6" data-color="#06b6d4" title="青色"></button><button type="button" class="theme-color-btn theme-c-7" data-color="#84cc16" title="柠檬绿"></button><button type="button" class="theme-color-btn theme-c-8" data-color="#f97316" title="橙色"></button><button type="button" class="theme-color-btn theme-c-9" data-color="#6366f1" title="靛蓝"></button><button type="button" class="theme-color-btn theme-c-10" data-color="#f43f5e" title="玫瑰"></button><input type="color" id="themeColorPicker" value="#7c5cfc" title="自定义颜色" aria-label="主题强调色"></div></div>
           </div>
           <div class="theme-panel-footer"><button type="button" id="themeResetBtn" class="btn btn-sm btn-outline">🔄 重置默认</button><button type="button" id="themeCloseBtn" class="btn btn-sm btn-outline">✕ 关闭</button></div>
@@ -1944,7 +1948,7 @@
         </label>
         <span><span data-i18n="profile.show_halo">显示信任光环</span></span>
       </div>
-      <div class="text-muted2 text-12 mb-8" data-i18n="profile.halo_settings_hint">开启后头像外围将显示 VRChat 信任等级光环（信任等级越高颜色越高）；关闭则全部不显示</div>
+      <div class="text-muted2 text-12 mb-8" data-i18n="profile.halo_settings_hint">开启后你的头像外围将显示 VRChat 信任等级光环（信任等级越高颜色越高），其他人可以看到；关闭后仅隐藏你自己的光环，其他成员的光环不受影响</div>
       <div class="avatar-pref-row" id="avatarPrefRow">
         <button class="avatar-pref-item" id="prefCustom" type="button" data-type="custom">
           <img class="ap-img" id="prefCustomImg" src="/api/avatar/default" alt="本地头像">
@@ -2133,6 +2137,29 @@
       <h3>🎨 主题与外观</h3>
       <div class="theme-row"><span>亮度方案</span><div class="theme-btns"><button type="button" class="theme-bright-btn active me-theme-btn" data-bright="dark" data-context="me">🌙 暗色</button><button type="button" class="theme-bright-btn me-theme-btn" data-bright="light" data-context="me">☀️ 亮色</button></div></div>
       <div class="theme-row mt-8"><span>主题色</span><div class="theme-colors"><input type="color" id="meAccentColor" value="#7c5cfc" title="自定义颜色" aria-label="个人强调色"></div></div>
+      <div class="theme-row mt-8 me-site-bg-row">
+        <span data-i18n="me.site_bg_label">网站背景</span>
+        <div class="me-site-bg-wrap">
+          <div id="meSiteBgPreview" class="me-site-bg-preview"><span class="text-muted2" data-i18n="me.site_bg_none">默认背景</span></div>
+          <div class="me-site-bg-actions">
+            <button type="button" class="btn btn-sm btn-accent" id="meSiteBgUploadBtn" data-i18n="me.site_bg_upload">上传背景</button>
+            <button type="button" class="btn btn-sm btn-outline" id="meSiteBgClearBtn" data-i18n="me.site_bg_clear">恢复默认</button>
+            <input type="file" id="meSiteBgInput" accept="image/*" class="d-none" data-i18n-aria="me.site_bg_input_aria" aria-label="上传网站背景">
+          </div>
+        </div>
+      </div>
+      <div class="theme-row mt-8 me-site-bg-row">
+        <span data-i18n="me.banner_label">横幅照片</span>
+        <div class="me-site-bg-wrap">
+          <div id="meBannerPreview" class="me-site-bg-preview"><span class="text-muted2" data-i18n="me.banner_none">默认横幅</span></div>
+          <div class="me-site-bg-actions">
+            <button type="button" class="btn btn-sm btn-accent" id="meBannerUploadBtn" data-i18n="me.banner_upload">上传横幅</button>
+            <button type="button" class="btn btn-sm btn-outline" id="meBannerClearBtn" data-i18n="me.banner_clear">恢复默认</button>
+            <input type="file" id="meBannerInput" accept="image/*" class="d-none" data-i18n-aria="me.banner_input_aria" aria-label="上传横幅照片">
+          </div>
+        </div>
+      </div>
+      <p class="text-12 text-muted2 mt-8" data-i18n="me.public_hint">提示：你设置的网站背景与横幅照片对全体成员可见（他人查看你的完整资料/成员详情时会展示）。</p>
     </div>
     </div>
     </div>
@@ -2147,6 +2174,10 @@
     </div>
     <div id="profileCover" class="profile-cover">
       <div id="profileCoverBg" class="profile-cover-bg"></div>
+      <div class="profile-cover-tools d-none" id="profileCoverTools">
+        <button type="button" class="btn btn-sm btn-glass" id="profileAvatarUploadBtn" data-i18n="profile_page.change_avatar">👤 更换头像</button>
+        <input type="file" id="profileAvatarFile" accept="image/*" class="d-none" data-i18n-aria="profile_page.change_avatar" aria-label="上传头像照片">
+      </div>
       <div class="profile-header-content">
         <img id="profileAvatar" class="profile-avatar-lg" src="/api/avatar/default" alt="头像" loading="lazy">
         <div class="profile-info">
@@ -2176,16 +2207,14 @@
 <!-- 返回顶部按钮 -->
 <button type="button" id="scrollTopBtn" class="scroll-top-btn" data-i18n-aria="ui.back_to_top" data-i18n-title="ui.back_to_top" aria-label="返回顶部" title="返回顶部">↑</button>
 
-<!-- 反馈/建议悬浮按钮（左下角） -->
-<button type="button" id="feedbackBtn" class="feedback-fab" aria-label="提交建议" title="提交建议">💡</button>
-
 <!-- ===== Footer（管理员需在 .env 中配置社交链接） ===== -->
 <footer class="d-none" id="appFooter">
   <div class="links">
-    <a id="footerVrcGroupLink" href="https://vrchat.com/home/group/grp_00000000-0000-0000-0000-000000000000" target="_blank" rel="noopener" class="social-link" data-i18n="footer.vrc_group">VRChat 群组</a>
+    <a id="footerVrcGroupLink" href="#" class="social-link" data-i18n="footer.vrc_group">VRChat 群组</a>
     <a id="footerKookLink" href="#" class="social-link" data-i18n="footer.kook">KOOK</a>
     <a id="footerOopzLink" href="#" class="social-link" data-i18n="footer.oopz">Oopz</a>
-    <span id="vrcStatus" class="social-link cursor-default" data-i18n="footer.vrc_status">VRC 状态</span>
+    <button type="button" id="vrcStatus" class="social-link" data-i18n="footer.vrc_status">VRC 状态</button>
+    <button type="button" id="feedbackBtn" class="social-link feedback-link" aria-label="提交建议" title="提交建议">💡 <span data-i18n="footer.feedback">建议反馈</span></button>
   </div>
   <div id="refreshTime" class="refresh-time"><span data-i18n="footer.refresh">最后刷新</span>: --</div>
 </footer>
@@ -2250,6 +2279,7 @@
 <div id="memberModal" class="modal">
   <div class="modal-content modal-sm modal-nopad">
     <div class="member-card-header">
+      <div id="memberCardBanner" class="member-card-banner"></div>
       <button type="button" class="modal-close-circle" id="memberModalCloseBtn" data-modal-close="memberModal" data-i18n-aria="ui.close" aria-label="关闭">✕</button>
       <div id="ucAvatarWrap" class="member-avatar-wrap"><img id="ucAvatar" src="/assets/group-avatar.svg" class="object-cover" data-i18n="modal.avatar_alt" alt="头像" loading="lazy"></div>
       <div id="ucName" class="member-card-name"></div>
@@ -2626,7 +2656,8 @@
   <button type="button" id="lightboxCloseBtn" class="lightbox-close" data-i18n-aria="lightbox.close_aria">✕</button>
   <div class="lightbox-img-area">
     <div id="lightboxImgContainer">
-      <img id="lightboxImg" src="" alt="">
+      <!-- 静态占位：不带 src 避免空 src 误请求当前页面；打开相册时由 album.js 整段替换 -->
+      <img id="lightboxImg" alt="">
     </div>
     <div id="lbCounter" class="lightbox-counter">1/1</div>
     <div id="lbDesc" class="lightbox-desc"></div>
@@ -2691,33 +2722,33 @@
 <!-- ===== Scripts ===== -->
 <!-- 核心基础设施：defer 后与其余模块同批次按文档顺序执行（core 仍在最前），
      移出解析阻塞路径，首屏可先完成首次绘制（P2-21） -->
-<script defer src="/js/core.js?v=20261018e"></script>
+<script defer src="/js/core.js?v=20261019p"></script>
 <!-- i18n.js 必须早于 ui.js / nav-scroller.js：二者在脚本顶层立即调用 __()，若 i18n 尚未就绪会抛 "ReferenceError: __ is not defined" 并中断后续 const 初始化（连锁引发 _modalStack TDZ） -->
-<script defer src="/js/i18n.js?v=20261018e"></script>
-<script defer src="/js/ui.js?v=20261018e"></script>
-<script defer src="/vendor/gsap/gsap.min.js?v=20261018e"></script>
-<script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20261018e"></script>
-<script defer src="/js/motion.js?v=20261018e"></script>
-<script defer src="/js/reveal.js?v=20261018e"></script>
-<script defer src="/js/nav-scroller.js?v=20261018e"></script>
+<script defer src="/js/i18n.js?v=20261019p"></script>
+<script defer src="/js/ui.js?v=20261019p"></script>
+<script defer src="/vendor/gsap/gsap.min.js?v=20261019p"></script>
+<script defer src="/vendor/gsap/ScrollTrigger.min.js?v=20261019p"></script>
+<script defer src="/js/motion.js?v=20261019p"></script>
+<script defer src="/js/reveal.js?v=20261019p"></script>
+<script defer src="/js/nav-scroller.js?v=20261019p"></script>
 <!-- 页面空闲冻结/解冻核心（freeze.js）：必须早于所有注册冻结回调的模块
      （theme/auth/main 及懒加载路由模块），保证它们顶层注册时 window.__freeze 已就绪 -->
-<script defer src="/js/freeze.js?v=20261018e"></script>
-<script defer src="/js/theme.js?v=20261018e"></script>
-<script defer src="/js/auth.js?v=20261018e"></script>
+<script defer src="/js/freeze.js?v=20261019p"></script>
+<script defer src="/js/theme.js?v=20261019p"></script>
+<script defer src="/js/auth.js?v=20261019p"></script>
 <!-- VRChat 收藏同步状态栏（vrc_sync.js）：登录/访问站点时自动把官方收藏快照同步到本地库，
      顶部状态条显示进度；群组同步/在线状态刷新也复用它透出。 -->
-<script defer src="/js/vrc_sync.js?v=20261018e"></script>
+<script defer src="/js/vrc_sync.js?v=20261019p"></script>
 <!-- 路由模块懒加载器：包裹 switchTab，按需 / 空闲预载（见 loader.js）。
      当前语言包由 <head> 内联引导按偏好注入，其余语言包在切换时按需加载。 -->
-<script defer src="/js/loader.js?v=20261018e"></script>
+<script defer src="/js/loader.js?v=20261019p"></script>
 <!-- 全局命令面板（VN-9，VRCNext SmartSearch 借鉴）：依赖 core.js 的 api/esc 等 -->
-<script defer src="/js/smartsearch.js?v=20261018e"></script>
+<script defer src="/js/smartsearch.js?v=20261019p"></script>
 <!-- 引导启动：调用 initI18n / switchTab，必须在 loader.js 之后 -->
-<script defer src="/js/init.js?v=20261018e"></script>
-<script defer src="/js/main.js?v=20261018e"></script>
+<script defer src="/js/init.js?v=20261019p"></script>
+<script defer src="/js/main.js?v=20261019p"></script>
 <!-- 反馈/建议悬浮按钮 -->
-<script defer src="/js/feedback.js?v=20261018e"></script>
+<script defer src="/js/feedback.js?v=20261019p"></script>
 
 <!-- ===== Event Bindings (migrated from inline handlers) ===== -->
 <script>
@@ -3241,6 +3272,19 @@ document.addEventListener('DOMContentLoaded', function() {
       setAccentColor(this.value);
     });
   }
+  // 用户单独的网站背景：上传 / 恢复默认（theme.js 提供 apply/upload/clear）
+  bindClick('meSiteBgUploadBtn', function() {
+    var input = byId('meSiteBgInput');
+    if (input) input.click();
+  });
+  var meSiteBgInput = byId('meSiteBgInput');
+  if (meSiteBgInput) {
+    meSiteBgInput.addEventListener('change', function() {
+      if (this.files && this.files[0]) uploadSiteBackground(this.files[0]);
+      this.value = '';
+    });
+  }
+  bindClick('meSiteBgClearBtn', function() { clearSiteBackground(); });
 
   // ===== Profile User Page =====
   bindClick('backToAlbumsBtn', function() { backToAlbums(); });
@@ -3250,11 +3294,38 @@ document.addEventListener('DOMContentLoaded', function() {
       if (this.files && this.files[0]) uploadProfileVideo(this.files[0]);
     });
   }
+  // 完整资料页：本人视角在封面区更换头像照片（横幅上传已移至「我的 → 主题与外观」）
+  bindClick('profileAvatarUploadBtn', function() {
+    var input = byId('profileAvatarFile');
+    if (input) input.click();
+  });
+  var profileAvatarFile = byId('profileAvatarFile');
+  if (profileAvatarFile) {
+    profileAvatarFile.addEventListener('change', function() {
+      if (this.files && this.files[0]) uploadProfileAvatar(this.files[0]);
+      this.value = '';
+    });
+  }
+  // 主题与外观：横幅（封面）上传 / 恢复默认（theme.js 提供 uploadBanner/clearBanner）
+  bindClick('meBannerUploadBtn', function() {
+    var input = byId('meBannerInput');
+    if (input) input.click();
+  });
+  var meBannerInput = byId('meBannerInput');
+  if (meBannerInput) {
+    meBannerInput.addEventListener('change', function() {
+      if (this.files && this.files[0]) uploadBanner(this.files[0]);
+      this.value = '';
+    });
+  }
+  bindClick('meBannerClearBtn', function() { clearBanner(); });
 
   // ===== Footer =====
+  // KOOK/Oopz：管理员配置了地址就放行新窗口打开，未配置则提示（loadSocialLinks 已写入 href）
   var footerKook = byId('footerKookLink');
   if (footerKook) {
     footerKook.addEventListener('click', function(e) {
+      if (footerKook.getAttribute('href') && footerKook.getAttribute('href') !== '#') return;
       e.preventDefault();
       toast(__('ui.social_link_not_configured'), 'info');
     });
@@ -3262,8 +3333,31 @@ document.addEventListener('DOMContentLoaded', function() {
   var footerOopz = byId('footerOopzLink');
   if (footerOopz) {
     footerOopz.addEventListener('click', function(e) {
+      if (footerOopz.getAttribute('href') && footerOopz.getAttribute('href') !== '#') return;
       e.preventDefault();
       toast(__('ui.social_link_not_configured'), 'info');
+    });
+  }
+  // VRChat群组：改为站内 VRC 群组页（不再跳 vrchat.com 官网群组）
+  var footerVrcGroup = byId('footerVrcGroupLink');
+  if (footerVrcGroup) {
+    footerVrcGroup.addEventListener('click', function(e) {
+      e.preventDefault();
+      if (typeof switchTab === 'function') {
+        window.__vrcPendingView = 'group';
+        switchTab('vrc');
+      }
+    });
+  }
+  // VRC 状态：点击进入站内 VRC 群组状态视图
+  var footerVrcStatus = byId('vrcStatus');
+  if (footerVrcStatus) {
+    footerVrcStatus.addEventListener('click', function(e) {
+      e.preventDefault();
+      if (typeof switchTab === 'function') {
+        window.__vrcPendingView = 'group';
+        switchTab('vrc');
+      }
     });
   }
 

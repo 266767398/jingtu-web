@@ -776,11 +776,23 @@ router.post('/:id/comments', requireAuth, async (req, res) => {
       if (!parentOwn.length) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '父评论不存在');
     }
 
-    const [result] = await getPool().query(
-      `INSERT INTO post_comment (post_id, user_id, parent_id, content) VALUES (?, ?, ?, ?)`,
-      [postId, userId, parentId || 0, content.trim()]
-    );
-    await getPool().query(`UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?`, [postId]);
+    // 评论写入 + 计数更新在同一事务内，避免中途失败导致计数与明细不一致
+    const conn = await getPool().getConnection();
+    let result;
+    try {
+      await conn.beginTransaction();
+      [result] = await conn.query(
+        `INSERT INTO post_comment (post_id, user_id, parent_id, content) VALUES (?, ?, ?, ?)`,
+        [postId, userId, parentId || 0, content.trim()]
+      );
+      await conn.query(`UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?`, [postId]);
+      await conn.commit();
+    } catch (e) {
+      try { await conn.rollback(); } catch (_) {}
+      throw e;
+    } finally {
+      conn.release();
+    }
 
     // 通知被回复用户或动态作者
     if (parentId) {

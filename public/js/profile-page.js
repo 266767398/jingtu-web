@@ -11,6 +11,8 @@ let _profileLoadSeq = 0;
 
 // ==================== 加载用户资料 ====================
 async function loadUserProfile(userId) {
+  // data-uid / dataset 等入口传的是字符串，统一转数字，保证下方 isOwner 严格比较（currentUser.id === userId）可靠
+  userId = Number(userId);
   if (!userId) { toast(__('profile_page.invalid_id'), 'error'); return; }
   const container = document.getElementById('tab-profile-user');
   if (!container) return;
@@ -44,6 +46,8 @@ async function loadUserProfile(userId) {
 
     const isOwner = currentUser && currentUser.id === userId;
     renderProfileHeader(profileUser, isOwner);
+    // 完整资料页背景 = 被查看用户的整站背景图（含他人），带可读遮罩；空则恢复默认
+    applyProfileBg(profileUser);
     const profileUserIdEl = document.getElementById('profileUserId');
     if (profileUserIdEl) profileUserIdEl.value = userId;
     renderAlbums(profileAlbums, isOwner);
@@ -67,8 +71,43 @@ function switchTabSilent(tab) {
   document.title = __('app.title') + ' - ' + __('profile_page.user_profile');
 }
 
+// ==================== 完整资料页背景（被查看用户的自定义整站背景） ====================
+// 进入任意成员（含自己）的完整资料页时，展示该成员的 backgroundImage；
+// 叠一层卡片色半透明遮罩，保证深浅主题下正文可读。
+function applyProfileBg(user) {
+  const tab = document.getElementById('tab-profile-user');
+  if (!tab) return;
+  const bg = user && user.backgroundImage ? user.backgroundImage : '';
+  if (bg) {
+    tab.style.backgroundImage =
+      `linear-gradient(color-mix(in srgb, var(--bg) 84%, transparent), color-mix(in srgb, var(--bg) 84%, transparent)), url(${escCssUrl(bg)})`;
+    tab.style.backgroundSize = 'cover';
+    tab.style.backgroundPosition = 'center';
+    tab.style.backgroundRepeat = 'no-repeat';
+    tab.style.backgroundAttachment = 'fixed';
+    // 图片失效时回退默认（避免整页破图底色）
+    const probe = new Image();
+    probe.onerror = function () {
+      tab.style.backgroundImage = '';
+      tab.style.backgroundSize = '';
+      tab.style.backgroundAttachment = '';
+    };
+    probe.src = bg;
+  } else {
+    tab.style.backgroundImage = '';
+    tab.style.backgroundSize = '';
+    tab.style.backgroundPosition = '';
+    tab.style.backgroundRepeat = '';
+    tab.style.backgroundAttachment = '';
+  }
+}
+
 // ==================== 渲染资料头部 ====================
 function renderProfileHeader(user, isOwner) {
+  // 封面区工具按钮（仅本人）：更换横幅 / 更换头像
+  const coverTools = document.getElementById('profileCoverTools');
+  if (coverTools) coverTools.classList.toggle('d-none', !isOwner);
+
   // 封面（CSS 背景图：立即设置 + Image 预探失败时回退默认封面，与头像默认资源兜底语义一致）
   const coverBg = document.getElementById('profileCoverBg');
   const coverImg = user.coverImage || user.preferences?.coverImage || '';
@@ -171,6 +210,8 @@ function renderProfileHeader(user, isOwner) {
       html += '<button class="btn btn-sm btn-accent" id="profileLikeBtn" data-action="profile-like">❤️ <span id="profileLikeCount">0</span></button>';
       // 关注/互关按钮：与成员名片同款逻辑（refreshFollowBtn 异步填充）
       html += '<span id="profileFollowBtn" data-uid="' + escAttr(String(user.id)) + '"></span>';
+      // 直接发私信：一键进入聊天私信
+      html += '<button class="btn btn-sm btn-outline" data-action="profile-dm" data-uid="' + escAttr(String(user.id)) + '">💬 ' + __('profile_page.send_msg') + '</button>';
       html += '<span id="profileLikeStatus" class="text-13 text-muted ml-2"></span>';
     }
     if (user.vrchatId) {
@@ -181,6 +222,8 @@ function renderProfileHeader(user, isOwner) {
     if (!isOwner && currentUser && typeof refreshFollowBtn === 'function') {
       refreshFollowBtn('profileFollowBtn', user.id);
     }
+    // 他人资料页：补充关注/粉丝计数（非本人且非好友会被隐私闸 403 拦截，静默跳过）
+    if (!isOwner && currentUser) loadProfileFollowCounts(user.id);
   }
 
   // 加载点赞状态
@@ -218,20 +261,20 @@ function renderProfileDetails(user, isOwner) {
   if (user.location) {
     chips.push('<span class="profile-detail-chip">📍 ' + esc(user.location) + '</span>');
   }
-  // 个人网站
-  if (user.website) {
+  // 个人网站（URL scheme 校验：仅 http/https，防 javascript:/data: 存储型 XSS）
+  if (user.website && safeHref(user.website)) {
     chips.push(`<span class="profile-detail-chip">🌐 <a href="${escAttr(user.website)}" target="_blank" rel="noopener">${esc(__('modal.website_label'))}</a></span>`);
   }
   // 社交链接（B站/微博/GitHub）
   const socialLinks = user.socialLinks || user.social_links || {};
   if (socialLinks && typeof socialLinks === 'object') {
-    if (socialLinks.bilibili) {
+    if (socialLinks.bilibili && safeHref(socialLinks.bilibili)) {
       chips.push(`<span class="profile-detail-chip">📺 <a href="${escAttr(socialLinks.bilibili)}" target="_blank" rel="noopener">B站</a></span>`);
     }
-    if (socialLinks.weibo) {
+    if (socialLinks.weibo && safeHref(socialLinks.weibo)) {
       chips.push(`<span class="profile-detail-chip">📣 <a href="${escAttr(socialLinks.weibo)}" target="_blank" rel="noopener">微博</a></span>`);
     }
-    if (socialLinks.github) {
+    if (socialLinks.github && safeHref(socialLinks.github)) {
       chips.push(`<span class="profile-detail-chip">🐙 <a href="${escAttr(socialLinks.github)}" target="_blank" rel="noopener">GitHub</a></span>`);
     }
   }
@@ -549,6 +592,17 @@ async function uploadProfileCover(file) {
       updateCoverPreview(data.coverUrl);
       var urlInput = document.getElementById('editCoverImage');
       if (urlInput) urlInput.value = data.coverUrl;
+      // 同步完整资料页横幅与本地状态：上传后立即生效，无需再点保存
+      if (profileUser) {
+        profileUser.coverImage = data.coverUrl;
+        if (!profileUser.preferences) profileUser.preferences = {};
+        profileUser.preferences.coverImage = data.coverUrl;
+        renderProfileHeader(profileUser, true);
+      }
+      if (currentUser) {
+        if (!currentUser.preferences) currentUser.preferences = {};
+        currentUser.preferences.coverImage = data.coverUrl;
+      }
     }
   } catch (err) {
     if (isApiHandledError(err)) return;
@@ -873,6 +927,21 @@ function goToProfile(userId) {
   loadUserProfile(userId);
 }
 
+// ==================== 他人资料页关注/粉丝计数 ====================
+// 计数接口带隐私闸（非本人且非好友 403）：拿不到就静默跳过，不展示伪数字
+async function loadProfileFollowCounts(userId) {
+  try {
+    const res = await api(`/api/follows/counts/${userId}`, { method: 'GET' });
+    if (!res.ok) return;
+    const d = await res.json();
+    const statsEl = document.getElementById('profileStats');
+    if (!statsEl) return;
+    statsEl.innerHTML += `
+      <div class="profile-stat">➕ <span>${__('follows.following')} ${esc(d.following || 0)}</span></div>
+      <div class="profile-stat">👥 <span>${__('follows.followers')} ${esc(d.followers || 0)}</span></div>`;
+  } catch (e) { /* 隐私闸/网络异常：静默跳过 */ }
+}
+
 
 // ==================== 用户点赞功能 ====================
 // V6.XX：支持赞/取消切换；_profileLikedToday 标记当前是否已赞，按钮点击时据此决定 POST/DELETE
@@ -1156,6 +1225,10 @@ function _bindProfilePageDelegation() {
         break;
       case 'profile-like':
         profileLikeUser();
+        break;
+      case 'profile-dm':
+        // 直接打开与该成员的私信（openChat 内部会切到聊天标签）
+        if (typeof openChat === 'function') openChat(el.getAttribute('data-uid'));
         break;
       case 'profile-open-album':
         openAlbum(el.getAttribute('data-album-id'));

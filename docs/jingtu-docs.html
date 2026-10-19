@@ -380,6 +380,7 @@ td code{font-size:11.5px}
     <h3><span class="ic" style="background:var(--cyan)"></span>中间件主链</h3>
     <p style="margin-bottom:12px">一次 /api 请求穿过完整防线链，再到业务路由：</p>
     <div class="flowbox">
+      <div class="node warn">入口归一<b>本机:3456→80</b></div><span class="arw">→</span>
       <div class="node">CORS<b>跨域</b></div><span class="arw">→</span>
       <div class="node">compression<b>压缩</b></div><span class="arw">→</span>
       <div class="node">安全头<b>nosniff/CSP</b></div><span class="arw">→</span>
@@ -412,6 +413,7 @@ td code{font-size:11.5px}
         <div class="box"><b>listen</b><span>3456</span></div>
       </div>
       <ul style="margin-top:14px">
+        <li><b>绑定地址</b>：<code>APP_BIND</code>（<code>0.0.0.0</code> 局域网可达 / <code>127.0.0.1</code> 仅本机）；入口归一——本机 <code>localhost:3456</code> 页面导航 302 →80，局域网 IP（飞牛 / NAS）直连不跳转</li>
         <li><b>Session</b>：MySQL 存储（失败回退 MemoryStore），Cookie <code>connect.sid</code> 7 天滚动、HttpOnly、SameSite=Lax</li>
         <li><b>角色三档</b>：<code>super_admin / admin / member</code>；bcrypt cost <b>12</b></li>
       </ul>
@@ -502,6 +504,21 @@ td code{font-size:11.5px}
     </div>
   </div>
 
+  <div class="card" style="margin-top:16px">
+    <h3><span class="ic" style="background:var(--cyan)"></span>入口与端口（本机 / 局域网双形态）</h3>
+    <table>
+      <tr><th>访问方</th><th>地址</th><th>路径</th></tr>
+      <tr><td>本机浏览器</td><td><code>http://localhost</code></td><td>Nginx 80 反代 → Node 3456（规范本机入口）</td></tr>
+      <tr><td>本机浏览器</td><td><code>http://localhost:3456</code></td><td>Node 直连；页面导航 302 →80（API / 静态 / WS 不跳）</td></tr>
+      <tr><td>局域网设备（飞牛 / NAS）</td><td><code>http://&lt;本机IP&gt;:3456</code></td><td>Node 直连，<b>不跳转</b>；需 <code>APP_BIND=0.0.0.0</code></td></tr>
+    </table>
+    <p style="margin-top:10px;font-size:12.5px;color:var(--dim)">
+      入口归一在 <code>server.js</code> 顶部：仅 <code>Host</code> 为本机 <code>localhost/127.0.0.1:3456</code> 的页面导航 302 到 80；
+      局域网 IP 直连放行（跳 <code>localhost</code> 会指向设备自身）。<code>APP_BIND</code>：<code>0.0.0.0</code>（默认，局域网可达）/
+      <code>127.0.0.1</code>（仅本机回源）。详见 docs/03-部署与运维 §8。
+    </p>
+  </div>
+
   <h3 style="margin:26px 0 10px;font-size:15px">常见故障排查</h3>
   <table>
     <tr><th>现象</th><th>排查</th></tr>
@@ -522,7 +539,7 @@ td code{font-size:11.5px}
         <li>① <code>SESSION_SECRET</code> / <code>ENCRYPT_KEY</code> 持久化、权限 600、纳入备份与轮换</li>
         <li>② <code>CORS_ORIGINS</code> 限定具体域名（未配置会告警并接受任意来源）</li>
         <li>③ HTTPS + <code>TRUST_PROXY</code> + Secure Cookie 联合验证</li>
-        <li>④ 防火墙只开 80/443（及 SSH）；<b>3456、3306 不暴露公网</b></li>
+        <li>④ 防火墙只开 80/443（及 SSH）；<b>3456、3306 不暴露公网</b>（局域网内需飞牛/NAS 直连 3456 时可单独放行该端口）</li>
         <li>⑤ 屏蔽 <code>/api-docs</code>、<code>/api-docs.json</code> 公网访问</li>
         <li>⑥ 备份覆盖 MySQL + uploads/ + 密钥，并做恢复演练</li>
         <li>⑦ 服务账号只写 uploads/backups/logs，不递归写整个仓库</li>
@@ -639,7 +656,8 @@ td code{font-size:11.5px}
       <h3><span class="ic" style="background:var(--rose)"></span>已知实现差异（对接时注意）</h3>
       <ul>
         <li><code>/api/search</code> 有两个 GET 处理器（登录版先注册优先）</li>
-        <li><code>users/me/profile</code> 前端兼容 <code>data.user || data</code></li>
+        <li><code>users/me/profile</code> 前端兼容 <code>data.user || data</code>；返回 <code>trustLevel / trustLevelCn</code>、<code>haloVisible</code>（我的信息光环）</li>
+        <li><code>/api/group/members</code> 与 <code>/api/users/list</code> 均下发每个成员的 <code>haloVisible</code>（V6.16 按人独立可见，未绑定账号为 <code>null</code>=默认显示）；<code>trustLevel</code> 名册无记录时回退 <code>users.trust_level</code>（V6.17）</li>
         <li><code>posts</code> 的 <code>limit</code> 参数被忽略</li>
         <li>上传字段命名以代码为准：photo/media/photos/video/avatar/file/thumbnail/image</li>
         <li>直播 <code>/live/user/history</code> 被流式参数路由遮蔽不可达（历史遗留）</li>
@@ -681,8 +699,8 @@ td code{font-size:11.5px}
   <table>
     <tr><th>族</th><th>表</th><th>说明</th></tr>
     <tr><td class="f">系统</td><td><code>system_config</code> · <code>sessions</code></td><td class="muted">配置键值；express-mysql-session 运行时表</td></tr>
-    <tr><td class="f">用户</td><td><code>users</code> · <code>user_profile</code> · <code>member_note</code> · <code>user_like</code> · <code>name_change_requests</code></td><td class="muted">users 40+ 字段，含签到/成就统计列；用户是业务中心</td></tr>
-    <tr><td class="f">群组</td><td><code>group_roster</code> · <code>group_member_changes</code> · <code>group_sync_log</code> · <code>group_invites</code></td><td class="muted">信任等级、变更审计、同步日志</td></tr>
+    <tr><td class="f">用户</td><td><code>users</code> · <code>user_profile</code> · <code>member_note</code> · <code>user_like</code> · <code>name_change_requests</code></td><td class="muted">users 40+ 字段，含签到/成就统计列；用户是业务中心；<code>halo_visible</code> 光环可见性、<code>trust_level / trust_checked_at</code> 自身信任等级缓存（V6.17）</td></tr>
+    <tr><td class="f">群组</td><td><code>group_roster</code> · <code>group_member_changes</code> · <code>group_sync_log</code> · <code>group_invites</code></td><td class="muted">群成员信任等级 <code>trust_level / trust_level_cn</code>、变更审计、同步日志</td></tr>
     <tr><td class="f">活动</td><td><code>event</code> · <code>event_sign</code> · <code>event_checkin</code> · <code>event_comment</code> · <code>event_teams</code> · <code>event_team_members</code></td><td class="muted">event 11 索引；event_sign.user_vrcid ↔ users.vrchat_id</td></tr>
     <tr><td class="f">相册/媒体</td><td><code>albums</code> · <code>album_photos</code> · <code>posts</code> + 媒体/视频/评论</td><td class="muted">相册 500MB 上传、动态媒体</td></tr>
     <tr><td class="f">通知/聊天/直播</td><td><code>notifications</code> · <code>messages</code> · <code>chat_rooms</code> · <code>live_rooms</code> · <code>vrc_notif_sync</code></td><td class="muted">站内通知；私聊/群聊；直播元数据；VRC 官方通知同步（10 分钟，仅会员）</td></tr>
@@ -735,7 +753,7 @@ td code{font-size:11.5px}
     <tr><td class="f">点赞</td><td><span class="tag ok">✅</span></td><td class="muted">user_like 防重复（唯一键）</td></tr>
     <tr><td class="f">签到/成就</td><td><span class="tag ok">✅</span></td><td class="muted">每日签到（7 档奖励）、29 个默认成就</td></tr>
     <tr><td class="f">权限组</td><td><span class="tag ok">✅</span></td><td class="muted">三表模型，30 个 can_* 键（当前不被业务路由强制，预留）</td></tr>
-    <tr><td class="f">VRChat 群组</td><td><span class="tag ok">✅</span></td><td class="muted">group/vrc 管理、Pipeline 实时同步、审核队列（远程 block/mute 回显）</td></tr>
+    <tr><td class="f">VRChat 群组</td><td><span class="tag ok">✅</span></td><td class="muted">group/vrc 管理、Pipeline 实时同步、审核队列（远程 block/mute 回显）；<b>信任光环</b>：按 VRChat 信任等级给头像外圈着色（名册优先，`users.trust_level` 兜底），开关按人独立可见（V6.16/V6.17）</td></tr>
     <tr><td class="f">好友/关注</td><td><span class="tag ok">✅</span></td><td class="muted">好友增删/状态/列表、关注流</td></tr>
     <tr><td class="f">管理后台</td><td><span class="tag ok">✅</span></td><td class="muted">超管：用户管理/配置/内容管理/操作日志</td></tr>
     <tr><td class="f">运维后台（网页版）</td><td><span class="tag ok">✅ 独立面板</span></td><td class="muted">端口 3457，仅本机（07-运维后台使用说明）</td></tr>
@@ -865,7 +883,8 @@ td code{font-size:11.5px}
     <h3 class="sub">1.1 全局中间件链（注册顺序即执行顺序，server.js）</h3>
     <div class="codeblock">
       <button class="copybtn" onclick="copyPre(this)">复制</button>
-      <pre>app.use('/api', ddosLimiter)          <span style="color:#56678c">// 600/min 总闸</span>
+      <pre>app.use(入口归一)              <span style="color:#56678c">// 最先：本机 localhost:3456 页面导航 302→80；局域网 IP 直连放行</span>
+app.use('/api', ddosLimiter)          <span style="color:#56678c">// 600/min 总闸</span>
 app.use('/api', suspiciousRequestDetector)
 app.use(metricsMiddleware)            <span style="color:#56678c">// 请求指标（analytics 读取）</span>
 app.use(apiVersionMiddleware)         <span style="color:#56678c">// /api/v1|v2 前缀识别</span>
@@ -965,7 +984,7 @@ app.use('/api', 404 + error handler)</pre>
     <h3 class="sub">2.1 index.html 静态脚本栈（顺序即硬依赖）</h3>
     <div class="panel">
       <div class="panel-head">
-        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261014d</span></h4>
+        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261019p</span></h4>
       </div>
       <div class="tbl-scroll" style="max-height:560px"><table class="tbl">
         <thead><tr><th>#</th><th>脚本</th><th>模式</th><th>版本戳</th><th>作用</th></tr></thead>
@@ -1075,7 +1094,7 @@ app.use('/api', 404 + error handler)</pre>
         <tbody id="symBody"></tbody>
       </table></div>
     </div>
-    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261014d）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261014d</code>。</div>
+    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261019p）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261019p</code>。</div>
   </section>
 <section id="checklist">
     <div class="section-head">
@@ -1251,23 +1270,23 @@ const TOOLS=[
 ];
 const DBHOT=[['1','users','28'],['2','event','13'],['3','album_photo','11'],['4','group_roster','9'],['5','posts','9'],['6','notifications','9'],['7','permission_groups','3'],['8','user_like','3'],['9','user_friends','7'],['10','event_sign','6'],['11','user_group_membership','6'],['12','sys_oper_log','5'],['13','announcement','5'],['14','post_comment','3'],['15','group_permission_entries','3']];
 const STACK=[
- ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261014d','语言包×6（detectLang 动态注入）'],
- ['2','/js/seo.js','head 内同步（非 defer）','20261014d','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
- ['3','/js/core.js','defer','20261014d','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
- ['4','/js/i18n.js','defer','20261014d','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261014d\''],
- ['5','/js/ui.js','defer','20261014d','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
- ['6','gsap.min.js','defer','20261014d','动效库'],
- ['7','ScrollTrigger.min.js','defer','20261014d','滚动触发'],
- ['8','/js/motion.js','defer','20261014d','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
- ['9','/js/reveal.js','defer','20261014d','滚动揭示（IntersectionObserver；motion 启用后让位）'],
- ['10','/js/nav-scroller.js','defer','20261014d','顶部标签滑动'],
- ['11','/js/freeze.js','defer','20261014d','__freeze 空闲冻结'],
- ['12','/js/theme.js','defer','20261014d','主题 V5.5（模式/明暗/强调色/时间自动）'],
- ['13','/js/auth.js','defer','20261014d','登录/注册/2FA/VRC 登录/自动登录/登录页头像缓存单槽预览'],
- ['14','/js/loader.js','defer','20261014d','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP'],
- ['15','/js/smartsearch.js','defer','20261014d','Ctrl+K 命令面板'],
- ['16','/js/init.js','defer','20261014d','初始化向导（main 未初始化分支调用）'],
- ['17','/js/main.js','defer','20261014d','入口调度/WS/轮询/通知']
+ ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261019p','语言包×6（detectLang 动态注入）'],
+ ['2','/js/seo.js','head 内同步（非 defer）','20261019p','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
+ ['3','/js/core.js','defer','20261019p','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
+ ['4','/js/i18n.js','defer','20261019p','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261019p\''],
+ ['5','/js/ui.js','defer','20261019p','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
+ ['6','gsap.min.js','defer','20261019p','动效库'],
+ ['7','ScrollTrigger.min.js','defer','20261019p','滚动触发'],
+ ['8','/js/motion.js','defer','20261019p','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
+ ['9','/js/reveal.js','defer','20261019p','滚动揭示（IntersectionObserver；motion 启用后让位）'],
+ ['10','/js/nav-scroller.js','defer','20261019p','顶部标签滑动'],
+ ['11','/js/freeze.js','defer','20261019p','__freeze 空闲冻结'],
+ ['12','/js/theme.js','defer','20261019p','主题 V5.5（模式/明暗/强调色/时间自动）+ 动态效果强制开关（force-anim）'],
+ ['13','/js/auth.js','defer','20261019p','登录/注册/2FA/VRC 登录/自动登录/登录页头像缓存单槽预览'],
+ ['14','/js/loader.js','defer','20261019p','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP + force-anim'],
+ ['15','/js/smartsearch.js','defer','20261019p','Ctrl+K 命令面板'],
+ ['16','/js/init.js','defer','20261019p','初始化向导（main 未初始化分支调用）'],
+ ['17','/js/main.js','defer','20261019p','入口调度/WS/轮询/通知']
 ];
 const FMM=[
  ['core.js','静','—','传输层/工具/弹窗/图片兜底/全局错误日志/VRC 重登引导','`__` toast esc','/api/csrf-token'],

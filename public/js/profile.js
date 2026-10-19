@@ -572,23 +572,21 @@ function renderAvatarPref() {
   if (prefCustom) prefCustom.classList.toggle('disabled', !currentUser.customAvatarPath);
   if (prefVrc) prefVrc.classList.toggle('disabled', !currentUser.vrchatAvatarUrl);
 
-  // 我的头像信任光环：光环开关开启且本账号有信任等级 → 按等级着色（无记录保持默认金色无光环）
+  // 我的头像信任光环：光环开关开启时按信任等级着色；无等级（未绑定/名册未同步）用默认金色环
   applyMeAvatarHalo();
 }
 
 // 我的信息页头像信任光环渲染：.me-avatar-wrap 套用与群组成员一致的信任环（has-trust-ring + --tc）。
-// 光环开关关闭时不显示；信任等级缺失时：
-//   · 已绑定 VRChat（名册暂无该用户/等级未同步）→ 用默认金色，保证开关有可见效果；
-//   · 未绑定 VRChat → 不显示（无账号可对应信任等级）。
+// 光环开关关闭时不显示；信任等级缺失（未绑定 VRChat / 名册未同步）时用默认环色。
 function applyMeAvatarHalo() {
   const wrap = document.querySelector('.me-avatar-wrap');
   if (!wrap) return;
   const haloOn = currentUser.haloVisible !== false;
-  const trustColor = currentUser.trustLevel
+  const trustColor = (currentUser.trustLevel
     ? ((typeof window.trustColorOf === 'function' && window.trustColorOf(currentUser.trustLevel)) || '')
-    : (currentUser.vrchatId ? '#ffd700' : '');
-  wrap.classList.toggle('has-trust-ring', !!(haloOn && trustColor));
-  if (haloOn && trustColor) wrap.style.setProperty('--tc', trustColor);
+    : '') || (window.DEFAULT_TRUST_COLOR || '#ffd700');
+  wrap.classList.toggle('has-trust-ring', !!haloOn);
+  if (haloOn) wrap.style.setProperty('--tc', trustColor);
   else wrap.style.removeProperty('--tc');
 }
 
@@ -1161,6 +1159,9 @@ function renderTotpStatus() {
         document.getElementById('totpDisableArea').classList.add('d-none');
         document.getElementById('totpSetupArea').classList.add('d-none');
       }
+    }).catch(() => {
+      // 查询失败（网络/会话异常）：给出可读状态，避免永久停在「检查中...」
+      if (statusEl) statusEl.textContent = __('totp.setup_failed');
     });
   } catch {}
 }

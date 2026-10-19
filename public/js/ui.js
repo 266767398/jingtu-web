@@ -177,6 +177,8 @@ function updateUserUI() {
   if (avatar) {
     avatar.src = proxyAvatar(avatarUrl || '/api/avatar/default');
     avatar.onerror = function() { window.__avatarFail && window.__avatarFail(this, avatar.src || avatarUrl || '/api/avatar/default'); };
+    // 右上角头像信任光环：与成员/群组头像一致，按 VRChat 信任等级着色（联动「显示信任光环」开关）
+    applyHeaderAvatarHalo(avatar);
   }
   if (name) name.textContent = currentUser.displayName || currentUser.loginId || __('unknown_user');
   // 角色标签跟随显示
@@ -227,6 +229,24 @@ function updateUserUI() {
   const adminBadge = document.getElementById('adminBadge');
   if (adminBadge) adminBadge.classList.toggle('d-none', !isAdmin);
 }
+
+// 右上角头像信任光环：套用 has-trust-ring + --tc（色值取自信色等级）。
+// 有信任等级按等级着色；无等级（未绑定 VRChat / 名册未同步）用默认环色；
+// 「我的信息 → 头像显示设置 → 显示信任光环」关闭时不渲染（haloVisible === false）。
+function applyHeaderAvatarHalo(el) {
+  if (!el || !currentUser) return;
+  const haloOn = currentUser.haloVisible !== false;
+  const trustColor = (currentUser.trustLevel
+    ? ((typeof window.trustColorOf === 'function' && window.trustColorOf(currentUser.trustLevel)) || '')
+    : '') || window.DEFAULT_TRUST_COLOR;
+  el.classList.toggle('has-trust-ring', !!haloOn);
+  if (haloOn) el.style.setProperty('--tc', trustColor);
+  else el.style.removeProperty('--tc');
+}
+// 光环开关联动：切换后立即更新顶栏头像，无需刷新页面。
+document.addEventListener('haloVisibleChanged', function () {
+  applyHeaderAvatarHalo(document.getElementById('headerUserAvatar'));
+});
 
 // ==================== Hero 统计数据加载 ====================
 async function loadHeroStats() {

@@ -5,6 +5,16 @@ async function loadMe() {
     if (res.ok) { 
       const data = await res.json(); 
       currentUser = data.user || data; 
+      // 应用本人单独设置的整站背景（并同步「我的 → 主题与外观」预览）
+      if (typeof applyUserSiteBackground === 'function') {
+        const bg = currentUser.backgroundImage || currentUser.preferences?.backgroundImage || '';
+        applyUserSiteBackground(bg);
+        if (typeof refreshSiteBgUI === 'function') refreshSiteBgUI(bg);
+      }
+      // 同步「主题与外观」里的横幅预览
+      if (typeof refreshBannerUI === 'function') {
+        refreshBannerUI(currentUser.coverImage || currentUser.preferences?.coverImage || '');
+      }
       return currentUser; 
     }
   } catch {}
@@ -63,6 +73,8 @@ async function logout(redirect = true, silent = false) {
   disconnectWebSocket();
   if (typeof stopGroupPolling === 'function') stopGroupPolling();
   currentUser = null; csrfToken = null; membersCache = []; albumPhotoList = [];
+  // 清除本人网站背景，避免登出后仍残留上一位用户的背景图
+  if (typeof applyUserSiteBackground === 'function') applyUserSiteBackground('');
   signedEvents.clear(); albumScrollLock.clear();
   clearLoginFlag();
   localStorage.removeItem('jingtu_remember');

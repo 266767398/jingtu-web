@@ -10,6 +10,7 @@ const express = require('express');
 const { ok, fail, getPool, handleError , sendError, ErrorCodes, paginate } = require('../utils');
 const { requireAuth } = require('../auth');
 const { vrchatGetNotifications } = require('../vrc');
+const logger = require('../logger');
 
 // ==================== VRChat 通知联动（V9.6） ====================
 // 仅同步「会员自己绑定账号」的 VRChat 官方通知到站内通知：

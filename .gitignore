@@ -92,6 +92,10 @@ uploads/profile/videos/*
 /uploads/live/*
 # 聊天语音消息等运行时媒体
 /uploads/chat/*
+# 用户自定义主页背景图与横幅（封面图）（个人中心上传，隐私数据，严禁入库）
+/uploads/backgrounds/*
+/uploads/covers/*
+/uploads/posts/*
 # Jest 覆盖率本地产物（CI 上传 lcov 已足够）
 server/coverage/
 coverage/

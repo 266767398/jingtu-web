@@ -16,22 +16,30 @@ async function loadMembers() {
     const MEMBERS_MAX_PAGES = 100; // 防御性上限（1 万人足够），防异常 total 死循环
     let all = [];
     let total = 0;
+    let fetchFailed = false;
     for (let page = 1; page <= MEMBERS_MAX_PAGES; page++) {
       const res = await api(`/api/users/list?page=${page}&pageSize=${MEMBERS_PAGE_SIZE}`, { method: 'GET' });
-      if (!res.ok) break;
+      if (!res.ok) { fetchFailed = true; break; }
       const data = await res.json();
       const rows = data.users || [];
       all = all.concat(rows);
       if (typeof data.total === 'number') total = data.total;
       if (!rows.length || all.length >= total) break;
     }
+    membersCache = all;
     if (all.length) {
-      membersCache = all;
       populateRoleFilter();
       filterMembers();
-      if (typeof mapInstance !== 'undefined' && mapInstance) updateMapMarkers();
+    } else {
+      // 空列表/拉取失败：立即清掉骨架屏，走过滤渲染输出「无成员」或错误提示，避免骨架常驻
+      populateRoleFilter();
+      doFilterMembers();
+      if (fetchFailed) toast(__('members.load_failed_msg'), 'error');
     }
+    if (typeof mapInstance !== 'undefined' && mapInstance) updateMapMarkers();
   } catch (err) {
+    // 网络/请求异常时同样清掉骨架屏，避免列表永久停留在 loading
+    if (container) renderEmpty(container, { icon: '⚠️', text: __('members.load_failed_msg') });
     if (isApiHandledError(err)) return;
     toast(__('members.load_failed_msg'), 'error');
   } finally {
@@ -169,6 +177,23 @@ function memberAvatarOnError(img) {
   window.__bindMemberAvatarRetry = bindMemberAvatarRetry;
 })();
 
+// 关注按钮四态 HTML（成员卡片 / 成员名片 / 完整资料页共用同一套状态与动作）
+// following=我是否关注对方；followedBy=对方是否关注我。互关即好友，取消需二次确认。
+function followBtnHtml(userId, following, followedBy) {
+  let label, action, cls, mutual;
+  if (following && followedBy) { label = __('follows.mutual'); action = 'member-unfollow'; cls = 'btn-outline'; mutual = '1'; }
+  else if (following) { label = __('follows.followed'); action = 'member-unfollow'; cls = 'btn-outline'; mutual = '0'; }
+  else if (followedBy) { label = __('follows.follow_back'); action = 'member-follow'; cls = 'btn-accent'; mutual = '0'; }
+  else { label = __('follows.follow'); action = 'member-follow'; cls = 'btn-accent'; mutual = '0'; }
+  return `<button class="btn btn-sm ${cls}" data-action="${action}" data-member-id="${escAttr(String(userId))}" data-mutual="${mutual}">${esc(label)}</button>`;
+}
+
+// 成员列表卡片上的关注按钮（标志随 /api/users/list 一次下发，无 N+1 请求）
+function cardFollowBtnHtml(m) {
+  if (!currentUser || String(currentUser.id) === String(m.id)) return '';
+  return `<span class="member-card-follow" data-uid="${escAttr(String(m.id))}">${followBtnHtml(m.id, !!m.following, !!m.followedBy)}</span>`;
+}
+
 function renderMembers(members) {
   // F-头像重试：确保重试监听已绑定（一次性）
   if (typeof window.__bindMemberAvatarRetry === 'function') window.__bindMemberAvatarRetry();
@@ -200,10 +225,18 @@ function renderMembers(members) {
     const tagsHtml = tags.length
       ? `<div class="member-tags">${tags.map(t => `<span class="tag tag-accent">${esc(t)}</span>`).join('')}</div>`
       : '';
+    // 信任光环：与群成员卡片/我的信息头像一致，按 VRChat 信任等级着色；
+    // 无信任等级（未绑定/名册未同步）时用默认环色，保证开关下任何头像都有环。
+    // 光环开关语义为「自己的光环是否对别人可见」：这里按该成员自己的设置渲染，
+    // 不再受浏览者自身开关影响（否则一人关闭会导致全站光环消失）。
+    const haloOn = m.haloVisible !== false;
+    const trustColor = (m.trustLevel ? (trustColorOf(m.trustLevel) || '') : '') || window.DEFAULT_TRUST_COLOR;
+    const ringClass = haloOn ? ' has-trust-ring' : '';
+    const ringStyle = haloOn ? ` style="--tc:${trustColor}"` : '';
     return `
     <div class="member-card">
       <div class="member-card-click" data-member-id="${escAttr(String(m.id))}">
-        <img src="${escAttr(avSrc)}" class="member-avatar" alt="${escAttr(m.displayName || m.loginId)}" loading="lazy"
+        <img src="${escAttr(avSrc)}" class="member-avatar${ringClass}"${ringStyle} alt="${escAttr(m.displayName || m.loginId)}" loading="lazy"
           data-vrc-fallback="${escAttr(vrcFallback)}"
           data-avatar-fail-key="${escAttr(avSrc)}" data-avatars="${escAttr(cycleSet)}" >
         <div class="member-info">
@@ -214,7 +247,10 @@ function renderMembers(members) {
         </div>
       </div>
       ${m.locationVisible ? `<div class="member-location">📍 ${esc(m.location || __('members.unknown_location'))}</div>` : ''}
-      <button class="btn btn-sm btn-outline ml-auto" data-show-detail="${escAttr(String(m.id))}">${__('members.card')}</button>
+      <div class="member-card-actions">
+        <button class="btn btn-sm btn-outline ml-auto" data-show-detail="${escAttr(String(m.id))}">${__('members.card')}</button>
+        ${cardFollowBtnHtml(m)}
+      </div>
     </div>
   `;
   }).join('');
@@ -270,6 +306,45 @@ function memberCardCacheSet(uid, detail) {
   } catch (e) { /* 静默降级 */ }
 }
 
+// 成员详情弹窗的外观层：横幅封面（header）+ 弹窗背景（用户自定义整站背景）
+function paintMemberCardArt(u, modal) {
+  const banner = document.getElementById('memberCardBanner');
+  const cover = u.coverImage || '';
+  if (banner) {
+    if (cover) {
+      const pos = (u.coverPosition === 'top' || u.coverPosition === 'bottom') ? u.coverPosition : 'center';
+      banner.style.backgroundImage = `url(${escCssUrl(cover)})`;
+      banner.style.backgroundSize = 'cover';
+      banner.style.backgroundPosition = pos;
+      // 图片失效时回退默认渐变横幅，避免白条
+      const probe = new Image();
+      probe.onerror = function () { banner.style.backgroundImage = ''; };
+      probe.src = cover;
+    } else {
+      banner.style.backgroundImage = '';
+      banner.style.backgroundSize = '';
+    }
+  }
+  if (modal) {
+    const content = modal.querySelector('.modal-content');
+    const bg = u.backgroundImage || '';
+    if (content) {
+      if (bg) {
+        // 双层背景：底层为成员自定义图，上层为卡片色半透明遮罩（深浅主题均可读）
+        content.style.backgroundImage =
+          `linear-gradient(color-mix(in srgb, var(--card) 88%, transparent), color-mix(in srgb, var(--card) 88%, transparent)), url(${escCssUrl(bg)})`;
+        content.style.backgroundSize = 'cover';
+        content.style.backgroundPosition = 'center';
+        content.style.backgroundRepeat = 'no-repeat';
+      } else {
+        content.style.backgroundImage = '';
+        content.style.backgroundSize = '';
+        content.style.backgroundRepeat = '';
+      }
+    }
+  }
+}
+
 // 把一份名片数据填入 DOM（缓存命中与接口刷新共用，避免重复逻辑）
 function paintMemberCard(u) {
   const modal = document.getElementById('memberModal');
@@ -283,6 +358,8 @@ function paintMemberCard(u) {
   const joinedEl = document.getElementById('ucJoined');
   const bioEl = document.getElementById('ucBio');
   const tagsEl = document.getElementById('ucTags');
+  // 成员自定义外观：横幅（封面图）与弹窗背景（用户自己换的整站背景图）
+  paintMemberCardArt(u, modal);
   if (img) {
     img.dataset.vrcFallback = memberVrcFallback(u);
     img.dataset.avatarFailKey = memberAvatarSrc(u);
@@ -290,10 +367,26 @@ function paintMemberCard(u) {
     img.onerror = function () { memberAvatarOnError(img); };
     img.src = memberAvatarSrc(u);
   }
+  // 成员弹窗头像信任光环：按 VRChat 信任等级着色（GET /:id/card 已返回 trustLevel/trustLevelCn）
+  const avatarWrapEl = document.getElementById('ucAvatarWrap');
+  if (avatarWrapEl) avatarWrapEl.dataset.uid = String(u.id || '');
+  applyMemberAvatarHalo(avatarWrapEl, u);
   if (nameEl) nameEl.textContent = u.displayName || u.loginId || __('unknown_user');
   const roleMap = { 'super_admin': __('members.role_super_admin'), 'admin': __('members.role_admin'), 'member': __('members.role_member') };
-  if (roleEl) roleEl.textContent = roleMap[u.role] || u.role || '—';
-  if (mottoEl) mottoEl.textContent = u.motto || u.bio || '';
+  // 恢复/保留名片样式类（skeleton 阶段用 classList.add('d-none') 只加隐藏，不会抹掉类名）
+  if (roleEl) {
+    roleEl.className = 'member-card-role';
+    roleEl.textContent = roleMap[u.role] || u.role || '—';
+  }
+  if (mottoEl) {
+    if (u.motto || u.bio) {
+      mottoEl.className = 'member-card-motto';
+      mottoEl.textContent = u.motto || u.bio;
+    } else {
+      mottoEl.className = 'd-none';
+      mottoEl.textContent = '';
+    }
+  }
   if (locationEl) {
     if (u.locationVisible && u.location) {
       locationEl.className = 'd-flex gap-4 items-center';
@@ -356,11 +449,6 @@ function paintMemberCard(u) {
     if (currentUser && currentUser.id === u.id) {
       html += `<a href="#" data-action="member-edit-profile" class="btn btn-sm btn-outline">${__('members.edit_profile')}</a>`;
     }
-    if (currentUser && currentUser.id !== u.id) {
-      // 关注/互关按钮容器：数据异步拉取后填入（renderMemberCardSkeleton 会清空）
-      // data-uid 用于防串台：切到他人民片后，迟到响应不覆盖新名片按钮
-      html += `<span id="memberFollowBtn" data-uid="${escAttr(String(u.id))}"></span>`;
-    }
     if (currentUser) {
       html += `<button data-action="member-notes" data-member-id="${u.id}" data-member-name="${escAttr(u.displayName || u.loginId)}" class="btn btn-sm btn-outline">📝 ${__('members.notes')}</button>`;
       if (currentUser.id !== u.id) {
@@ -369,15 +457,41 @@ function paintMemberCard(u) {
     }
     html += `<a href="#" data-action="member-profile" data-member-id="${u.id}" class="btn btn-sm btn-outline">${__('members.full_profile')}</a>`;
     linksEl.innerHTML = html || '';
-    if (currentUser && currentUser.id !== u.id) refreshFollowBtn('memberFollowBtn', u.id);
   }
   if (modal) showModal('memberModal');
 }
 
+// 成员头像信任光环：为头像元素套用 has-trust-ring + --tc（色值取自信色等级）。
+// 无信任等级（未绑定/名册未同步）时用默认环色；光环开关语义为「自己的光环是否
+// 对别人可见」，因此按被查看成员自己的 haloVisible 渲染（无数据默认显示）。
+function applyMemberAvatarHalo(el, u) {
+  if (!el) return;
+  const haloOn = !u || u.haloVisible !== false;
+  const trustColor = ((u && u.trustLevel) ? (trustColorOf(u.trustLevel) || '') : '') || window.DEFAULT_TRUST_COLOR;
+  el.classList.toggle('has-trust-ring', !!haloOn);
+  if (haloOn) el.style.setProperty('--tc', trustColor);
+  else el.style.removeProperty('--tc');
+}
+// 光环开关联动：个人中心切换「显示信任光环」后成员页就地重渲（列表 + 已打开的名片弹窗），
+// 无需刷新页面即可让光环显示/隐藏即时生效。
+document.addEventListener('haloVisibleChanged', function () {
+  if (typeof membersCache !== 'undefined' && membersCache && membersCache.length) {
+    filterMembers();
+  }
+  const wrap = document.getElementById('ucAvatarWrap');
+  const modal = document.getElementById('memberModal');
+  if (wrap && modal && modal.classList.contains('show')) {
+    // 从缓存取回当前弹窗用户数据重新着色（命中失败则移除环，等待下次打开重新拉取）
+    const uid = wrap.dataset.uid || null;
+    const cached = uid ? memberCardCacheGet(uid) : null;
+    applyMemberAvatarHalo(wrap, cached || { trustLevel: '' });
+  }
+});
+
 // ==================== 名片关注/互关（成员卡片关注功能） ====================
 // 状态：未关注→关注；对方已关注我且我未关注→回关；已关注未互关→已关注（可取消）；
 // 互关（已是好友）→互关（可取消，取消会同时解除好友关系并弹确认）。
-// containerId 支持多个挂载点：成员名片 #memberFollowBtn / 完整资料页 #profileFollowBtn
+// containerId 支持多个挂载点：完整资料页 #profileFollowBtn
 async function refreshFollowBtn(containerId, userId) {
   const el = document.getElementById(containerId);
   if (!el || !currentUser || String(currentUser.id) === String(userId)) return;
@@ -389,15 +503,23 @@ async function refreshFollowBtn(containerId, userId) {
     const d = await res.json();
     const elNow = document.getElementById(containerId);
     if (!elNow || String(elNow.dataset.uid) !== String(userId)) return;
-    const following = !!d.following, followedBy = !!d.followedBy;
-    let label, action, cls;
-    if (following && followedBy) { label = __('follows.mutual'); action = 'member-unfollow'; cls = 'btn-outline'; }
-    else if (following) { label = __('follows.followed'); action = 'member-unfollow'; cls = 'btn-outline'; }
-    else if (followedBy) { label = __('follows.follow_back'); action = 'member-follow'; cls = 'btn-accent'; }
-    else { label = __('follows.follow'); action = 'member-follow'; cls = 'btn-accent'; }
-    const mutual = following && followedBy ? '1' : '0';
-    elNow.innerHTML = `<button class="btn btn-sm ${cls}" data-action="${action}" data-member-id="${userId}" data-mutual="${mutual}">${esc(label)}</button>`;
+    elNow.innerHTML = followBtnHtml(userId, !!d.following, !!d.followedBy);
   } catch (e) { /* 静默：关注按钮拉取失败不影响名片展示 */ }
+}
+
+// 成员列表卡片关注按钮刷新：关注/取消后重拉该用户关系，同步所有渲染中的卡片槽位
+async function refreshCardFollowSlots(userId) {
+  const slots = document.querySelectorAll('.member-card-follow[data-uid="' + String(userId) + '"]');
+  if (!slots.length || !currentUser) return;
+  try {
+    const res = await api(`/api/follows/status/${userId}`, { method: 'GET' });
+    if (!res.ok) return;
+    const d = await res.json();
+    slots.forEach(slot => {
+      if (String(slot.dataset.uid) !== String(userId)) return; // 防串台：超时后重建的槽位丢弃
+      slot.innerHTML = followBtnHtml(userId, !!d.following, !!d.followedBy);
+    });
+  } catch (e) { /* 静默 */ }
 }
 
 async function memberFollow(userId, follow, mutual) {
@@ -422,8 +544,8 @@ async function memberFollow(userId, follow, mutual) {
       return;
     }
     toast(follow ? __('follows.followed') : __('follows.unfollowed'), 'success');
-    // 同步刷新所有已渲染的关注按钮（成员名片 + 完整资料页）
-    refreshFollowBtn('memberFollowBtn', userId);
+    // 同步刷新所有已渲染的关注按钮（成员列表卡片 + 完整资料页）
+    refreshCardFollowSlots(userId);
     if (document.getElementById('profileFollowBtn')) refreshFollowBtn('profileFollowBtn', userId);
   } catch (e) {
     if (isApiHandledError(e)) return;
@@ -434,6 +556,15 @@ async function memberFollow(userId, follow, mutual) {
 function renderMemberCardSkeleton(userId, failed) {
   const modal = document.getElementById('memberModal');
   const img = document.getElementById('ucAvatar');
+  // 骨架态清空自定义外观，回到默认渐变横幅与默认弹窗背景
+  paintMemberCardArt({}, modal);
+  // 骨架态同步清除上一位成员的信任光环，避免加载期间显示错人的环色
+  const avatarWrap = document.getElementById('ucAvatarWrap');
+  if (avatarWrap) {
+    avatarWrap.classList.remove('has-trust-ring');
+    avatarWrap.style.removeProperty('--tc');
+    avatarWrap.dataset.uid = '';
+  }
   if (img) {
     img.onerror = null;
     img.dataset.vrcFallback = '';
@@ -446,7 +577,8 @@ function renderMemberCardSkeleton(userId, failed) {
     const el = document.getElementById(id);
     if (!el) return;
     el.textContent = '';
-    el.className = 'd-none';
+    // 只追加隐藏类，保留 member-card-role 等基础样式类（paint 阶段会恢复显示类）
+    el.classList.add('d-none');
   });
   const bioEl = document.getElementById('ucBio');
   if (bioEl) { bioEl.textContent = ''; bioEl.className = 'd-none'; }
@@ -849,23 +981,9 @@ function closeMemberNotesModal() {
 // ==================== 群组成员 VRChat 风格名片详情 ====================
 // 点击群组/世界分布中的成员头像，弹出其在 VRChat 上的真实资料：
 // 头像、昵称、简介、信任等级、徽章、在线状态、当前所在世界、bio 链接等。
-// VRChat 信任等级色阶（按用户确认：就这 5 个主等级，对齐 VRCX 显示）
-// 恶劣玩家(灰) → 游客(白) → 新用户(蓝) → 用户(绿) → 常驻玩家(橙) → 资深玩家(紫)
-// 注：VRChat API 偶发返回 trusted/legend 等更高阶值，下方保留为兜底色（映射到相近色），
-//     但 UI 主文案只展示以上 5 级，不会凭空造__('auto_members_1')等。
-const VRC_TRUST_COLOR = {
-  'negative': '#9e9e9e',  // 恶劣玩家（灰）：会被其他玩家自动屏蔽
-  'visitor': '#ffffff',   // 游客（白）：新加入，权限有限，安全等级高玩家眼中可能不显示动作/模型
-  'new': '#2196f3',       // 新用户（蓝）：可上传模型和世界，但上传的世界默认私人
-  'user': '#4caf50',      // 用户（绿）：大多数功能开放，好友可完全访问其模型功能
-  'known': '#ff9800',     // 常驻玩家（橙）
-  'trusted': '#1565c0',   // 信任（深蓝，API 罕见值兜底）
-  'vetted': '#fb8c00',    // 审核（深橙，API 罕见值兜底）
-  'veteran': '#9c27b0',   // 资深玩家（紫）
-  'legend': '#7b1fa2'     // 传奇（紫红，API 罕见值兜底，UI 不主推）
-};
-// 暴露到全局，使群组卡片等其它模块可复用同一套 VRChat 信任色阶（VRCX 风格统一）
-window.VRC_TRUST_COLOR = VRC_TRUST_COLOR;
+// VRChat 信任等级色阶与 trustColorOf 统一由 core.js 全局提供（顶部导航/成员/群组共用同一色阶）。
+// 这里仅保留本地别名，避免与 core.js 两份色值表漂移。
+const VRC_TRUST_COLOR = window.VRC_TRUST_COLOR;
 // 信任等级 -> 中文名（按用户确认：就这 5 个主等级）
 // 层级：恶劣玩家 < 游客 < 新用户 < 用户 < 常驻玩家 < 资深玩家（trusted/legend 等罕见值兜底，不主推）
 const TRUST_CN = {
@@ -874,11 +992,12 @@ const TRUST_CN = {
 };
 window.TRUST_CN = TRUST_CN;
 // 小写归一化查找，兼容 VRChat API 偶发大小写差异（API 返回值为全小写）
+// 直接查本地别名（core.js 的色阶表），不要转调 window.trustColorOf：
+// 顶层 function 声明本身会挂到 window 上，转调会指向自己造成无限递归。
 function trustColorOf(level) {
   if (!level) return '';
-  return VRC_TRUST_COLOR[(level || '').toLowerCase()] || '';
+  return (VRC_TRUST_COLOR && VRC_TRUST_COLOR[(level || '').toLowerCase()]) || '';
 }
-window.trustColorOf = trustColorOf;
 const VRC_STATUS_LABEL = {
   'active': __('auto_members_11'), 'join me': __('auto_members_12'), 'ask me': __('auto_members_13'), 'busy': __('auto_members_14'), 'offline': __('auto_members_15')
 };
@@ -954,7 +1073,7 @@ async function openVrcMemberCard(vrchatId) {
     renderVrcMemberCard(cached, token);
   } else {
     body.innerHTML = `<div class="vrc-card-loading">
-      <svg class="vrc-spinner" width="36" height="36" viewBox="0 0 36 36" aria-label=__('auto_members_17')>
+      <svg class="vrc-spinner" width="36" height="36" viewBox="0 0 36 36" aria-label="${escAttr(__('auto_members_17'))}" role="img">
         <circle cx="18" cy="18" r="14" fill="none" stroke="var(--border)" stroke-width="3"/>
         <circle cx="18" cy="18" r="14" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-dasharray="60 28">
           <animateTransform attributeName="transform" type="rotate" from="0 18 18" to="360 18 18" dur="0.8s" repeatCount="indefinite"/>

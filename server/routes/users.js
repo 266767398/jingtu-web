@@ -17,6 +17,9 @@ const { fail, ok, getPool, validateFields, handleError, sendError, ErrorCodes, p
 const { passwordResetLimiter } = require('../middleware/rate_limit');
 const logger = require('../logger');
 
+// 信任等级中文名（与群成员/成员详情口径一致），供名册无记录时回退 users.trust_level 的展示
+const TRUST_CN = { negative: '恶劣玩家', visitor: '游客', new: '新用户', user: '用户', known: '常驻玩家', trusted: '信任', vetted: '审核', veteran: '资深玩家', legend: '资深玩家' };
+
 // B-2/P2-14：敏感操作（重置密码/改角色）要求当前管理员二次密码确认
 async function verifySelfPassword(uid, plain) {
   if (!plain) return false;
@@ -92,6 +95,7 @@ function sanitizeUser(u) {
  */
 router.get('/list', requireAuth, async (req, res) => {
   try {
+    const me = req.session.userId;
     const { page, pageSize, offset } = paginate(req, { defaultSize: 100 });
 
     const [count] = await getPool().query(
@@ -105,10 +109,14 @@ router.get('/list', requireAuth, async (req, res) => {
       `SELECT u.id, u.login_id AS loginId, u.display_name, u.vrchat_id, u.vrchat_name, u.role, u.avatar_type,
               u.custom_avatar_path, u.vrchat_avatar_url,
               u.location, u.lat, u.lng, u.location_visible AS locationVisible, u.location_updated_at AS locationUpdatedAt, u.preferences,
+              u.halo_visible AS haloVisible,
               COALESCE(l.likeCount, 0) AS likeCount,
               tr.trust_level AS trustLevel, tr.trust_level_cn AS trustLevelCn,
+              u.trust_level AS userTrustLevel,
               ra.profile_pic_override_thumbnail AS roster_override_pic,
-              COALESCE(NULLIF(ra.profile_pic_override_thumbnail, ''), NULLIF(ra.avatar_url, ''), NULLIF(u.vrchat_avatar_url, ''), '') AS vrchat_avatar_url
+              COALESCE(NULLIF(ra.profile_pic_override_thumbnail, ''), NULLIF(ra.avatar_url, ''), NULLIF(u.vrchat_avatar_url, ''), '') AS vrchat_avatar_url,
+              EXISTS(SELECT 1 FROM user_follows f1 WHERE f1.follower_id = ? AND f1.following_id = u.id) AS following,
+              EXISTS(SELECT 1 FROM user_follows f2 WHERE f2.follower_id = u.id AND f2.following_id = ?) AS followedBy
        FROM users u
        LEFT JOIN (SELECT to_user_id, COUNT(*) AS likeCount FROM user_like GROUP BY to_user_id) l
          ON u.id = l.to_user_id
@@ -137,7 +145,7 @@ router.get('/list', requireAuth, async (req, res) => {
        WHERE u.deleted_at IS NULL AND u.approved = 1 AND u.banned = 0
        ORDER BY FIELD(u.role, 'super_admin', 'admin', 'member'), u.id ASC
        LIMIT ? OFFSET ?`,
-      [pageSize, offset]
+      [me, me, pageSize, offset]
     );
 
     const users = rows.map(u => {
@@ -171,12 +179,18 @@ router.get('/list', requireAuth, async (req, res) => {
         lat: locFresh ? parseFloat(u.lat) : null,
         lng: locFresh ? parseFloat(u.lng) : null,
         locationVisible: !!u.locationVisible,
+        // 关注关系标志：卡片关注按钮直接渲染，避免 N+1 逐人拉状态
+        following: !!u.following,
+        followedBy: !!u.followedBy,
         // P3-XX：随成员列表下发最后更新时间，地图据此过滤关闭共享后残留的死坐标
         locationUpdatedAt: u.locationUpdatedAt,
         selfTags,
         likeCount: parseInt(u.likeCount) || 0,
-        trustLevel: u.trustLevel || '',
-        trustLevelCn: u.trustLevelCn || ''
+        // 名册无该用户记录时回退 users.trust_level（绑定/个人页回填的真实等级，V6.17）
+        trustLevel: u.trustLevel || u.userTrustLevel || '',
+        trustLevelCn: u.trustLevelCn || (u.userTrustLevel ? (TRUST_CN[u.userTrustLevel] || u.userTrustLevel) : ''),
+        // 该成员自己的光环可见性（控制其光环是否对别人可见；前端按此渲染）
+        haloVisible: u.haloVisible !== 0
       };
     });
 
@@ -816,11 +830,15 @@ router.get('/:id/card', requireAuth, async (req, res, next) => {
     const id = parseInt(req.params.id);
     if (!id) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数错误');
 
+    // 信任等级：与 /list 口径一致，取该用户在所有群组中的最高信任阶（弹窗头像信任光环）
+    const TRUST_ORDER = `'legend','veteran','vetted','trusted','known','user','new','visitor','negative'`;
     const [rows] = await getPool().query(
       `SELECT u.id, u.login_id, u.display_name, u.vrchat_id, u.vrchat_name,
               u.role, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url,
               u.birthday, u.location, u.location_visible, u.preferences,
               u.created_at,
+              tr.trust_level AS trust_level, tr.trust_level_cn AS trust_level_cn,
+              u.trust_level AS user_trust_level,
               ra.profile_pic_override_thumbnail AS roster_override_pic,
               COALESCE(NULLIF(ra.profile_pic_override_thumbnail, ''), NULLIF(ra.avatar_url, ''), NULLIF(u.vrchat_avatar_url, ''), '') AS vrchat_avatar_url
        FROM users u
@@ -833,6 +851,19 @@ router.get('/:id/card', requireAuth, async (req, res, next) => {
            GROUP BY vrchat_id
          ) m ON m.vrchat_id = g.vrchat_id AND g.synced_at = m.mx
        ) ra ON ra.vrchat_id = u.vrchat_id
+       LEFT JOIN (
+         SELECT g.vrchat_id, MIN(g.trust_level) AS trust_level, MIN(g.trust_level_cn) AS trust_level_cn
+         FROM group_roster g
+         JOIN (
+           SELECT vrchat_id, MAX(FIELD(trust_level, ${TRUST_ORDER})) AS maxrk
+           FROM group_roster
+           WHERE trust_level IS NOT NULL AND trust_level <> ''
+           GROUP BY vrchat_id
+         ) m ON m.vrchat_id = g.vrchat_id
+         WHERE g.trust_level IS NOT NULL AND g.trust_level <> ''
+           AND FIELD(g.trust_level, ${TRUST_ORDER}) = m.maxrk
+         GROUP BY g.vrchat_id
+       ) tr ON tr.vrchat_id = u.vrchat_id
        WHERE u.id = ? AND u.deleted_at IS NULL`,
       [id]
     );
@@ -890,13 +921,21 @@ router.get('/:id/card', requireAuth, async (req, res, next) => {
       locationVisible: !!u.location_visible,
       motto: prefs.motto || '',
       bio: prefs.bio || '',
+      // 成员自定义主页外观：头像后的横幅（封面）与整站背景图，成员详情弹窗展示
+      coverImage: prefs.coverImage || '',
+      coverPosition: (prefs.coverPosition && ['top', 'center', 'bottom'].includes(prefs.coverPosition))
+        ? prefs.coverPosition : 'center',
+      backgroundImage: prefs.backgroundImage || '',
       // 自定义标签：与 /list 一致，仅当用户开启「显示标签」时才返回（隐私墙）
       selfTags: (req.session.userId === u.id || prefs.tags_visible) && Array.isArray(prefs.self_tags)
         ? prefs.self_tags.filter(t => typeof t === 'string').slice(0, 8)
         : [],
       joinedAt: u.created_at,
       evtCount,
-      photoCount
+      photoCount,
+      // 名册无该用户记录时回退 users.trust_level（绑定/个人页回填的真实等级，V6.17）
+      trustLevel: u.trust_level || u.user_trust_level || '',
+      trustLevelCn: u.trust_level_cn || (u.user_trust_level ? (TRUST_CN[u.user_trust_level] || u.user_trust_level) : '')
     });
   } catch (e) {
     handleError(res, e, '[users]');
