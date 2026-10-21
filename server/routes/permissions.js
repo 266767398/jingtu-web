@@ -17,7 +17,7 @@ const express = require('express');
 const router = express.Router();
 const { fail, getPool, handleError, getAvatarUrl, sendError, ErrorCodes } = require('../utils');
 const { requireAuth, ROLE_LEVEL, ROLE_LABELS, currentRole } = require('../auth');
-const { ALL_PERMISSIONS, PERMISSION_LABELS } = require('./permission_groups');
+const { ALL_PERMISSIONS, PERMISSION_LABELS, resolveInheritedPermissions } = require('./permission_groups');
 
 // VRChat 群组成员状态 → 中文（membership_status 取值）
 const MEMBERSHIP_STATUS_CN = {
@@ -73,16 +73,12 @@ async function getWebsitePermissions(userId) {
   );
   const groupIds = groups.map(g => g.id);
 
-  // 合并有效权限：任意组允许 = 允许（MAX 聚合）
+  // 合并有效权限：任意组允许 = 允许（MAX 聚合），并沿父链继承祖先组权限
+  //（P-ROLE/PERM：管理员继承成员、超管继承管理员等，与 /api/permission-groups/my 同一套解析逻辑）
   const effective = {};
   if (groupIds.length) {
-    const [permRows] = await pool.query(
-      `SELECT permission_key AS k, MAX(permission_value) AS v
-       FROM group_permission_entries WHERE group_id IN (?)
-       GROUP BY permission_key`,
-      [groupIds]
-    );
-    for (const r of permRows) effective[r.k] = !!r.v;
+    const { permissions } = await resolveInheritedPermissions(groupIds);
+    Object.assign(effective, permissions);
   }
   // 完整权限矩阵（未设置的键默认 false，方便前端一次性渲染开关态）
   const fullMatrix = {};
@@ -102,7 +98,8 @@ async function getWebsitePermissions(userId) {
     displayName: user.display_name,
     avatarUrl: getAvatarUrl(user),
     role: user.role,
-    roleLabel: ROLE_LABELS[user.role] || user.role,
+    // 非法/历史残留角色一律按 member 展示，杜绝已删除的「游客/访客」身份出现
+    roleLabel: ROLE_LABELS[user.role] || '成员',
     roleLevel: ROLE_LEVEL[user.role] || 0,
     banned: !!user.banned,
     approved: !!user.approved,

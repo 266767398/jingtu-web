@@ -11,13 +11,18 @@ const { getPool } = require('../db');
 const {
   vrchatGetFavorites, vrchatAddFavorite, vrchatRemoveFavorite,
   vrchatGetFavoriteGroups, vrchatUpdateFavoriteGroup, vrchatClearFavoriteGroup,
-  vrchatGetAvatar, vrchatGetUser, vrchatGetWorld, vrcBacklog,
+  vrchatGetAvatar, vrchatGetWorld, vrcBacklog,
   VRC_FAV_TYPES
 } = require('../vrc');
 // 条目名字/缩略图富化：世界走缓存服务（含回源与自愈），头像/用户直接回源
 const { getCachedWorld } = require('../world_cache');
 
 const MAX_PAGE = 100;
+
+// P-ROLE/FAV: 站点只开放「世界 / 模型」两类官方收藏。
+// VRChat 官方本身还有 friend 类型（好友），但好友不是「收藏品」、也不应混入站内收藏，
+// 站点层一律拦截——同步/快照/详情/写入都不再包含好友。
+const SITE_FAV_TYPES = ['world', 'avatar'];
 
 function clampInt(v, def, min, max) {
   const n = Number(v);
@@ -26,11 +31,11 @@ function clampInt(v, def, min, max) {
 }
 
 function isValidType(type) {
-  return VRC_FAV_TYPES.includes(type);
+  return SITE_FAV_TYPES.includes(type);
 }
 
 // ============ 收藏条目名字/缩略图富化 ============
-// 官方收藏条目本身只带 favoriteId（wrld_/avtr_/usr_），需回源目标对象才能显示
+// 官方收藏条目本身只带 favoriteId（wrld_/avtr_），需回源目标对象才能显示
 // 名字与图片。进程内缓存 + 限并发尽力回源：失败保留原始条目，由前端以 ID 兜底展示。
 const FAV_META_TTL_MS = 6 * 60 * 60 * 1000;
 const FAV_META_MAX = 600;
@@ -114,7 +119,7 @@ function pruneFavCacheIfDue() {
 // 方案：把「分组 + 各类型条目列表（已富化）」落库为 vrc_fav_snapshot，读取命中直接返回（零回源）；
 // 同步策略 V11：登录/刷新【只读本地快照】，仅首次（本地无数据）自动拉官方一次；
 // 之后只有手动点击「刷新/重新同步」/群组同步/在线状态刷新才从官方拉取（force=refresh 或 POST /sync）。
-const SNAP_SCOPES = ['groups', 'items:world', 'items:avatar', 'items:friend'];
+const SNAP_SCOPES = ['groups', 'items:world', 'items:avatar'];
 // V9.8 安全：快照按用户隔离。scope 加 `u{userId}:` 前缀，杜绝跨用户缓存泄露
 //（此前 scope 为全局固定值，用户 A 登录会读到用户 B 的官方收藏快照）。
 function userSnapScope(uid, scope) { return 'u' + Number(uid) + ':' + scope; }
@@ -203,24 +208,29 @@ function favSyncProgress() {
   };
 }
 
-// 后台同步收藏快照（分组 + 三类条目）。single-flight：已有作业在跑时直接返回当前作业状态。
+// 后台同步收藏快照（分组 + 指定类型条目）。single-flight：已有作业在跑时直接返回当前作业状态。
 // 单步骤失败不中断整体（VRChat 限流/单类型异常只影响该类型），下次登录/刷新自动补齐。
+// types 参数支持只同步指定类型（如「只刷地图 / 只刷模型」），不传默认同步 world+avatar。
 // 收藏条目：VRChat 官方接口不按 type 服务端过滤，整批分页抓全后按类型切分落快照，
-// 避免同一批数据为三类各回源一次（既省 API 又保证 >100 条的用户也能全量入库）。
-async function startFavSync(cookie, uid) {
+// 避免同一批数据为多个类型各回源一次（既省 API 又保证 >100 条的用户也能全量入库）。
+async function startFavSync(cookie, uid, types) {
   if (favSync.running) return favSync;
   favSync.running = true;
   favSync.startedAt = Date.now();
   favSync.lastError = '';
   const userScope = s => userSnapScope(uid, s);
-  const itemSteps = [
-    { scope: userScope('items:world'), label: '地图', type: 'world' },
-    { scope: userScope('items:avatar'), label: '模型', type: 'avatar' },
-    { scope: userScope('items:friend'), label: '好友', type: 'friend' }
-  ];
+  const wantTypes = Array.isArray(types) && types.length
+    ? types.filter(t => SITE_FAV_TYPES.includes(t))
+    : SITE_FAV_TYPES.slice();
+  const itemSteps = wantTypes.map(type => ({
+    scope: userScope('items:' + type),
+    label: type === 'world' ? '地图' : '模型',
+    type
+  }));
   const steps = [{ scope: userScope('groups'), label: '收藏分组' }, ...itemSteps];
   favSync.stepTotal = steps.length;
-  const byType = { world: [], avatar: [], friend: [] };
+  const byType = {};
+  for (const t of wantTypes) byType[t] = [];
   try {
     for (let i = 0; i < steps.length; i++) {
       const s = steps[i];
@@ -236,7 +246,7 @@ async function startFavSync(cookie, uid) {
           }
         } else {
           // 首次进条目步骤时整批分页抓全（上限 600 条，防止异常大收藏刷爆令牌桶）
-          const rawTotal = byType.world.length + byType.avatar.length + byType.friend.length;
+          const rawTotal = wantTypes.reduce((sum, t) => sum + (byType[t] ? byType[t].length : 0), 0);
           if (rawTotal === 0) {
             let offset = 0;
             while (offset < 600) {
@@ -327,21 +337,6 @@ async function _fetchFavoriteMeta(type, targetId, cookie) {
       }
       return null;
     }
-    if (type === 'friend' && /^usr_/.test(targetId)) {
-      const resp = await vrchatGetUser(targetId, cookie);
-      const u = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
-      if (u && u.id && (u.displayName || u.name)) {
-        const meta = {
-          name: u.displayName || u.name || '',
-          thumbnailImageUrl: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl || u.iconUrl || '',
-          authorName: ''
-        };
-        favMetaSet(targetId, meta);
-        dbSetFavMeta(type, targetId, { ...meta, authorId: u.id || '' });
-        return meta;
-      }
-      return null;
-    }
   } catch (e) { /* 富化失败不影响收藏列表主流程 */ }
   return null;
 }
@@ -391,7 +386,7 @@ async function enrichFavoriteItems(items, cookie) {
   return items;
 }
 
-// P5-56: 官方收藏目标详情（模型/世界/好友）——列表富化只取名字/缩略图，详情要完整字段，
+// P5-56: 官方收藏目标详情（模型/世界）——列表富化只取名字/缩略图，详情要完整字段，
 // 供前端复用本地收藏详情样式展示。命中即写回 favMetaCache + DB（顺带喂列表富化缓存）。
 async function fetchTargetDetail(type, targetId, cookie) {
   try {
@@ -411,11 +406,10 @@ async function fetchTargetDetail(type, targetId, cookie) {
       dbSetFavMeta(type, targetId, meta);
       return meta;
     }
-    const resp = (type === 'avatar') ? await vrchatGetAvatar(targetId, cookie)
-      : ((type === 'friend') ? await vrchatGetUser(targetId, cookie) : null);
-    const o = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
-    if (!o) return null;
     if (type === 'avatar') {
+      const resp = await vrchatGetAvatar(targetId, cookie);
+      const o = (resp && resp.status >= 200 && resp.status < 300) ? resp.data : null;
+      if (!o) return null;
       const meta = {
         id: o.id, name: o.name, description: o.description || '',
         thumbnailImageUrl: o.thumbnailImageUrl || (o.images && o.images.thumbnail && o.images.thumbnail.url) || '',
@@ -429,15 +423,7 @@ async function fetchTargetDetail(type, targetId, cookie) {
       dbSetFavMeta(type, targetId, meta);
       return meta;
     }
-    const meta = {
-      id: o.id, name: o.displayName || o.name || '', description: o.bio || o.statusDescription || '',
-      thumbnailImageUrl: o.profilePicOverrideThumbnail || o.currentAvatarThumbnailImageUrl || o.iconUrl || '',
-      imageUrl: o.currentAvatarImageUrl || '', authorName: '', authorId: o.id || '',
-      status: o.status || '', tags: Array.isArray(o.tags) ? o.tags : [], type: 'friend'
-    };
-    favMetaSet(targetId, meta);
-    dbSetFavMeta(type, targetId, { ...meta, authorId: o.id || '' });
-    return meta;
+    return null;
   } catch (e) {
     if (e && e.code === 'VRC_RATE_TIMEOUT') throw e;
     return null;
@@ -622,12 +608,12 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
     } catch (e) { handleError(res, e, 'vrcfav.item.remove'); }
   });
 
-  // P5-56: 官方收藏目标详情（world/avatar/friend）——返回完整字段，前端复用本地收藏详情样式渲染
+  // P5-56: 官方收藏目标详情（world/avatar）——返回完整字段，前端复用本地收藏详情样式渲染
   router.get('/detail/:type/:id', requireAuth, async (req, res) => {
     if (!req.vrcCookieRead) return fail(res, 400, '暂无可用的 VRChat 登录态，请先绑定或配置 VRChat 账号', { code: ErrorCodes.NEED_BIND });
     const { type, id } = req.params;
     if (!isValidType(type)) return fail(res, 400, '不支持的收藏类型', { code: ErrorCodes.INVALID_TARGET_TYPE });
-    if (!/^(wrld_|avtr_|usr_)/.test(id || '')) {
+    if (!/^(wrld_|avtr_)/.test(id || '')) {
       return fail(res, 400, '收藏目标 ID 格式不正确', { code: ErrorCodes.VALIDATION_ERROR });
     }
     try {
@@ -651,7 +637,9 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
     if (!req.vrcCookieRead) return fail(res, 400, '暂无可用的 VRChat 登录态，请先绑定或配置 VRChat 账号', { code: ErrorCodes.NEED_BIND });
     try {
       if (favSync.running) return ok(res, { running: true, startedAt: favSync.startedAt });
-      startFavSync(req.vrcCookieRead, req.session.userId).catch(() => {});
+      // types 可选：只同步指定类型（如只刷地图/模型）；不传则同步全量（world+avatar）
+      const types = Array.isArray(req.body?.types) ? req.body.types : undefined;
+      startFavSync(req.vrcCookieRead, req.session.userId, types).catch(() => {});
       ok(res, { running: true, startedAt: Date.now() });
     } catch (e) { handleError(res, e, 'vrcfav.sync'); }
   });
@@ -670,23 +658,23 @@ module.exports = function (getVRCCookie, getVRCCookieUserOnly) {
     } catch (e) { handleError(res, e, 'vrcfav.sync-status'); }
   });
 
-  // F-20.6 收藏页「零加载」：一次返回全量本地快照（分组 + 三类条目），
+  // F-20.6 收藏页「零加载」：一次返回全量本地快照（分组 + 两类条目），
   // 前端拿到后分组过滤 / 翻页全部本地完成，不再逐次打网络。
   // 本地无快照时 empty=true，由前端回退到常规实时加载（首次绑定自动触发官方同步）。
   router.get('/snapshot', requireAuth, async (req, res) => {
     try {
       const uid = req.session.userId;
-      const out = { groups: [], items: { world: [], avatar: [], friend: [] }, cached: false, empty: false };
+      const out = { groups: [], items: { world: [], avatar: [] }, cached: false, empty: false };
       const g = await snapGet(userSnapScope(uid, 'groups'));
       if (g) { out.groups = g.payload; out.cached = true; }
-      for (const type of ['world', 'avatar', 'friend']) {
+      for (const type of SITE_FAV_TYPES) {
         const s = await snapGet(userSnapScope(uid, 'items:' + type));
         if (s) out.items[type] = s.payload;
       }
-      const hasAny = out.groups.length || out.items.world.length || out.items.avatar.length || out.items.friend.length;
+      const hasAny = out.groups.length || out.items.world.length || out.items.avatar.length;
       if (!hasAny) { out.empty = true; return ok(res, out); }
       // 一次性标记本站收藏状态（仅标记本地快照中的条目）
-      const all = [...out.items.world, ...out.items.avatar, ...out.items.friend];
+      const all = [...out.items.world, ...out.items.avatar];
       await attachLocalCollected(uid, all);
       ok(res, out);
     } catch (e) { handleError(res, e, 'vrcfav.snapshot'); }

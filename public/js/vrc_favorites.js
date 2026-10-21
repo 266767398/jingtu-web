@@ -12,14 +12,16 @@
   }
   const __ = ensureI18n();
 
+  // P-ROLE/FAV: 本站只开放「世界」与「模型」两类官方收藏。
+  // VRChat 的 friend 收藏（好友）在站点内不再展示/同步——好友不是「收藏品」，
+  // 也避免好友收藏经 LOCAL_KIND 映射混入站内模型分类。
   const KIND_LABEL = {
     world: '🌐 ' + __('nav.worlds', '世界'),
-    avatar: '🎭 ' + __('nav.avatars', '头像'),
-    friend: '🧑‍🦰 ' + __('friends.title', '好友')
+    avatar: '🎭 ' + __('nav.avatars', '模型')
   };
-  const KIND_PREFIX = { world: 'wrld_', avatar: 'avtr_', friend: 'usr_' };
+  const KIND_PREFIX = { world: 'wrld_', avatar: 'avtr_' };
   // 官方收藏类型 → 本站本地收藏 kind（/api/collections）
-  const LOCAL_KIND = { world: 'world', avatar: 'avatar_model', friend: 'avatar_favorite' };
+  const LOCAL_KIND = { world: 'world', avatar: 'avatar_model' };
 
   function platformLabel(p) { return ({ standalonewindows: 'PC', android: 'Android', ios: 'iOS' })[p] || p || '-'; }
   function worldTypeLabel(w) { return ({ lobby: 'Lobby', game: 'Game', social: 'Social', roleplay: 'Roleplay', horror: 'Horror', club: 'Club', hangout: 'Hangout', arena: 'Arena' })[w] || w || '-'; }
@@ -41,7 +43,7 @@
     // F-20.6「零加载」快照模式：打开页一次性拉全量本地快照，之后
     // 切 Kind/分组/翻页全部在前端完成（零网络）；手动刷新才回源 VRChat
     snapshotMode: false,
-    all: { world: [], avatar: [], friend: [] }, // 本地快照全量条目（按 kind）
+    all: { world: [], avatar: [] }, // 本地快照全量条目（按 kind；不含好友）
     pool: []              // 当前 kind+group 过滤后的候选池（快照模式下翻页数据源）
   };
 
@@ -72,7 +74,7 @@
     else scheduleReload(true);
   }
 
-  // 一次性拉全量本地快照：分组 + 三类条目，此后列表浏览零请求
+  // 一次性拉全量本地快照：分组 + 两类条目，此后列表浏览零请求
   async function loadSnapshot() {
     try {
       const d = await api('/api/vrc-favorites/snapshot', { timeout: 15000 });
@@ -87,8 +89,7 @@
       state.groups = d.groups || [];
       state.all = {
         world: d.items.world || [],
-        avatar: d.items.avatar || [],
-        friend: d.items.friend || []
+        avatar: d.items.avatar || []
       };
       renderGroups();
       applyClientFilter();
@@ -470,15 +471,18 @@ async function loadItems(reset, force) {
   }
 
   async function removeFavorite(fvrtId) {
-    if (!fvrtId || !confirm(__('vrcfav.remove_confirm', '确定从官方收藏中移除吗？'))) return;
-    try {
-      await api('/api/vrc-favorites/items/' + encodeURIComponent(fvrtId), { method: 'DELETE', timeout: 20000 });
-      toast(__('vrcfav.remove_ok', '已移除'), 'success');
-      state.snapshotMode = false;
-      loadItems(true);
-    } catch (e) {
-      toast(e.message, 'error');
-    }
+    if (!fvrtId) return;
+    // 与全站一致使用 showConfirm 弹窗（此前原生 confirm 风格不统一）
+    showConfirm(__('vrcfav.remove_confirm', '确定从官方收藏中移除吗？'), async () => {
+      try {
+        await api('/api/vrc-favorites/items/' + encodeURIComponent(fvrtId), { method: 'DELETE', timeout: 20000 });
+        toast(__('vrcfav.remove_ok', '已移除'), 'success');
+        state.snapshotMode = false;
+        loadItems(true);
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
   }
 
   // 官方收藏条目一键收进本站本地收藏库（/api/collections），默认私密
@@ -588,7 +592,7 @@ async function loadItems(reset, force) {
   async function showVrcDetail(target) {
     if (!target) return;
     const it = state.items.find(x => String(x.favoriteId) === String(target)) || {};
-    const type = it.type || (target.indexOf('wrld_') === 0 ? 'world' : target.indexOf('avtr_') === 0 ? 'avatar' : 'friend');
+    const type = it.type || (target.indexOf('wrld_') === 0 ? 'world' : 'avatar');
     const modalId = 'vrcFavDetailModal';
     if (typeof ensureModal === 'function') ensureModal(modalId, it.name || target || __('vrcfav.detail', '详情'));
     const body = $(modalId + 'Body');
@@ -633,8 +637,6 @@ async function loadItems(reset, force) {
       rows.push([__('auto_collections_37', '状态'), it.releaseStatus || '-']);
       rows.push(['容量', it.capacity ? it.capacity + ' 人' : '-']);
       rows.push([__('auto_collections_38', '平台'), platformLabel(it.platform)]);
-    } else if (it.type === 'friend') {
-      rows.push([__('auto_collections_37', '状态'), it.status || '-']);
     }
     const tags = Array.isArray(it.tags) && it.tags.length ? it.tags : [];
     const tagHtml = tags.length ? `<div class="coll-detail-tags">${tags.map(t => `<span class="coll-card-tag">${esc(t)}</span>`).join('')}</div>` : '';
@@ -717,11 +719,12 @@ async function loadItems(reset, force) {
 
     const refreshBtn = $('vrcfavRefreshBtn');
     if (refreshBtn) refreshBtn.addEventListener('click', () => {
-      // 手动刷新：退出快照模式，绕过本地快照回源 VRChat 实时拉取，并同时触发后台同步作业，
-      // 让后续访问/其他页面也命中最新快照（省 API、秒开）
+      // 手动刷新：退出快照模式，绕过本地快照回源 VRChat 实时拉取当前类型
+      // （types=[state.kind]：只同步当前地图/模型，不再全量重拉全部类型，避免无谓刷爆令牌桶），
+      // 并触发后台同步作业，让后续访问/其他页面也命中最新快照（省 API、秒开）
       state.snapshotMode = false;
       if (typeof window.vrcSync !== 'undefined' && window.vrcSync.startFavSync) {
-        window.vrcSync.startFavSync({ startMsg: __('vrcsync.resyncing') });
+        window.vrcSync.startFavSync({ startMsg: __('vrcsync.resyncing'), types: [state.kind] });
       }
       loadGroups(true);
       loadItems(true, true);

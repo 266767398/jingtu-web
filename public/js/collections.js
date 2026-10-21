@@ -285,7 +285,7 @@
     if (state.scope === 'public') { ul.innerHTML = '<li class="coll-folder public-hint">🌐 ' + __('collections.discover') + '</li>'; return; }
     const base = `<li class="coll-folder ${state.folder === 'all' ? 'active' : ''}" data-folder="all"><span>${__('collections.all')}</span><span class="coll-folder-count" id="collCountAll">0</span></li>
       <li class="coll-folder ${state.folder === 'none' ? 'active' : ''}" data-folder="none"><span>${__('collections.ungrouped')}</span><span class="coll-folder-count" id="collCountNone">0</span></li>`;
-    const items = state.folders.map(f => `<li class="coll-folder ${String(state.folder) === String(f.id) ? 'active' : ''}" data-folder="${f.id}"><span class="coll-folder-name">${esc(f.name)}</span><span class="coll-folder-count">${f.item_count || 0}</span><span class="coll-folder-del" data-del="${f.id}" title="${escAttr(__('auto_collections_29'))}">×</span></li>`).join('');
+    const items = state.folders.map(f => `<li class="coll-folder ${String(state.folder) === String(f.id) ? 'active' : ''}" data-folder="${f.id}"><span class="coll-folder-name" title="${escAttr(__('collections.rename_folder'))}">${esc(f.name)}</span><span class="coll-folder-count">${f.item_count || 0}</span><span class="coll-folder-edit" data-rename="${f.id}" title="${escAttr(__('collections.rename_folder'))}">✏️</span><span class="coll-folder-del" data-del="${f.id}" title="${escAttr(__('auto_collections_29'))}">×</span></li>`).join('');
     ul.innerHTML = base + items;
     qsa('.coll-folder', ul).forEach(li => {
       li.addEventListener('click', (e) => {
@@ -295,11 +295,31 @@
           showConfirm(__('collections.confirm_del_folder'), function () { deleteFolder(fid); });
           return;
         }
+        if (e.target.getAttribute('data-rename')) {
+          e.stopPropagation();
+          const fid = e.target.getAttribute('data-rename');
+          const f = state.folders.find(x => String(x.id) === String(fid));
+          // 重命名走 showInput（确认/取消强制二选一），改名后刷新分组与当前列表
+          showInput(__('collections.rename_folder'), f ? f.name : '', function (val) {
+            const name = (val || '').trim();
+            if (!name) return;
+            renameFolder(fid, name);
+          });
+          return;
+        }
         state.folder = li.getAttribute('data-folder');
         renderFolders();
         if (state.scope === 'mine') loadItems(true);
       });
     });
+  }
+
+  async function renameFolder(fid, name) {
+    try {
+      await api('/api/collections/folders/' + fid, { method: 'PUT', body: JSON.stringify({ name }) });
+      toast(__('collections.folder_renamed'));
+      await loadFolders();
+    } catch (e) { toast(e.message, 'error'); }
   }
 
   async function deleteFolder(fid) {
@@ -315,6 +335,10 @@
   async function addFolder() {
     const name = ($('collFolderName').value || '').trim();
     if (!name) { showErr('collFolderError', __('collections.folder_name_required')); return; }
+    // 防重复提交：连点会创建多个同名分组
+    const btn = $('collFolderConfirmBtn');
+    if (btn && btn.disabled) return;
+    if (btn) { btn.disabled = true; btn.dataset.busy = '1'; }
     try {
       await api('/api/collections/folders', { method: 'POST', body: JSON.stringify({ name }) });
       $('collFolderName').value = '';
@@ -322,6 +346,7 @@
       toast(__('collections.folder_added'));
       await loadFolders();
     } catch (e) { showErr('collFolderError', e.message); }
+    finally { if (btn) { btn.disabled = false; delete btn.dataset.busy; } }
   }
 
   // ============ 标签云 ============
@@ -645,6 +670,10 @@
     const kind = $('collAddKind').value;
     const target_id = $('collAddTarget').value.trim();
     if (!target_id) { showErr('collAddError', __('collections.id_required')); return; }
+    // 防重复提交：连点会向同一分组重复插入条目
+    const btn = $('collAddConfirmBtn');
+    if (btn && btn.disabled) return;
+    if (btn) { btn.disabled = true; btn.dataset.busy = '1'; }
     const body = {
       kind, target_id,
       folder_id: $('collAddFolder').value || null,
@@ -660,6 +689,7 @@
       await loadFolders();
       loadItems(true);
     } catch (e) { showErr('collAddError', e.message); }
+    finally { if (btn) { btn.disabled = false; delete btn.dataset.busy; } }
   }
 
   // ============ VRCX 匿名模型搜索（迁移自孤儿 model-collections 模块） ============

@@ -69,6 +69,40 @@ const PERMISSION_LABELS = {
   can_manage_model_collections: '管理模型收藏'
 };
 
+// ==================== 权限组继承解析 ====================
+// P-ROLE/PERM 继承语义：子组自动获得父组已允许的权限（任意一层允许 = 允许，MAX 聚合）。
+// 例：成员(根) ← 管理员 ← 超级管理员，管理员 = 自己的权限 ∪ 成员权限，超管 = 自己的 ∪ 管理员 ∪ 成员。
+// MySQL 5.7 无 CTE，这里用 JS 迭代展开父链（带环保护），一次查询加载全部父子关系与权限条目，避免 N+1。
+async function resolveInheritedPermissions(groupIds) {
+  const ids = (Array.isArray(groupIds) ? groupIds : [groupIds])
+    .map(x => parseInt(x, 10)).filter(x => Number.isInteger(x) && x > 0);
+  if (!ids.length) return { chainIds: [], permissions: {} };
+  const pool = getPool();
+  const [allGroups] = await pool.query(`SELECT id, parent_id AS parentId FROM permission_groups`);
+  const parentOf = new Map(allGroups.map(g => [Number(g.id), g.parentId ? Number(g.parentId) : null]));
+  const expanded = new Set();
+  for (const start of ids) {
+    let cur = start;
+    const seen = new Set();
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      expanded.add(cur);
+      cur = parentOf.get(cur) || null;
+    }
+  }
+  const chainIds = Array.from(expanded);
+  const [rows] = await pool.query(
+    `SELECT permission_key AS k, MAX(permission_value) AS v
+     FROM group_permission_entries
+     WHERE group_id IN (${chainIds.map(() => '?').join(',')})
+     GROUP BY permission_key`,
+    chainIds
+  );
+  const permissions = {};
+  for (const r of rows) permissions[r.k] = !!r.v;
+  return { chainIds, permissions };
+}
+
 // ==================== 权限组 CRUD ====================
 
 /**
@@ -111,16 +145,34 @@ router.get('/groups', requireRole('super_admin'), async (req, res) => {
               is_system AS isSystem, created_at AS createdAt, updated_at AS updatedAt
        FROM permission_groups ORDER BY is_system DESC, id ASC`
     );
-    // 获取每个组的权限条目
-    const groups = await Promise.all(rows.map(async g => {
-      const [perms] = await getPool().query(
-        `SELECT permission_key AS perm_key, permission_value AS value FROM group_permission_entries WHERE group_id = ?`,
-        [g.id]
-      );
-      const permMap = {};
-      for (const p of perms) permMap[p.perm_key] = !!p.value;
-      return { ...g, permissions: permMap };
-    }));
+    // 一次读取全部权限条目，内存里按组归类 + 按父链展开「生效权限 / 仅继承项」，避免逐组 N+1
+    const [allPerms] = await getPool().query(
+      `SELECT group_id, permission_key, permission_value FROM group_permission_entries`
+    );
+    const byGroup = new Map();
+    for (const p of allPerms) {
+      if (!byGroup.has(Number(p.group_id))) byGroup.set(Number(p.group_id), {});
+      byGroup.get(Number(p.group_id))[p.permission_key] = !!p.permission_value;
+    }
+    const parentOf = new Map(rows.map(g => [Number(g.id), g.parentId ? Number(g.parentId) : null]));
+    const groups = rows.map(g => {
+      const direct = byGroup.get(Number(g.id)) || {};
+      const effective = Object.assign({}, direct);
+      const inherited = {};
+      let cur = parentOf.get(Number(g.id)) || null;
+      const seen = new Set([Number(g.id)]);
+      while (cur && !seen.has(cur)) {
+        seen.add(cur);
+        const map = byGroup.get(cur) || {};
+        for (const k of Object.keys(map)) {
+          if (map[k] && !direct[k]) { effective[k] = true; inherited[k] = true; }
+        }
+        cur = parentOf.get(cur) || null;
+      }
+      // 补全完整矩阵（未设置的键默认 false，方便前端渲染开关态）
+      for (const k of ALL_PERMISSIONS) if (!(k in effective)) effective[k] = false;
+      return { ...g, permissions: direct, effective, inherited };
+    });
     res.json({ groups });
   } catch (e) { handleError(res, e, '[permission-groups/list]'); }
 });
@@ -176,11 +228,21 @@ router.put('/groups/:id', requireRole('super_admin'), async (req, res) => {
     }
     if (description !== undefined) updates.description = description;
     if (parentId !== undefined) {
-      // 防止循环引用
+      // 防止循环引用：不能设自身为父组，也不能设自己的后代为父组（会造成循环继承）
       if (parentId === id) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '不能将自己设为父组');
       if (parentId) {
         const [check] = await getPool().query(`SELECT id FROM permission_groups WHERE id = ?`, [parentId]);
         if (check.length === 0) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '父组不存在');
+        // 从目标父组向上追溯父链，若链条中出现自身 = 循环
+        const [allGroups] = await getPool().query(`SELECT id, parent_id AS parentId FROM permission_groups`);
+        const parentMap = new Map(allGroups.map(g => [Number(g.id), g.parentId ? Number(g.parentId) : null]));
+        let cur = Number(parentId);
+        const seen = new Set();
+        while (cur && !seen.has(cur)) {
+          if (cur === Number(id)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '不能选择自身或其子组作为父组（会造成循环继承）');
+          seen.add(cur);
+          cur = parentMap.get(cur) || null;
+        }
       }
       updates.parent_id = parentId || null;
     }
@@ -226,7 +288,7 @@ router.delete('/groups/:id', requireRole('super_admin'), async (req, res) => {
 
 // ==================== 权限条目管理 ====================
 
-// 获取某个组的权限列表
+// 获取某个组的权限列表（permissions=本组直接条目；effective=含父链继承的生效权限；inherited=仅由父组继承而来）
 router.get('/groups/:id/permissions', requireRole('super_admin'), async (req, res) => {
   try {
     const [rows] = await getPool().query(
@@ -235,7 +297,12 @@ router.get('/groups/:id/permissions', requireRole('super_admin'), async (req, re
     );
     const permMap = {};
     for (const p of rows) permMap[p.perm_key] = !!p.value;
-    res.json({ permissions: permMap, allKeys: ALL_PERMISSIONS, labels: PERMISSION_LABELS });
+    const { permissions: effective } = await resolveInheritedPermissions([Number(req.params.id)]);
+    const inherited = {};
+    for (const k of Object.keys(effective)) {
+      if (effective[k] && !permMap[k]) inherited[k] = true;
+    }
+    res.json({ permissions: permMap, effective, inherited, allKeys: ALL_PERMISSIONS, labels: PERMISSION_LABELS });
   } catch (e) { handleError(res, e, '[permission-groups/permissions]'); }
 });
 
@@ -387,17 +454,13 @@ router.get('/my', requireAuth, async (req, res) => {
     );
     if (userGroups.length === 0) return res.json({ permissions: {}, groupIds: [] });
     const groupIds = userGroups.map(g => g.group_id);
-    // 从所有组获取权限并合并（任意组允许=允许）
-    const [permRows] = await getPool().query(
-      `SELECT permission_key AS perm_key, MAX(permission_value) AS value
-       FROM group_permission_entries
-       WHERE group_id IN (${groupIds.map(() => '?').join(',')})
-       GROUP BY permission_key`,
-      groupIds
-    );
-    const permMap = {};
-    for (const p of permRows) permMap[p.perm_key] = !!p.value;
-    res.json({ permissions: permMap, groupIds });
+    // 父链继承：直接组 + 全部祖先组的权限合并（任意组允许 = 允许）
+    const { chainIds, permissions } = await resolveInheritedPermissions(groupIds);
+    res.json({
+      permissions,
+      groupIds,
+      inheritedGroupIds: chainIds.filter(id => !groupIds.includes(id))
+    });
   } catch (e) {
     logger.error('permission-groups', '[permission-groups/my] 权限查询失败:', e.message);
     return fail(res, 500, '权限查询失败，请稍后重试', { code: 'PERM_QUERY_FAILED' });
@@ -413,3 +476,4 @@ router.get('/definitions', requireRole('super_admin'), (req, res) => {
 module.exports = router;
 module.exports.ALL_PERMISSIONS = ALL_PERMISSIONS;
 module.exports.PERMISSION_LABELS = PERMISSION_LABELS;
+module.exports.resolveInheritedPermissions = resolveInheritedPermissions;

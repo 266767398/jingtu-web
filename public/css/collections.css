@@ -38,6 +38,8 @@
 .coll-folder-count { font-size: 12px; color: var(--text3); background: var(--card2); border-radius: 10px; padding: 0 7px; }
 .coll-folder-del { color: var(--text3); font-size: 16px; line-height: 1; padding: 0 2px; }
 .coll-folder-del:hover { color: #e23; }
+.coll-folder-edit { color: var(--text3); font-size: 12px; line-height: 1; padding: 0 2px; }
+.coll-folder-edit:hover { color: var(--accent); }
 .coll-folder.public-hint { color: var(--accent); font-weight: 600; background: var(--accent-light); cursor: default; }
 
 .coll-kind-bar, .coll-scope-bar {

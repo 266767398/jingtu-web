@@ -133,7 +133,8 @@ const PERM_LABELS = {
   'can_create_post': __('admin_perms.perm_create_post'),
   'can_delete_post': __('admin_perms.perm_delete_post'),
   'can_comment_post': __('admin_perms.perm_comment_post'),
-  'can_like_post': __('admin_perms.perm_like_post')
+  'can_like_post': __('admin_perms.perm_like_post'),
+  'can_manage_model_collections': __('admin_perms.perm_manage_model_collections')
 };
 
 let permGroupTab = 'groups';
@@ -173,20 +174,25 @@ function renderPermGroups(groups) {
     return;
   }
   container.innerHTML = groups.map(g => {
-    const permCount = Object.keys(g.permissions || {}).length;
-    const enabledCount = Object.values(g.permissions || {}).filter(v => v).length;
+    // 生效权限（含父链继承）用于计数展示；permissions 为本组直接条目
+    const eff = g.effective || g.permissions || {};
+    const permCount = Object.keys(eff).length;
+    const enabledCount = Object.values(eff).filter(v => v).length;
+    const inheritedCount = Object.values(g.inherited || {}).filter(v => v).length;
     const badges = [];
     if (g.isSystem) badges.push('<span class="badge badge-system">' + __('admin_perms.system_group') + '</span>');
     if (g.isDefault) badges.push('<span class="badge badge-default">' + __('admin_perms.default_group') + '</span>');
+    const nameById = new Map(groups.map(x => [Number(x.id), x.name]));
+    const parentLabel = g.parentId ? (nameById.get(Number(g.parentId)) || ('#' + g.parentId)) : '';
     const delBtn = g.isSystem ? '' : `<button class="btn btn-sm btn-danger" data-action="perm-group-delete" data-group-id="${g.id}">${__('admin_perms.delete_group')}</button>`;
     return `<div class="perm-group-card">
       <div class="perm-group-header">
         <strong>${esc(g.name)}</strong>
         ${badges.join(' ')}
-        ${g.parentId ? `<span class="text-muted text-12">→ ${__('admin_perms.inherited_from')} #${g.parentId}</span>` : ''}
+        ${parentLabel ? `<span class="text-muted text-12">→ ${__('admin_perms.inherited_from')}「${esc(parentLabel)}」</span>` : ''}
       </div>
       <div class="text-12 text-muted2">${esc(g.description || __('admin_perms.no_desc'))}</div>
-      <div class="text-12 text-muted mt-4">${__('admin_perms.permissions_label')}：${__('admin_perms.perm_enabled_count', {enabled: enabledCount, total: permCount})}</div>
+      <div class="text-12 text-muted mt-4">${__('admin_perms.permissions_label')}：${__('admin_perms.perm_enabled_count', {enabled: enabledCount, total: permCount})}${inheritedCount ? ' · ' + __('admin_perms.inherited_count', {n: inheritedCount}) : ''}</div>
       <div class="perm-group-actions mt-6">
         <button class="btn btn-sm btn-accent" data-action="perm-group-edit-perms" data-group-id="${g.id}" data-group-name="${escAttr(g.name)}">${__('admin_perms.set_perms')}</button>
         <button class="btn btn-sm btn-outline" data-action="perm-group-edit" data-group-id="${g.id}">${__('admin_perms.edit_group')}</button>
@@ -304,13 +310,20 @@ async function showEditPermGroupPerms(groupId, groupName) {
     if (res.ok) {
       const data = await res.json();
       const perms = data.permissions || {};
+      // 生效权限 = 本组直接条目 ∪ 父链继承；inherited = 仅由父组继承而来的键
+      const effective = data.effective || perms;
+      const inherited = data.inherited || {};
       const allKeys = data.allKeys || Object.keys(PERM_LABELS);
-      container.innerHTML = '<div class="perm-grid">' + allKeys.map(key => `
-        <label class="perm-toggle-item ${perms[key] ? 'enabled' : ''}">
-          <input type="checkbox" ${perms[key] ? 'checked' : ''} data-action="perm-toggle-group-perm" data-group-id="${groupId}" data-perm-key="${escAttr(key)}">
-          <span>${esc(PERM_LABELS[key] || key)}</span>
-        </label>
-      `).join('') + '</div>';
+      container.innerHTML = '<div class="perm-grid">' + allKeys.map(key => {
+        const on = !!effective[key];
+        const inh = !!inherited[key];
+        // 继承来的权限由父组决定，此处禁用勾选（不允许在子组「反向关闭」，避免误以为设置无效）
+        return `
+        <label class="perm-toggle-item ${on ? 'enabled' : ''}" title="${inh ? escAttr(__('admin_perms.inherited_from_parent')) : ''}">
+          <input type="checkbox" ${on ? 'checked' : ''} ${inh ? 'disabled' : ''} data-action="perm-toggle-group-perm" data-group-id="${groupId}" data-perm-key="${escAttr(key)}">
+          <span>${esc(PERM_LABELS[key] || key)}${inh ? ` <em class="text-12 text-muted2">${__('admin_perms.inherited_from_parent')}</em>` : ''}</span>
+        </label>`;
+      }).join('') + '</div>';
     }
   } catch (err) { container.innerHTML = '<div class="text-red">' + __('admin_perms.load_failed') + '</div>'; }
 }
