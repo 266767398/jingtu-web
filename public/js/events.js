@@ -1254,7 +1254,7 @@ function renderEventTeams(eventId) {
         <div class="event-team-members">
           ${members.map(m => `
             <div class="event-team-member">
-              <img src="${esc(m.avatarUrl || '/api/avatar/default')}" class="event-team-avatar" alt="" data-avatar-fail-src="${escAttr(m.avatarUrl || '/api/avatar/default')}"/>
+              <img src="${esc(m.avatarUrl || '/api/avatar/default')}" class="event-team-avatar" alt="" data-avatar-fail-src="${escAttr(m.avatarUrl || '/api/avatar/default')}" loading="lazy"/>
               <span>${esc(m.display_name)}</span>
               ${m.id === t.leader_id ? '<span class="event-team-leader-badge">' + __('teams.leader') + '</span>' : ''}
             </div>

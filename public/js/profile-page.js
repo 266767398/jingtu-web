@@ -156,6 +156,27 @@ function renderProfileHeader(user, isOwner) {
     roleEl.className = 'profile-role-badge role-' + role;
   }
 
+  // VRChat 在线状态（在线 / 离线 / 游戏中 + 当前世界名）
+  const presenceEl = document.getElementById('profilePresence');
+  if (presenceEl) {
+    const p = user.presence;
+    if (p) {
+      const state = p.online ? (p.inGame ? 'ingame' : 'online') : 'offline';
+      let label;
+      if (state === 'ingame') label = __('presence.in_game') + (p.world ? ' · ' + p.world : '');
+      else if (state === 'online') label = __('presence.online');
+      else label = __('presence.offline');
+      if (p.description) label += ' · ' + p.description;
+      presenceEl.className = 'profile-presence presence-' + state;
+      presenceEl.innerHTML = '<span class="presence-dot"></span>' + esc(label);
+      presenceEl.classList.remove('d-none');
+      presenceEl.title = p.lastSeen ? __('presence.last_seen') + ': ' + fmtDate(p.lastSeen) : '';
+    } else {
+      presenceEl.classList.add('d-none');
+      presenceEl.innerHTML = '';
+    }
+  }
+
   // 个性签名
   const mottoEl = document.getElementById('profileMotto');
   if (mottoEl) {
@@ -800,7 +821,7 @@ async function uploadAlbumPhotos(albumId, files) {
   if (progressWrap) progressWrap.classList.add('active');
   if (progressText) progressText.textContent = __('profile_page.uploading_file');
   if (progressPercent) progressPercent.textContent = '0%';
-  if (progressFill) progressFill.style.width = '0%';
+  if (progressFill) progressFill.style.transform = 'scaleX(0)';
   if (progressFile) progressFile.textContent = __('profile_page.n_files', {n: files.length});
 
   try {
@@ -810,7 +831,7 @@ async function uploadAlbumPhotos(albumId, files) {
     }
     const res = await uploadWithProgress(`/api/profile/albums/${albumId}/photos`, formData, function(percent) {
       if (progressPercent) progressPercent.textContent = percent + '%';
-      if (progressFill) progressFill.style.width = percent + '%';
+      if (progressFill) progressFill.style.transform = 'scaleX(' + (percent / 100) + ')';
       if (progressText) progressText.textContent = percent < 100 ? __('profile_page.uploading_file') : __('profile_page.processing');
     });
     if (res.ok) {
@@ -843,7 +864,7 @@ async function uploadProfileVideo(files) {
   if (progressWrap) progressWrap.classList.add('active');
   if (progressText) progressText.textContent = __('profile_page.uploading_video');
   if (progressPercent) progressPercent.textContent = '0%';
-  if (progressFill) progressFill.style.width = '0%';
+  if (progressFill) progressFill.style.transform = 'scaleX(0)';
   if (progressFile) progressFile.textContent = file.name;
 
   try {
@@ -853,7 +874,7 @@ async function uploadProfileVideo(files) {
 
     const res = await uploadWithProgress('/api/profile/videos', formData, function(percent) {
       if (progressPercent) progressPercent.textContent = percent + '%';
-      if (progressFill) progressFill.style.width = percent + '%';
+      if (progressFill) progressFill.style.transform = 'scaleX(' + (percent / 100) + ')';
       if (progressText) progressText.textContent = percent < 100 ? __('profile_page.uploading_video') : __('profile_page.processing');
     });
     if (res.ok) {
@@ -938,7 +959,8 @@ async function loadProfileFollowCounts(userId) {
     if (!statsEl) return;
     statsEl.innerHTML += `
       <div class="profile-stat">➕ <span>${__('follows.following')} ${esc(d.following || 0)}</span></div>
-      <div class="profile-stat">👥 <span>${__('follows.followers')} ${esc(d.followers || 0)}</span></div>`;
+      <div class="profile-stat">👥 <span>${__('follows.followers')} ${esc(d.followers || 0)}</span></div>
+      ${d.mutual ? `<div class="profile-stat">🔄 <span>${__('follows.mutual_list')} ${esc(d.mutual)}</span></div>` : ''}`;
   } catch (e) { /* 隐私闸/网络异常：静默跳过 */ }
 }
 

@@ -188,25 +188,9 @@ function followBtnHtml(userId, following, followedBy) {
   return `<button class="btn btn-sm ${cls}" data-action="${action}" data-member-id="${escAttr(String(userId))}" data-mutual="${mutual}">${esc(label)}</button>`;
 }
 
-// 成员列表卡片上的关注按钮（标志随 /api/users/list 一次下发，无 N+1 请求）
-function cardFollowBtnHtml(m) {
-  if (!currentUser || String(currentUser.id) === String(m.id)) return '';
-  return `<span class="member-card-follow" data-uid="${escAttr(String(m.id))}">${followBtnHtml(m.id, !!m.following, !!m.followedBy)}</span>`;
-}
-
 function renderMembers(members) {
   // F-头像重试：确保重试监听已绑定（一次性）
   if (typeof window.__bindMemberAvatarRetry === 'function') window.__bindMemberAvatarRetry();
-  // 新增：头像预览切换函数
-  window.cycleAvatar = function(img) {
-    if (!img.dataset.avatars) return;
-    const urls = img.dataset.avatars.split(';').filter(Boolean);
-    if (urls.length < 2) return;
-    let idx = img.dataset.avatarIdx ? parseInt(img.dataset.avatarIdx) : 0;
-    idx = (idx + 1) % urls.length;
-    img.dataset.avatarIdx = idx;
-    img.src = urls[idx];
-  };
 
   const container = document.getElementById('membersList');
   if (!container) return;
@@ -218,8 +202,6 @@ function renderMembers(members) {
   container.innerHTML = members.map(m => {
     const avSrc = memberAvatarSrc(m);
     const vrcFallback = memberVrcFallback(m);
-    const overridePic = proxyAvatar(m.profilePicOverrideThumbnail || '');
-    const cycleSet = [avSrc, overridePic].filter(Boolean).join(';') || '/api/avatar/default';
     // 自定义标签：后端已按隐私开关过滤，这里只做安全转义 + 数量兜底
     const tags = Array.isArray(m.selfTags) ? m.selfTags.slice(0, 8) : [];
     const tagsHtml = tags.length
@@ -233,23 +215,19 @@ function renderMembers(members) {
     const trustColor = (m.trustLevel ? (trustColorOf(m.trustLevel) || '') : '') || window.DEFAULT_TRUST_COLOR;
     const ringClass = haloOn ? ' has-trust-ring' : '';
     const ringStyle = haloOn ? ` style="--tc:${trustColor}"` : '';
+    const displayName = m.displayName || m.loginId || '';
+    // 整卡即详情入口：不再单独放「详情 / 关注」按钮，点击卡片任意位置打开完整资料页
     return `
-    <div class="member-card">
-      <div class="member-card-click" data-member-id="${escAttr(String(m.id))}">
-        <img src="${escAttr(avSrc)}" class="member-avatar${ringClass}"${ringStyle} alt="${escAttr(m.displayName || m.loginId)}" loading="lazy"
-          data-vrc-fallback="${escAttr(vrcFallback)}"
-          data-avatar-fail-key="${escAttr(avSrc)}" data-avatars="${escAttr(cycleSet)}" >
-        <div class="member-info">
-          <div class="member-name">${esc(m.displayName || m.loginId)}${(m.trustLevel || m.trustLevelCn) ? ` <span class="member-trust-badge" style="background:${trustColorOf(m.trustLevel) || '#9e9e9e'}">${esc(m.trustLevelCn || m.trustLevel)}</span>` : ''}</div>
-          <div class="member-role">${roleLabels[m.role] || __("members.role_guest")}</div>
-          <div class="member-like">❤️ ${m.likeCount || 0}</div>
-          ${tagsHtml}
-        </div>
-      </div>
-      ${m.locationVisible ? `<div class="member-location">📍 ${esc(m.location || __('members.unknown_location'))}</div>` : ''}
-      <div class="member-card-actions">
-        <button class="btn btn-sm btn-outline ml-auto" data-show-detail="${escAttr(String(m.id))}">${__('members.card')}</button>
-        ${cardFollowBtnHtml(m)}
+    <div class="member-card member-card-clickable" data-member-id="${escAttr(String(m.id))}" role="button" tabindex="0" aria-label="${escAttr(displayName)}">
+      <img src="${escAttr(avSrc)}" class="member-avatar${ringClass}"${ringStyle} alt="${escAttr(displayName)}" loading="lazy"
+        data-vrc-fallback="${escAttr(vrcFallback)}"
+        data-avatar-fail-key="${escAttr(avSrc)}" >
+      <div class="member-info">
+        <div class="member-name">${esc(displayName)}${(m.trustLevel || m.trustLevelCn) ? ` <span class="member-trust-badge" style="background:${trustColorOf(m.trustLevel) || '#9e9e9e'}">${esc(m.trustLevelCn || m.trustLevel)}</span>` : ''}</div>
+        <div class="member-role">${roleLabels[m.role] || __("members.role_guest")}</div>
+        <div class="member-like">❤️ ${m.likeCount || 0}</div>
+        ${tagsHtml}
+        ${m.locationVisible ? `<div class="member-location">📍 ${esc(m.location || __('members.unknown_location'))}</div>` : ''}
       </div>
     </div>
   `;
@@ -257,19 +235,19 @@ function renderMembers(members) {
   container.querySelectorAll?.('.member-avatar').forEach(img => { img.onerror = function () { memberAvatarOnError(this); }; });
 }
 
-// 成员卡片点击（原内联 onclick 迁移到 document 级委托；CSP nonce 策略会拦截内联事件处理器）
+// 成员卡片点击（文档级委托；CSP nonce 策略会拦截内联事件处理器）
+// 整卡可点击 + 键盘 Enter/Space 打开完整资料页
 document.addEventListener('click', function (e) {
   if (!e.target || !e.target.closest || !e.target.closest('#membersList')) return;
-  const t = e.target;
-  const avatar = t.closest('.member-avatar');
-  if (avatar) {
-    if (window.cycleAvatar) cycleAvatar(avatar);
-    return;
-  }
-  const btn = t.closest('button[data-show-detail]');
-  if (btn && btn.dataset.showDetail) { showMemberDetail(btn.dataset.showDetail); return; }
-  const clickArea = t.closest('.member-card-click');
-  if (clickArea && clickArea.dataset.memberId && typeof goToProfile === 'function') goToProfile(clickArea.dataset.memberId);
+  const card = e.target.closest('.member-card');
+  if (card && card.dataset.memberId && typeof goToProfile === 'function') goToProfile(card.dataset.memberId);
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const card = e.target && e.target.closest ? e.target.closest('#membersList .member-card') : null;
+  if (!card || !card.dataset.memberId) return;
+  e.preventDefault();
+  if (typeof goToProfile === 'function') goToProfile(card.dataset.memberId);
 });
 
 // ==================== 站内用户名片本地缓存（localStorage） ====================
@@ -508,19 +486,8 @@ async function refreshFollowBtn(containerId, userId) {
 }
 
 // 成员列表卡片关注按钮刷新：关注/取消后重拉该用户关系，同步所有渲染中的卡片槽位
-async function refreshCardFollowSlots(userId) {
-  const slots = document.querySelectorAll('.member-card-follow[data-uid="' + String(userId) + '"]');
-  if (!slots.length || !currentUser) return;
-  try {
-    const res = await api(`/api/follows/status/${userId}`, { method: 'GET' });
-    if (!res.ok) return;
-    const d = await res.json();
-    slots.forEach(slot => {
-      if (String(slot.dataset.uid) !== String(userId)) return; // 防串台：超时后重建的槽位丢弃
-      slot.innerHTML = followBtnHtml(userId, !!d.following, !!d.followedBy);
-    });
-  } catch (e) { /* 静默 */ }
-}
+// （成员卡已改为整卡点击进详情、不再渲染关注槽位，此逻辑保留为空壳接口以防旧调用）
+async function refreshCardFollowSlots(userId) { return; }
 
 async function memberFollow(userId, follow, mutual) {
   if (!currentUser) { toast(__('please_login'), 'error'); return; }
@@ -643,7 +610,6 @@ window.showUserPhotos = function(userId) {
   }
 };
 
-function showMemberDetail(id) { showMemberCard(id); }
 
 // ==================== 用户备注管理 ====================
 let currentNoteUserId = null;

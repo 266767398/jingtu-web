@@ -116,6 +116,29 @@ function pruneCacheIfNeeded() {
   } catch (e) { /* ignore */ }
 }
 
+// P-03（2026-10-20）：TTL 主动清理——删除超过 CACHE_MAX_AGE_MS（30 天）未被重新
+// 回源写入的缓存文件。与读取侧超龄判定同口径（读取时 mtime 超龄即回源重写），
+// 被删后下次访问会重新回源，不影响在线头像显示。由 tasks.js 每日调用。
+// 返回删除的文件数（失败忽略，供日志与测试）。
+function pruneAvatarCacheTtl() {
+  let removed = 0;
+  try {
+    const threshold = Date.now() - CACHE_MAX_AGE_MS;
+    const files = fs.readdirSync(CACHE_DIR);
+    for (const f of files) {
+      if (!f.endsWith('.img') && !f.endsWith('.ct')) continue;
+      const fp = path.join(CACHE_DIR, f);
+      try {
+        if (fs.statSync(fp).mtimeMs < threshold) {
+          fs.unlinkSync(fp);
+          removed++;
+        }
+      } catch (e) { /* 统计/读取失败跳过 */ }
+    }
+  } catch (e) { /* 目录不存在或读失败忽略 */ }
+  return removed;
+}
+
 // 回源成功结果写入 L1 内存热缓存（整群头像浏览时避免每请求都读磁盘）。
 // 双上限：条目数 + 总字节，防止大图把进程内存吃穿。
 const L1_MAX_ENTRIES = 1500;
@@ -623,3 +646,7 @@ module.exports = function (authStateRef, getVRCCookieFn) {
 
   return router;
 };
+
+// P-03：供 tasks.js 每日 TTL 清理调用（不改变工厂函数的导出契约）
+module.exports.pruneAvatarCacheTtl = pruneAvatarCacheTtl;
+module.exports.CACHE_DIR = CACHE_DIR;

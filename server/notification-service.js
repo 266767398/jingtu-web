@@ -138,7 +138,9 @@ class NotificationService {
           } catch (e) {
             settings = null;
           }
-          if (settings) this._settingsCache.set(row.id, settings);
+          // T-19/V-07: 缓存形状与 getUserSettings 一致为 { at, settings }——
+          // 原实现直接存裸 settings 对象，读取侧 cached.at 为 undefined 导致恒被当过期清除（缓存恒失效，纯性能）
+          if (settings) this._settingsCache.set(row.id, { at: Date.now(), settings });
           else settings = { browser: true, email: false, sound: true };
           this._deliver(settings, row.id, type, title, message, target);
         }

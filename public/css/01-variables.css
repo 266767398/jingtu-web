@@ -6,6 +6,7 @@
    避免白底白字/无主题变量大面积不可读。data-theme 正常设置时被下方
    :root[data-theme="dark"/"light"] 块按更高特异性覆盖。 */
 :root:not([data-theme]) {
+  color-scheme: dark;
   --bg: #121218;
   --bg-secondary: #1a1a24;
   --card: #1e1e2a;
@@ -67,6 +68,7 @@
 
 /* ========== CSS Variables ========== */
 :root[data-theme="dark"] {  
+  color-scheme: dark;
   --bg: #121218; 
   --bg-secondary: #1a1a24; 
   --card: #1e1e2a; 
@@ -135,6 +137,7 @@
 }
 
 :root[data-theme="light"] {  
+  color-scheme: light;
   --bg: #f8f8fc; 
   --bg-secondary: #f0f0f8; 
   --card: #ffffff; 

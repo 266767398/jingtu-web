@@ -46,9 +46,9 @@ const dbMod = require('./db');
 const wsService = require('./ws_service');
 const { fail, getPool, createFileFilter, sendError, ErrorCodes, ok } = require('./utils');
 const startSchedule = require('./schedule');
-const { requireAdminCompat, requireSuperAdmin } = require('./auth');
+const { requireAdminCompat, requireSuperAdmin, currentRole } = require('./auth');
 const {
-  ddosLimiter, loginBruteForceLimiter,
+  ddosLimiter, loginBruteForceLimiter, loginIpLimiter,
   uploadLimiter, adminLimiter, searchLimiter, jttLimiter,
   requestSizeLimiter, suspiciousRequestDetector
 } = require('./middleware/security');
@@ -205,13 +205,11 @@ app.use(compression({
 
 // ==================== 运维面板反向代理 ====================
 // 站点管理后台「运维面板」入口经此访问：主站 /ops/* → 127.0.0.1:3457/*（剥离前缀）。
-// 必须置于安全响应头（CSP/X-Frame-Options）之前，否则面板内联脚本会被主站 CSP 拦截；
-// 面板自身的 Bearer Token 鉴权保持不变。
 // 探测/自动拉起/代理/重试逻辑已抽至 panel_proxy.js；
-// P2-154：入口鉴权从 requireAdminCompat（admin 级可穿透）提升为 requireSuperAdmin——
-// 面板凭共享密码即可重置超管密码/清空用户数据/停杀服务/导出含 PII 站点包，
-// 普通管理员（可能仅获局部数据面权限）不得触及机器级运维面。
-setupPanelProxy(app, { ROOT_DIR, requireSuperAdmin });
+// P2-154 提升为 requireSuperAdmin；T-16/V-02：必须挂载在 session 中间件之后，
+// 否则 requireSuperAdmin 拿不到 req.session，/ops/* 恒 401。
+// 注意：本代理在 CSP 中间件之后挂载，但 CSP 中间件对 /ops 路径有 unsafe-inline 特判，
+// 面板内联脚本不会被拦（见 /ops 分支的处理）。
 // ==================== 运维面板反向代理 END ====================
 
 // 安全响应头（CSP + X-Frame-Options + HSTS + X-Content-Type-Options）
@@ -461,7 +459,12 @@ if (process.env.NODE_ENV === 'test' || process.env.JINGTU_DB_ENGINE === 'sqlite'
       expiration: 7 * 24 * 60 * 60 * 1000,
       schema: { tableName: 'sessions' }
     });
-  } catch (e) { logger.warn('[session]', 'express-mysql-session 加载失败，回退到 MemoryStore:', e.message); logger.warn('[session]', '运行 npm install express-mysql-session 可启用 MySQL session 持久化'); }
+  } catch (e) {
+    // S-02：生产环境 MySQL session 初始化失败时，静默回退 MemoryStore 会让「重启即全员掉线」
+    //     且无任何可见告警。改为 ERROR 明确告警并指出后果/修复方法（测试与 SQLite 模式的日志在下面分支保留）。
+    logger.error('[session] express-mysql-session 初始化失败，已回退到 MemoryStore：', e.message);
+    logger.error('[session] ⚠️ 生产环境重启后所有在线会话将丢失（全员重新登录）；请检查 MYSQL 配置/权限，或重新安装 express-mysql-session');
+  }
 }
 
 app.use(session({
@@ -479,6 +482,9 @@ app.use(session({
     sameSite: 'lax'
   }
 }));
+
+// ==================== 运维面板反向代理（session 之后挂载，见上方注释） ====================
+setupPanelProxy(app, { ROOT_DIR, requireSuperAdmin });
 
 // ==================== 上传目录鉴权 ====================
 // /uploads 含用户上传的私人媒体，默认禁止匿名访问（避免被枚举/爬取）。
@@ -547,10 +553,10 @@ app.use('/api', (req, res, next) => {
 // ==================== 速率限制 ====================
 // 统一使用 ddosLimiter（定义在 security.js）
 
-// 登录路由限流
-app.use('/api/auth/login', loginBruteForceLimiter);
-app.use('/api/auth/vrchat-login', loginBruteForceLimiter);
-app.use('/api/login', loginBruteForceLimiter);
+// 登录路由限流（V-06/T-18：「IP+用户名」分桶 + 纯 IP 辅助桶双层）
+app.use('/api/auth/login', loginBruteForceLimiter, loginIpLimiter);
+app.use('/api/auth/vrchat-login', loginBruteForceLimiter, loginIpLimiter);
+app.use('/api/login', loginBruteForceLimiter, loginIpLimiter);
 
 // 上传接口限流（每分钟10次）
 app.use('/api/album/upload', uploadLimiter);
@@ -643,11 +649,16 @@ const vrcSystemRouter = require('./routes/vrc_system')(authState, saveAuthState,
 app.use('/api', vrcSystemRouter);
 
 // 健康检查（返回系统 VRChat 登录状态）
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
   // 会话保活：如果有用户则触 refreshing session
   if (req.session?.userId) {
     req.session.touch();
   }
+  // S-04：健康检查曾对匿名暴露系统 VRChat 账号/自动重登凭据状态/pipeline 内部指标。
+  // 匿名与普通成员一律只拿到存活探针；完整诊断信息仅管理面板（admin/super_admin）可见。
+  if (!req.session?.userId) return res.json({ status: 'ok' });
+  const role = await currentRole(req);
+  if (role !== 'admin' && role !== 'super_admin') return res.json({ status: 'ok' });
   const vrcCookieExpireDays = getVRCCookieExpireDays();
   const vrcCookieSoftExpired = !!(vrcCookieExpireDays > 0 && authState.cookieSetAt && Date.now() - authState.cookieSetAt > vrcCookieExpireDays * 86400000);
   const pipelineHealth = typeof global.__getVrcPipelineStatus === 'function' ? global.__getVrcPipelineStatus() : null;
@@ -1095,12 +1106,15 @@ async function init() {
     }
     throw e;
   });
-  // 绑定地址：0.0.0.0 保证局域网设备（飞牛/NAS 等）经 http://<本机局域网IP>:3456 直连可达；
-  // 若只在单一机器本机访问，可在 .env 设 APP_BIND=127.0.0.1。
+  // 绑定地址：默认 0.0.0.0 兼容局域网设备经 http://<本机局域网IP>:3456 直连；
+  // S-05（2026-10-20）：生产 .env 设 APP_BIND=127.0.0.1 时仅回环监听，外部无法直连 3456。
   const BIND_HOST = process.env.APP_BIND || '0.0.0.0';
   server.listen(PORT, BIND_HOST, () => {
     logger.info('[server]', `境途同游 V8.2 已启动（监听 ${BIND_HOST}:${PORT}）`);
-    logger.info('[server]', `入口：本机浏览器走 http://localhost（Nginx 80 反代；直连本机 ${PORT} 页面会跳转到 80）；局域网设备走 http://<本机IP>:${PORT}`);
+    const loopbackOnly = BIND_HOST === '127.0.0.1' || BIND_HOST === '::1' || BIND_HOST === 'localhost';
+    logger.info('[server]', loopbackOnly
+      ? `入口：统一走 http://localhost（Nginx 80 反代；${PORT} 仅回环监听，局域网/外网请走 http://<本机IP>:80）`
+      : `入口：本机浏览器走 http://localhost（Nginx 80 反代；直连本机 ${PORT} 页面会跳转到 80）；局域网设备走 http://<本机IP>:${PORT}`);
 
     // 启动后台子系统（均有环境守卫 / try-catch，缺失配置时安全跳过，不会拖垮主进程）
     cache.initCache().catch((e) => logger.warn('[init]', '缓存初始化异常:', e.message));

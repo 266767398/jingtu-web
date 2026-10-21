@@ -6,6 +6,9 @@ const session = require('express-session');
 const { WebSocketServer } = require('ws');
 const { getPool, proxyVrcAvatar } = require('./utils');
 const logger = require('./logger');
+// T-15/S-07：备份恢复期间（backup-core holder.restoring）禁止 WS 侧并发写库，
+// 避免 mysqldump 灌库与业务 INSERT 交错产生半恢复脏数据。
+const { isRestoring } = require('./backup-core');
 
 // 加载 .env（ws_service 可能被独立引用，例如测试）
 try { require('dotenv').config({ path: path.join(__dirname, '..', '.env') }); } catch (e) {}
@@ -280,8 +283,24 @@ function setupWebSocket(server) {
     ws.connectTime = Date.now();
 
     const pingInterval = setInterval(() => {
-      if (ws.readyState === 1) {
+      // T-11/S-06：僵尸连接回收——每轮先把 isAlive 置 false，
+      // 若下一轮仍未收到 pong（半开/挂起连接），立即 terminate 释放连接槽位，
+      // 避免占满 WS_MAX_CONNECTIONS 造成在线用户握手 503。
+      if (ws.readyState !== 1) {
+        clearInterval(pingInterval);
+        return;
+      }
+      if (!ws.isAlive) {
+        try { ws.terminate(); } catch (e) {}
+        clearInterval(pingInterval);
+        return;
+      }
+      ws.isAlive = false;
+      try {
         ws.send(JSON.stringify({ type: 'ping' }));
+      } catch (e) {
+        try { ws.terminate(); } catch (e2) {}
+        clearInterval(pingInterval);
       }
     }, WS_HEARTBEAT_INTERVAL).unref();
 
@@ -334,7 +353,7 @@ function setupWebSocket(server) {
                 onlineVisible
               });
             } catch (e) {
-              logger && logger.warn('[ws]', '读取 online_visible 失败，按可见处理', { userId, err: (e && e.message) || '' });
+              logger && logger.warn('[ws]', '读取 online_visible 失败，按隐身处理（fail-closed）', { userId, err: (e && e.message) || '' });
               const [uvRows] = await getPool().query(
                 `SELECT display_name, custom_avatar_path, vrchat_avatar_url, vrchat_id AS vrchatId FROM users WHERE id = ? LIMIT 1`, [userId]);
               const u = uvRows && uvRows[0] || {};
@@ -344,7 +363,8 @@ function setupWebSocket(server) {
                 vrchatId: u.vrchatId || '',
                 lastPing: Date.now(),
                 location: null,
-                onlineVisible: true
+                // T-17/V-04: DB 异常时无法确认隐身设置，按不可见处理，避免隐身用户短暂出现在在线清单
+                onlineVisible: false
               });
             }
 
@@ -371,6 +391,7 @@ function setupWebSocket(server) {
             return;
           }
           try {
+            if (isRestoring()) return; // T-15/S-07：恢复期暂停写库
             await getPool().query(
               `UPDATE users SET online_visible = ?, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL`,
               [visible ? 1 : 0, userId]
@@ -628,6 +649,7 @@ async function handleLocationUpdate(userId, msg, ws) {
 }
 
 async function persistLocation(userId, lat, lng) {
+  if (isRestoring()) return; // T-15/S-07：恢复期暂停写库
   try {
     await getPool().query(
       `UPDATE users SET lat = ?, lng = ?, location_updated_at = NOW()
@@ -650,6 +672,7 @@ function stopLocation(userId, ws) {
   }
 
   // 停止共享时清除服务端坐标，避免他人仍从 /all/locations 读到陈旧位置
+  if (isRestoring()) return; // T-15/S-07：恢复期暂停写库
   getPool().query(
     `UPDATE users SET lat = NULL, lng = NULL, location_updated_at = NULL WHERE id = ?`,
     [userId]
@@ -709,6 +732,8 @@ async function handlePrivateChat(userId, msg, ws) {
       return;
     }
 
+    if (isRestoring()) return; // T-15/S-07：恢复期暂停写库，消息不落库不 ack
+
     const [result] = await pool.query(
       `INSERT INTO messages (sender_id, receiver_id, content) VALUES (?, ?, ?)`,
       [userId, targetUser, trimmed]
@@ -733,9 +758,30 @@ async function handlePrivateChat(userId, msg, ws) {
   }
 }
 
-function handleTyping(userId, msg) {
+async function handleTyping(userId, msg) {
   const targetUser = parseInt(msg.receiverId);
   if (!targetUser || targetUser === userId) return;
+
+  // T-17/V-04: typing 与私信同口径——无好友/关注关系不转发，防向任意在线用户刷「正在输入」
+  let canChat = false;
+  try {
+    canChat = await _canPrivateChat(getPool(), userId, targetUser);
+  } catch (_e) {
+    return; // 关系查询失败 fail-closed
+  }
+  if (!canChat) return;
+
+  // T-17/V-04: typing 独立滑窗限流（与私信分开计数，避免互相挤占额度）
+  const now = Date.now();
+  const rateKey = 'typing:' + userId + ':' + targetUser;
+  let rateInfo = privateChatRateMap.get(rateKey);
+  if (!rateInfo || now - rateInfo.windowStart >= PRIVATE_CHAT_RATE_WINDOW) {
+    rateInfo = { count: 0, windowStart: now };
+    privateChatRateMap.set(rateKey, rateInfo);
+    _prunePrivateChatRate();
+  }
+  if (rateInfo.count >= PRIVATE_CHAT_RATE_LIMIT) return;
+  rateInfo.count++;
 
   broadcastToUser(targetUser, {
     type: 'chat:typing',
@@ -767,6 +813,8 @@ async function handleGroupChat(userId, msg, ws) {
       ws.send(JSON.stringify({ type: 'chat:error', error: '您不是该群成员，无法发送消息' }));
       return;
     }
+
+    if (isRestoring()) return; // T-15/S-07：恢复期暂停写库，群消息不落库不 ack
 
     const [result] = await pool.query(
       `INSERT INTO chat_group_messages (group_id, sender_id, content, msg_type) VALUES (?, ?, ?, ?)`,
@@ -807,10 +855,13 @@ function handleGroupLocation(userId, msg) {
   getGroupMembers(groupId).then(memberSet => {
     if (!memberSet.has(userId)) return;
     if (!Number.isFinite(Number(msg.lat)) || !Number.isFinite(Number(msg.lng))) return;
+    // T-17/V-04: 与单人定位同口径做经纬度范围钳制，拒绝越界坐标污染群地图
+    const rawG = { lat: Number(msg.lat), lng: Number(msg.lng) };
+    if (rawG.lat < -90 || rawG.lat > 90 || rawG.lng < -180 || rawG.lng > 180) return;
 
     // P-4: 与单人定位同口径——坐标截断 5 位小数、accuracy 校验为有限数
-    const gLat = Math.round(Number(msg.lat) * 1e5) / 1e5;
-    const gLng = Math.round(Number(msg.lng) * 1e5) / 1e5;
+    const gLat = Math.round(rawG.lat * 1e5) / 1e5;
+    const gLng = Math.round(rawG.lng * 1e5) / 1e5;
     const gAccRaw = parseFloat(msg.accuracy);
 
     const userInfo = onlineUsers.get(userId);
@@ -969,6 +1020,7 @@ function invalidateGroupMemberCache(groupId) {
 }
 
 async function saveOfflineSummary(groupId, message) {
+  if (isRestoring()) return; // T-15/S-07：恢复期暂停写库
   try {
     const pool = getPool();
     const summary = JSON.stringify({
@@ -1218,6 +1270,18 @@ async function handleRtcSignal(userId, msg, ws) {
   // ----- 私聊 1v1 通话信令：按 canonical 房号透传给对端 -----
   if (type === 'rtc:invite') {
     if (!targetId || targetId === userId) return;
+    // T-17/V-04: 通话邀请与私信同口径——无好友/关注关系拒绝，防骚扰任意在线用户
+    let canChat = false;
+    try {
+      canChat = await _canPrivateChat(getPool(), userId, targetId);
+    } catch (_e) {
+      rtcSend(ws, { type: 'rtc:invite:failed', error: '呼叫失败，请稍后重试', targetId });
+      return;
+    }
+    if (!canChat) {
+      rtcSend(ws, { type: 'rtc:invite:failed', error: '仅好友或已关注用户之间可以通话', targetId });
+      return;
+    }
     const conns = userWsMap.get(targetId);
     if (!conns || conns.size === 0) {
       rtcSend(ws, { type: 'rtc:invite:failed', error: '对方当前不在线', targetId });

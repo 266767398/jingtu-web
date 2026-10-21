@@ -543,22 +543,24 @@ module.exports = function setupVrcAuth() {
         }
       }
       if (saved && saved.cookie) {
-        // 解密存储的 cookie（兼容旧版未加密的 cookie）
+        // 解密存储的 cookie（兼容旧版未加密的 cookie：decryptCookie 对无 enc: 前缀的明文原样返回）
         const decrypted = decryptCookie(saved.cookie);
         if (decrypted) {
           Object.assign(authState, saved, { cookie: decrypted, loggedIn: true });
-        } else {
-          // 解密失败，尝试明文（旧版格式），重新加密存储
-          Object.assign(authState, saved, { loggedIn: true });
-          // 如果 cookie 没有 enc: 前缀，说明是旧明文，立即加密重写
+          // T-19/V-07：旧明文 cookie（无 enc: 前缀）在读取成功路径立即加密重写落盘，
+          // 避免明文凭据常驻 session.json（原 else 分支内的重加密代码不可达）
           if (!saved.cookie.startsWith('enc:')) {
-            const encrypted = encryptCookie(saved.cookie);
+            const encrypted = encryptCookie(decrypted);
             if (encrypted) {
-              authState.cookie = saved.cookie; // 保留内存中的明文
               saved.cookie = encrypted;
               writeSessionFile(saved);
             }
           }
+        } else {
+          // 解密失败（enc: 前缀但密文损坏 / ENCRYPT_KEY 已变更）：保留登录态但无法复现有效 cookie，
+          // 明确提示走重新登录，而不是把损坏密文当作明文继续使用
+          Object.assign(authState, saved, { loggedIn: true });
+          logger.error('[vrc-auth]', '系统 VRChat cookie 解密失败（密文损坏或 ENCRYPT_KEY 已变更），如需恢复请重新登录系统账号');
         }
       }
     }

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 境途同游 V6.18 — 分享路由
  * 涵盖：动态分享、活动分享、相册分享
  * 
@@ -192,8 +192,8 @@ module.exports = function () {
 <meta property="og:title" content="${esc(typeLabel)}分享 · 境途同游">
 <meta property="og:type" content="website">
 <meta name="description" content="来自境途同游社群的${esc(typeLabel)}分享">
-<link rel="stylesheet" href="/css/01-variables.css?v=20261019p">
-<link rel="stylesheet" href="/css/share-page.css?v=20261019p">
+<link rel="stylesheet" href="/css/01-variables.css?v=20261020k">
+<link rel="stylesheet" href="/css/share-page.css?v=20261020k">
 </head>
 <body class="share-page">
 <main class="sp-card">

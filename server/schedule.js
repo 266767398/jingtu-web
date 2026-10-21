@@ -8,6 +8,8 @@ const logger = require('./logger');
 const { scanAvatarModels } = require('./routes/collections');
 const { syncRosterFromVrc } = require('./routes/groups_helpers');
 const { syncBlacklistWithVrcBans } = require('./routes/admin_vrc_blacklist');
+// T-15/S-07：备份恢复期间跳过每分钟写库任务，避免灌库与 diff/INSERT 交错
+const { isRestoring } = require('./backup-core');
 
 const jobs = [];
 let notificationService = null;
@@ -99,6 +101,22 @@ async function forceRosterBroadcast(groupId) {
 }
 
 function startSchedule() {
+  // T-18/V-05：四个每分钟 diff 任务防重入——单轮执行超过 60s 时跳过下一次重叠触发，
+  // 避免重复 INSERT 与快照轮次交错（与 tasks.js 的 guard() 同模式）
+  const diffRunning = new Set();
+  const diffGuard = (key, fn) => async () => {
+    if (diffRunning.has(key)) {
+      logger.warn('schedule', `⚠️ [定时任务] ${key} 上一轮尚未结束，跳过本轮重叠触发`);
+      return;
+    }
+    diffRunning.add(key);
+    try {
+      await fn();
+    } finally {
+      diffRunning.delete(key);
+    }
+  };
+
   // 每天凌晨 2:00 — 清理超过 7 天的回收站图片
   jobs.push(schedule.scheduleJob('0 0 2 * * *', async () => {
     logger.info('schedule', '🔄 [定时任务] 开始清理过期回收站图片...');
@@ -779,7 +797,8 @@ function startSchedule() {
 
   // 每分钟 — F-13 好友变更历史：对 group_roster 好友（is_friend=1）Diff 快照，
   // 把改名/换头像/上下线/状态/世界变化写入 friend_log（当前态表 friend_log_current 跨轮次比较）。
-  jobs.push(schedule.scheduleJob('* * * * *', async () => {
+  jobs.push(schedule.scheduleJob('* * * * *', diffGuard('friendLog', async () => {
+    if (isRestoring()) return; // T-15/S-07：恢复期跳过写库
     try {
       const pool = getPool();
       // 取所有可信好友（is_friend=1）的当前关键状态字段
@@ -861,12 +880,13 @@ function startSchedule() {
     } catch (e) {
       logger.warn('schedule', '⚠️ [定时任务] 好友变更历史 diff 失败:', e.message);
     }
-  }));
+  })));
 
   // 每分钟 — F-14 世界访问历史：对 group_roster 好友（is_friend=1）Diff world_name，
   // 检测到世界变化且新世界非空时写一条访问事件（world_visit_log），并 UPSERT 聚合访问次数。
   // world_id 取 VRCX location 的 worldId 部分；若 world_name 本身即世界 ID（无展示名），则 world_id=world_name。
-  jobs.push(schedule.scheduleJob('* * * * *', async () => {
+  jobs.push(schedule.scheduleJob('* * * * *', diffGuard('worldVisit', async () => {
+    if (isRestoring()) return; // T-15/S-07：恢复期跳过写库
     try {
       const pool = getPool();
       const [rows] = await pool.query(
@@ -925,12 +945,13 @@ function startSchedule() {
     } catch (e) {
       logger.warn('schedule', '⚠️ [定时任务] 世界访问历史 diff 失败:', e.message);
     }
-  }));
+  })));
 
   // 每分钟 — F-21 在线活动会话：对 group_roster 好友（is_friend=1）Diff is_online，
   // 离线→在线开新会话（ended_at NULL 表示进行中），在线→离线封口回填时长与所在世界。
   // 超长会话（>30 小时未封口，进程重启/漏检兜底）按 24 小时分段并视为已封口，下一轮按在线重开。
-  jobs.push(schedule.scheduleJob('* * * * *', async () => {
+  jobs.push(schedule.scheduleJob('* * * * *', diffGuard('activitySessions', async () => {
+    if (isRestoring()) return; // T-15/S-07：恢复期跳过写库
     try {
       const pool = getPool();
       const [rows] = await pool.query(
@@ -980,12 +1001,13 @@ function startSchedule() {
     } catch (e) {
       logger.warn('schedule', '⚠️ [定时任务] 在线活动会话采样失败:', e.message);
     }
-  }));
+  })));
 
   // 每分钟 — F-16 头像使用历史：对 group_roster 好友（is_friend=1）Diff avatar_id，
   // 检测到头像变化且新头像非空时 UPSERT 使用次数（avatar_history_log），并刷新当前态快照（avatar_history_current）。
   // avatar_id 由主采样（vrc.js 的 currentAvatar 字段）写回 group_roster；avatar_url 冗余存最近观测的缩略图便于展示。
-  jobs.push(schedule.scheduleJob('* * * * *', async () => {
+  jobs.push(schedule.scheduleJob('* * * * *', diffGuard('avatarHistory', async () => {
+    if (isRestoring()) return; // T-15/S-07：恢复期跳过写库
     try {
       const pool = getPool();
       const [rows] = await pool.query(
@@ -1046,7 +1068,7 @@ function startSchedule() {
     } catch (e) {
       logger.warn('schedule', '⚠️ [定时任务] 头像使用历史 diff 失败:', e.message);
     }
-  }));
+  })));
 
 // 每天凌晨 5:00 — 检测失效的模型收藏并通知用户（统一扫描函数，来源 collections 路由）
   jobs.push(schedule.scheduleJob('0 0 5 * * *', async () => {

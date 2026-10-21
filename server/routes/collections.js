@@ -503,6 +503,28 @@ const vrcWorldSearchCache = new Map();
 // 令牌桶被定时刷新占满时，缓存命中可让用户请求零排队秒回。
 const VRC_WORLD_CACHE_TTL = 30 * 60 * 1000;
 
+// ===== 搜索缓存内存上限（性能改进轮·内存专项）=====
+// vrcxSearchCache / vrcWorldSearchCache 的 key 是搜索词+分页参数（用户可无限输入），
+// 原实现 TTL 仅在命中时惰性判断、从不主动删除 → 两个 Map 随搜索次数永久增长。
+// 此处加周期清理（清过期条目）+ 上限兜底（仍超限则按写入序清最旧一半），
+// 模式同 middleware/csrf.js 与 middleware/uploads_auth.js。
+const SEARCH_CACHE_MAX = 2000;
+function pruneSearchCache(map, ttlMs) {
+  const now = Date.now();
+  for (const [k, v] of map) {
+    if (now - v.ts > ttlMs) map.delete(k);
+  }
+  if (map.size > SEARCH_CACHE_MAX) {
+    const sorted = [...map.entries()].sort((a, b) => a[1].ts - b[1].ts);
+    const toDelete = Math.floor(sorted.length / 2);
+    for (let i = 0; i < toDelete; i++) map.delete(sorted[i][0]);
+  }
+}
+setInterval(() => {
+  pruneSearchCache(vrcxSearchCache, VRCX_CACHE_TTL);
+  pruneSearchCache(vrcWorldSearchCache, VRC_WORLD_CACHE_TTL);
+}, 10 * 60 * 1000).unref();
+
 // 归一化世界列表字段（对齐前端展示与收藏录入所需的字段）
 function normalizeWorldList(raw, n) {
   const arr = Array.isArray(raw) ? raw

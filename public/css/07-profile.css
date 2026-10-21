@@ -102,3 +102,48 @@
 .cover-edit-actions { display: flex; flex-direction: column; gap: 2px; }
 .cover-edit-actions .form-label-sm { font-size: 12px; color: var(--text-secondary); }
 .cover-edit-actions .form-input { max-width: 220px; }
+
+/* ===== 资料页角色 + VRChat 在线状态徽章 ===== */
+.profile-badges-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.profile-badges-row .profile-role-badge { margin-bottom: 0; }
+.profile-presence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(255,255,255,.18);
+  border: 1px solid rgba(255,255,255,.3);
+  backdrop-filter: blur(2px);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profile-presence .presence-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text2);
+}
+.profile-presence.presence-online .presence-dot {
+  background: var(--green, #22c55e);
+  box-shadow: 0 0 8px var(--green, #22c55e);
+}
+.profile-presence.presence-ingame .presence-dot {
+  background: var(--accent, #7c5cfc);
+  box-shadow: 0 0 8px var(--accent, #7c5cfc);
+}
+.profile-presence.presence-offline { opacity: .8; }
+.profile-presence.presence-offline .presence-dot { background: rgba(255,255,255,.55); }
+

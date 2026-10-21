@@ -30,10 +30,11 @@ class CheckinExtra {
       const duration = 1800 + Math.random() * 1400; // ms
       const delay = Math.random() * 250;
       host.appendChild(p);
+      const driftX = (Math.random() - 0.5) * 240;
+      const fallY = 107; // vh：从 -2vh 落到 ≈105vh，与 CSS top:-2vh 对应
       requestAnimationFrame(() => {
-        p.style.transition = `top ${duration}ms ease-in ${delay}ms, transform ${duration}ms linear ${delay}ms`;
-        p.style.top = '105vh';
-        p.style.transform = `translateX(${(Math.random() - 0.5) * 240}px) rotate(${360 + Math.floor(Math.random() * 720)}deg)`;
+        p.style.transition = `transform ${duration}ms ease-in ${delay}ms`;
+        p.style.transform = `translate3d(${driftX}px, ${fallY}vh, 0) rotate(${360 + Math.floor(Math.random() * 720)}deg)`;
       });
     }
 

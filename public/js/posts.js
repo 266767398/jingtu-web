@@ -11,6 +11,17 @@ let postsFilterType = '';
 let postsFilterUserId = null;
 let postsFilterDate = ''; // VN-12 日期筛选（YYYY-MM-DD，空=全部）
 let postsDetailCache = {};
+// 内存上限：postsDetailCache 以 postId 为键、打开过的帖子详情（含评论/media）永久驻留，
+// 长会话浏览无上限增长。超过上限时按写入序清最旧一半（与 __avatarProxyCache 同款策略）。
+const POSTS_DETAIL_CACHE_MAX = 200;
+function rememberPostDetail(postId, post) {
+  postsDetailCache[postId] = post;
+  const keys = Object.keys(postsDetailCache);
+  if (keys.length > POSTS_DETAIL_CACHE_MAX) {
+    const half = Math.floor(keys.length / 2);
+    for (let i = 0; i < half; i++) delete postsDetailCache[keys[i]];
+  }
+}
 
 // VN-10 每页条数可配置（localStorage 记忆，VRCNext TL_PAGE_SIZES 借鉴）
 const POSTS_PAGE_SIZES = [10, 20, 50, 100];
@@ -193,7 +204,7 @@ function buildPostCard(post) {
 
   let cardHtml = '<div class="post-card" data-post-id="' + post.id + '">';
   cardHtml += '<div class="post-header">';
-  cardHtml += '<img class="post-avatar" src="' + escAttr(avatarUrl) + '" alt="" data-avatar-fail-src="' + escAttr(avatarUrl) + '">';
+  cardHtml += '<img class="post-avatar" src="' + escAttr(avatarUrl) + '" alt="" data-avatar-fail-src="' + escAttr(avatarUrl) + '" loading="lazy">';
   cardHtml += '<div class="post-user-info"><span class="post-username">' + esc(post.user ? post.user.name : __('posts.user')) + '</span><span class="post-time">' + esc(time) + '</span></div>';
   cardHtml += '<div class="post-actions-top">';
   if (post.isPinned) cardHtml += '<span class="post-pin-badge">' + __('posts.pin') + '</span>';
@@ -217,7 +228,7 @@ cardHtml += '<button class="post-action-btn" data-action="post-comment" data-pos
     for (let ci = 0; ci < maxPreview; ci++) {
       const c = post.comments[ci];
       const cAvatar = c.user && c.user.avatarUrl ? c.user.avatarUrl : '/api/avatar/default';
-      cardHtml += '<div class="post-comment-item"><img class="post-comment-avatar" src="' + escAttr(cAvatar) + '" alt="" data-avatar-fail-src="' + escAttr(cAvatar) + '"><div class="post-comment-body"><span class="post-comment-name">' + esc(c.user ? c.user.name : __('posts.user')) + '</span><span class="post-comment-text">' + esc(c.content) + '</span></div></div>';
+      cardHtml += '<div class="post-comment-item"><img class="post-comment-avatar" src="' + escAttr(cAvatar) + '" alt="" data-avatar-fail-src="' + escAttr(cAvatar) + '" loading="lazy"><div class="post-comment-body"><span class="post-comment-name">' + esc(c.user ? c.user.name : __('posts.user')) + '</span><span class="post-comment-text">' + esc(c.content) + '</span></div></div>';
     }
     if (post.commentCount > 3) cardHtml += '<div class="post-comments-more" data-action="post-detail" data-post-id="' + post.id + '">' + __('posts.view_all_comments', {n: post.commentCount}) + '</div>';
     cardHtml += '</div>';
@@ -336,7 +347,7 @@ function submitPostComment(postId) {
     const avatarUrl = currentUser.avatarUrl || '/api/avatar/default';
     newComment = document.createElement('div');
     newComment.className = 'post-comment-item';
-    newComment.innerHTML = '<img class="post-comment-avatar" src="' + escAttr(avatarUrl) + '" alt="" data-avatar-fail-src="' + escAttr(avatarUrl) + '"><div class="post-comment-body"><span class="post-comment-name">' + esc(currentUser.displayName || currentUser.loginId) + '</span><span class="post-comment-text">' + esc(content) + '</span></div>';
+    newComment.innerHTML = '<img class="post-comment-avatar" src="' + escAttr(avatarUrl) + '" alt="" data-avatar-fail-src="' + escAttr(avatarUrl) + '" loading="lazy"><div class="post-comment-body"><span class="post-comment-name">' + esc(currentUser.displayName || currentUser.loginId) + '</span><span class="post-comment-text">' + esc(content) + '</span></div>';
     previewArea.appendChild(newComment);
     const moreLink = previewArea.querySelector('.post-comments-more');
     if (moreLink) moreLink.remove();
@@ -772,7 +783,7 @@ function paintPostDetail(post) {
           var actions = canEdit
             ? '<span class="post-comment-actions"><button class="btn-text" data-action="comment-edit" data-post-id="' + post.id + '" data-comment-id="' + c.id + '">' + __('edit') + '</button><button class="btn-text" data-action="comment-delete" data-post-id="' + post.id + '" data-comment-id="' + c.id + '">' + __('delete') + '</button></span>'
             : '';
-          cc.innerHTML += '<div class="post-comment-item" data-comment-id="' + c.id + '"><img class="post-comment-avatar" src="' + escAttr(ca) + '" alt="" data-avatar-fail-src="' + escAttr(ca) + '"><div class="post-comment-body"><span class="post-comment-name">' + esc(c.user ? c.user.name : __('posts.user')) + '</span><span class="post-comment-text" id="postCommentText-' + c.id + '">' + esc(c.content) + '</span><span class="post-comment-time">' + fmtTime(c.createdAt) + '</span>' + actions + '</div></div>';
+          cc.innerHTML += '<div class="post-comment-item" data-comment-id="' + c.id + '"><img class="post-comment-avatar" src="' + escAttr(ca) + '" alt="" data-avatar-fail-src="' + escAttr(ca) + '" loading="lazy"><div class="post-comment-body"><span class="post-comment-name">' + esc(c.user ? c.user.name : __('posts.user')) + '</span><span class="post-comment-text" id="postCommentText-' + c.id + '">' + esc(c.content) + '</span><span class="post-comment-time">' + fmtTime(c.createdAt) + '</span>' + actions + '</div></div>';
         }
         if (cmts.length === 0) cc.innerHTML += (function(){ var w=document.createElement('div'); renderEmpty(w, { icon: '💬', text: __('posts.no_comments') }); return w.innerHTML; })();
         body.appendChild(cc);
@@ -800,6 +811,7 @@ function showPostDetail(postId) {
     .then(function(post) {
       if (postDetailOpener.stale(token)) return; // 已切换到其它动态/关闭，丢弃过期响应
       postsDetailCache[postId] = post;
+      rememberPostDetail(postId, post);
       paintPostDetail(post);
     })
     .catch(function(err) {
@@ -874,15 +886,19 @@ function editPostComment(postId, commentId) {
   textEl.innerHTML = '';
   textEl.appendChild(input);
   input.focus();
+  var done = false; // V-03/T-18: 防重复提交（Enter 触发后 blur 再触发会造成同内容重复 PUT）
   var finish = function(save) {
+    if (done) return;
     if (save) {
       var content = input.value.trim();
-      if (!content) { showPostDetail(postId); return; }
+      if (!content) { done = true; showPostDetail(postId); return; }
+      done = true;
       api('/api/posts/' + postId + '/comments/' + commentId, { method: 'PUT', body: { content: content } })
         .then(function(r) { return r.json(); })
         .then(function() { showPostDetail(postId); })
         .catch(function(err) { if (!isApiHandledError(err)) { toast(__('posts.comment_failed'), 'error'); showPostDetail(postId); } });
     } else {
+      done = true;
       showPostDetail(postId);
     }
   };

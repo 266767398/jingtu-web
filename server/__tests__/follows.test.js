@@ -160,10 +160,11 @@ describe('列表 / 状态 / 计数', () => {
   test('GET /counts/:userId 好友 → 200', async () => {
     mockPool.query
       .mockResolvedValueOnce([[{ 1: 1 }]])      // friend check: 已互加好友
-      .mockResolvedValueOnce([[{ following: 5 }]])
-      .mockResolvedValueOnce([[{ followers: 3 }]]);
+      .mockResolvedValueOnce([[{ following: 3 }]])
+      .mockResolvedValueOnce([[{ followers: 2 }]])
+      .mockResolvedValueOnce([[{ mutual: 1 }]]);
     const res = await request(buildApp()).get('/api/follows/counts/2');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ following: 5, followers: 3 });
+    expect(res.body).toEqual({ following: 3, followers: 2, mutual: 1 });
   });
 });

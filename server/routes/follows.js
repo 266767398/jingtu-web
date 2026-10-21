@@ -186,7 +186,12 @@ module.exports = function (notificationService) {
       const pool = getPool();
 
       const [count] = await pool.query(
-        `SELECT COUNT(*) AS total FROM user_follows WHERE follower_id = ?`, [userId]
+        `SELECT COUNT(*) AS total
+         FROM user_follows f
+         JOIN users u ON u.id = f.following_id
+         WHERE f.follower_id = ? AND u.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM user_follows f2 WHERE f2.follower_id = u.id AND f2.following_id = ?)`,
+        [userId, userId]
       );
       const total = count[0].total;
 
@@ -198,9 +203,10 @@ module.exports = function (notificationService) {
          FROM user_follows f
          JOIN users u ON u.id = f.following_id
          WHERE f.follower_id = ? AND u.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM user_follows f2 WHERE f2.follower_id = u.id AND f2.following_id = ?)
          ORDER BY f.created_at DESC
          LIMIT ? OFFSET ?`,
-        [userId, userId, userId, userId, pageSize, offset]
+        [userId, userId, userId, userId, userId, pageSize, offset]
       );
       const list = rows.map(r => ({
         ...toUserSummary(r),
@@ -227,7 +233,12 @@ module.exports = function (notificationService) {
       const pool = getPool();
 
       const [count] = await pool.query(
-        `SELECT COUNT(*) AS total FROM user_follows WHERE following_id = ?`, [userId]
+        `SELECT COUNT(*) AS total
+         FROM user_follows f
+         JOIN users u ON u.id = f.follower_id
+         WHERE f.following_id = ? AND u.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM user_follows f2 WHERE f2.follower_id = ? AND f2.following_id = u.id)`,
+        [userId, userId]
       );
       const total = count[0].total;
 
@@ -239,9 +250,10 @@ module.exports = function (notificationService) {
          FROM user_follows f
          JOIN users u ON u.id = f.follower_id
          WHERE f.following_id = ? AND u.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM user_follows f2 WHERE f2.follower_id = ? AND f2.following_id = u.id)
          ORDER BY f.created_at DESC
          LIMIT ? OFFSET ?`,
-        [userId, userId, userId, userId, pageSize, offset]
+        [userId, userId, userId, userId, userId, pageSize, offset]
       );
       const list = rows.map(r => ({
         ...toUserSummary(r),
@@ -252,6 +264,55 @@ module.exports = function (notificationService) {
       res.json({ list, page, pageSize, total });
     } catch (e) {
       handleError(res, e, '[follows/followers]');
+    }
+  });
+
+  // ==================== GET /api/follows/mutual?userId&page ====================
+  // 互关列表：与我互相 follow 的用户。关注/粉丝列表已排除互关，互关用户只在此处展示。
+  router.get('/mutual', requireAuth, async (req, res) => {
+    try {
+      const me = req.session.userId;
+      const userId = parseInt(req.query.userId) || me;
+      // B4: 非本人且非好友禁止查看他人互关列表（隐私闸）
+      if (!(await canViewFollowList(me, userId))) {
+        return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权查看该用户的互关列表');
+      }
+      const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 100 });
+      const pool = getPool();
+      // 互关判定：userId → u 且 u → userId 双向存在
+      const mutualJoin = `JOIN user_follows f2 ON f2.follower_id = f.following_id AND f2.following_id = f.follower_id`;
+
+      const [count] = await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM user_follows f
+         ${mutualJoin}
+         JOIN users u ON u.id = f.following_id
+         WHERE f.follower_id = ? AND u.deleted_at IS NULL`,
+        [userId]
+      );
+      const total = count[0].total;
+
+      const [rows] = await pool.query(
+        `SELECT u.id, u.display_name, u.vrchat_name, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url,
+                f.created_at AS followedAt,
+                EXISTS(SELECT 1 FROM user_friends fr WHERE fr.status = 'accepted' AND ((fr.user_id = ? AND fr.friend_id = u.id) OR (fr.user_id = u.id AND fr.friend_id = ?))) AS isFriend
+         FROM user_follows f
+         ${mutualJoin}
+         JOIN users u ON u.id = f.following_id
+         WHERE f.follower_id = ? AND u.deleted_at IS NULL
+         ORDER BY f.created_at DESC
+         LIMIT ? OFFSET ?`,
+        [userId, userId, userId, pageSize, offset]
+      );
+      const list = rows.map(r => ({
+        ...toUserSummary(r),
+        followedAt: r.followedAt,
+        mutual: true,
+        isFriend: !!r.isFriend
+      }));
+      res.json({ list, page, pageSize, total });
+    } catch (e) {
+      handleError(res, e, '[follows/mutual]');
     }
   });
 
@@ -291,13 +352,31 @@ module.exports = function (notificationService) {
         return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权查看该用户的关注数据');
       }
       const pool = getPool();
+      // 计数与列表同口径：following/followers 排除互关（互关只在 /mutual 展示），另返回 mutual 数
       const [c1] = await pool.query(
-        `SELECT COUNT(*) AS following FROM user_follows WHERE follower_id = ?`, [userId]
+        `SELECT COUNT(*) AS following
+         FROM user_follows f
+         JOIN users u ON u.id = f.following_id
+         WHERE f.follower_id = ? AND u.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM user_follows f2 WHERE f2.follower_id = u.id AND f2.following_id = ?)`,
+        [userId, userId]
       );
       const [c2] = await pool.query(
-        `SELECT COUNT(*) AS followers FROM user_follows WHERE following_id = ?`, [userId]
+        `SELECT COUNT(*) AS followers
+         FROM user_follows f
+         JOIN users u ON u.id = f.follower_id
+         WHERE f.following_id = ? AND u.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM user_follows f2 WHERE f2.follower_id = ? AND f2.following_id = u.id)`,
+        [userId, userId]
       );
-      res.json({ following: c1[0].following, followers: c2[0].followers });
+      const [c3] = await pool.query(
+        `SELECT COUNT(*) AS mutual
+         FROM user_follows f
+         JOIN user_follows f2 ON f2.follower_id = f.following_id AND f2.following_id = f.follower_id
+         WHERE f.follower_id = ?`,
+        [userId]
+      );
+      res.json({ following: c1[0].following, followers: c2[0].followers, mutual: c3[0].mutual });
     } catch (e) {
       handleError(res, e, '[follows/counts]');
     }

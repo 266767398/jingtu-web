@@ -55,6 +55,22 @@ const loginBruteForceLimiter = rateLimit({
   }
 });
 
+// V-06/T-18: 纯 IP 维度的登录辅助桶——与「IP+用户名」分桶叠加，封堵同一 IP 遍历用户名喷洒
+// （总尝试量由 ddosLimiter 600/min 兜底，此桶把单 IP 爆破面再压一档）
+const loginIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  validate: { xForwardedForHeader: false },
+  store: hybridStore('security-login-ip'),
+  message: { error: '登录尝试次数过多，请15分钟后再试' },
+  skipSuccessfulRequests: true,
+  handler: (req, res) => {
+    onRateLimitTriggered(req.ip, req.path);
+    fail(res, 429, '登录尝试次数过多，请15分钟后再试');
+  }
+});
+
 const uploadLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
@@ -174,6 +190,7 @@ function suspiciousRequestDetector(req, res, next) {
 module.exports = { 
   ddosLimiter, 
   loginBruteForceLimiter, 
+  loginIpLimiter,
   uploadLimiter,
   adminLimiter,
   searchLimiter,

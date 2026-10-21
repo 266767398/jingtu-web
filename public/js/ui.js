@@ -1052,14 +1052,13 @@ const TAB_ITEMS = [
   { id: 'live',          emoji: '📺', i18n: 'nav.live' },
   { id: 'map',           emoji: '🗺️', i18n: 'nav.map' },
   { id: 'chat',          emoji: '💬', i18n: 'nav.chat' },
-  { id: 'friends',       emoji: '🤝', i18n: 'friends.title' },
   { id: 'follows',       emoji: '➕', i18n: 'follows.title' },
   { id: 'notifications', emoji: '🔔', i18n: 'nav.notifications' },
   { id: 'admin',         emoji: '⚙️', i18n: 'nav.admin' }
 ];
 
 // 底部栏已直接展示的 tab，不重复塞进「更多」菜单
-const MOBILE_BAR_TABS = new Set(['home', 'events', 'live', 'posts', 'chat', 'friends', 'follows', 'admin', 'notifications']);
+const MOBILE_BAR_TABS = new Set(['home', 'events', 'live', 'posts', 'chat', 'follows', 'admin', 'notifications']);
 
 let _mobileMenuInited = false;
 

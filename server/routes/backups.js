@@ -54,7 +54,9 @@ router.get('/admin/backups', requireAdminCompat, (req, res) => {
   } catch (e) { handleError(res, e, '[backups/list]'); }
 });
 
-router.get('/admin/backups/:filename/download', requireAdminCompat, (req, res) => {
+router.get('/admin/backups/:filename/download', requireSuperAdmin, (req, res) => {
+  // T-12/S-08：备份含全库 PII（含 sessions 表明文会话、加密凭据），下载提升为 requireSuperAdmin
+  //（列表仍 requireAdminCompat 可见元数据，但下载需超管，普通 admin 不得外带全库数据）。
   try {
     // §47：用 path.basename 去除任何路径前缀，防止路径穿越
     const filename = path.basename(req.params.filename);

@@ -87,13 +87,19 @@ const rotateLog = async () => {
   await fsPromises.rename(baseFile, `${baseFile}.${nextNum}`).catch(() => {});
 };
 
+// T-19/V-07: 字符串日志参数脱敏——裸字符串走 safeStringify 时不会命中对象键名脱敏规则，
+// 这里补一层 key=value / key: value 形式的敏感值掩码（密码/token/secret/cookie/授权头/api key）
+const SENSITIVE_STR_RE = /((?:password|passwd|pwd|token|secret|cookie|authorization|api[-_]?key)\s*[=:]\s*)([^\s,;&'"]+)/gi;
+const redactLogString = (s) => String(s).replace(SENSITIVE_STR_RE, '$1[REDACTED]');
+
 const safeStringify = (obj, maxDepth = 3, currentDepth = 0) => {
   if (currentDepth >= maxDepth) {
     return '[Object truncated]';
   }
   
   if (typeof obj === 'string') {
-    return obj.length > 2000 ? obj.substring(0, 2000) + '...[truncated]' : obj;
+    const redacted = redactLogString(obj);
+    return redacted.length > 2000 ? redacted.substring(0, 2000) + '...[truncated]' : redacted;
   }
   
   if (typeof obj !== 'object' || obj === null) {

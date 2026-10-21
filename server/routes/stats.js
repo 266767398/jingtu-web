@@ -42,7 +42,7 @@ module.exports = function createStatsRouter() {
         getPool().query(`SELECT e.id, e.title, e.event_time as eventTime, COUNT(es.id) as signCount, e.max_sign as maxSign FROM event e LEFT JOIN event_sign es ON e.id = es.event_id WHERE e.is_archive=0 GROUP BY e.id ORDER BY e.event_time DESC LIMIT 10`),
         getPool().query(`SELECT DATE(created_at) as date, COUNT(*) as posts, SUM(like_count) as likes, SUM(comment_count) as comments FROM posts WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) GROUP BY DATE(created_at) ORDER BY date`),
         getPool().query(`SELECT COUNT(*) as total FROM event_checkin`),
-        getPool().query(`SELECT id, display_name, created_at FROM users ORDER BY created_at DESC LIMIT 10`)
+        getPool().query(`SELECT id, display_name, created_at FROM users WHERE deleted_at IS NULL AND banned = 0 ORDER BY created_at DESC LIMIT 10`)
       ]);
 
       res.json({

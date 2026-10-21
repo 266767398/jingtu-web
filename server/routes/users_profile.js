@@ -10,7 +10,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const { requireAuth, getAvatarUrl, encryptAES, decryptAES } = require('../auth');
 const {
-  ok, getPool, validateFields, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, normalizeSelfTags, formatDateOnly, decryptCookie
+  ok, getPool, validateFields, handleError, sendError, ErrorCodes, createFileFilter, secureUpload, normalizeSelfTags, normalizeTheme, formatDateOnly, decryptCookie
 } = require('../utils');
 const { VRC_API, VRC_API_KEY, vrchatGetUser, resolveTrustLevelFromTags } = require('../vrc');
 const wsService = require('../ws_service');
@@ -254,6 +254,8 @@ router.get('/me/profile', requireAuth, async (req, res) => {
       coverImage: u.preferences?.coverImage || '',
       // 用户单独的网站背景图（登录后整站背景，个人主页/成员详情同步展示）
       backgroundImage: u.preferences?.backgroundImage || '',
+      // 主题配置（模式/明暗/强调色），登录后跨设备恢复
+      theme: u.preferences?.theme || null,
       socialLinks: u.preferences?.social_links || null,
       selfTags: Array.isArray(u.preferences?.self_tags) ? u.preferences.self_tags : [],
       tagsVisible: !!u.preferences?.tags_visible,
@@ -274,7 +276,7 @@ router.put('/me/profile', requireAuth, async (req, res) => {
     if (req.session.userId === 0) {
       return sendError(res, 403, ErrorCodes.FORBIDDEN, '游客不能修改资料');
     }
-    const { displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage, coverPosition, backgroundImage, selfTags, tagsVisible } = req.body;
+    const { displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage, coverPosition, backgroundImage, selfTags, tagsVisible, theme } = req.body;
     const updates = {};
 
     if (displayName !== undefined) {
@@ -340,6 +342,12 @@ router.put('/me/profile', requireAuth, async (req, res) => {
       if (!isSafeUrl(backgroundImage)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '背景图地址格式不正确');
       prefsObj.backgroundImage = backgroundImage;
     }
+    // 主题配置存到 preferences.theme（模式/明暗/强调色），登录后跨设备恢复
+    if (theme !== undefined) {
+      const t = normalizeTheme(theme);
+      if (t === null) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '主题配置格式不正确');
+      prefsObj.theme = t;
+    }
     // V6.10: socialLinks 存到 preferences.social_links（平面对象 string→string，防深层结构滥用）
     if (socialLinks !== undefined) {
       let sl = socialLinks;
@@ -373,7 +381,7 @@ router.put('/me/profile', requireAuth, async (req, res) => {
       if (JSON.stringify(incoming).length > 65536) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '偏好设置过大');
       for (const k of Object.keys(incoming)) {
         if (!/^[A-Za-z0-9_]{1,30}$/.test(k)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'preferences 含不支持的键名');
-        if (typeof incoming[k] === 'object' && incoming[k] !== null && k !== 'social_links' && k !== 'self_tags') return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'preferences 值类型不正确');
+        if (typeof incoming[k] === 'object' && incoming[k] !== null && k !== 'social_links' && k !== 'self_tags' && k !== 'theme') return sendError(res, 400, ErrorCodes.BAD_REQUEST, 'preferences 值类型不正确');
       }
       Object.assign(prefsObj, incoming);
     }
@@ -383,6 +391,12 @@ router.put('/me/profile', requireAuth, async (req, res) => {
       const revalidated = normalizeSelfTags(prefsObj.self_tags);
       if (revalidated === null) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '标签不合规：最多8个，每个不超过20字');
       prefsObj.self_tags = revalidated;
+    }
+    // 同上：preferences 整体覆盖时 theme 也需重新校验，避免绕过白名单写入任意结构
+    if (prefsObj.theme !== undefined) {
+      const t = normalizeTheme(prefsObj.theme);
+      if (t === null) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '主题配置格式不正确');
+      prefsObj.theme = t;
     }
     updates.preferences = JSON.stringify(prefsObj);
 

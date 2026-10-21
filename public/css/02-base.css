@@ -30,6 +30,13 @@ body.has-site-bg {
   --card-hover: rgba(48,48,66,.72);
   --card-elevated: rgba(38,38,54,.68);
   --card-bg: rgba(30,30,44,.68);
+  /* 别名变量跟随半透明：--bg2/--bg3 等在 :root 已被解析成不透明值，
+     若不复盖，用它们的表面（如 me-stat-card、部分面板）会保持不透明挡住背景 */
+  --bg2: var(--bg-secondary);
+  --bg3: var(--card2);
+  --bg-subtle: var(--card2);
+  --bg-muted: var(--border-light);
+  --card-bg-hover: var(--card-hover);
 }
 :root[data-theme="light"] body.has-site-bg {
   --bg: rgba(248,248,252,.38);
@@ -40,6 +47,11 @@ body.has-site-bg {
   --card-hover: rgba(240,240,250,.82);
   --card-elevated: rgba(255,255,255,.72);
   --card-bg: rgba(255,255,255,.70);
+  --bg2: var(--bg-secondary);
+  --bg3: var(--card2);
+  --bg-subtle: var(--card2);
+  --bg-muted: var(--border-light);
+  --card-bg-hover: var(--card-hover);
 }
 /* 顶栏/页脚降透明度并加毛玻璃，半透明下保证文字可读 */
 body.has-site-bg header {

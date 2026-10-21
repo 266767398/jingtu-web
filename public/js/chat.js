@@ -61,9 +61,12 @@ function setChatDetailOpen(open) {
   if (panel) panel.classList.toggle('chat-detail-open', !!open);
 }
 
-// ==================== 消息 / 好友 左侧栏子切换（好友与聊天合并） ====================
-// 聊天左侧栏顶部有「消息 / 好友」两个子视图：消息=会话列表+群聊；好友=好友列表，点好友直接开聊。
-let chatLeftView = 'msg'; // msg | friends
+// ==================== 好友 / 群聊 左侧栏两档切换（好友与聊天合并） ====================
+// 聊天左侧栏顶部两档：好友=好友列表，点好友直接开聊；群聊=群聊会话（含建群/邀请码）。
+// 私聊不再单独成档，入口统一为「好友」列表点击。
+let chatLeftView = 'friends'; // friends | groups
+// 群聊会话缓存：切档重渲染时复用，避免重复请求
+let chatGroupsCache = [];
 
 function applyChatLeftView() {
   const friends = chatLeftView === 'friends';
@@ -71,17 +74,27 @@ function applyChatLeftView() {
   const pane = document.getElementById('chatFriendsPane');
   if (list) list.classList.toggle('d-none', friends);
   if (pane) pane.classList.toggle('d-none', !friends);
+  const actionOf = { friends: 'chat-sub-friends', groups: 'chat-sub-groups' };
   document.querySelectorAll('#chatConversationView .chat-subnav-btn').forEach(b => {
-    const on = b.getAttribute('data-action') === (friends ? 'chat-sub-friends' : 'chat-sub-msg');
+    const on = b.getAttribute('data-action') === actionOf[chatLeftView];
     b.classList.toggle('active', on);
     if (on) b.setAttribute('aria-selected', 'true'); else b.removeAttribute('aria-selected');
   });
 }
 
 function setChatLeftView(view) {
-  chatLeftView = view === 'friends' ? 'friends' : 'msg';
+  chatLeftView = (view === 'friends' || view === 'groups') ? view : 'friends';
   applyChatLeftView();
-  if (chatLeftView === 'friends') loadChatFriends();
+  if (chatLeftView === 'friends') {
+    loadChatFriends();
+  } else {
+    // 群聊：用已缓存的会话数据重渲染对应分区（无数据时触发一次加载）
+    if (chatGroupsCache.length) {
+      renderChatMain(chatGroupsCache);
+    } else {
+      loadChatConversations();
+    }
+  }
 }
 
 async function loadChatFriends() {
@@ -93,11 +106,17 @@ async function loadChatFriends() {
     if (!res.ok) { pane.innerHTML = `<div class="chat-empty">${esc(__('chat.load_failed'))}</div>`; return; }
     const d = await res.json().catch(() => ({}));
     const list = d.list || [];
+    // 好友管理入口：请求 / 动态 / 黑名单等完整功能在好友管理页
+    const manageBar = `<div class="chat-header-toolbar">
+      <button class="btn btn-sm btn-outline" data-action="chat-friends-manage">${__('friends.title')} · ${__('nav.more') || '管理'}</button>
+    </div>`;
     if (!list.length) {
       renderEmpty(pane, { icon: '🤝', text: __('chat.friends_empty'), cls: 'chat-empty' });
+      // renderEmpty 会整体覆盖 pane.innerHTML，管理入口需在随后重新注入
+      pane.insertAdjacentHTML('afterbegin', manageBar);
       return;
     }
-    pane.innerHTML = `<div class="chat-section-title">${__('chat.tab_friends')}</div>` + list.map(f => {
+    pane.innerHTML = manageBar + `<div class="chat-section-title">${__('chat.tab_friends')}</div>` + list.map(f => {
       const avatarSrc = f.avatarUrl ? escAttr(f.avatarUrl) : '/api/avatar/default';
       return `<div class="chat-conv-item" data-action="chat-open-dm" data-uid="${f.id}" tabindex="0" role="button" aria-label="${escAttr(f.displayName || '')}">
         <img src="${avatarSrc}" class="chat-conv-avatar" loading="lazy" data-avatar-fail-src="${escAttr(f.avatarUrl || '/api/avatar/default')}" />
@@ -137,68 +156,56 @@ async function loadChatConversations(resetView = false) {
       chatUnreadData = unreadRes.ok ? await unreadRes.json() : null;
       chatConversations = {};
       (convData.conversations || []).forEach(c => { chatConversations[c.userId] = c; });
+      chatGroupsCache = groupData.groups || [];
       if (chatUnreadData) {
         const groupUnreadMap = {};
         (chatUnreadData.groups || []).forEach(g => { groupUnreadMap[g.groupId] = g.count; });
-        groupData.groups = (groupData.groups || []).map(g => ({ ...g, unreadCount: groupUnreadMap[g.id] || 0 }));
+        chatGroupsCache = chatGroupsCache.map(g => ({ ...g, unreadCount: groupUnreadMap[g.id] || 0 }));
       }
-      renderChatMain(convData.conversations || [], groupData.groups || []);
+      renderChatMain(chatGroupsCache);
       updateChatBadge();
+      // 首次进入聊天 Tab 且默认停在「好友」档时，确保好友列表已加载
+      if (resetView && chatLeftView === 'friends') loadChatFriends();
     }
   } catch (e) { toast(__('chat.load_failed'), 'error'); }
   finally { chatLoading = false; }
 }
 
-function renderChatMain(convs, groups) {
+function renderChatMain(groups) {
   const listEl = document.getElementById('chatConversationList');
   if (!listEl) return;
-  // 群聊区域
-  const groupHtml = groups.length > 0 ? `<div class="chat-section-title">${__('chat.group_chat')}</div>
+  // QQ 式左侧分类：好友视图的列表隐藏，由 chatFriendsPane 承担；群聊视图渲染群会话列表
+  const view = chatLeftView;
+  let viewToolbar = '';
+  let contentHtml = '';
+
+  if (view === 'groups') {
+    viewToolbar = `
+      <button class="btn btn-sm" data-action="chat-create-group">${__('chat.create_group')}</button>
+      <button class="btn btn-sm btn-outline" data-action="chat-join-code">${__('chat.join_by_code')}</button>`;
+    contentHtml = groups.length > 0 ? `<div class="chat-section-title">${__('chat.group_chat')}</div>
     ${groups.map(g => {
       const activeClass = chatActiveGroupId === g.id ? 'chat-conv-active' : '';
+      const ub = g.unreadCount > 0 ? `<span class="chat-unread-badge">${g.unreadCount > 99 ? '99+' : g.unreadCount}</span>` : '';
       return `<div class="chat-conv-item ${activeClass}" data-action="chat-open-group" data-gid="${g.id}" tabindex="0" role="button" aria-label="${escAttr(g.name || '')}">
         <div class="chat-group-avatar">#</div>
         <div class="chat-conv-info">
-          <div class="chat-conv-name">${esc(g.name)}</div>
+          <div class="chat-conv-name">${esc(g.name)}${ub}</div>
           <div class="chat-conv-msg">${__('chat.n_members_label', {n: g.memberCount})} · ${g.lastMessage ? esc(g.lastMessage.slice(0, 30)) : __('chat.no_messages')}</div>
         </div>
         <div class="chat-conv-time">${formatChatTime(g.lastTime)}</div>
       </div>`;
     }).join('')}` : '';
+  }
 
-  // 私信区域
-  const dmHtml = convs.length > 0 ? `<div class="chat-section-title">${__('chat.dm')}</div>
-    ${convs.map(c => {
-      const avatarSrc = c.avatarUrl ? escAttr(c.avatarUrl) : '/api/avatar/default';
-      const activeClass = chatActiveUserId === c.userId ? 'chat-conv-active' : '';
-      const ub = c.unreadCount > 0 ? `<span class="chat-unread-badge">${c.unreadCount > 99 ? '99+' : c.unreadCount}</span>` : '';
-      return `<div class="chat-conv-item ${activeClass}" data-action="chat-open-dm" data-uid="${c.userId}" tabindex="0" role="button" aria-label="${escAttr(c.displayName || '')}">
-        <img src="${avatarSrc}" class="chat-conv-avatar" loading="lazy" data-avatar-fail-src="${escAttr(c.avatarUrl || '/api/avatar/default')}" />
-        <div class="chat-conv-info">
-          <div class="chat-conv-name">${esc(c.displayName)}${ub}</div>
-          <div class="chat-conv-msg">${esc(c.lastMessage ? (c.lastMessage.length > 40 ? c.lastMessage.slice(0,40)+'…' : c.lastMessage) : '')}</div>
-        </div>
-        <div class="chat-conv-time">${formatChatTime(c.lastTime)}</div>
-      </div>`;
-    }).join('')}` : '';
-
-  const contentHtml = (groupHtml || dmHtml) ? (groupHtml + dmHtml) : '';
   listEl.innerHTML = `
-    <div class="chat-header-toolbar">
-      <div class="chat-search-box">
-        <input type="text" id="chatSearchInput" placeholder="${__('chat.search_placeholder')}">
-        <button class="btn btn-xs" data-action="chat-search-go">🔍</button>
-        <button class="btn btn-xs" data-action="chat-search-clear">✕</button>
-      </div>
-      <button class="btn btn-sm" data-action="chat-create-group">${__('chat.create_group')}</button>
-      <button class="btn btn-sm btn-outline" data-action="chat-join-code">${__('chat.join_by_code')}</button>
-    </div>
+    <div class="chat-header-toolbar">${viewToolbar}</div>
     <div id="chatSearchResults"></div>
     <div id="chatConversationListContent">` + contentHtml + `</div>`;
-  if (!groupHtml && !dmHtml) {
-    renderEmpty(document.getElementById('chatConversationListContent'), { icon: '💬', text: __('chat.no_history') });
+  if (view === 'groups' && !contentHtml) {
+    renderEmpty(document.getElementById('chatConversationListContent'), { icon: '👥', text: __('chat.no_conversations') });
   }
-  // 刷新后恢复左侧栏子视图状态（消息/好友）
+  // 刷新后恢复左侧栏子视图状态（好友 / 群聊）
   applyChatLeftView();
 }
 
@@ -836,7 +843,7 @@ async function chatSearch(keyword) {
           const otherId = m.senderId === currentUser.id ? m.receiverId : m.senderId;
           const avatarSrc = m.senderAvatar ? escAttr(m.senderAvatar) : '/api/avatar/default';
           return `<div class="chat-conv-item" data-action="chat-open-dm" data-uid="${otherId}">
-            <img src="${avatarSrc}" class="chat-conv-avatar" data-avatar-fail-src="${escAttr(m.senderAvatar || '/api/avatar/default')}">
+            <img src="${avatarSrc}" class="chat-conv-avatar" data-avatar-fail-src="${escAttr(m.senderAvatar || '/api/avatar/default')}" loading="lazy">
             <div class="chat-conv-info">
               <div class="chat-conv-name">${esc(m.senderName || __('unknown_user'))}</div>
               <div class="chat-conv-msg">${esc((m.content || '').slice(0, 30))}</div>
@@ -1046,11 +1053,15 @@ function _bindChatDelegation() {
       case 'chat-search-clear':
         clearChatSearch();
         break;
-      case 'chat-sub-msg':
-        setChatLeftView('msg');
+      case 'chat-sub-groups':
+        setChatLeftView('groups');
         break;
       case 'chat-sub-friends':
         setChatLeftView('friends');
+        break;
+      case 'chat-friends-manage':
+        // 进入完整好友管理页（请求 / 动态 / 黑名单等），页内提供返回聊天入口
+        switchTab('friends');
         break;
       case 'chat-create-group':
         showCreateGroupModal();

@@ -25,7 +25,7 @@
   function userRowHtml(u, actionsHtml) {
     return `
       <div class="social-row">
-        <img class="social-avatar" src="${escAttr(avatar(u))}" alt="${escAttr(name(u))}" data-avatar-fail-src="${escAttr(avatar(u))}">
+        <img class="social-avatar" src="${escAttr(avatar(u))}" alt="${escAttr(name(u))}" data-avatar-fail-src="${escAttr(avatar(u))}" loading="lazy">
         <div class="social-meta">
           <div class="social-name">${esc(name(u))}</div>
           ${u && u.vrchatName ? `<div class="social-sub text-13 text-muted2">${esc(u.vrchatName)}</div>` : ''}
@@ -59,7 +59,7 @@
             const u = byId[e.id];
             const nm = name(u);
             return `<button class="mutual-top-item" data-action="mutual" data-id="${e.id}" title="${esc(nm + ' · ' + e.count)}" style="display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border,#e5e7eb);border-radius:999px;background:transparent;cursor:pointer;">
-              <img class="mutual-item-avatar" src="${escAttr(avatar(u))}" alt="${escAttr(nm)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;" data-avatar-fail-src="${escAttr(avatar(u))}">
+              <img class="mutual-item-avatar" src="${escAttr(avatar(u))}" alt="${escAttr(nm)}" style="width:26px;height:26px;border-radius:50%;object-fit:cover;" data-avatar-fail-src="${escAttr(avatar(u))}" loading="lazy">
               <span style="font-size:12px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(nm)}</span>
               <span style="font-size:11px;color:var(--muted,#888);">${e.count}</span>
             </button>`;
@@ -74,6 +74,9 @@
     if (!root) return;
     root.innerHTML = `
       <div class="social-wrap">
+        <div class="social-back-row">
+          <button type="button" class="btn btn-sm btn-outline" data-action="back-to-chat">← ${__('nav.chat')}</button>
+        </div>
         <h2 class="section-title">${__('friends.title')}</h2>
         <div class="social-search">
           <input id="friendSearch" class="form-control" type="text" placeholder="${escAttr(__('friends.search_placeholder'))}" autocomplete="off">
@@ -247,7 +250,7 @@
     }
     return `
       <div class="social-row feed-item" style="align-items:flex-start;">
-        <img class="social-avatar" src="${av}" alt="${nm}" data-avatar-fail-src="${escAttr(it.avatarUrl || '/api/avatar/default')}">
+        <img class="social-avatar" src="${av}" alt="${nm}" data-avatar-fail-src="${escAttr(it.avatarUrl || '/api/avatar/default')}" loading="lazy">
         <div class="social-meta" style="flex:1;">
           <div class="social-name">${nm} <span class="text-12 text-muted2">${esc(__('friends.feed_' + (it.kind === 'post' ? 'post' : it.kind === 'event_sign' ? 'sign' : 'photo')))}</span></div>
           <div class="text-12 text-muted2">${time}</div>
@@ -590,6 +593,7 @@
         if (!b) return;
         const action = b.dataset.action;
         const id = parseInt(b.dataset.id);
+        if (action === 'back-to-chat') { switchTab('chat'); return; }
         if (action === 'message') { if (typeof openChat === 'function') openChat(id); else switchTab('chat'); return; }
         if (action === 'mutual') { showMutualFriends(id); return; }
         if (action === 'history') { showFriendHistory(id); return; }

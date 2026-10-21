@@ -20,7 +20,7 @@
     siteName: 'seo.site_name',
     title: 'seo.entry_title',
     description: 'seo.entry_desc',
-    image: '/assets/group-avatar.png',
+    image: '/assets/group-banner.png',
     twitterSite: '@jingtu_vrchat'
   };
 
@@ -110,7 +110,7 @@
       '@type': 'Organization',
       name: _tr('seo.site_name', '境途同游'),
       url: o || '/',
-      logo: (o || '') + '/assets/group-avatar.png',
+      logo: (o || '') + '/assets/group-avatar-192.png',
       sameAs: [],
       description: _tr('seo.entry_desc', '面向 VRChat 玩家的社群平台：群组相册、活动报名、动态分享、成员地图与实时聊天。')
     });

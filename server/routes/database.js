@@ -171,7 +171,10 @@ router.get('/admin/db/slow-queries', requireAdminCompat, async (req, res) => {
   } catch (e) { handleError(res, e, '[db/slow-queries]'); }
 });
 
-router.get('/admin/db/table/:name', requireAdminCompat, async (req, res) => {
+router.get('/admin/db/table/:name', requireSuperAdmin, async (req, res) => {
+  // T-14/S-10：表数据浏览（SELECT * 原始记录）提升为 requireSuperAdmin——users 等表含
+  // password_hash/totp_secret/email 凭据列，普通 admin 不得直读。元数据类端点（status/tables/
+  // variables/slow-queries）保持 requireAdminCompat。
   try {
     const tableName = req.params.name;
     // §46：白名单校验

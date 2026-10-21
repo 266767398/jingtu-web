@@ -3,6 +3,9 @@
    仅使用设计系统 CSS 变量（01-variables.css），自动适配 dark / light 主题。
 */
 
+/* ---------- 好友管理子页「返回聊天」入口 ---------- */
+.social-back-row { margin-bottom: 10px; }
+
 /* ---------- 通用表单控件（被搜索框复用；原先无定义） ---------- */
 .form-control {
   width: 100%;

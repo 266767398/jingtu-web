@@ -119,6 +119,22 @@ async function cleanupExpiredFiles() {
   }
 }
 
+// P-03（2026-10-20）：头像磁盘缓存 TTL 清理——超过 30 天未被重新回源写入的
+// .img/.ct 文件删除（与 avatar.js 读取侧超龄判定同口径，删除后下次访问会重新
+// 回源，不影响在线头像显示）。懒加载避免循环依赖（avatar.js 不依赖 tasks.js）。
+async function cleanupAvatarCache() {
+  try {
+    const avatarRoute = require('./routes/avatar');
+    if (typeof avatarRoute.pruneAvatarCacheTtl !== 'function') return;
+    const removed = avatarRoute.pruneAvatarCacheTtl();
+    if (removed > 0) {
+      logger.info('tasks', `[task] 清理头像缓存: 删除 ${removed} 个过期文件`);
+    }
+  } catch (e) {
+    logger.error('tasks', '[task] 清理头像缓存失败:', e);
+  }
+}
+
 async function generateDailyStats() {
   try {
     const pool = getPool();
@@ -273,6 +289,8 @@ function startTasks() {
   jobs.push(new CronJob('0 * * * *', guard('cleanupExpiredSessions', cleanupExpiredSessions), null, true, 'Asia/Shanghai'));
   jobs.push(new CronJob('0 2 * * *', guard('cleanupExpiredFiles', cleanupExpiredFiles), null, true, 'Asia/Shanghai'));
   jobs.push(new CronJob('0 2 * * *', guard('cleanupExpiredNotifications', cleanupExpiredNotifications), null, true, 'Asia/Shanghai'));
+  // P-03：头像磁盘缓存 TTL 清理（每日 02:15，错开 02:00 的文件清理）
+  jobs.push(new CronJob('15 2 * * *', guard('cleanupAvatarCache', cleanupAvatarCache), null, true, 'Asia/Shanghai'));
   jobs.push(new CronJob('30 2 * * *', guard('runAutoBackup', runAutoBackup), null, true, 'Asia/Shanghai'));
   jobs.push(new CronJob('0 3 * * *', guard('cleanupExpiredBackups', cleanupExpiredBackups), null, true, 'Asia/Shanghai'));
   jobs.push(new CronJob('0 3 * * *', guard('cleanupExpiredShareLinks', cleanupExpiredShareLinks), null, true, 'Asia/Shanghai'));
@@ -309,6 +327,7 @@ module.exports = {
   getTaskStatus,
   cleanupExpiredSessions,
   cleanupExpiredFiles,
+  cleanupAvatarCache,
   generateDailyStats,
   cleanupExpiredNotifications,
   cleanupExpiredBackups,

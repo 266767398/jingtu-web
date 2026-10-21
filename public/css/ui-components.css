@@ -668,10 +668,13 @@
 }
 
 .progress-fill {
+    width: 100%;
     height: 100%;
+    transform-origin: left center;
+    transform: scaleX(1);
     background: var(--accent);
     border-radius: 3px;
-    transition: width .3s ease;
+    transition: transform .3s ease;
 }
 
 /* 工具提示 */
@@ -3220,22 +3223,13 @@ a:not(.btn):not(.tab):not(.social-link):not(.login-tab-btn):not(.hero-stat):not(
   box-shadow: 0 8px 24px rgba(0,0,0,0.15);
 }
 
-/* 成员卡片底部操作区：查看 + 关注并排（关注按钮随列表数据直接渲染） */
-.member-card-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  flex-wrap: wrap;
+/* 成员卡片整体可点击（详情入口）：整卡为 role=button，聚焦时给出轮廓 */
+.member-card-clickable {
+  cursor: pointer;
 }
-.member-card-actions .btn {
-  margin-left: 0;
-}
-.member-card-follow {
-  display: inline-flex;
-}
-.member-card-follow .btn {
-  flex-shrink: 0;
+.member-card-clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .member-card .member-avatar {

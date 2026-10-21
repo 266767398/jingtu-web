@@ -64,6 +64,10 @@
           <div id="followSearchResults" class="social-search-results"></div>
         </div>
         <div class="social-section">
+          <h3 class="social-h3">${__('follows.mutual_list')}</h3>
+          <div id="followMutual"></div>
+        </div>
+        <div class="social-section">
           <h3 class="social-h3">${__('follows.following')}</h3>
           <div id="followFollowing"></div>
         </div>
@@ -73,11 +77,29 @@
         </div>
       </div>`;
     bindFollowsEvents();
+    loadMutual();
     loadFollowing();
     loadFollowers();
   }
 
   // ==================== 数据加载 ====================
+  // 互关列表：关注/粉丝接口已排除互关，互关用户只展示在此
+  async function loadMutual() {
+    const el = document.getElementById('followMutual');
+    if (!el) return;
+    try {
+      const res = await api('/api/follows/mutual', { method: 'GET' });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { el.innerHTML = `<div class="text-muted2 p-16">${esc(errText(d))}</div>`; return; }
+      const list = (d.list || []);
+      if (!list.length) { el.innerHTML = `<div class="text-muted2 p-16">${esc(__('follows.no_mutual'))}</div>`; return; }
+      // 互关必为好友关系（系统自动建立），操作按钮：取消关注（同时删除好友关系）
+      el.innerHTML = list.map(r => userRowHtml(r, unfollowBtn(r))).join('');
+    } catch (e) {
+      if (isApiHandledError(e)) return;
+      el.innerHTML = `<div class="text-muted2 p-16">${esc(e.message)}</div>`;
+    }
+  }
   async function loadFollowing() {
     const el = document.getElementById('followFollowing');
     if (!el) return;
@@ -150,7 +172,7 @@
       const msg = (action === 'follow') ? __('follows.followed') : __('follows.unfollowed');
       toast(msg, 'success');
       if (action === 'follow') { const s = document.getElementById('followSearch'); if (s) loadSearch(s.value); }
-      loadFollowing(); loadFollowers();
+      loadMutual(); loadFollowing(); loadFollowers();
     } catch (e) {
       if (isApiHandledError(e)) return;
       toast(e.message, 'error');

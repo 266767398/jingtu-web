@@ -5,6 +5,8 @@ async function loadMe() {
     if (res.ok) { 
       const data = await res.json(); 
       currentUser = data.user || data; 
+      // 登录后从服务器恢复主题配置（模式/明暗/强调色），跨设备/清缓存后依然一致
+      if (typeof hydrateThemeFromServer === 'function') hydrateThemeFromServer(currentUser.theme);
       // 应用本人单独设置的整站背景（并同步「我的 → 主题与外观」预览）
       if (typeof applyUserSiteBackground === 'function') {
         const bg = currentUser.backgroundImage || currentUser.preferences?.backgroundImage || '';

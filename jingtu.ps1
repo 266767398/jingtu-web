@@ -576,8 +576,8 @@ function Start-Site {
         if ($procId -ne $launched.Id) {
             try { Stop-Process -Id $launched.Id -Force -ErrorAction SilentlyContinue } catch {}
             $url = Get-SiteUrl
-            Write-Line ("[警告] 端口 {0} 已被其它进程(PID {1})抢先占用，为防双实例已取消本次启动；网站仍可访问 → {2}" -f $SitePort, $procId, $url) $Cfg.C_Warn
-            Write-Line '[提示] 如需改用本启动器接管，请先执行 jingtu.bat stop 停止现存实例，再执行 start。' $Cfg.C_Info
+            Write-Line ("[提示] 端口 {0} 已被进程(PID {1})占用：现有实例正常运行中，网站可访问 → {2}" -f $SitePort, $procId, $url) $Cfg.C_Warn
+            Write-Line ("[提示] 本次 start 已取消（防双实例）。如需重启：先执行 jingtu.bat stop 停止现有实例，再执行 jingtu.bat start；仅查看状态可执行 jingtu.bat status。" ) $Cfg.C_Info
             if (-not $NoBrowser) { try { Start-Process $url | Out-Null } catch {} }
             return
         }

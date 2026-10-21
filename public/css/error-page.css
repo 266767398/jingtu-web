@@ -1,0 +1,79 @@
+/* 错误页共享样式（Nginx error_page 直出，不走 Node，故不依赖 CSP nonce / JS / 主题令牌） */
+.error-page {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(1200px 600px at 50% -10%, rgba(124, 92, 252, .14), transparent 60%), #121218;
+  color: #e4e4ed;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.error-card {
+  max-width: 480px;
+  width: 100%;
+  text-align: center;
+  padding: 44px 32px;
+  background: rgba(30, 30, 42, .85);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .35);
+}
+.error-code {
+  font-size: 88px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -2px;
+  margin: 0 0 12px;
+  background: linear-gradient(135deg, #f5e08a 0%, #d4af37 45%, #7c5cfc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.error-msg {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+.error-desc {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #a0a0b0;
+  margin: 0 0 28px;
+}
+.error-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.error-btn {
+  display: inline-block;
+  padding: 10px 22px;
+  border-radius: 999px;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  transition: transform .15s cubic-bezier(.4,0,.2,1), filter .15s;
+}
+.error-btn.primary {
+  background: #7c5cfc;
+  color: #fff;
+}
+.error-btn.ghost {
+  background: transparent;
+  color: #e4e4ed;
+  border: 1px solid #3a3a4a;
+}
+.error-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+.error-brand {
+  margin-top: 28px;
+  font-size: 12px;
+  color: #6a6a7a;
+}

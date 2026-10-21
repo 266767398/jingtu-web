@@ -417,6 +417,35 @@ router.get('/:userId', async (req, res) => {
       thumbnailUrl: v.thumbPath ? '/' + v.thumbPath.replace(/\\/g, '/') : null
     }));
 
+    // VRChat 在线状态（群组名册）：网页端登录/客户端游戏内/世界名/最近在线时间。
+    // 登录用户可见在线与否（群组页本就广播全量在线状态）；个人状态描述仅本人/好友可见。
+    let presence = null;
+    if (isLoggedIn && user.vrchatId) {
+      try {
+        const [rows] = await getPool().query(
+          `SELECT is_online, is_in_game, vrchat_status, world_name, last_seen, status_description
+           FROM group_roster WHERE vrchat_id = ? LIMIT 1`,
+          [user.vrchatId]
+        );
+        if (rows.length) {
+          const p = rows[0];
+          presence = {
+            online: !!p.is_online,
+            inGame: !!p.is_in_game,
+            status: p.vrchat_status || (p.is_online ? 'active' : 'offline'),
+            world: p.world_name || '',
+            lastSeen: p.last_seen || null,
+            description: canSeeSensitive ? (p.status_description || '') : ''
+          };
+        } else {
+          presence = { online: false, inGame: false, status: 'offline', world: '', lastSeen: null, description: '' };
+        }
+      } catch (e) {
+        logger.warn('[profile] presence 查询失败:', e.message);
+        presence = null;
+      }
+    }
+
     res.json({
       user: {
         id: user.id,
@@ -427,7 +456,8 @@ router.get('/:userId', async (req, res) => {
         // 隐私墙：vrchatId / vrchatName / birthday 仅本人或好友可见（游客/陌生者隐藏）
         vrchatId: canSeeSensitive ? user.vrchatId : null,
         vrchatName: canSeeSensitive ? user.vrchatName : null,
-        birthday: canSeeSensitive ? formatDateOnly(user.birthday) : null
+        birthday: canSeeSensitive ? formatDateOnly(user.birthday) : null,
+        presence
       },
       profile,
       albums,

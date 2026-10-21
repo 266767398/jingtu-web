@@ -1900,7 +1900,7 @@ async function initDatabase() {
       ['hero_title', '境途同游'],
       ['hero_subtitle', 'JingTu Travel · VRChat Group'],
       ['hero_description', '在虚拟世界相遇，在现实世界同行'],
-      ['hero_bg_url', '/assets/group-hero.png'],
+      ['hero_bg_url', '/assets/group-hero.jpg'],
       // V6.9: 更多 Hero 自定义
       ['hero_bg_color', '#0a0a1a'],
       ['hero_bg_overlay_opacity', '0.6'],

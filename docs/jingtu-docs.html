@@ -984,7 +984,7 @@ app.use('/api', 404 + error handler)</pre>
     <h3 class="sub">2.1 index.html 静态脚本栈（顺序即硬依赖）</h3>
     <div class="panel">
       <div class="panel-head">
-        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261019p</span></h4>
+        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261020k</span></h4>
       </div>
       <div class="tbl-scroll" style="max-height:560px"><table class="tbl">
         <thead><tr><th>#</th><th>脚本</th><th>模式</th><th>版本戳</th><th>作用</th></tr></thead>
@@ -1094,7 +1094,7 @@ app.use('/api', 404 + error handler)</pre>
         <tbody id="symBody"></tbody>
       </table></div>
     </div>
-    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261019p）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261019p</code>。</div>
+    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261020k）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261020k</code>。</div>
   </section>
 <section id="checklist">
     <div class="section-head">
@@ -1270,23 +1270,23 @@ const TOOLS=[
 ];
 const DBHOT=[['1','users','28'],['2','event','13'],['3','album_photo','11'],['4','group_roster','9'],['5','posts','9'],['6','notifications','9'],['7','permission_groups','3'],['8','user_like','3'],['9','user_friends','7'],['10','event_sign','6'],['11','user_group_membership','6'],['12','sys_oper_log','5'],['13','announcement','5'],['14','post_comment','3'],['15','group_permission_entries','3']];
 const STACK=[
- ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261019p','语言包×6（detectLang 动态注入）'],
- ['2','/js/seo.js','head 内同步（非 defer）','20261019p','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
- ['3','/js/core.js','defer','20261019p','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
- ['4','/js/i18n.js','defer','20261019p','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261019p\''],
- ['5','/js/ui.js','defer','20261019p','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
- ['6','gsap.min.js','defer','20261019p','动效库'],
- ['7','ScrollTrigger.min.js','defer','20261019p','滚动触发'],
- ['8','/js/motion.js','defer','20261019p','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
- ['9','/js/reveal.js','defer','20261019p','滚动揭示（IntersectionObserver；motion 启用后让位）'],
- ['10','/js/nav-scroller.js','defer','20261019p','顶部标签滑动'],
- ['11','/js/freeze.js','defer','20261019p','__freeze 空闲冻结'],
- ['12','/js/theme.js','defer','20261019p','主题 V5.5（模式/明暗/强调色/时间自动）+ 动态效果强制开关（force-anim）'],
- ['13','/js/auth.js','defer','20261019p','登录/注册/2FA/VRC 登录/自动登录/登录页头像缓存单槽预览'],
- ['14','/js/loader.js','defer','20261019p','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP + force-anim'],
- ['15','/js/smartsearch.js','defer','20261019p','Ctrl+K 命令面板'],
- ['16','/js/init.js','defer','20261019p','初始化向导（main 未初始化分支调用）'],
- ['17','/js/main.js','defer','20261019p','入口调度/WS/轮询/通知']
+ ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261020k','语言包×6（detectLang 动态注入）'],
+ ['2','/js/seo.js','head 内同步（非 defer）','20261020k','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
+ ['3','/js/core.js','defer','20261020k','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
+ ['4','/js/i18n.js','defer','20261020k','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261020k\''],
+ ['5','/js/ui.js','defer','20261020k','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
+ ['6','gsap.min.js','defer','20261020k','动效库'],
+ ['7','ScrollTrigger.min.js','defer','20261020k','滚动触发'],
+ ['8','/js/motion.js','defer','20261020k','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
+ ['9','/js/reveal.js','defer','20261020k','滚动揭示（IntersectionObserver；motion 启用后让位）'],
+ ['10','/js/nav-scroller.js','defer','20261020k','顶部标签滑动'],
+ ['11','/js/freeze.js','defer','20261020k','__freeze 空闲冻结'],
+ ['12','/js/theme.js','defer','20261020k','主题 V5.5（模式/明暗/强调色/时间自动）+ 动态效果强制开关（force-anim）'],
+ ['13','/js/auth.js','defer','20261020k','登录/注册/2FA/VRC 登录/自动登录/登录页头像缓存单槽预览'],
+ ['14','/js/loader.js','defer','20261020k','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP + force-anim'],
+ ['15','/js/smartsearch.js','defer','20261020k','Ctrl+K 命令面板'],
+ ['16','/js/init.js','defer','20261020k','初始化向导（main 未初始化分支调用）'],
+ ['17','/js/main.js','defer','20261020k','入口调度/WS/轮询/通知']
 ];
 const FMM=[
  ['core.js','静','—','传输层/工具/弹窗/图片兜底/全局错误日志/VRC 重登引导','`__` toast esc','/api/csrf-token'],

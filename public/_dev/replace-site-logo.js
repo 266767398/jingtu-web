@@ -28,7 +28,7 @@
   'use strict';
 
   // ---------- 配置 ----------
-  const DEFAULT_TARGET = '/assets/group-avatar.png';   // 默认目标图（新版圆形「境途同游」头像）
+  const DEFAULT_TARGET = '/assets/group-avatar-192.png';   // 默认目标图（新版圆形「境途同游」头像，192px 小图）
   const CACHE_BUST = '?v=logo1';                        // 缓存击穿参数
   const TARGET = DEFAULT_TARGET + CACHE_BUST;
 

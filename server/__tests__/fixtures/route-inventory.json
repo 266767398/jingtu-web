@@ -176,6 +176,7 @@
   "DELETE /api/follows/:targetUserId",
   "GET /api/follows/following",
   "GET /api/follows/followers",
+  "GET /api/follows/mutual",
   "GET /api/follows/status/:userId",
   "GET /api/follows/counts/:userId",
   "POST /api/login",

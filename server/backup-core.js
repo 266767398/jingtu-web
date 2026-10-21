@@ -225,6 +225,11 @@ function restoreBackup(filename) {
       if (!fs.existsSync(filePath)) {
         return reject(new Error('备份文件不存在'));
       }
+      // T-19/V-07: 仅接受 BACKUP_DIR 内的常规文件（lstat 不跟随软链，目录/符号链接一律拒绝）
+      const fstat = fs.lstatSync(filePath);
+      if (!fstat.isFile()) {
+        return reject(new Error('备份路径不是常规文件，拒绝恢复'));
+      }
       if (!dumpLooksValid(filePath)) {
         return reject(new Error('备份文件未通过完整性校验（空文件/截断/非 mysqldump 输出），拒绝恢复'));
       }
@@ -304,5 +309,7 @@ module.exports = {
   formatSize,
   createBackup,
   restoreBackup,
-  cleanupAutoBackups
+  cleanupAutoBackups,
+  // T-15/S-07：供 WS / 定时任务在恢复窗口内跳过写库
+  isRestoring: () => !!holder.restoring
 };

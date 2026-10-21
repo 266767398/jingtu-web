@@ -63,6 +63,8 @@
 ## 6. 已知实现差异（对接时注意）
 
 - `/api/search` 有两个 GET 处理器（server.js 登录版先注册优先）。
+- 个人资料媒体：`POST /api/users/me/cover`（横幅）、`POST|DELETE /api/users/me/background`（站点背景）需登录；文件落在私有目录 `/uploads/covers`、`/uploads/backgrounds`，游客态匿名 401，由前端 onerror 兜底（封面回退默认横幅、背景隐藏）。
+- 关注关系：`GET /api/follows/mutual?userId&page` 单独返回互关列表；`/api/follows/following|followers` 计数与列表均排除互关（互关只在 mutual 展示），三者口径一致。
 - `users/me/profile` 前端兼容 `data.user || data`；返回 `trustLevel / trustLevelCn`、`haloVisible`（我的信息光环）。
 - `/api/group/members` 与 `/api/users/list` 均下发每个成员的 `haloVisible`（**V6.16** 光环开关按人独立可见，未绑定网站账号的 VRChat 成员为 `null`=默认显示）；`trustLevel` 名册无记录时回退 `users.trust_level`（**V6.17**）。
 - `posts` 的 `limit` 与 `q`（关键词搜索）参数被忽略（后端 `posts.js` 未消费；全局搜索的动态页为伪搜索，2026-10-14 审计 B1）。

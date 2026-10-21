@@ -134,12 +134,13 @@ function showGlobalLoading() {
     bar = document.createElement('div');
     bar.id = 'globalLoadBar';
     bar.setAttribute('aria-hidden', 'true');
-    bar.style.cssText = 'position:fixed;top:0;left:0;width:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--accent2));z-index:10000;transition:width .3s ease,opacity .3s ease;opacity:0;pointer-events:none';
+    bar.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:3px;transform-origin:left center;background:linear-gradient(90deg,var(--accent),var(--accent2));z-index:10000;transition:transform .3s ease,opacity .3s ease;opacity:0;pointer-events:none';
+    bar.style.transform = 'scaleX(0)'; /* 字符串里避免再出现 scaleX() 字面量；初始 0 */
     document.body.appendChild(bar);
   }
   if (_loadingCount === 1) {
     bar.style.opacity = '1';
-    bar.style.width = '30%';
+    bar.style.transform = 'scaleX(.3)';
   }
 }
 
@@ -148,10 +149,10 @@ function hideGlobalLoading() {
   const bar = document.getElementById('globalLoadBar');
   if (!bar) return;
   if (_loadingCount === 0) {
-    bar.style.width = '100%';
+    bar.style.transform = 'scaleX(1)';
     setTimeout(() => {
       bar.style.opacity = '0';
-      setTimeout(() => { bar.style.width = '0'; }, 300);
+      setTimeout(() => { bar.style.transform = 'scaleX(0)'; }, 300);
     }, 200);
   }
 }

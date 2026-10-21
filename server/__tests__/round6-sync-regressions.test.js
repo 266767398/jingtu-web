@@ -511,6 +511,7 @@ describe('样式表必须真的被页面加载', () => {
   const INTENTIONALLY_UNUSED = {
     'animations.css': '定义了 .animate-* 工具类，全站 HTML/JS 均未使用，引入只会增加体积',
     'share-page.css': '分享落地页样式，对应 share.html 页面尚未实现',
+    'error-page.css': 'Nginx error_page 直出的品牌错误页（public/error/*.html，见 C-02 2026-10-20）专用；错误页不依赖主题令牌/JS，故不引入 index.html',
   };
 
   const referencedCss = () => {

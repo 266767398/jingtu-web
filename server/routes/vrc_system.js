@@ -22,6 +22,17 @@ const logger = require('../logger');
 
 module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
   const router = express.Router();
+  // T-12/S-08：2FA 待验证阶段的 VRChat authcookie 只放进程内存，绝不写入 req.session
+  // （否则会经 express-mysql-session 明文落 sessions 表并随全库备份被下载）。
+  // 以 sessionID 为键 + 10 分钟 TTL 过期清理。
+  const PENDING_2FA_TTL = 10 * 60 * 1000;
+  const pending2FA = new Map();
+  const getPending2FA = (sid) => {
+    const item = sid && pending2FA.get(sid);
+    if (!item) return null;
+    if (Date.now() - item.at > PENDING_2FA_TTL) { pending2FA.delete(sid); return null; }
+    return item;
+  };
   const {
     saveVRCCredentials = async () => { throw new Error('未接入自动重登凭据保存'); },
     clearVRCCredentials = async () => { throw new Error('未接入自动重登凭据清除'); },
@@ -42,8 +53,7 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
       const vrcUser = loginRes.data;
       const needs2fa = loginRes.needs2fa;
       if (needs2fa) {
-        req.session._vrcLoginCookie = loginRes.cookie;
-        req.session._vrcLoginMethods = vrcUser.requiresTwoFactorAuth;
+        pending2FA.set(req.sessionID, { cookie: loginRes.cookie, methods: vrcUser.requiresTwoFactorAuth, at: Date.now() });
         return res.json({ need2fa: true, methods: vrcUser.requiresTwoFactorAuth });
       }
       if (!loginRes.cookie || !vrcUser?.id) {
@@ -65,8 +75,10 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
     try {
       const { code, method } = req.body;
       if (!code) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请输入验证码');
-      const cookie = req.session._vrcLoginCookie;
-      const methods = req.session._vrcLoginMethods;
+      const pending = getPending2FA(req.sessionID);
+      if (!pending) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '会话过期，请重新登录');
+      const cookie = pending.cookie;
+      const methods = pending.methods;
       if (!cookie || !Array.isArray(methods)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '会话过期，请重新登录');
       if (!methods.includes(method)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '双重验证方式无效，请重新登录');
 
@@ -92,8 +104,7 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
       authStateRef.displayName = finalUser.displayName;
       authStateRef.cookieSetAt = Date.now(); // V8.2: 记录 cookie 设置时间（用于软性过期判断）
       resetReloginGuard(); // F-30: 人工 2FA 完成 = 自动重登链路已成功闭环，清零连败熔断/退避
-      delete req.session._vrcLoginCookie;
-      delete req.session._vrcLoginMethods;
+      pending2FA.delete(req.sessionID);
       await saveAuthStateFn();
       ok(res, {user: finalUser});
     } catch (e) { handleError(res, e, '[vrc-system/2fa]'); }
@@ -111,6 +122,7 @@ module.exports = function (authStateRef, saveAuthStateFn, vrcAuthHelpers) {
     authStateRef.userId = null;
     authStateRef.displayName = null;
     authStateRef.cookieSetAt = null;
+    pending2FA.delete(req.sessionID);
     await saveAuthStateFn();
     ok(res);
   });

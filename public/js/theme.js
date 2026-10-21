@@ -26,6 +26,41 @@ function saveThemeConfig(config) {
   localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(config));
 }
 
+// 主题配置持久化到服务器（preferences.theme）：localStorage 只作为本机快速缓存，
+// 服务器是跨设备/清缓存后的恢复来源。写入失败不影响本次使用，仅静默回退本地。
+let _themeSyncTimer = null;
+function syncThemeToServer(config) {
+  if (typeof api !== 'function') return;
+  if (typeof currentUser === 'undefined' || !currentUser) return;
+  clearTimeout(_themeSyncTimer);
+  _themeSyncTimer = setTimeout(() => {
+    _themeSyncTimer = null;
+    api('/api/users/me/profile', { method: 'PUT', body: { theme: config }, silent: true })
+      .then((res) => {
+        if (res && res.ok && currentUser) {
+          if (!currentUser.preferences) currentUser.preferences = {};
+          currentUser.preferences.theme = config;
+        }
+      })
+      .catch(() => { /* 离线/未登录时仅保留本地配置 */ });
+  }, 400);
+}
+
+// 登录后从服务器恢复主题（由 auth.js loadMe 调用）。
+// 服务器有配置 → 以服务器为准覆盖本地；服务器无配置 → 把本地配置作为初始值上传。
+function hydrateThemeFromServer(theme) {
+  if (theme && typeof theme === 'object' && !Array.isArray(theme) && Object.keys(theme).length) {
+    const config = { ...defaultThemeConfig(), ...theme };
+    saveThemeConfig(config);
+    initTheme();
+    return;
+  }
+  try {
+    const raw = localStorage.getItem(THEME_STORAGE_KEY);
+    if (raw) syncThemeToServer(JSON.parse(raw));
+  } catch { /* ignore */ }
+}
+
 function computeBrightness(config) {
   if (config.mode === 'manual') return config.brightness;
   // __('auto_theme_1')改为按当前时间自动切换：18:00-06:00 为暗色，其余为亮色
@@ -67,12 +102,27 @@ function initTheme() {
   document.querySelectorAll('.theme-brightness-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.brightness === config.brightness));
   syncAnimSwitch();
   applyTheme(config);
+  maybeHintReducedMotion();
   // 先清除旧的定时器，再重新设置
   if (_themeScheduleTimer) { clearInterval(_themeScheduleTimer); _themeScheduleTimer = null; }
   // __('auto_theme_2')按时间自动切换，页面打开期间每分钟检查一次，跨 18:00/06:00 时自动切换
   if (config.mode === 'auto') {
     _themeScheduleTimer = setInterval(() => applyTheme(loadThemeConfig()), 60000);
   }
+}
+
+// U-02：检测到系统「减少动态效果」且用户未强制开启动画时，仅提示一次，
+// 引导到主题面板的「动态效果 → 强制开启」开关（.force-anim 逃生舱）。
+function maybeHintReducedMotion() {
+  try {
+    if (document.documentElement.classList.contains('force-anim')) return;
+    if (!window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (localStorage.getItem('jingtu_anim_hint')) return;
+    localStorage.setItem('jingtu_anim_hint', '1');
+    if (typeof toast === 'function' && typeof __ === 'function') {
+      setTimeout(() => toast(__('ui.anim_reduced_hint'), 'info'), 800);
+    }
+  } catch (e) { /* localStorage 不可用则跳过提示 */ }
 }
 
 // 空闲冻结：暂停/恢复「按时间自动切换主题」的每分钟检查（见 freeze.js）
@@ -95,6 +145,7 @@ function setThemeMode(mode) {
   const config = loadThemeConfig();
   config.mode = mode;
   saveThemeConfig(config);
+  syncThemeToServer(config);
   document.querySelectorAll('.theme-mode-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
   applyTheme(config);
 }
@@ -104,6 +155,7 @@ function setBrightness(brightness) {
   config.mode = 'manual';
   config.brightness = brightness;
   saveThemeConfig(config);
+  syncThemeToServer(config);
   document.querySelectorAll('.theme-brightness-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.brightness === brightness));
   applyTheme(config);
 }
@@ -112,6 +164,7 @@ function setAccentColor(color) {
   const config = loadThemeConfig();
   config.accentColor = color;
   saveThemeConfig(config);
+  syncThemeToServer(config);
   applyTheme(config);
 }
 
@@ -129,6 +182,7 @@ function closeThemePanel() {
 function resetTheme() {
   localStorage.removeItem(THEME_STORAGE_KEY);
   initTheme();
+  syncThemeToServer(defaultThemeConfig());
   closeThemePanel();
   toast(__('ui.theme_reset'), 'success');
 }
@@ -250,7 +304,8 @@ async function clearSiteBackground() {
 
 // ==================== 用户横幅（封面照片） ====================
 // 横幅即公开主页/成员详情的封面图，存在 preferences.coverImage（与编辑资料弹窗同一字段）。
-// ALSO NOTE: 在「我的 → 主题与外观」管理，他人可查看（公开）。
+// 在「我的 → 主题与外观」管理。媒体本身存放在私有目录 /uploads/covers/（见 uploads_auth.js）：
+// 仅登录用户可见，游客态由前端兜底（封面 onerror 回退 /assets/group-banner.png，背景失败则隐藏）。
 function applyBannerPreview(url) {
   const preview = document.getElementById('meBannerPreview');
   if (!preview) return;

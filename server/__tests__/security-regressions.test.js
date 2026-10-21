@@ -22,6 +22,8 @@ const files = {
   migrationRoute: read('server', 'routes', 'migration.js'),
   vrcSystemRoute: read('server', 'routes', 'vrc_system.js'),
   liveRoute: read('server', 'routes', '_archive', 'live.js'),
+  wsService: read('server', 'ws_service.js'),
+  databaseRoute: read('server', 'routes', 'database.js'),
   postsRoute: read('server', 'routes', 'posts.js'),
   shareRoute: read('server', 'routes', 'share.js'),
   backupsRoute: read('server', 'routes', 'backups.js'),
@@ -51,7 +53,7 @@ const files = {
   mainJs: read('public', 'js', 'main.js'),
   initJs: read('public', 'js', 'init.js'),
   authJs: read('public', 'js', 'auth.js'),
-  liveJs: read('public', 'js', 'live.js'),
+  liveJs: read('public', 'js', '_archive', 'live.js'),
   postsJs: read('public', 'js', 'posts.js'),
   indexHtml: read('public', 'index.html'),
   uiEnhanceCss: read('public', 'css', 'ui-enhance.css'),
@@ -114,13 +116,46 @@ describe('security regressions', () => {
     const backupCoreSrc = read('server', 'backup-core.js');
     expect(backupCoreSrc).toMatch(/const BACKUP_DIR = process\.env\.BACKUP_DIR[\s\S]*?path\.join\(__dirname,\s*'\.\.',\s*'backups'\)/);
     expect(backupCoreSrc).toMatch(/path\.resolve\(process\.env\.BACKUP_DIR\)/);
-    expect(files.backupsRoute).toMatch(/router\.get\('\/admin\/backups\/:filename\/download',\s*requireAdminCompat/);
+    // T-12/S-08：备份含全库 PII 与明文会话，下载亦提升为超管；仅列表保留普通管理员
+    expect(files.backupsRoute).toMatch(/router\.get\('\/admin\/backups\/:filename\/download',\s*requireSuperAdmin/);
     expect(files.backupsRoute).toMatch(/const filename = path\.basename\(req\.params\.filename\)/);
-    // P2-160（R1）：备份破坏性操作（删除/清理/创建/恢复）必须超管；仅列表/下载保留普通管理员
+    // P2-160（R1）：备份破坏性操作（删除/清理/创建/恢复）必须超管
     expect(files.backupsRoute).toMatch(/router\.delete\('\/admin\/backups\/:filename',\s*requireSuperAdmin/);
     expect(files.backupsRoute).toMatch(/router\.post\('\/admin\/backups\/cleanup',\s*requireSuperAdmin/);
     expect(files.backupsRoute).toMatch(/router\.post\('\/admin\/backups\/create',\s*requireSuperAdmin/);
     expect(files.backupsRoute).toMatch(/router\.post\('\/admin\/backups\/restore\/:filename',\s*requireSuperAdmin/);
+  });
+
+  // T-11/T-12/T-14（第三轮）：WS 僵尸连接回收、2FA cookie 不落 session store、admin 表数据浏览仅超管。
+  test('hardening: WS 心跳回收 / 2FA cookie 非会话内存 / db 表浏览超管', () => {
+    // T-11/S-06：心跳每轮先置 isAlive=false，未收到 pong 则 terminate
+    expect(files.wsService).toMatch(/if \(!ws\.isAlive\)[\s\S]{0,160}?ws\.terminate\(\)/);
+    expect(files.wsService).toMatch(/ws\.isAlive = false;/);
+    // T-12/S-08：预 2FA cookie 只进进程内存 Map，不再写 req.session
+    expect(files.vrcSystemRoute).toMatch(/pending2FA\.set\(req\.sessionID/);
+    expect(files.vrcSystemRoute).toMatch(/pending2FA\.delete\(req\.sessionID\)/);
+    expect(files.vrcSystemRoute).not.toMatch(/_vrcLoginCookie/);
+    // T-14/S-10：表数据浏览（原始记录+凭据列）仅超管
+    expect(files.databaseRoute).toMatch(/router\.get\('\/admin\/db\/table\/:name',\s*requireSuperAdmin/);
+    // S-04：/api/health 匿名仅返回存活探针
+    expect(files.server).toMatch(/if \(!req\.session\?\.userId\) return res\.json\(\{ status: 'ok' \}\);/);
+  });
+
+  // T-15/T-16/S-02（第三轮收尾）：恢复期写库闸门、/ops 代理在 session 之后挂载、会话回退 ERROR 告警。
+  test('hardening: 恢复期写闸 / ops 挂载顺序 / session 回退告警', () => {
+    // T-16/V-02：setupPanelProxy 必须晚于 session 中间件注册，否则 requireSuperAdmin 恒 401
+    const sessionIdx = files.server.indexOf('app.use(session({');
+    const opsIdx = files.server.indexOf('setupPanelProxy(app,');
+    expect(sessionIdx).toBeGreaterThan(-1);
+    expect(opsIdx).toBeGreaterThan(sessionIdx);
+    // S-02：MySQL session 初始化失败回退 MemoryStore 时输出 ERROR 告警（不再静默）
+    expect(files.server).toMatch(/logger\.error\('\[session\] express-mysql-session 初始化失败/);
+    // T-15/S-07：WS 与定时任务在恢复窗口内跳过写库
+    const restoreGuardCount = (files.wsService.match(/isRestoring\(\)/g) || []).length;
+    expect(restoreGuardCount).toBeGreaterThanOrEqual(4);
+    expect(files.wsService).toMatch(/const \{ isRestoring \} = require\('\.\/backup-core'\);/);
+    const scheduleSrc = read('server', 'schedule.js');
+    expect((scheduleSrc.match(/isRestoring\(\)\) return; \/\/ T-15\/S-07/g) || []).length).toBeGreaterThanOrEqual(4);
   });
 
   // 迁移接口和系统级 VRChat 控制可探测环境或改写全局登录态，必须只有管理员能访问。
@@ -406,7 +441,7 @@ describe('security regressions', () => {
   // 资料写入曾零校验直落库，且 coverImage 被静默丢弃；PUT /me/profile 必须全字段校验并接收 coverImage。
   test('validates profile updates and keeps the coverImage field', () => {
     const putProfile = sliceBetween(files.usersProfileRoute, "router.put('/me/profile'", "router.post('/me/avatar'");
-    expect(putProfile).toMatch(/const \{ displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage, coverPosition, backgroundImage, selfTags, tagsVisible \} = req\.body/);
+    expect(putProfile).toMatch(/const \{ displayName, qq, birthday, location, preferences, bio, motto, website, socialLinks, coverImage, coverPosition, backgroundImage, selfTags, tagsVisible, theme \} = req\.body/);
     expect(putProfile).toMatch(/!\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(birthday\)/);
     expect(putProfile).toMatch(/const isSafeUrl = \(v\) => typeof v === 'string' && v\.length <= 500 && \(/);
     expect(putProfile).toMatch(/\^https\?:\\\/\\\/\\S\+\$\/i\.test\(v\) \|\| \/\^\\\/\[A-Za-z0-9\._\\\-~\/\]\*\$\/\.test\(v\)/);
@@ -415,7 +450,7 @@ describe('security regressions', () => {
     expect(putProfile).toMatch(/prefsObj\.coverImage = coverImage/);
     expect(putProfile).toMatch(/!\/\^\[A-Za-z0-9_\]\{1,30\}\$\/\.test\(k\) \|\| \(v !== null && \(typeof v !== 'string' \|\| v\.length > 300\)\)/);
     expect(putProfile).toMatch(/JSON\.stringify\(incoming\)\.length > 65536/);
-    expect(putProfile).toMatch(/k !== 'social_links' && k !== 'self_tags'\) return sendError\(res,\s*400,\s*ErrorCodes\.BAD_REQUEST,\s*'preferences 值类型不正确'\)/);
+    expect(putProfile).toMatch(/k !== 'social_links' && k !== 'self_tags' && k !== 'theme'\) return sendError\(res,\s*400,\s*ErrorCodes\.BAD_REQUEST,\s*'preferences 值类型不正确'\)/);
   });
 
   // 前端保存封面后 GET /me/profile 曾永远读回空值；响应必须回显 preferences.coverImage。
@@ -471,7 +506,8 @@ describe('security regressions', () => {
     const countStores = (source) => (source.match(/store:\s*hybridStore\(/g) || []).length;
     // P3-13（2026-09-15）为 /api/jtt 新增 jttLimiter，security 中间件 limiter 数 5→6
     // N1（2026-10-12）为 /api/auth/init 新增 initLimiter，limiter 数 6→7
-    expect(countLimiters(files.securityMiddleware)).toBe(6);
+    // T-18（2026-10-20）登录新增 loginIpLimiter 纯 IP 辅助桶，security 中间件 limiter 数 7→7（assert 同步）
+    expect(countLimiters(files.securityMiddleware)).toBe(7);
     expect(countStores(files.securityMiddleware)).toBe(countLimiters(files.securityMiddleware));
     expect(countLimiters(files.rateLimitMiddleware)).toBe(7);
     expect(countStores(files.rateLimitMiddleware)).toBe(countLimiters(files.rateLimitMiddleware));

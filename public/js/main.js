@@ -83,8 +83,8 @@ function showBrowserNotification(title, message) {
   try {
     new Notification(title, {
       body: message,
-      icon: '/assets/group-avatar.png',
-      badge: '/assets/group-avatar.png',
+      icon: '/assets/group-avatar-192.png',
+      badge: '/assets/group-avatar-192.png',
       tag: 'jingtu-notification',
       requireInteraction: false
     });
@@ -839,7 +839,7 @@ async function uploadPhoto(file, caption = '', cateId = null, eventId = null) {
   if (progressWrap) progressWrap.classList.add('active');
   if (progressText) progressText.textContent = __('main.uploading');
   if (progressPercent) progressPercent.textContent = '0%';
-  if (progressFill) progressFill.style.width = '0%';
+  if (progressFill) progressFill.style.transform = 'scaleX(0)';
   if (progressFile) progressFile.textContent = file.name;
 
   // 图片先尝试客户端压缩（视频与压缩失败均回退原文件）
@@ -860,7 +860,7 @@ async function uploadPhoto(file, caption = '', cateId = null, eventId = null) {
   try {
     const res = await uploadWithProgress('/api/album/upload', formData, function(percent) {
       if (progressPercent) progressPercent.textContent = percent + '%';
-      if (progressFill) progressFill.style.width = percent + '%';
+      if (progressFill) progressFill.style.transform = 'scaleX(' + (percent / 100) + ')';
       if (progressText) progressText.textContent = percent < 100 ? __('main.uploading') : __('main.processing');
     });
     if (res.ok) {

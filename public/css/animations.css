@@ -471,6 +471,12 @@
 .gradient-animated {
   background: linear-gradient(-45deg, var(--accent), var(--accent2), #f093fb, #f5576c);
   background-size: 400% 400%;
+  /* P-02（2026-10-20）：background-position 动画为 paint 级，大面积元素持续整片重绘
+     对低端机有掉帧风险。默认改为静态渐变；仅当用户显式开启「动态效果 → 强制开启」
+     （html.force-anim，见 loader.js）时才启用 15s 循环动画。 */
+  animation: none;
+}
+:root.force-anim .gradient-animated {
   animation: gradientShift 15s ease infinite;
 }
 

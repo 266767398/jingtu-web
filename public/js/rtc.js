@@ -153,10 +153,10 @@ function rtcStopVolumesByPrefix(prefix) {
   });
 }
 
-// level 0~1 → 宽度百分比（UI 更新）
+// level 0~1 → 缩放比例（UI 更新，transform 走合成层不触发 layout）
 function rtcSetLevel(id, level) {
   const el = document.getElementById(id);
-  if (el) el.style.width = Math.max(2, Math.min(100, Math.round(level * 100))) + '%';
+  if (el) el.style.transform = 'scaleX(' + Math.max(.02, Math.min(1, Math.round(level * 100) / 100)) + ')';
 }
 
 function rtcStopStream(stream) {

@@ -333,6 +333,30 @@ function normalizeSelfTags(input) {
   return out;
 }
 
+// 归一化主题配置（preferences.theme）：只允许 mode/brightness/accentColor 三个白名单键，
+// 值域校验，拒绝任意嵌套结构；返回 undefined 表示输入不存在，null 表示不合规。
+function normalizeTheme(input) {
+  if (input === undefined || input === null) return input === null ? null : undefined;
+  if (typeof input === 'string') {
+    try { input = JSON.parse(input); } catch { return null; }
+  }
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const out = {};
+  if (input.mode !== undefined) {
+    if (input.mode !== 'manual' && input.mode !== 'auto') return null;
+    out.mode = input.mode;
+  }
+  if (input.brightness !== undefined) {
+    if (input.brightness !== 'dark' && input.brightness !== 'light') return null;
+    out.brightness = input.brightness;
+  }
+  if (input.accentColor !== undefined) {
+    if (typeof input.accentColor !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(input.accentColor)) return null;
+    out.accentColor = input.accentColor.toLowerCase();
+  }
+  return out;
+}
+
 // ==================== 文件上传白名单配置 ====================
 const FileTypes = {
   IMAGE: {
@@ -519,4 +543,4 @@ function formatDateOnly(value) {
   return m ? m[1] : null;
 }
 
-module.exports = { getPool, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, escapeLike, toSqlDatetime, formatDateOnly, validateFields, normalizeSelfTags, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };
+module.exports = { getPool, safeError, handleError, sendError, ok, fail, sendVrcError, ErrorCodes, createErr, logOper, encryptCookie, decryptCookie, getAvatarUrl, escapeLike, toSqlDatetime, formatDateOnly, validateFields, normalizeSelfTags, normalizeTheme, logger, FileTypes, getAllowedExts, getAllowedMime, validateFile, createFileFilter, secureUpload, proxyVrcAvatar, paginate };

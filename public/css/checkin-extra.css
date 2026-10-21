@@ -174,7 +174,7 @@
   width: 10px;
   height: 14px;
   opacity: 0.95;
-  will-change: top, transform;
+  will-change: transform; /* 下落改走 translate3d，不再动画 top */
 }
 
 .confetti-piece.round { border-radius: 50%; height: 10px; }

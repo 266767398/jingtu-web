@@ -289,7 +289,7 @@ describe('P2-70 pagination consolidation guard', () => {
     expect(offenders).toEqual([]);
   });
 
-  test('paginate() call sites stay pinned at 34 across 21 route files', () => {
+  test('paginate() call sites stay pinned at 35 across 21 route files', () => {
     let totalCalls = 0;
     const filesWithCalls = [];
     for (const name of liveRouteFiles()) {
@@ -297,7 +297,7 @@ describe('P2-70 pagination consolidation guard', () => {
       if (count > 0) filesWithCalls.push(name);
       totalCalls += count;
     }
-    expect(totalCalls).toBe(34);
+    expect(totalCalls).toBe(35);
     expect(filesWithCalls.length).toBe(21);
   });
 
@@ -426,8 +426,9 @@ describe('P2-71/72/73/76 config & deploy hygiene guard', () => {
     const cronJobs = (tasks.match(/new CronJob\(/g) || []).length;
     const tzPinned = (tasks.match(/null, true, 'Asia\/Shanghai'\)/g) || []).length;
     // P3-51：新增 cleanupExpiredShareLinks 定时任务（0 3 * * *）后，任务数 6→7；
-    // P3-XX：新增 cleanupStaleLocations（地图死坐标清扫）后 7→8
-    expect(cronJobs).toBe(8);
+    // P3-XX：新增 cleanupStaleLocations（地图死坐标清扫）后 7→8；
+    // P-03（2026-10-20）：新增 cleanupAvatarCache（头像缓存 TTL 清理，02:15）后 8→9
+    expect(cronJobs).toBe(9);
     expect(tzPinned).toBe(cronJobs);
   });
 });
