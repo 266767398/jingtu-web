@@ -88,9 +88,10 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${APP_CONTAINER_PORT:-3456}
-      # 容器时区：镜像默认 UTC，而 MySQL 连接(+08:00)与 cron(Asia/Shanghai) 均已按东八区配置。
-      # 不设此项时日志时间戳与日志文件名日期会滞后 8 小时（00:00-08:00 的日志落到前一天文件）。
-      TZ: ${TZ:-Asia/Shanghai}
+      # 容器时区：镜像默认 UTC。默认 TZ=auto，由 docker-entrypoint.sh 按出口 IP 判定——
+      # 出口 IP 在中国则用 Asia/Shanghai（生日/日统计/日志日期不再错到前一天），否则 UTC。
+      # 需要固定时区时显式指定，如 TZ=Asia/Shanghai 或 TZ=Europe/Berlin。
+      TZ: ${TZ:-auto}
       # P3-25：默认 0（不信任代理）与 server.js 安全默认一致——端口直连公网时不至于
       # 被伪造 X-Forwarded-For 绕过限流/黑名单；经本机 Nginx/宝塔/Docker 反代的标准部署
       # 请显式设 TRUST_PROXY=1（或按实际跳数），否则 req.ip 坍缩为 127.0.0.1。

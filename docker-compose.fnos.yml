@@ -50,7 +50,10 @@ services:
     command:
       - sh
       - -c
-      - mkdir -p /data/uploads /data/backups /data/logs /data/assets /data/data && chown -R 1000:1000 /data/uploads /data/backups /data/logs /data/assets /data/data && chmod 775 /data /data/uploads /data/backups /data/logs /data/assets /data/data && echo INIT_OK
+      # O10：预建 db_data 并 chown 给 MySQL uid 999——官方镜像只对【空】挂载目录自动 chown，
+      # 若 db_data 已存在（含上次失败残留）则不会纠正属主，MySQL 8 直接报权限错误退出，
+      # 导致 app 容器等 db:3306 就绪一直超时（“等待数据库”日志循环）。预建可根治该坑。
+      - mkdir -p /data/uploads /data/backups /data/logs /data/assets /data/data /data/db_data && chown -R 1000:1000 /data/uploads /data/backups /data/logs /data/assets /data/data && chown -R 999:999 /data/db_data && chmod 775 /data /data/uploads /data/backups /data/logs /data/assets /data/data /data/db_data && echo INIT_OK
     volumes:
       - /vol3/1001/jingtu:/data
     networks:
@@ -131,9 +134,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3456
-      # 容器时区：镜像默认 UTC，MySQL(+08:00) 与 cron(Asia/Shanghai) 已按东八区，
-      # 不设则日志时间戳与日志文件名日期滞后 8 小时
-      TZ: Asia/Shanghai
+      # 容器时区：默认 auto，入口脚本按出口 IP 判定（中国 → Asia/Shanghai，否则 UTC）；
+      # 需要固定时区时显式指定，如 Asia/Shanghai。飞牛部署环境变量改写不便，保留硬编码失效风险更低
+      TZ: ${TZ:-auto}
       # 反代在后（飞牛自带反代 / Nginx），必须为 1：限流与黑名单才按真实客户端 IP 计数
       TRUST_PROXY: "1"
       # 容器内通过服务名 db 访问数据库

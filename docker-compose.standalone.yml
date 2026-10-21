@@ -73,9 +73,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${APP_CONTAINER_PORT:-3456}
-      # 容器时区：镜像默认 UTC，MySQL(+08:00) 与 cron(Asia/Shanghai) 已按东八区，
-      # 不设则日志时间戳与日志文件名日期滞后 8 小时
-      TZ: ${TZ:-Asia/Shanghai}
+      # 容器时区：默认 TZ=auto，入口脚本按出口 IP 判定（中国 → Asia/Shanghai，否则 UTC）；
+      # 需要固定时区时显式指定，如 TZ=Asia/Shanghai
+      TZ: ${TZ:-auto}
       # 0 = 不信任代理头（安全默认）；经面板/本机 Nginx 反代时改为 1
       TRUST_PROXY: "${TRUST_PROXY:-0}"
       # 容器内通过服务名 db 访问数据库
