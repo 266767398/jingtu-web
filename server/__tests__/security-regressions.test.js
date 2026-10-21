@@ -53,7 +53,8 @@ const files = {
   mainJs: read('public', 'js', 'main.js'),
   initJs: read('public', 'js', 'init.js'),
   authJs: read('public', 'js', 'auth.js'),
-  liveJs: read('public', 'js', '_archive', 'live.js'),
+  // public/js/_archive/live.js 已按归档清理删除；前端直播上传契约改由 posts 链路覆盖，
+  // 后端契约仍由 server/routes/_archive/live.js（files.liveRoute）校验
   postsJs: read('public', 'js', 'posts.js'),
   indexHtml: read('public', 'index.html'),
   uiEnhanceCss: read('public', 'css', 'ui-enhance.css'),
@@ -287,11 +288,10 @@ describe('security regressions', () => {
     expect(startBlock).toMatch(/notifyAllMembers\('live'/);
   });
 
-  // 前后端上传字段名曾不一致导致绕过/失败；直播缩略图和动态媒体字段必须和 multer 配置对齐。
+  // 前后端上传字段名曾不一致导致绕过/失败；帖子动态媒体字段必须和 multer 配置对齐。
+  // （原直播缩略图前端钩子在已删除的 public/js/_archive/live.js 中，前端断言随之移除）
   test('keeps live and post frontend upload contracts aligned', () => {
     expect(files.liveRoute).toMatch(/liveUpload\.single\('thumbnail'\)/);
-    expect(files.liveJs).toMatch(/formData\.append\('thumbnail',\s*thumbnail\)/);
-    expect(files.liveJs).toMatch(/apiForm\('\/api\/live',\s*formData\)/);
     expect(files.postsRoute).toMatch(/postUpload\.array\('media',\s*12\)/);
     expect(files.postsJs).toMatch(/formData\.append\('media',\s*files\[i\]\)/);
     expect(files.postsJs).toMatch(/apiForm\('\/api\/posts',\s*formData\)/);
@@ -507,7 +507,8 @@ describe('security regressions', () => {
     // P3-13（2026-09-15）为 /api/jtt 新增 jttLimiter，security 中间件 limiter 数 5→6
     // N1（2026-10-12）为 /api/auth/init 新增 initLimiter，limiter 数 6→7
     // T-18（2026-10-20）登录新增 loginIpLimiter 纯 IP 辅助桶，security 中间件 limiter 数 7→7（assert 同步）
-    expect(countLimiters(files.securityMiddleware)).toBe(7);
+    // P3-L5（2026-10-21）vrc_invites 写操作新增 vrcWriteLimiter，limiter 数 7→8
+    expect(countLimiters(files.securityMiddleware)).toBe(8);
     expect(countStores(files.securityMiddleware)).toBe(countLimiters(files.securityMiddleware));
     expect(countLimiters(files.rateLimitMiddleware)).toBe(7);
     expect(countStores(files.rateLimitMiddleware)).toBe(countLimiters(files.rateLimitMiddleware));

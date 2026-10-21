@@ -126,10 +126,10 @@
       }
       if ((sync.lastAt || 0) > 0) {
         const ps = d.perScope || {};
-        const w = ps['items:world'] || {}, a = ps['items:avatar'] || {}, f = ps['items:friend'] || {};
-        const total = (w.count || 0) + (a.count || 0) + (f.count || 0);
+        const w = ps['items:world'] || {}, a = ps['items:avatar'] || {};
+        const total = (w.count || 0) + (a.count || 0);
         showResult(
-          __('vrcsync.done', { w: w.count || 0, a: a.count || 0, f: f.count || 0 }) +
+          __('vrcsync.done', { w: w.count || 0, a: a.count || 0 }) +
           ' · 上次同步 ' + fmtTime(sync.lastAt) +
           ' <button type="button" class="btn btn-xs btn-outline vrc-sync-reload" data-act="resync">🔄 ' + __('vrcsync.resync_btn') + '</button>',
           { done: true }
@@ -161,7 +161,12 @@
         if (opts.startMsg) showBusy(opts.startMsg);
         else showBusy(__('vrcsync.syncing_full'));
         _pollCount = 0;
-        await window.apiJson('/api/vrc-favorites/sync', { method: 'POST', silent: true, timeout: 12000 });
+        // types 可选：只同步指定类型（地图/模型），不传则全量（world+avatar）
+        const types = Array.isArray(opts.types) && opts.types.length ? opts.types : undefined;
+        await window.apiJson('/api/vrc-favorites/sync', {
+          method: 'POST', silent: true, timeout: 12000,
+          body: types ? JSON.stringify({ types }) : undefined
+        });
       } catch (e) {
         if (opts.silentFail) { hide(); return; }
         showResult(__('vrcsync.start_failed'), { done: true, keepMs: 4000 });
@@ -184,7 +189,9 @@
     let keepMs = 5000, err = false;
     if (typeof opts === 'object' && opts !== null) { keepMs = opts.keepMs != null ? opts.keepMs : keepMs; err = !!opts.err; }
     else if (typeof opts === 'number') keepMs = opts;
-    showResult(err ? ('⚠️ ' + text) : text, { err: err, done: keepMs !== 0, keepMs: keepMs });
+    // 安全：text 可能来自服务端 errData.detail / errText()，统一转义后再注入 innerHTML
+    const safe = (typeof text === 'string' ? text : String(text == null ? '' : text));
+    showResult(err ? ('⚠️ ' + esc(safe)) : esc(safe), { err: err, done: keepMs !== 0, keepMs: keepMs });
   }
 
   // 事件委托：关闭 / 重新同步
@@ -223,12 +230,12 @@
       const d = await window.apiJson('/api/vrc-favorites/sync-status', { silent: true, timeout: 9000 });
       const sync = d.sync || {};
       const ps = d.perScope || {};
-      const w = ps['items:world'] || {}, a = ps['items:avatar'] || {}, f = ps['items:friend'] || {};
-      const total = (w.count || 0) + (a.count || 0) + (f.count || 0);
+      const w = ps['items:world'] || {}, a = ps['items:avatar'] || {};
+      const total = (w.count || 0) + (a.count || 0);
       // 上次同步时间：优先取进程内 lastAt（本进程内同步过），否则取各快照最新拉取时间（DB 可靠值）
       let lastAt = sync.lastAt || 0;
       if (!lastAt) {
-        [w, a, f, ps.groups || {}].forEach(s => {
+        [w, a, ps.groups || {}].forEach(s => {
           const t = s.fetchedAt ? new Date(s.fetchedAt).getTime() : 0;
           if (t > lastAt) lastAt = t;
         });
@@ -236,7 +243,7 @@
       // 本地已有同步数据：只加载本地，绝不自动回源官方（刷新网站秒开）
       if (lastAt > 0 || total > 0) {
         showResult(
-          __('vrcsync.local_ready', { w: w.count || 0, a: a.count || 0, f: f.count || 0 }) +
+          __('vrcsync.local_ready', { w: w.count || 0, a: a.count || 0 }) +
           ' · 上次同步 ' + fmtTime(lastAt) +
           ' <button type="button" class="btn btn-xs btn-outline vrc-sync-reload" data-act="resync">🔄 ' + __('vrcsync.resync_btn') + '</button>',
           { done: true, keepMs: 8000 }

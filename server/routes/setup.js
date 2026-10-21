@@ -220,19 +220,23 @@ async function requireSuperAdminForReconfigure(req, res, next) {
 function isSiteInstalled() {
   return fs.existsSync(getEnvPath()) && envValid();
 }
-function isSuperAdminSession(req) {
-  return !!(req.session && req.session.userId !== undefined && req.session.role === 'super_admin');
+// L1（质检 P3）：角色判定不再信任会话快照（role 被降级/封禁后旧会话仍可能带超管身份），
+// 统一走 auth.js currentRole() 实时回查 DB。原 isSuperAdminSession 仅剩 /setup/check 前端展示一处，
+// 也一并改为回库口径，避免前端误判「重走建站引导」入口。
+async function isSuperAdminLive(req) {
+  const role = await currentRole(req);
+  return role === 'super_admin';
 }
 
 // §45：/setup/check 始终可访问（用于检测安装状态 + 引导完成态）
-router.get('/setup/check', (req, res) => {
+router.get('/setup/check', async (req, res) => {
   const envPath = getEnvPath();
   const exists = fs.existsSync(envPath);
   const wiz = readWizard();
   const wizardCompleted = !!(wiz && wiz.completed);
   // 报告当前会话是否为超级管理员（供前端决定是否展示「重走建站引导」按钮）
   const authenticated = !!(req.session && req.session.userId !== undefined);
-  const isSuperAdmin = authenticated && req.session.role === 'super_admin';
+  const isSuperAdmin = authenticated ? await isSuperAdminLive(req) : false;
   // envValid=false：.env 缺失或缺必需项 → 前端引导重新填写 .env（原文件自动备份）
   res.json({
     configured: exists,
@@ -245,11 +249,12 @@ router.get('/setup/check', (req, res) => {
 });
 
 // 读取引导隔离状态（进度 + 非敏感草稿）；已配置且无草稿时从 .env 提取非敏感项供预填
-router.get('/setup/state', (req, res) => {
+router.get('/setup/state', async (req, res) => {
   const envExists = fs.existsSync(getEnvPath());
   const wiz = readWizard() || defaultWizard();
   // P2-67：站点安装完成后仅超管可见配置拓扑/草稿；其余调用方拿到空草稿（前端预填降级为手动填写）
-  if (isSiteInstalled() && !isSuperAdminSession(req)) {
+  // L1：超管判定实时回库，降权后在会话期内即刻收口
+  if (isSiteInstalled() && !(await isSuperAdminLive(req))) {
     return res.json({ configured: true, restricted: true, wizard: { completed: !!wiz.completed, step: sanitizeStep(wiz.step), drafts: {} } });
   }
   let drafts = wiz.drafts || {};
@@ -267,10 +272,11 @@ router.get('/setup/state', (req, res) => {
 });
 
 // 持久化引导进度 + 非敏感草稿（隔离存储，不含任何密码/密钥）
-router.post('/setup/state', (req, res) => {
+router.post('/setup/state', async (req, res) => {
   try {
     // P2-67：站点安装完成后仅超管可写向导草稿，拒绝匿名污染 setup-wizard.json
-    if (isSiteInstalled() && !isSuperAdminSession(req)) {
+    // L1：超管判定实时回库，降权后在会话期内即刻收口
+    if (isSiteInstalled() && !(await isSuperAdminLive(req))) {
       return sendError(res, 403, ErrorCodes.FORBIDDEN, '系统已安装，仅超级管理员可写入建站草稿');
     }
     const wiz = readWizard() || defaultWizard();

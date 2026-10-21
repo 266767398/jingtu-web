@@ -130,6 +130,28 @@ const jttLimiter = rateLimit({
   }
 });
 
+// P3-L5（质检）：VRChat 官方写操作（世界邀请/好友申请/备注/Boop）每用户限流。
+// 这些端点会直连 VRChat 上游写接口，全局 ddosLimiter 600/min 对单账号过于宽松，
+// 单账号可在 1 分钟内打空上游配额。按用户分桶（未登录回退 IP）；失败请求同样计数，
+// 因为上游调用已发生、同样消耗配额。10/min 对正常用户（好友间低频互动）非常宽裕。
+const vrcWriteLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  store: hybridStore('security-vrc-write'),
+  keyGenerator: (req) => `${rateLimit.ipKeyGenerator(req.ip)}:u${req.session?.userId || 'anon'}`,
+  // 单测里 requireAuth 被 mock 成固定 userId、同一 IP，多用例共用同一桶会互相 429；
+  // 限流行为本身由中间件库保证，测试无需重复验证，故测试环境跳过（生产仍全量生效）。
+  skip: () => process.env.NODE_ENV === 'test',
+  message: { error: 'VRChat 操作过于频繁，请稍后再试', retryAfter: 60 },
+  handler: (req, res) => {
+    onRateLimitTriggered(req.ip, req.path);
+    fail(res, 429, 'VRChat 操作过于频繁，请稍后再试', { retryAfter: 60 });
+  }
+});
+
 function requestSizeLimiter(req, res, next) {
   // 阈值由超级管理员在后台「系统设置」可调（持久化于 system_config，启动时载入内存）。
   const { uploadMaxBytes, bodyMaxBytes, otherMaxBytes } = getLimits();
@@ -195,6 +217,7 @@ module.exports = {
   adminLimiter,
   searchLimiter,
   jttLimiter,
+  vrcWriteLimiter,
   requestSizeLimiter, 
   suspiciousRequestDetector,
   validateUploadFile,

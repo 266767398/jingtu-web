@@ -71,14 +71,14 @@ describe('P2-67 建站向导状态端点的超管隔离守卫（静态防回退�
     expect(getStart).toBeGreaterThan(-1);
     expect(postStart).toBeGreaterThan(getStart);
     const getBlock = setupSrc.slice(getStart, postStart);
-    expect(getBlock).toContain('isSiteInstalled() && !isSuperAdminSession(req)');
+    expect(getBlock).toContain('isSiteInstalled() && !(await isSuperAdminLive(req))');
     expect(getBlock).toContain('restricted: true');
   });
 
   test('POST /setup/state：已安装且非超管会话 → 403 拒绝写入草稿', () => {
     const postStart = setupSrc.indexOf("router.post('/setup/state'");
     const postBlock = setupSrc.slice(postStart, postStart + 1200);
-    expect(postBlock).toContain('isSiteInstalled() && !isSuperAdminSession(req)');
+    expect(postBlock).toContain('isSiteInstalled() && !(await isSuperAdminLive(req))');
     expect(postBlock).toContain('403');
   });
 });

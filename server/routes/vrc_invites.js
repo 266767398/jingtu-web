@@ -9,6 +9,8 @@
 const express = require('express');
 const { ok, fail, sendVrcError, handleError, ErrorCodes, getPool } = require('../utils');
 const { requireAuth } = require('../auth');
+// P3-L5：写操作按用户分桶限流（10/min），防单账号刷空 VRChat 上游配额
+const { vrcWriteLimiter } = require('../middleware/security');
 const { vrchatSendInvite, vrchatSendFriendRequest, vrchatSaveNote, vrchatBoop, VRC_INSTANCE_PATTERN } = require('../vrc');
 
 /**
@@ -39,7 +41,7 @@ async function isAcceptedFriend(myUserId, targetVrcId) {
 module.exports = function (getVRCCookieUserOnly) {
   const router = express.Router();
 
-  router.post('/world', requireAuth, async (req, res) => {
+  router.post('/world', vrcWriteLimiter, requireAuth, async (req, res) => {
     const cookie = getVRCCookieUserOnly(req);
     if (!cookie) return fail(res, 400, '请先在个人中心绑定你的 VRChat 账号后再发送邀请', { code: ErrorCodes.NEED_BIND });
     const targetUserId = (req.body?.targetUserId || '').trim();
@@ -61,7 +63,7 @@ module.exports = function (getVRCCookieUserOnly) {
     } catch (e) { handleError(res, e, 'vrcinvites.world'); }
   });
 
-  router.post('/friend-request', requireAuth, async (req, res) => {
+  router.post('/friend-request', vrcWriteLimiter, requireAuth, async (req, res) => {
     const cookie = getVRCCookieUserOnly(req);
     if (!cookie) return fail(res, 400, '请先在个人中心绑定你的 VRChat 账号后再发送好友申请', { code: ErrorCodes.NEED_BIND });
     const targetUserId = (req.body?.targetUserId || '').trim();
@@ -76,7 +78,7 @@ module.exports = function (getVRCCookieUserOnly) {
   });
 
   // F-24 保存用户备注（POST /userNotes）：note 为空串表示清除备注。
-  router.post('/note', requireAuth, async (req, res) => {
+  router.post('/note', vrcWriteLimiter, requireAuth, async (req, res) => {
     const cookie = getVRCCookieUserOnly(req);
     if (!cookie) return fail(res, 400, '请先在个人中心绑定你的 VRChat 账号后再保存备注', { code: ErrorCodes.NEED_BIND });
     const targetUserId = (req.body?.targetUserId || '').trim();
@@ -95,7 +97,7 @@ module.exports = function (getVRCCookieUserOnly) {
   });
 
   // F-24 发送 Boop（POST /users/{userId}/boop）：官方要求双方为好友，非好友由上游返回 400。
-  router.post('/boop', requireAuth, async (req, res) => {
+  router.post('/boop', vrcWriteLimiter, requireAuth, async (req, res) => {
     const cookie = getVRCCookieUserOnly(req);
     if (!cookie) return fail(res, 400, '请先在个人中心绑定你的 VRChat 账号后再发送 Boop', { code: ErrorCodes.NEED_BIND });
     const targetUserId = (req.body?.targetUserId || '').trim();

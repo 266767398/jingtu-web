@@ -89,10 +89,12 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/invites-list'); }
   });
 
-  router.post('/group/invites/:id/accept', async (req, res) => {
+  // L3（质检 P3）：accept/reject 鉴权收敛到统一 requireAuth 中间件，删除手写分支——
+  // 手写 `req.session?.userId` 判定与 requireAuth 语义重复，且后续新增端点易漏鉴权。
+  // 对象级权限（仅邀请目标本人可响应）保留在端点内校验。
+  router.post('/group/invites/:id/accept', requireAuth, async (req, res) => {
     try {
-      const uid = req.session?.userId;
-      if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
+      const uid = req.session.userId;
       
       const [invite] = await getPool().query(`SELECT * FROM group_invites WHERE id = ? AND status = 'pending' AND expires_at > NOW()`, [req.params.id]);
       if (invite.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '邀请不存在或已过期');
@@ -111,10 +113,9 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     } catch (e) { handleError(res, e, 'groups/invite-accept'); }
   });
 
-  router.post('/group/invites/:id/reject', async (req, res) => {
+  router.post('/group/invites/:id/reject', requireAuth, async (req, res) => {
     try {
-      const uid = req.session?.userId;
-      if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
+      const uid = req.session.userId;
       
       const [invite] = await getPool().query(`SELECT * FROM group_invites WHERE id = ? AND status = 'pending' AND expires_at > NOW()`, [req.params.id]);
       if (invite.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '邀请不存在或已过期');
@@ -129,8 +130,7 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
 
   router.get('/group/invites/my', requireAuth, async (req, res) => {
     try {
-      const uid = req.session?.userId;
-      if (!uid) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '请先登录');
+      const uid = req.session.userId;
 
       const vrcId = req.session.vrchat_id;
       if (!vrcId) return res.json({ invites: [] });
