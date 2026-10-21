@@ -58,7 +58,8 @@ services:
 
   db:
     # 国内镜像源（docker.1ms.run，1Panel 官方维护）：绕开飞牛失效的内置加速器 docker.fnnas.com（401 Unauthorized）
-    image: docker.1ms.run/library/mysql:8.0
+    # P2-104：钉小版本 8.0.46（8.0 系列 2026-04 EOL 前的最终补丁版），避免 8.0 浮动 tag 随上游漂移
+    image: docker.1ms.run/library/mysql:8.0.46
     container_name: jingtu-db
     restart: unless-stopped
     # MySQL 8 关闭需冲刷 InnoDB 缓冲（大库可能超默认 10s）；给足宽限避免被 SIGKILL
@@ -104,14 +105,22 @@ services:
     #   若你的平台仍异常：改用 tag 钉住（如 #v1.0.0），或本地 git clone 后把
     #   context 改为目录路径（如 ./），或改 image: 从私有镜像仓库拉取。
     #   同源备份：https://github.com/266767398/jingtu-web.git
+    #
+    # P2-105：由「分支名 #jingtu-web」改为钉 commit，锁定构建源码版本、可复现。
+    #   升级代码的正确做法：本地 git rev-parse HEAD 取新 sha → 替换下方 40/12 位 sha →
+    #   确认该 commit 已 push 到 Gitee → 面板重新构建。分支名（如 #jingtu-web）仍可用，
+    #   但会随上游提交漂移，不适合生产复现。
     build:
-      context: "https://gitee.com/htmcwy_0/jingtu-web.git#jingtu-web"
+      context: "https://gitee.com/htmcwy_0/jingtu-web.git#b1b18efb75d8"
       args:
         # 国内镜像源（docker.1ms.run，1Panel 官方维护）：绕开飞牛失效的内置加速器 docker.fnnas.com（401 Unauthorized）
         NODE_IMAGE: docker.1ms.run/library/node:22-slim
     image: jingtu-web:latest
     container_name: jingtu-web
     restart: unless-stopped
+    # 内存上限：Node + sharp 峰值一般 <512MB，1g 余量充足；防异常泄露时打满飞牛 NAS
+    # 宿主（NAS 共用内存，尤其重要）。如需调整直接改此值（如 2g 或 1536m）
+    mem_limit: 1g
     # 优雅关闭含 HTTP 排空(≤5s)+连接池/Redis 释放，默认 10s 可能被 SIGKILL(退出码137)
     stop_grace_period: 30s
     depends_on:
@@ -122,6 +131,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3456
+      # 容器时区：镜像默认 UTC，MySQL(+08:00) 与 cron(Asia/Shanghai) 已按东八区，
+      # 不设则日志时间戳与日志文件名日期滞后 8 小时
+      TZ: Asia/Shanghai
       # 反代在后（飞牛自带反代 / Nginx），必须为 1：限流与黑名单才按真实客户端 IP 计数
       TRUST_PROXY: "1"
       # 容器内通过服务名 db 访问数据库

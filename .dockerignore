@@ -34,6 +34,11 @@ __pycache__
 _removed-bats
 _jt_trash
 
+# Compose 持久数据目录（STORAGE_ROOT 默认 ./docker-data）：宿主机数据不进构建上下文，
+# 否则 docker-data 一旦挂载 MySQL/uploads 等 GB 级数据，docker build 会全量传输拖垮构建
+docker-data
+docker-data/**
+
 # 文档与辅助脚本（不影响运行）
 docs
 tools

@@ -26,9 +26,12 @@
 services:
   db:
     # P4：默认走国内加速源 docker.1ms.run（1Panel 官方维护，实测可用），国内机器无需配 daemon.json
-    image: docker.1ms.run/library/mysql:8.0
+    # P2-104：钉小版本 8.0.46（8.0 系列 2026-04 EOL 前的最终补丁版），8.0 浮动 tag 会随上游漂移
+    image: docker.1ms.run/library/mysql:8.0.46
     container_name: jingtu-db
     restart: unless-stopped
+    # MySQL 8 关闭需冲刷 InnoDB 缓冲（大库可能超默认 10s）；给足宽限避免被 SIGKILL
+    stop_grace_period: 30s
     environment:
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-pWRdr3YpxcsNH9x!}"
       MYSQL_DATABASE: "${MYSQL_DATABASE:-jingtu_group}"
@@ -42,8 +45,9 @@ services:
     volumes:
       - "${STORAGE_ROOT:-./docker-data}/mysql:/var/lib/mysql"
     healthcheck:
-      # 读取容器内 MYSQL_ROOT_PASSWORD（兼容面板覆盖默认值的情况）
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p\"$$MYSQL_ROOT_PASSWORD\" | grep 'is alive'"]
+      # 读取容器内 MYSQL_ROOT_PASSWORD（兼容面板覆盖默认值的情况），
+      # 并经 MYSQL_PWD 传密——避免口令出现在进程命令行被 ps 读到
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h127.0.0.1 --silent"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -60,12 +64,18 @@ services:
     image: jingtu-web:latest
     container_name: jingtu-web
     restart: unless-stopped
+    # 内存上限：Node + sharp 峰值一般 <512MB，1g 余量充足；防异常泄露时打满宿主
+    # （面板「环境变量」里设 APP_MEM_LIMIT 可覆盖，如 2g）
+    mem_limit: ${APP_MEM_LIMIT:-1g}
     depends_on:
       db:
         condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: ${APP_CONTAINER_PORT:-3456}
+      # 容器时区：镜像默认 UTC，MySQL(+08:00) 与 cron(Asia/Shanghai) 已按东八区，
+      # 不设则日志时间戳与日志文件名日期滞后 8 小时
+      TZ: ${TZ:-Asia/Shanghai}
       # 0 = 不信任代理头（安全默认）；经面板/本机 Nginx 反代时改为 1
       TRUST_PROXY: "${TRUST_PROXY:-0}"
       # 容器内通过服务名 db 访问数据库

@@ -46,7 +46,9 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# 运行时共享库：sharp 预编译包自带 libvips，这里仅补充常见依赖与基础工具。
+# 运行时共享库：sharp 预编译包自带 libvips，这里仅补充 CA 证书（HTTPS 出站：VRChat API / SMTP）。
+# 不再安装 curl——健康检查改用镜像自带的 node（见文件末尾 HEALTHCHECK），
+# 入口脚本等库就绪用 bash /dev/tcp，均不依赖 curl，省去一层 curl+libcurl 体积。
 # P4：apt 源默认切阿里云镜像（deb.debian.org 在国内 / 飞牛 NAS 拉包极慢）。
 # 构建时可用 --build-arg APT_MIRROR=mirrors.tuna.tsinghua.edu.cn 一键换镜像。
 ARG APT_MIRROR=mirrors.aliyun.com
@@ -54,7 +56,6 @@ RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sou
  && apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates \
-        curl \
  && rm -rf /var/lib/apt/lists/*
 
 # 复制已安装的依赖（含原生模块）
@@ -101,7 +102,9 @@ EXPOSE 3456
 # P2-96：存活探针指向 /api/health/live（routes/health.js，纯进程存活、
 # 不依赖 MySQL/Redis），避免数据库瞬时抖动触发容器重启风暴；
 # 入口脚本需等库就绪并执行 db_init，故给足 start-period。
+# 用镜像自带的 node 做 HTTP 探测（省去 curl 依赖）；与 compose 里 app 服务的
+# healthcheck 同款写法。环境变量 PORT 已在 ENV 中设置（3456），此处不再插值。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
-  CMD curl -fsS "http://127.0.0.1:${PORT:-3456}/api/health/live" || exit 1
+  CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.PORT||3456)+'/api/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
 ENTRYPOINT ["docker-entrypoint.sh"]

@@ -35,7 +35,9 @@
 services:
   db:
     # P4：默认走国内加速源 docker.1ms.run（1Panel 官方维护，实测可用），国内机器无需配 daemon.json
-    image: docker.1ms.run/library/mysql:8.0
+    # P2-104：钉小版本 8.0.46（8.0 系列 2026-04 EOL 前的最终补丁版，官方最后 GA），
+    # 8.0 浮动 tag 会随上游小版本漂移、破坏可复现性；大版本迁移（8.4 LTS）需另行验证。
+    image: docker.1ms.run/library/mysql:8.0.46
     container_name: jingtu-db
     restart: unless-stopped
     # MySQL 8 关闭需冲刷 InnoDB 缓冲（大库可能超默认 10s）；给足宽限避免被 SIGKILL
@@ -55,7 +57,10 @@ services:
     volumes:
       - "${STORAGE_ROOT:-./docker-data}/mysql:/var/lib/mysql"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${JINGTU_DB_ROOT_PASSWORD}"]
+      # 密码经 MYSQL_PWD 环境变量传入（与 docker-compose.fnos.yml 的 O7 修复一致）：
+      # 原先 -p${JINGTU_DB_ROOT_PASSWORD} 会把 root 口令写进容器进程命令行，
+      # 同机 ps / docker inspect 均可读到。$$ 转义 $，由容器内 shell 运行时展开。
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_ROOT_PASSWORD}\" mysqladmin ping -h127.0.0.1 --silent"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -72,6 +77,9 @@ services:
     image: jingtu-web:latest
     container_name: jingtu-web
     restart: unless-stopped
+    # 内存上限：Node + sharp 峰值一般 <512MB，1g 余量充足；防异常泄露时打满宿主
+    # （含 Docker Desktop 的 WSL2 共享内存）。如需调整：APP_MEM_LIMIT=2g
+    mem_limit: ${APP_MEM_LIMIT:-1g}
     # 优雅关闭含 HTTP 排空(≤5s)+连接池/Redis 释放，默认 10s 可能被 SIGKILL(退出码137)
     stop_grace_period: 30s
     depends_on:
@@ -80,6 +88,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${APP_CONTAINER_PORT:-3456}
+      # 容器时区：镜像默认 UTC，而 MySQL 连接(+08:00)与 cron(Asia/Shanghai) 均已按东八区配置。
+      # 不设此项时日志时间戳与日志文件名日期会滞后 8 小时（00:00-08:00 的日志落到前一天文件）。
+      TZ: ${TZ:-Asia/Shanghai}
       # P3-25：默认 0（不信任代理）与 server.js 安全默认一致——端口直连公网时不至于
       # 被伪造 X-Forwarded-For 绕过限流/黑名单；经本机 Nginx/宝塔/Docker 反代的标准部署
       # 请显式设 TRUST_PROXY=1（或按实际跳数），否则 req.ip 坍缩为 127.0.0.1。

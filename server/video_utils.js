@@ -22,21 +22,33 @@ function getFfmpegPaths() {
     // ffprobe 不在该包中，稍后尝试从其他来源获取
     if (fs.existsSync(ffmpegPath)) {
       logger.info('video', '[video] 使用 @ffmpeg-installer/ffmpeg:', ffmpegPath);
-      // 尝试同一目录下找 ffprobe
-      ffprobePath = ffmpegPath.replace('ffmpeg.exe', 'ffprobe.exe');
-      if (!fs.existsSync(ffprobePath)) ffprobePath = null;
+      // ffprobe 解析顺序：① @ffprobe-installer/ffprobe（独立包，含 linux-x64/win32 二进制，
+      // Docker 镜像内即靠它提供时长探测能力）；② @ffmpeg-installer 同目录候选（部分平台会带）；
+      // ③ 系统 PATH（下一段兜底）。跨平台：Linux 无 .exe 后缀，不能直接 replace('ffmpeg.exe')。
+      try {
+        const probeInstaller = require('@ffprobe-installer/ffprobe');
+        const probePath = probeInstaller.path.replace(/\\/g, '/');
+        if (fs.existsSync(probePath)) ffprobePath = probePath;
+      } catch (e) { /* 未安装独立包，继续尝试同目录 */ }
+      if (!ffprobePath) {
+        const ffprobeBin = path.basename(ffmpegPath).replace(/ffmpeg\.exe$/, 'ffprobe.exe').replace(/^ffmpeg$/, 'ffprobe');
+        const candidate = path.join(path.dirname(ffmpegPath), ffprobeBin);
+        ffprobePath = fs.existsSync(candidate) ? candidate : null;
+      }
+      if (ffprobePath) logger.info('video', '[video] 使用 ffprobe:', ffprobePath);
       return { ffmpegPath, ffprobePath };
     }
   } catch (e) {}
 
   // 2. 尝试系统 PATH 中的 ffmpeg
+  // 跨平台：Windows 用 where，类 Unix（含 Docker 里的 Debian slim）用 command -v
   const { execSync } = require('child_process');
+  const isWin = process.platform === 'win32';
+  const which = (bin) => execSync(isWin ? `where ${bin} 2>nul` : `command -v ${bin}`, { encoding: 'utf8', timeout: 3000 }).split('\n')[0].trim();
   try {
-    const result = execSync('where ffmpeg 2>nul', { encoding: 'utf8', timeout: 3000 });
-    ffmpegPath = result.split('\n')[0].trim();
-    const probeResult = execSync('where ffprobe 2>nul', { encoding: 'utf8', timeout: 3000 });
-    ffprobePath = probeResult.split('\n')[0].trim();
-    if (fs.existsSync(ffmpegPath)) {
+    ffmpegPath = which('ffmpeg');
+    try { ffprobePath = which('ffprobe'); } catch (e) { ffprobePath = null; }
+    if (ffmpegPath && fs.existsSync(ffmpegPath)) {
       logger.info('video', '[video] 使用系统 ffmpeg:', ffmpegPath);
       return { ffmpegPath, ffprobePath };
     }
