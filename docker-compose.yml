@@ -88,10 +88,10 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${APP_CONTAINER_PORT:-3456}
-      # 容器时区：镜像默认 UTC。默认 TZ=auto，由 docker-entrypoint.sh 按出口 IP 判定——
-      # 出口 IP 在中国则用 Asia/Shanghai（生日/日统计/日志日期不再错到前一天），否则 UTC。
-      # 需要固定时区时显式指定，如 TZ=Asia/Shanghai 或 TZ=Europe/Berlin。
-      TZ: ${TZ:-auto}
+      # 容器时区：镜像默认 UTC。默认 TZ=Asia/Shanghai（本站定位中文社区）——日志时间戳、
+      # 签到/生日跨天、定时任务与数据库 NOW() 全部按东八区；入口脚本也会读取 .env 里
+      # 后台「时间同步」写入的 TZ。海外部署可显式覆盖，如 TZ=Europe/Berlin。
+      TZ: ${TZ:-Asia/Shanghai}
       # P3-25：默认 0（不信任代理）与 server.js 安全默认一致——端口直连公网时不至于
       # 被伪造 X-Forwarded-For 绕过限流/黑名单；经本机 Nginx/宝塔/Docker 反代的标准部署
       # 请显式设 TRUST_PROXY=1（或按实际跳数），否则 req.ip 坍缩为 127.0.0.1。

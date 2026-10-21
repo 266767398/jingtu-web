@@ -1618,6 +1618,29 @@
           </div>
         </div>
         <button type="button" id="saveSystemConfigBtn" class="btn btn-accent btn-sm mt-4">💾 <span data-i18n="admin.save_settings">保存设置</span></button>
+        <!-- 🕐 时间同步（超管专属：容器/日志时区漂移时一键对齐应用进程与数据库） -->
+        <div class="admin-subsection" id="timeSyncSection">
+          <h4><span aria-hidden="true">🕐 </span><span data-i18n="admin.time.title">时间同步</span></h4>
+          <p class="admin-subsection-hint" data-i18n="admin.time.hint">容器默认 UTC 时，日志时间戳、签到/生日跨天、定时任务会整体错 8 小时。点击「同步时间」一键把应用进程与数据库连接统一到目标时区（默认东八区），立即生效并写入 <code>.env</code> 持久化。</p>
+          <div id="timeSyncStatus" class="text-13"></div>
+          <div class="flex-row gap-8 items-center flex-wrap mt-8">
+            <label class="text-13 text-muted2 mr-4" data-i18n="admin.time.tz_label">目标时区</label>
+            <select id="cfgTimeSyncTz" class="search-box m-0 admin-filter-md" aria-label="时间同步目标时区" data-i18n-aria="admin.time.tz_label">
+              <option value="Asia/Shanghai">Asia/Shanghai (UTC+8 北京时间)</option>
+              <option value="Asia/Hong_Kong">Asia/Hong_Kong (UTC+8)</option>
+              <option value="Asia/Taipei">Asia/Taipei (UTC+8)</option>
+              <option value="Asia/Tokyo">Asia/Tokyo (UTC+9)</option>
+              <option value="Asia/Seoul">Asia/Seoul (UTC+9)</option>
+              <option value="Asia/Singapore">Asia/Singapore (UTC+8)</option>
+              <option value="UTC">UTC</option>
+              <option value="Europe/London">Europe/London</option>
+              <option value="Europe/Berlin">Europe/Berlin</option>
+              <option value="America/New_York">America/New_York</option>
+            </select>
+            <button type="button" id="timeSyncBtn" class="btn btn-accent btn-sm"><span aria-hidden="true">🕐 </span><span data-i18n="admin.time.sync">同步时间</span></button>
+          </div>
+          <div id="timeSyncResult" class="text-13 mt-8"></div>
+        </div>
         <!-- ⬆️ 在线更新（超管专属，GIT 拉取 + 自动重启；不触碰 .env/数据库/uploads 等用户数据） -->
         <div class="admin-subsection" id="gitUpdateSection">
           <h4><span aria-hidden="true">🔄 </span><span data-i18n="admin.git.title">在线更新</span></h4>

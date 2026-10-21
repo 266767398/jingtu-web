@@ -3715,4 +3715,8 @@ window._LANG_JA = {
   "admin.git.restart_label": "更新後にサービスを自動再起動（約3秒の中断）",
   "admin.git.check": "確認して更新",
   "admin.git.restart": "サービスのみ再起動",
+  "admin.time.title": "時刻同期",
+  "admin.time.hint": "コンテナがデフォルトで UTC の場合、ログのタイムスタンプ、チェックイン／誕生日の日付またぎ、定期タスクが 8 時間ずれます。「時刻を同期」をクリックすると、アプリプロセスとデータベース接続を対象タイムゾーン（既定は UTC+8）に揃え、即時反映して .env に保存します。",
+  "admin.time.tz_label": "対象タイムゾーン",
+  "admin.time.sync": "時刻を同期",
 };

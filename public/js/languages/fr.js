@@ -3715,4 +3715,8 @@ window._LANG_FR = {
   "admin.git.restart_label": "Redémarrer automatiquement après la mise à jour (~3 s d'interruption)",
   "admin.git.check": "Vérifier et mettre à jour",
   "admin.git.restart": "Redémarrer uniquement",
+  "admin.time.title": "Synchronisation horaire",
+  "admin.time.hint": "Lorsque le conteneur utilise UTC par défaut, les horodatages des journaux, le chevauchement des jours de check-in/anniversaire et les tâches planifiées dérivent de 8 heures. Cliquez sur « Synchroniser l'heure » pour aligner le processus applicatif et les connexions à la base de données sur le fuseau cible (UTC+8 par défaut), effectif immédiatement et persisté dans .env.",
+  "admin.time.tz_label": "Fuseau cible",
+  "admin.time.sync": "Synchroniser l'heure",
 };

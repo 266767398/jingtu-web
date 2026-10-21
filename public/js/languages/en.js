@@ -3717,4 +3717,8 @@ window._LANG_EN = {
   "admin.git.restart_label": "Auto-restart service after update (~3 s downtime)",
   "admin.git.check": "Check & update",
   "admin.git.restart": "Restart service only",
+  "admin.time.title": "Time Sync",
+  "admin.time.hint": "When the container defaults to UTC, log timestamps, check-in/birthday day-crossing, and scheduled tasks drift by 8 hours. Click \"Sync Time\" to align the app process and database connections to the target timezone (default UTC+8), applied immediately and persisted to .env.",
+  "admin.time.tz_label": "Target timezone",
+  "admin.time.sync": "Sync Time",
 };

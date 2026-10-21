@@ -1559,6 +1559,22 @@ function getPool() {
   return holder.pool;
 }
 
+/**
+ * 运行时切换 MySQL 会话/解析时区（供管理面板「时间同步」调用）。
+ * 同时更新 DB_CONFIG.timezone 并重建连接池——新连接立即按新偏移解析 DATETIME；
+ * 旧连接在池关闭前仍按旧偏移工作，故会有极短的双口径窗口（毫秒级，仅跨重建瞬间的请求）。
+ * SQLite 模式无会话时区概念，直接返回 false。
+ * @param {string} offset 形如 '+08:00' / '-05:00'
+ * @returns {boolean} 是否已应用
+ */
+function setDbTimezone(offset) {
+  if (SQLITE_MODE) return false;
+  if (typeof offset !== 'string' || !/^[+-]\d{2}:\d{2}$/.test(offset)) return false;
+  DB_CONFIG.timezone = offset;
+  recreatePool();
+  return true;
+}
+
 if (SQLITE_MODE) {
   initSQLitePatch();
 }
@@ -1609,6 +1625,7 @@ module.exports = {
   DB_CONFIG,
   getPool,
   recreatePool,
+  setDbTimezone,
   setDbShuttingDown,
   applyDbConfig,
   transformSQL,

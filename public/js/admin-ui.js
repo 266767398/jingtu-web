@@ -24,7 +24,7 @@
     perms: function () { if (typeof loadPermissions === 'function') loadPermissions(); },
     'perm-groups': function () { if (typeof loadPermGroups === 'function') loadPermGroups(); },
     'model-coll': function () { if (typeof loadAdminModelCollections === 'function') loadAdminModelCollections(); },
-    settings: function () { if (typeof loadSystemConfig === 'function') loadSystemConfig(); if (typeof loadGitUpdateStatus === 'function') loadGitUpdateStatus(); },
+    settings: function () { if (typeof loadSystemConfig === 'function') loadSystemConfig(); if (typeof loadGitUpdateStatus === 'function') loadGitUpdateStatus(); if (typeof loadTimeSyncStatus === 'function') loadTimeSyncStatus(); },
     logs: function () { if (typeof loadOperLog === 'function') loadOperLog(1); },
     live: loadAdminLive,
     content: loadAdminContent,

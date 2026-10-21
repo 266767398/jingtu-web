@@ -713,6 +713,9 @@ app.use('/api', adminRouter);
 // ==================== 在线更新路由（超管专属，GIT 拉取 + 自动重启） ====================
 app.use('/api', require('./routes/git_update'));
 
+// ==================== 时间同步路由（超管专属，进程/数据库时区一键对齐） ====================
+app.use('/api', require('./routes/system_time'));
+
 // ==================== 相册 API（已提取到独立模块） ====================
 const albumRouter = require('./routes/album')(authState, notificationService);
 app.use('/api', albumRouter);

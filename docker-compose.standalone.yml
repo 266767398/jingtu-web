@@ -73,9 +73,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${APP_CONTAINER_PORT:-3456}
-      # 容器时区：默认 TZ=auto，入口脚本按出口 IP 判定（中国 → Asia/Shanghai，否则 UTC）；
-      # 需要固定时区时显式指定，如 TZ=Asia/Shanghai
-      TZ: ${TZ:-auto}
+      # 容器时区：默认 TZ=Asia/Shanghai（本站定位中文社区）；入口脚本也会读取 .env 里
+      # 后台「时间同步」写入的 TZ。海外部署可显式覆盖，如 TZ=Europe/Berlin
+      TZ: ${TZ:-Asia/Shanghai}
       # 0 = 不信任代理头（安全默认）；经面板/本机 Nginx 反代时改为 1
       TRUST_PROXY: "${TRUST_PROXY:-0}"
       # 容器内通过服务名 db 访问数据库

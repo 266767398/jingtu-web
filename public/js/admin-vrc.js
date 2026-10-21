@@ -844,12 +844,86 @@ async function doGitRestart(resultEl) {
   }
 }
 
-// Git 更新/重启 + VRC cookie 有效期保存（原内联 onclick 迁移到委托）
+// ==================== 时间同步（超管专属：容器/日志时区漂移一键对齐） ====================
+// 后端在 server/routes/system_time.js：GET time-status 读取进程/DB 时区与时钟偏差，
+// POST time-sync 把 process.env.TZ + MySQL 会话/连接池时区统一到目标时区并写 .env 持久化。
+async function loadTimeSyncStatus() {
+  const el = document.getElementById('timeSyncStatus');
+  if (!el) return;
+  el.innerHTML = '<span class="text-muted2">正在读取时间状态…</span>';
+  try {
+    const res = await api('/api/admin/time-status', { method: 'GET', timeout: 15000 });
+    if (!res.ok) return;
+    const d = await res.json();
+    const app = d.app || {};
+    const db = d.db || {};
+    const fmt = function (x) { return x == null || x === '' ? '-' : gitEsc(String(x)); };
+    let lines = [
+      '<div class="git-update-line">应用时区：<b>' + fmt(app.tz) + '</b> (' + fmt(app.offset) + ') · 服务器时间：<b>' + fmt(app.nowLocal) + '</b></div>'
+    ];
+    if (d.sqlite) {
+      lines.push('<div class="git-update-line text-muted2">SQLite 模式：无数据库会话时区，仅进程时区生效</div>');
+    } else if (db.error) {
+      lines.push('<div class="git-update-line text-warn">数据库不可达：' + gitEsc(db.error) + '</div>');
+    } else {
+      lines.push('<div class="git-update-line">数据库：<code>NOW()</code>=<b>' + fmt(db.now) + '</b> · 会话时区=<b>' + fmt(db.sessionTz) + '</b> · 服务端=' + fmt(db.globalTz) + '</div>');
+    }
+    if (d.driftSeconds != null) {
+      const drift = Number(d.driftSeconds);
+      const cls = drift === 0 ? 'text-success' : (Math.abs(drift) <= 5 ? 'text-warn' : 'text-red');
+      lines.push('<div class="git-update-line">' + (drift === 0 ? '✅ 应用与数据库时钟一致' : '⏱ 数据库时钟与服务器偏差 <b>' + drift + '</b> 秒') + '</div>');
+    }
+    if (app.tz && app.tz !== (d.defaultTz || 'Asia/Shanghai')) {
+      lines.push('<div class="git-update-line text-warn">⚠ 当前时区不是 ' + gitEsc(d.defaultTz) + '——日志/签到/定时任务可能差 8 小时，建议点击下方「同步时间」</div>');
+    }
+    el.innerHTML = lines.join('');
+  } catch (err) {
+    if (isApiHandledError(err)) { el.innerHTML = '<span class="text-warn">时间状态读取失败</span>'; return; }
+    el.innerHTML = '<span class="text-warn">读取失败：' + gitEsc(err.message || err) + '</span>';
+  }
+}
+
+function runTimeSync() {
+  if (!currentUser || currentUser.role !== 'super_admin') { toast(__('admin_vrc.super_admin_setting'), 'error'); return; }
+  const sel = document.getElementById('cfgTimeSyncTz');
+  const tz = sel && sel.value ? sel.value : 'Asia/Shanghai';
+  const resultEl = document.getElementById('timeSyncResult');
+  showConfirm('确定把应用进程与数据库连接时区统一到 <b>' + gitEsc(tz) + '</b>？\n\n立即生效（无需重启服务），并写入 .env 持久化；MySQL 服务端全局时区建议在 compose 的 --default-time-zone 固定。', function () {
+    doTimeSync(tz, resultEl);
+  });
+}
+
+async function doTimeSync(tz, resultEl) {
+  if (resultEl) resultEl.innerHTML = '<span class="text-muted2">正在同步时间…</span>';
+  try {
+    const res = await api('/api/admin/time-sync', { method: 'POST', body: { tz }, timeout: 20000 });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(errText(d) || '同步失败') + '</span>';
+      return;
+    }
+    const d = await res.json();
+    if (resultEl) {
+      const after = d.after || {};
+      const app = after.app || {};
+      resultEl.innerHTML = '<span class="text-success">✅ ' + gitEsc(d.message || '时间已同步') + '</span>'
+        + '<div class="text-12 text-muted2 mt-4">时区 ' + gitEsc((d.before && d.before.app && d.before.app.tz) || '?') + ' → <b>' + gitEsc(d.tz) + '</b> (' + gitEsc(d.offset) + ')，服务器时间：<b>' + gitEsc(app.nowLocal) + '</b></div>'
+        + (d.persisted ? '<div class="text-12 text-muted2">已写入 .env（重启后仍生效）</div>' : '<div class="text-12 text-warn">.env 不可写（容器内只读），重启后请用 compose 固定 TZ</div>');
+    }
+    loadTimeSyncStatus();
+  } catch (err) {
+    if (isApiHandledError(err)) { if (resultEl) resultEl.innerHTML = '<span class="text-warn">同步失败（详见页面提示）</span>'; return; }
+    if (resultEl) resultEl.innerHTML = '<span class="text-warn">同步失败：' + gitEsc(err.message || err) + '</span>';
+  }
+}
+
+// Git 更新/重启 + VRC cookie 有效期保存 + 时间同步（原内联 onclick 迁移到委托）
 document.addEventListener('click', function (e) {
   const actEl = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
   if (actEl && actEl.getAttribute('data-action') === 'vrc-cookie-expire-save') { saveVrcCookieExpire(); return; }
   if (e.target.closest('#gitUpdateBtn')) { runGitUpdate(); return; }
   if (e.target.closest('#gitRestartBtn')) { runGitRestart(); return; }
+  if (e.target.closest('#timeSyncBtn')) { runTimeSync(); return; }
 });
 
 // 黑名单本地搜索（输入委托，兼容 CSP 禁内联处理器）

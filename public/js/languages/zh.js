@@ -3719,4 +3719,8 @@ window._LANG_ZH = {
   "admin.git.restart_label": "更新后自动重启服务（约 3 秒中断）",
   "admin.git.check": "检查并更新",
   "admin.git.restart": "仅重启服务",
+  "admin.time.title": "时间同步",
+  "admin.time.hint": "容器默认 UTC 时，日志时间戳、签到/生日跨天、定时任务会整体错 8 小时。点击「同步时间」一键把应用进程与数据库连接统一到目标时区（默认东八区），立即生效并写入 .env 持久化。",
+  "admin.time.tz_label": "目标时区",
+  "admin.time.sync": "同步时间",
 };

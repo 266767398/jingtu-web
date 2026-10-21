@@ -3715,4 +3715,8 @@ window._LANG_DE = {
   "admin.git.restart_label": "Nach Update Dienst automatisch neu starten (~3 s Pause)",
   "admin.git.check": "Prüfen & aktualisieren",
   "admin.git.restart": "Nur Dienst neu starten",
+  "admin.time.title": "Zeitsynchronisation",
+  "admin.time.hint": "Wenn der Container standardmäßig UTC verwendet, weichen Log-Zeitstempel, Check-in-/Geburtstags-Tageswechsel und geplante Aufgaben um 8 Stunden ab. Mit „Zeit synchronisieren“ werden Anwendungsprozess und Datenbankverbindungen auf die Zielzeitzone (Standard UTC+8) ausgerichtet, sofort wirksam und in .env gespeichert.",
+  "admin.time.tz_label": "Zielzeitzone",
+  "admin.time.sync": "Zeit synchronisieren",
 };

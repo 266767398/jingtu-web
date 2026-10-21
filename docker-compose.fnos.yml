@@ -134,9 +134,10 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3456
-      # 容器时区：默认 auto，入口脚本按出口 IP 判定（中国 → Asia/Shanghai，否则 UTC）；
-      # 需要固定时区时显式指定，如 Asia/Shanghai。飞牛部署环境变量改写不便，保留硬编码失效风险更低
-      TZ: ${TZ:-auto}
+      # 容器时区：默认 Asia/Shanghai（本站定位中文社区）——日志时间戳、签到/生日跨天、
+      # 定时任务与数据库 NOW() 全部按东八区；入口脚本也会读取 .env 里后台「时间同步」
+      # 写入的 TZ。海外部署可显式覆盖，如 TZ=Europe/Berlin
+      TZ: ${TZ:-Asia/Shanghai}
       # 反代在后（飞牛自带反代 / Nginx），必须为 1：限流与黑名单才按真实客户端 IP 计数
       TRUST_PROXY: "1"
       # 容器内通过服务名 db 访问数据库
