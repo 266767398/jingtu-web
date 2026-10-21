@@ -3874,7 +3874,7 @@ textarea:disabled,
   transition: background .15s, color .15s;
 }
 
-.admin-nav-item span {
+.admin-nav-item > span:first-child {
   font-size: 16px;
   line-height: 1;
 }
