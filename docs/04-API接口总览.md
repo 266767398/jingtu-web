@@ -36,9 +36,9 @@
 | 内容 | `/api/posts`、`/api/events`、`/api/event-teams`、`/api/announcements` | 动态（无编辑端点）；活动约 40 端点（签到/签核/QR/日历/iCal/批量删除/归档） |
 | 社交 | `/api/friends`、`/api/follows`、`/api/collections`、`/api/user-like`、`/api/checkin`、`/api/achievements` | 好友/关注/统一收藏馆（18+ 端点）/点赞/签到/成就 |
 | 实时 | `/api/chat`（约 25）、`/api/live`（约 15）、`/api/notifications`（约 10） | 聊天含群聊管理/媒体 100MB；通知站内（会员可把 VRChat 官方通知并入：`POST /api/notifications/vrc-sync`） |
-| 群组/VRC | `/api/group/*`、`/api/vrc/*`、`/api/vrc-favorites`、`/api/moderations` | 群组管理 + VRC lookup/world/search/avatar + 官方收藏（分组/条目）；审核队列（远程 block/mute 回显） |
+| 群组/VRC | `/api/group/*`、`/api/vrc/*`、`/api/vrc-favorites`、`/api/moderations` | 群组管理 + VRC lookup/world/search/avatar + 官方收藏（分组/条目）；审核队列（远程 block/mute 回显）。VRC 写操作（world/friend-request/note/boop）走**每用户限流** |
 | 收藏模型 | `/api/model-collections`、`/api/world-tags`、`/api/avatar-tags` | 旧模型收藏 / 标签 |
-| 权限组 | `/api/permission-groups` | 三张表权限模型（30 个 can_* 键） |
+| 权限组 | `/api/permission-groups` | 三表权限模型：30 个 `can_*` 键**父链继承运行时生效**，系统组层级自愈（成员根组 → 管理员 → 超管） |
 | 运维 | `/api/admin/*` | db/backups/config/env-reload/files/logs/security/analytics/export/webhooks/activation-codes/git-status/git-update/git-restart |
 | 系统 | `/api/system/*`、`/api/migration`、`/api/health/*`、`/api/sitemap`、`/api/share` | db-recover（RECOVERY_TOKEN 口令）、迁移工具、健康、站点地图 |
 
@@ -51,6 +51,7 @@
 | 上传 | 10 次 / 分（3 个入口） |
 | 管理 | 30 次 / 分 |
 | 搜索 | 20 次 / 30 秒 |
+| VRChat 写操作 | 10 次 / 分 / 用户（`/api/vrc/world`、`/friend-request`、`/note`、`/boop`，vrcWriteLimiter） |
 | VRChat 上游 | 全站令牌桶 40 次 / 分（排队最长 12s）；429 → `VRC_RATE_LIMITED`（retryAfter 30s，前端静默冷却后重试） |
 
 > 官方收藏接口（`/api/vrc-favorites/items`）对条目做回源富化（名字/封面/作者），带三级缓存

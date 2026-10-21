@@ -519,6 +519,24 @@ td code{font-size:11.5px}
     </p>
   </div>
 
+  <div class="card" style="margin-top:16px">
+    <h3><span class="ic" style="background:var(--violet)"></span>公网 IPv6 接入（DDNS）</h3>
+    <p class="muted" style="margin-bottom:8px">
+      <code>外网 IPv6 → 反代 [::]:80/443 → 127.0.0.1:3456 → app 容器 → db 容器</code>。
+      <b>容器网络无需开 IPv6</b>：IPv6 由宿主机反代 / 端口映射在入口终结，容器内继续走 IPv4。
+    </p>
+    <ul>
+      <li><b>确认地址</b>：<code>ip -6 addr show</code> 有 <code>240e:/2408:/2409:</code> global 地址；<code>ip -6 route show default</code> 有默认路由</li>
+      <li><b>反代监听</b>：<code>deploy/nginx/jingtu.conf</code> 已含 <code>listen [::]:80/443</code>；校验 <code>ss -6 -lntp | grep -E ':(80|443)\b'</code>，无输出则补 <code>listen [::]</code> 后 reload</li>
+      <li><b>反代为容器</b>：端口映射写 <code>"[::]:80:80"</code> / <code>"[::]:443:443"</code>（宿主 IPv6 → DNAT → 容器 IPv4）</li>
+      <li><b>飞牛 fnOS 自带反代</b>：面板开 IPv6；面板配置不含 <code>listen [::]</code> 时手工补，之后勿再在面板重存该条</li>
+      <li><b>DDNS</b>：加 <b>AAAA 记录</b>指向 NAS IPv6，客户端须自动刷新（前缀动态，光猫重启即变）</li>
+      <li><b>防火墙</b>：IPv6 入站放行 80/443；<code>3306</code>/<code>3456</code> 不放行公网；<code>APP_URL</code>/<code>CORS_ORIGINS</code> 填域名</li>
+      <li><b>验证</b>：<code>curl -6 -g "http://[IPv6]/api/health/ready"</code> → <code>nslookup -type=AAAA 域名</code> → <code>curl -6 "https://域名/api/health/ready"</code></li>
+      <li><b>80/443 被封</b>：改高位端口（<code>[::]:8443</code> + APP_URL 带端口）或走隧道；HTTP-01 证书也需 80 可达</li>
+    </ul>
+  </div>
+
   <h3 style="margin:26px 0 10px;font-size:15px">常见故障排查</h3>
   <table>
     <tr><th>现象</th><th>排查</th></tr>
@@ -618,6 +636,7 @@ td code{font-size:11.5px}
     </div></div>
     <div class="entry"><div class="eh"><span class="m" style="background:var(--red)"></span><b>群组 / VRC</b><span>/api/group/* · /api/vrc/* · /api/vrc-favorites</span></div><div class="eb">
       <div class="one"><span class="path">群组管理 + VRC lookup/world/search/avatar</span></div>
+      <div class="one"><span class="path">VRC 写操作（world/friend-request/note/boop）每用户限流 10/分</span></div>
       <div class="one"><span class="path">官方收藏 /api/vrc-favorites：分组/条目；DB 三级缓存（vrc_fav_cache 7 天 TTL）+ 负缓存冷却 + 限流感知补全</span></div>
       <div class="one"><span class="path">审核队列 /api/moderations（远程 block/mute 回显）</span></div>
     </div></div>
@@ -625,7 +644,8 @@ td code{font-size:11.5px}
       <div class="one"><span class="path">旧模型收藏 · world-tags · avatar-tags</span></div>
     </div></div>
     <div class="entry"><div class="eh"><span class="m" style="background:var(--violet)"></span><b>权限组</b><span>/api/permission-groups</span></div><div class="eb">
-      <div class="one"><span class="path">三张表权限模型（30 个 can_* 键）</span></div>
+      <div class="one"><span class="path">三表权限模型（30 个 can_* 键）父链继承运行时生效</span></div>
+      <div class="one"><span class="path">系统组层级自愈：成员根组 → 管理员 → 超管</span></div>
     </div></div>
     <div class="entry"><div class="eh"><span class="m" style="background:var(--cyan)"></span><b>运维</b><span>/api/admin/*</span></div><div class="eb">
       <div class="one"><span class="path">db · backups · config · env-reload · files</span></div>
@@ -648,6 +668,7 @@ td code{font-size:11.5px}
         <tr><td class="f">上传</td><td>10 次 / 分（3 个入口）</td></tr>
         <tr><td class="f">管理</td><td>30 次 / 分</td></tr>
         <tr><td class="f">搜索</td><td>20 次 / 30 秒</td></tr>
+        <tr><td class="f">VRChat 写操作</td><td>10 次 / 分 / 用户（<code>/api/vrc/world</code> · <code>/friend-request</code> · <code>/note</code> · <code>/boop</code>，vrcWriteLimiter）</td></tr>
         <tr><td class="f">VRChat 上游</td><td>全站令牌桶 40 次 / 分（排队最长 12s）；429 → VRC_RATE_LIMITED（retryAfter 30s），收藏前端补全调度联动冷却窗口</td></tr>
       </table>
       <p style="margin-top:10px;font-size:12.5px;color:var(--dim)">计数 HybridStore：配置 <code>REDIS_HOST</code> 用 Redis 共享态，否则回退进程内 Map（单实例必守）。</p>
@@ -699,15 +720,15 @@ td code{font-size:11.5px}
   <table>
     <tr><th>族</th><th>表</th><th>说明</th></tr>
     <tr><td class="f">系统</td><td><code>system_config</code> · <code>sessions</code></td><td class="muted">配置键值；express-mysql-session 运行时表</td></tr>
-    <tr><td class="f">用户</td><td><code>users</code> · <code>user_profile</code> · <code>member_note</code> · <code>user_like</code> · <code>name_change_requests</code></td><td class="muted">users 40+ 字段，含签到/成就统计列；用户是业务中心；<code>halo_visible</code> 光环可见性、<code>trust_level / trust_checked_at</code> 自身信任等级缓存（V6.17）</td></tr>
+    <tr><td class="f">用户</td><td><code>users</code> · <code>user_profile</code> · <code>member_note</code> · <code>user_like</code> · <code>name_change_requests</code></td><td class="muted">users 40+ 字段，含签到/成就统计列；用户是业务中心；<b><code>role</code> 仅 member/admin/super_admin 三值</b>（非法值归一为 member）；<code>halo_visible</code> 光环可见性、<code>trust_level / trust_checked_at</code> 自身信任等级缓存（V6.17）</td></tr>
     <tr><td class="f">群组</td><td><code>group_roster</code> · <code>group_member_changes</code> · <code>group_sync_log</code> · <code>group_invites</code></td><td class="muted">群成员信任等级 <code>trust_level / trust_level_cn</code>、变更审计、同步日志</td></tr>
     <tr><td class="f">活动</td><td><code>event</code> · <code>event_sign</code> · <code>event_checkin</code> · <code>event_comment</code> · <code>event_teams</code> · <code>event_team_members</code></td><td class="muted">event 11 索引；event_sign.user_vrcid ↔ users.vrchat_id</td></tr>
     <tr><td class="f">相册/媒体</td><td><code>albums</code> · <code>album_photos</code> · <code>posts</code> + 媒体/视频/评论</td><td class="muted">相册 500MB 上传、动态媒体</td></tr>
     <tr><td class="f">通知/聊天/直播</td><td><code>notifications</code> · <code>messages</code> · <code>chat_rooms</code> · <code>live_rooms</code> · <code>vrc_notif_sync</code></td><td class="muted">站内通知；私聊/群聊；直播元数据；VRC 官方通知同步（10 分钟，仅会员）</td></tr>
     <tr><td class="f">签到/成就</td><td><code>user_checkin</code> · <code>checkin_rewards</code> · <code>achievements</code> · <code>user_achievements</code></td><td class="muted">每日唯一键；7 档 10-1000 分；29 个默认成就</td></tr>
-    <tr><td class="f">收藏/模型</td><td><code>collections</code> · <code>collection_folders</code> · <code>collection_ratings</code> · <code>model_ratings</code> · <code>model_tag_dict</code> · <code>world_favorites</code> · <code>avatar_favorites</code> · <code>vrc_worlds_cache</code> · <code>vrc_fav_cache</code></td><td class="muted">V8.2 统一收藏馆 + 旧收藏；VRC 官方收藏三级缓存（7 天 TTL，负缓存冷却不入库）</td></tr>
+    <tr><td class="f">收藏/模型</td><td><code>collections</code> · <code>collection_folders</code> · <code>collection_ratings</code> · <code>model_ratings</code> · <code>model_tag_dict</code> · <code>world_favorites</code> · <code>avatar_favorites</code> · <code>vrc_worlds_cache</code> · <code>vrc_fav_cache</code></td><td class="muted">统一收藏馆（<b>模型/世界双分类</b>）+ 旧收藏；VRC 官方收藏（<b>移除好友类型</b>）三级缓存（7 天 TTL，负缓存冷却不入库），同步只重拉指定分类</td></tr>
     <tr><td class="f">审核</td><td><code>moderations</code></td><td class="muted">remote_result 回显；举报/审核队列</td></tr>
-    <tr><td class="f">权限组</td><td><code>permission_groups</code> · <code>group_permission_entries</code> · <code>user_group_membership</code></td><td class="muted">默认 3 组；30 个 can_* 键；三表模型</td></tr>
+    <tr><td class="f">权限组</td><td><code>permission_groups</code> · <code>group_permission_entries</code> · <code>user_group_membership</code></td><td class="muted">默认 3 组（<b>成员根组 → 管理员 → 超管</b>）；30 个 can_* 键；<b>父链继承运行时生效</b>，系统组层级 DB 自愈</td></tr>
     <tr><td class="f">标签</td><td><code>world_tags</code> · avatar-tags 相关</td><td class="muted">V9.4 新增</td></tr>
   </table>
 
@@ -715,7 +736,7 @@ td code{font-size:11.5px}
     <div class="card">
       <h3><span class="ic" style="background:var(--violet)"></span>关键枚举</h3>
       <div class="kv">
-        <span class="k">role(member/admin/super_admin)</span><span class="k">avatar_type</span><span class="k">event_type</span>
+        <span class="k">role(member/admin/super_admin，仅三值合法)</span><span class="k">avatar_type</span><span class="k">event_type</span>
         <span class="k">visibility</span><span class="k">source</span><span class="k">instance_type</span>
         <span class="k">posts type/visibility</span><span class="k">privacy</span><span class="k">live status</span>
         <span class="k">msg_type</span><span class="k">notification.target_type</span>
@@ -749,16 +770,17 @@ td code{font-size:11.5px}
     <tr><td class="f">聊天</td><td><span class="tag ok">✅</span></td><td class="muted">私聊/群聊/媒体 100MB/已读位置/搜索/批量已读</td></tr>
     <tr><td class="f">直播</td><td><span class="tag warn">✅ 元数据</span></td><td class="muted">仅 RTMP/HLS 链接入库，无推流转码后端；私密直播限主播+管理员</td></tr>
     <tr><td class="f">通知</td><td><span class="tag ok">✅</span></td><td class="muted">站内通知；VRChat 官方通知可并入同步（vrc_notif_sync，仅会员，10 分钟）</td></tr>
-    <tr><td class="f">收藏</td><td><span class="tag ok">✅</span></td><td class="muted">V8.2 统一收藏馆（文件夹/评分）+ 旧版收藏 + VRC 官方收藏（三级缓存 / 负缓存冷却 / 限流感知补全）</td></tr>
+    <tr><td class="f">收藏</td><td><span class="tag ok">✅</span></td><td class="muted">统一收藏馆（<b>模型/世界双分类</b>，分组可重命名/新建/删除且带确认）+ 旧版收藏 + VRC 官方收藏（<b>移除好友类型</b>；三级缓存 / 负缓存冷却 / 限流感知补全；同步只重拉指定分类）</td></tr>
     <tr><td class="f">点赞</td><td><span class="tag ok">✅</span></td><td class="muted">user_like 防重复（唯一键）</td></tr>
     <tr><td class="f">签到/成就</td><td><span class="tag ok">✅</span></td><td class="muted">每日签到（7 档奖励）、29 个默认成就</td></tr>
-    <tr><td class="f">权限组</td><td><span class="tag ok">✅</span></td><td class="muted">三表模型，30 个 can_* 键（当前不被业务路由强制，预留）</td></tr>
+    <tr><td class="f">权限组</td><td><span class="tag ok">✅</span></td><td class="muted">三表模型 + <b>系统组层级自愈</b>（成员根组 → 管理员 → 超管），30 个 <code>can_*</code> 键<b>父链继承并在运行时生效</b>；创建组可指定继承源（父组）</td></tr>
     <tr><td class="f">VRChat 群组</td><td><span class="tag ok">✅</span></td><td class="muted">group/vrc 管理、Pipeline 实时同步、审核队列（远程 block/mute 回显）；<b>信任光环</b>：按 VRChat 信任等级给头像外圈着色（名册优先，`users.trust_level` 兜底），开关按人独立可见（V6.16/V6.17）</td></tr>
     <tr><td class="f">好友/关注</td><td><span class="tag ok">✅</span></td><td class="muted">好友增删/状态/列表、关注流</td></tr>
     <tr><td class="f">管理后台</td><td><span class="tag ok">✅</span></td><td class="muted">超管：用户管理/配置/内容管理/操作日志</td></tr>
     <tr><td class="f">运维后台（网页版）</td><td><span class="tag ok">✅ 独立面板</span></td><td class="muted">端口 3457，仅本机（07-运维后台使用说明）</td></tr>
     <tr><td class="f">DB/备份/文件/安全/分析/导出/Webhook/分享</td><td><span class="tag ok">备份/文件/安全/分析/Webhook/分享 有 UI</span></td><td class="muted">管理员接口族（DB/导出待接线）</td></tr>
     <tr><td class="f">地图</td><td><span class="tag ok">✅</span></td><td class="muted">Leaflet CDN 瓦片地图</td></tr>
+    <tr><td class="f">国际化 i18n</td><td><span class="tag ok">✅</span></td><td class="muted">6 语言（zh/en/de/fr/ja/ru）<b>三批 167 键</b>（38+92+37），静态 HTML 硬编码清零；<code>__(key)</code> 运行时 + <code>data-i18n</code> 静态接线（版本戳 20261021g）</td></tr>
   </table>
 
   <div class="grid g2" style="margin-top:16px">
@@ -767,16 +789,17 @@ td code{font-size:11.5px}
       <ul>
         <li>bcrypt cost <b>12</b>；密码强度 ≥8 位 + 大小写 + 数字</li>
         <li>角色阈值：member(2) / admin(3) / super_admin(4)；<code>requireAdminCompat</code> = admin 及以上</li>
+        <li><b>角色实时判定</b>：<code>users.role</code> 仅三值、非法值归一 member；<code>currentRole</code> / <code>requireRole</code> 每次回查 DB、不信任会话快照（20261021g 修复 L1/L3）</li>
         <li>VRChat 凭据：QQ 用 AES-256-CBC、Cookie 用 <b>AES-256-GCM</b>（ENCRYPT_KEY 64hex）</li>
         <li>绑定三步限流 + 2FA 失败计数防爆破</li>
       </ul>
-      <p style="margin-top:10px;font-size:12.5px;color:var(--green)">✅ 历史 P1/P2/P3 已于 2026-10-09 修复；2026-10-14 全站三线审计（安全 88 / 前端 79 / 功能）见 <code>站点审计报告-20261014.md</code></p>
+      <p style="margin-top:10px;font-size:12.5px;color:var(--green)">✅ 历史 P1/P2/P3 已于 2026-10-09 修复；2026-10-21 全站质检（功能/交互/性能/安全/一致性）见 <code>质检评审报告-境途同游-20261021.md</code></p>
     </div>
     <div class="card">
-      <h3><span class="ic" style="background:var(--green)"></span>安全中间件（6 道防线）</h3>
+      <h3><span class="ic" style="background:var(--green)"></span>安全中间件（7 道防线）</h3>
       <table>
         <tr><th>防线</th><th>实现</th></tr>
-        <tr><td class="f">限流</td><td>5 类分层（全局 600/分、登录 5/15 分、上传 10/分、管理 30/分、搜索 20/30 秒），HybridStore</td></tr>
+        <tr><td class="f">限流</td><td>7 类分层（全局 600/分、登录 5/15 分、上传 10/分、管理 30/分、搜索 20/30 秒、<b>VRC 写操作 10/分/用户</b>），HybridStore</td></tr>
         <tr><td class="f">WAF</td><td>注册于 express.json() 后，扫描 URL/query/已解析 JSON body（值+键+URL 解码复扫）</td></tr>
         <tr><td class="f">CSRF</td><td>Token 绑定 SessionID，Map+Redis 双写，TTL 1h，15 分钟清理，超 1 万条淘汰一半</td></tr>
         <tr><td class="f">安全头</td><td>nosniff / X-Frame-Options DENY / Referrer-Policy / CSP（script/style 仍 unsafe-inline）/ 生产 HSTS</td></tr>
@@ -984,7 +1007,7 @@ app.use('/api', 404 + error handler)</pre>
     <h3 class="sub">2.1 index.html 静态脚本栈（顺序即硬依赖）</h3>
     <div class="panel">
       <div class="panel-head">
-        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261020k</span></h4>
+        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261021g</span></h4>
       </div>
       <div class="tbl-scroll" style="max-height:560px"><table class="tbl">
         <thead><tr><th>#</th><th>脚本</th><th>模式</th><th>版本戳</th><th>作用</th></tr></thead>
@@ -1094,7 +1117,7 @@ app.use('/api', 404 + error handler)</pre>
         <tbody id="symBody"></tbody>
       </table></div>
     </div>
-    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261020k）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261020k</code>。</div>
+    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261021g）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261021g</code>。</div>
   </section>
 <section id="checklist">
     <div class="section-head">
@@ -1223,9 +1246,9 @@ const ROUTES=[
  ['A','events.js','/api/events','活动 CRUD/报名/签到+QR/评论/VRC 同步/生日派对/归档/iCal 导出',['A','CK','N'],'event、event_sign、event_checkin、event_comment、album_photo'],
  ['A','share.js','/api/share','分享码生成/校验/HTML；把 /uploads/... 改写为 ?share=（与 uploads_auth 配对）',['A','U'],'share_links'],
  ['A','avatar.js','/api/avatar','头像代理三级缓存（内存 LRU / 磁盘 / 源池），防 CDN 签名过期裂图',['A','VA'],'无'],
- ['A','collections.js','/api/collections','统一收藏 V8.2：三类收藏 CRUD/分组/多维筛选/发现/评分/失效检测/VRCX 匿名搜索/管理扫描',['A','CK','U'],'collections、collection_folders、collection_ratings、users'],
+ ['A','collections.js','/api/collections','统一收藏（模型/世界双分类）：CRUD/分组重命名-新建-删除/多维筛选/发现/评分/失效检测/VRCX 匿名搜索/管理扫描',['A','CK','U'],'collections、collection_folders、collection_ratings、users'],
  ['A','vrc_favorites.js','/api/vrc-favorites','VRC 官方收藏：分组/条目；读可系统 cookie 兜底，写严格用户 cookie；world_cache 富化；DB 三级缓存（vrc_fav_cache 7 天 TTL）+ 负缓存冷却 + 小时级清理',['A','CK','WC'],'vrc_fav_cache（+ vrc_worlds_cache）'],
- ['A','vrc_invites.js','/api/vrc-invites','官方邀请/好友申请/备注/Boop，未绑定返回 NEED_BIND',['A','CK','V'],'无'],
+ ['A','vrc_invites.js','/api/vrc-invites','官方邀请/好友申请/备注/Boop（写端点每用户限流 10/分 vrcWriteLimiter），未绑定返回 NEED_BIND',['A','CK','V'],'无'],
  ['A','avatar_tags.js','/api/avatar-tags','头像私有标签（owner 限定，8 个上限，avtr_ 校验）',['A'],'avatar_tags'],
  ['A','world_tags.js','/api/world-tags','世界私有标签（同 avatar_tags 模式）',['A'],'world_tags'],
  ['A','event_teams.js','/api/event-teams','活动队伍：按活动查/建/加入/退出/踢人',['A'],'event_teams、event_team_members、event、users'],
@@ -1270,23 +1293,23 @@ const TOOLS=[
 ];
 const DBHOT=[['1','users','28'],['2','event','13'],['3','album_photo','11'],['4','group_roster','9'],['5','posts','9'],['6','notifications','9'],['7','permission_groups','3'],['8','user_like','3'],['9','user_friends','7'],['10','event_sign','6'],['11','user_group_membership','6'],['12','sys_oper_log','5'],['13','announcement','5'],['14','post_comment','3'],['15','group_permission_entries','3']];
 const STACK=[
- ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261020k','语言包×6（detectLang 动态注入）'],
- ['2','/js/seo.js','head 内同步（非 defer）','20261020k','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
- ['3','/js/core.js','defer','20261020k','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
- ['4','/js/i18n.js','defer','20261020k','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261020k\''],
- ['5','/js/ui.js','defer','20261020k','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
- ['6','gsap.min.js','defer','20261020k','动效库'],
- ['7','ScrollTrigger.min.js','defer','20261020k','滚动触发'],
- ['8','/js/motion.js','defer','20261020k','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
- ['9','/js/reveal.js','defer','20261020k','滚动揭示（IntersectionObserver；motion 启用后让位）'],
- ['10','/js/nav-scroller.js','defer','20261020k','顶部标签滑动'],
- ['11','/js/freeze.js','defer','20261020k','__freeze 空闲冻结'],
- ['12','/js/theme.js','defer','20261020k','主题 V5.5（模式/明暗/强调色/时间自动）+ 动态效果强制开关（force-anim）'],
- ['13','/js/auth.js','defer','20261020k','登录/注册/2FA/VRC 登录/自动登录/登录页头像缓存单槽预览'],
- ['14','/js/loader.js','defer','20261020k','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP + force-anim'],
- ['15','/js/smartsearch.js','defer','20261020k','Ctrl+K 命令面板'],
- ['16','/js/init.js','defer','20261020k','初始化向导（main 未初始化分支调用）'],
- ['17','/js/main.js','defer','20261020k','入口调度/WS/轮询/通知']
+ ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261021g','语言包×6（detectLang 动态注入）'],
+ ['2','/js/seo.js','head 内同步（非 defer）','20261021g','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
+ ['3','/js/core.js','defer','20261021g','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
+ ['4','/js/i18n.js','defer','20261021g','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261021g\''],
+ ['5','/js/ui.js','defer','20261021g','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
+ ['6','gsap.min.js','defer','20261021g','动效库'],
+ ['7','ScrollTrigger.min.js','defer','20261021g','滚动触发'],
+ ['8','/js/motion.js','defer','20261021g','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
+ ['9','/js/reveal.js','defer','20261021g','滚动揭示（IntersectionObserver；motion 启用后让位）'],
+ ['10','/js/nav-scroller.js','defer','20261021g','顶部标签滑动'],
+ ['11','/js/freeze.js','defer','20261021g','__freeze 空闲冻结'],
+ ['12','/js/theme.js','defer','20261021g','主题 V5.5（模式/明暗/强调色/时间自动）+ 动态效果强制开关（force-anim）'],
+ ['13','/js/auth.js','defer','20261021g','登录/注册/2FA/VRC 登录/自动登录/登录页头像缓存单槽预览'],
+ ['14','/js/loader.js','defer','20261021g','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP + force-anim'],
+ ['15','/js/smartsearch.js','defer','20261021g','Ctrl+K 命令面板'],
+ ['16','/js/init.js','defer','20261021g','初始化向导（main 未初始化分支调用）'],
+ ['17','/js/main.js','defer','20261021g','入口调度/WS/轮询/通知']
 ];
 const FMM=[
  ['core.js','静','—','传输层/工具/弹窗/图片兜底/全局错误日志/VRC 重登引导','`__` toast esc','/api/csrf-token'],
