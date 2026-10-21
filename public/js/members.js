@@ -10,21 +10,39 @@ async function loadMembers() {
   try {
     // P3 分页修复：后端 /api/users/list 默认 100 条/页（paginate defaultSize:100），
     // 此前一次拉全量会静默截断——成员超 100 人时列表只显示前 100 人。
-    // 改为逐页拉取累积，保持成员页/地图对全量数据的依赖（客户端角色/关键词过滤
-    // 基于完整的 membersCache）。
+    // 改为分页拉取累积，保持成员页/地图对全量数据的依赖（客户端角色/关键词过滤
+    // 基于完整的 membersCache）。剩余页按 6 路并行批量拉取，避免大群逐页串行慢。
     const MEMBERS_PAGE_SIZE = 100;
     const MEMBERS_MAX_PAGES = 100; // 防御性上限（1 万人足够），防异常 total 死循环
     let all = [];
     let total = 0;
     let fetchFailed = false;
-    for (let page = 1; page <= MEMBERS_MAX_PAGES; page++) {
-      const res = await api(`/api/users/list?page=${page}&pageSize=${MEMBERS_PAGE_SIZE}`, { method: 'GET' });
-      if (!res.ok) { fetchFailed = true; break; }
-      const data = await res.json();
-      const rows = data.users || [];
-      all = all.concat(rows);
-      if (typeof data.total === 'number') total = data.total;
-      if (!rows.length || all.length >= total) break;
+    const first = await api(`/api/users/list?page=1&pageSize=${MEMBERS_PAGE_SIZE}`, { method: 'GET' });
+    if (!first.ok) { fetchFailed = true; }
+    else {
+      const d0 = await first.json();
+      const rows0 = d0.users || [];
+      all = all.concat(rows0);
+      if (typeof d0.total === 'number') total = d0.total;
+      const rest = Math.max(0, total - rows0.length);
+      const pages = Math.min(MEMBERS_MAX_PAGES, Math.ceil(rest / MEMBERS_PAGE_SIZE));
+      const BATCH = 6;
+      for (let start = 2; start <= pages + 1; start += BATCH) {
+        const batch = [];
+        for (let p = start; p < start + BATCH && p <= pages + 1; p++) batch.push(p);
+        const results = await Promise.all(batch.map(p =>
+          api(`/api/users/list?page=${p}&pageSize=${MEMBERS_PAGE_SIZE}`, { method: 'GET' })
+            .then(r => (r && r.ok) ? r.json() : null)
+            .catch(() => null)
+        ));
+        for (const d of results) {
+          if (!d) { fetchFailed = true; break; }
+          const rows = d.users || [];
+          all = all.concat(rows);
+          if (!rows.length || all.length >= total) break;
+        }
+        if (fetchFailed || all.length >= total) break;
+      }
     }
     membersCache = all;
     if (all.length) {
@@ -52,8 +70,9 @@ function populateRoleFilter() {
   if (!select) return;
   // 保持当前选中值
   const currentVal = select.value;
+  // 只收录合法三值（后端已归一化；这里再兜一层，杜绝历史/缓存数据带出「访客」等已删除身份）
   const roles = new Set();
-  membersCache.forEach(m => roles.add(m.role));
+  membersCache.forEach(m => { if (m.role === 'super_admin' || m.role === 'admin' || m.role === 'member') roles.add(m.role); });
   const roleLabels = { 'super_admin': __('members.role_super_admin'), 'admin': __('members.role_admin'), 'member': __('members.role_member') };
   select.innerHTML = '<option value="">' + __('members.role_all') + '</option>' +
     Array.from(roles).sort().map(r => `<option value="${r}">${roleLabels[r] || r}</option>`).join('');
@@ -224,7 +243,7 @@ function renderMembers(members) {
         data-avatar-fail-key="${escAttr(avSrc)}" >
       <div class="member-info">
         <div class="member-name">${esc(displayName)}${(m.trustLevel || m.trustLevelCn) ? ` <span class="member-trust-badge" style="background:${trustColorOf(m.trustLevel) || '#9e9e9e'}">${esc(m.trustLevelCn || m.trustLevel)}</span>` : ''}</div>
-        <div class="member-role">${roleLabels[m.role] || __("members.role_guest")}</div>
+        <div class="member-role">${roleLabels[m.role] || __("members.role_member")}</div>
         <div class="member-like">❤️ ${m.likeCount || 0}</div>
         ${tagsHtml}
         ${m.locationVisible ? `<div class="member-location">📍 ${esc(m.location || __('members.unknown_location'))}</div>` : ''}
@@ -1111,6 +1130,12 @@ async function vrcLoadRealTime(vrchatId, baseD, token) {
     const merged = mergeV(v);
     vrcDetailCacheSet(vrchatId, merged); // 合并实时资料后更新缓存，下次秒开更完整
     renderVrcMemberCard(merged, token);
+
+    // 资料刷新成功：把最新头像/昵称即时同步到群组成员卡片（发起的用户立刻看到，
+    // 其他在线用户由后端广播 group:roster_update 同步，离线用户下次拉取命中 DB 新值）
+    if (typeof window.__syncGroupMemberProfile === 'function') {
+      try { window.__syncGroupMemberProfile(vrchatId, merged); } catch (e) { /* 同步失败不影响名片 */ }
+    }
 
     // 公开模型后台补拉中：3s 后重查一次（此时后台已回写缓存 → cached:true 秒回带模型）
     if (data.modelsPending && !vrcCardOpener.stale(token)) {

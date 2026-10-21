@@ -20,6 +20,16 @@ const logger = require('../logger');
 // 信任等级中文名（与群成员/成员详情口径一致），供名册无记录时回退 users.trust_level 的展示
 const TRUST_CN = { negative: '恶劣玩家', visitor: '游客', new: '新用户', user: '用户', known: '常驻玩家', trusted: '信任', vetted: '审核', veteran: '资深玩家', legend: '资深玩家' };
 
+// 站点角色合法三值。users.role 虽是 ENUM，但历史库/批量导入可能残留空串、'guest'、
+// 'visitor' 或 NULL（ENUM 非严格模式写入被存为 ''），直接透传会让前端兜底显示已删除的
+// 「游客/访客」身份。所有出站点统一经 normalizeRole 归一化，非法值一律按 member 处理。
+const VALID_ROLES = ['super_admin', 'admin', 'member'];
+function normalizeRole(role) {
+  return VALID_ROLES.includes(role) ? role : 'member';
+}
+// 角色中文标签（与前端 members.role_* 口径一致）
+const ROLE_LABEL_CN = { super_admin: '超级管理员', admin: '管理员', member: '成员' };
+
 // B-2/P2-14：敏感操作（重置密码/改角色）要求当前管理员二次密码确认
 async function verifySelfPassword(uid, plain) {
   if (!plain) return false;
@@ -40,7 +50,7 @@ function sanitizeUser(u) {
     vrchatId: u.vrchat_id,
     vrchatName: u.vrchat_name,
     vrchatAvatarUrl: u.vrchat_avatar_url || null,
-    role: u.role,
+    role: normalizeRole(u.role),
     avatarType: u.avatar_type,
     avatarUrl: getAvatarUrl(u),
     birthday: formatDateOnly(u.birthday),
@@ -169,7 +179,7 @@ router.get('/list', requireAuth, async (req, res) => {
         displayName: u.display_name,
         vrchatId: u.vrchat_id,
         vrchatName: u.vrchat_name,
-        role: u.role,
+        role: normalizeRole(u.role),
         avatarType: u.avatar_type,
         // users.vrchat_avatar_url 是绑定时刻的快照（VRChat 签名 URL 会过期 / amlcdn 被墙），
         // 优先用 group_roster 最近一次同步的头像；前端再按 /api/avatar/user 兜底（见 members.js）。
@@ -262,7 +272,7 @@ router.get('/', requireRole('admin'), async (req, res) => {
       displayName: u.display_name,
       vrchatId: u.vrchat_id,
       vrchatName: u.vrchat_name,
-      role: u.role,
+      role: normalizeRole(u.role),
       avatarType: u.avatar_type,
       avatarUrl: getAvatarUrl(u),
       locationVisible: !!u.location_visible,
@@ -509,7 +519,7 @@ router.get('/search', requireAuth, async (req, res) => {
       vrchatId: u.vrchat_id,
       vrchatName: u.vrchat_name,
       avatarUrl: getAvatarUrl(u),
-      role: u.role
+      role: normalizeRole(u.role)
     }));
     res.json({ users, total: users.length });
   } catch (e) {
@@ -911,8 +921,8 @@ router.get('/:id/card', requireAuth, async (req, res, next) => {
       displayName: u.display_name,
       vrchatId: u.vrchat_id,
       vrchatName: u.vrchat_name,
-      role: u.role,
-      roleLabel: u.role === 'super_admin' ? '超级管理员' : u.role === 'admin' ? '管理员' : u.role === 'member' ? '成员' : '访客',
+      role: normalizeRole(u.role),
+      roleLabel: ROLE_LABEL_CN[normalizeRole(u.role)] || '成员',
       avatarUrl: getAvatarUrl(u),
       profilePicOverrideThumbnail: proxyVrcAvatar(u.roster_override_pic || ''),
       birthday,

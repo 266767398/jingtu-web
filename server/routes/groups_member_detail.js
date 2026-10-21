@@ -316,6 +316,48 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
     return { data: full, ok: true };
   }
 
+  // ==================== 刷新资料 → 回写名册并同步全站 ====================
+  // 问题：详情页「刷新资料」只把最新资料写进 group_member_vrc_cache，而群组成员卡片
+  //（读 group_roster.avatar_url）始终是定时任务写回的旧头像，用户看到「详情新、卡片旧」。
+  // 修复：实时资料拉取成功后，把头像/昵称等静态字段回写 group_roster，再通过
+  // WebSocket 广播该成员一行，让所有在线的网站用户卡片即时换新（离线用户下次拉取也命中 DB 新值）。
+  // 只回写资料类字段；在线状态/所在世界等动态字段仍由定时同步任务维护，
+  // 避免非好友视角 API 返回的 stale offline 状态污染名册。
+  async function syncRosterFromVrc(pool, vrchatId, v) {
+    if (!v) return false;
+    const sets = [], params = [];
+    const put = (col, val) => {
+      if (typeof val === 'string' && val.trim()) { sets.push(`${col} = ?`); params.push(val); }
+    };
+    // 头像口径与前端一致：自定义头像缩略图 > 当前模型缩略图 > 个人图标（avatarUrl 已按该顺序兜底）
+    put('avatar_url', v.profilePicOverrideThumbnail || v.avatarUrl || '');
+    put('profile_pic_override_thumbnail', v.profilePicOverrideThumbnail || '');
+    put('user_icon', v.userIcon || '');
+    put('display_name', v.displayName || '');
+    if (!sets.length) return false;
+    params.push(vrchatId);
+    await pool.query(`UPDATE group_roster SET ${sets.join(', ')} WHERE vrchat_id = ?`, params);
+    return true;
+  }
+
+  // 广播单成员资料更新（VRChat 群 grp_xxx 是站内公开名册，发给所有登录客户端；
+  // ws_service 对非数字群 ID 的过滤已在本次一并修正）
+  function broadcastMemberProfile(vrchatId, v) {
+    try {
+      const wsService = require('../ws_service');
+      wsService.broadcastRosterUpdate({
+        groups: [{ groupId: GROUP_ID }],
+        members: [{
+          vrchatId,
+          avatarUrl: v.profilePicOverrideThumbnail || v.avatarUrl || '',
+          profilePicOverrideThumbnail: v.profilePicOverrideThumbnail || '',
+          displayName: v.displayName || ''
+        }],
+        forced: true
+      });
+    } catch (e) { /* 广播失败不影响主流程（下一次轮询/拉取仍会命中 DB 新值） */ }
+  }
+
   // ============ 成员详情【阶段2：VRChat 实时资料，异步补拉】============
   // 前端在阶段1渲染后调用。优先返回 DB 缓存（秒开），缓存过期/缺失时实时拉取并回写。
   router.get('/group/members/:vrchatId/vrchat', requireAuth, async (req, res) => {
@@ -349,7 +391,14 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
           vrcRefreshInFlight.add(vrchatId);
           setImmediate(() => {
             fetchVrcData(vrchatId, req)
-              .then(r => { if (r && r.ok) return vrcCacheWrite(pool, vrchatId, r.data); })
+              .then(r => {
+                if (!r || !r.ok) return;
+                return vrcCacheWrite(pool, vrchatId, r.data)
+                  // 刷新资料成功：回写名册（头像/昵称）并广播给所有在线用户，卡片即时同步
+                  .then(() => syncRosterFromVrc(pool, vrchatId, r.data))
+                  .then(changed => { if (changed) broadcastMemberProfile(vrchatId, r.data); })
+                  .catch(e => logger.warn('groups-member-detail', '[groups/vrchat] 回写名册失败:', e && e.message));
+              })
               .catch(() => {})
               .finally(() => vrcRefreshInFlight.delete(vrchatId));
           });
@@ -361,6 +410,10 @@ module.exports = function (getVRCCookieFn, GROUP_ID, getUserVRCCookieFn) {
       const core = await fetchVrcCore(vrchatId, req);
       res.json({ vrc: core.data, cached: false, modelsPending: true });
       if (core.ok) {
+        // 刷新资料成功：先回写名册（头像/昵称）并广播给所有在线用户，卡片即时同步
+        syncRosterFromVrc(pool, vrchatId, core.data)
+          .then(changed => { if (changed) broadcastMemberProfile(vrchatId, core.data); })
+          .catch(e => logger.warn('groups-member-detail', '[groups/vrchat] 回写名册失败:', e && e.message));
         const modelKey = vrchatId + ':models';
         if (!vrcRefreshInFlight.has(modelKey)) {
           vrcRefreshInFlight.add(modelKey);

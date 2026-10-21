@@ -48,7 +48,9 @@ const DB_CONFIG = {
   host: process.env.MYSQL_HOST || '127.0.0.1',
   user: process.env.MYSQL_USER || 'root',
   port: parseInt(process.env.MYSQL_PORT) || 3306,
-  timezone: '+08:00',
+  // DB_TZ：MySQL 会话时区（默认东八区，与应用 Docker 时区判定/TZ 保持一致；
+  // 部署在其它时区且希望 DB NOW() 跟随当地时间时，用 compose 环境变量显式指定，如 DB_TZ=UTC）
+  timezone: process.env.DB_TZ || '+08:00',
   charset: 'utf8mb4'
 };
 if (password && password !== '') {

@@ -142,6 +142,32 @@ document.addEventListener('haloVisibleChanged', function () {
   window.__bindGroupAvatarRetry = bindGroupAvatarRetry;
 })();
 
+// 群组成员卡片头像 URL 统一口径（渲染与增量更新共用）：
+// 自定义头像缩略图 > 当前模型缩略图 > 后端按 VRChat ID 解析 > 默认图。
+// assets.amlcdn.com 老式缩略图 CDN 国内 TLS 被阻断，直接弃用；失败记忆（429/裂图）走 default 占位。
+function groupAvatarSrc(m) {
+  let avatarUrl = (m.profilePicOverrideThumbnail || m.avatarUrl || '').trim();
+  if (/^https?:\/\/[^/]*assets\.amlcdn\.com\//i.test(avatarUrl)) avatarUrl = '';
+  const vrcFallback = '/api/avatar/user?u=' + encodeURIComponent(m.vrchatId || m.vrcUserId || '');
+  const proxied = proxyAvatar(avatarUrl || vrcFallback);
+  const avatarFailed = proxied && window.__avatarFailCached && window.__avatarFailCached(proxied);
+  return avatarFailed ? '/api/avatar/default' : (proxied || '/api/avatar/default');
+}
+
+// 详情页「刷新资料」实时拉取成功后由 members.js 调用：把最新头像/昵称即时同步到
+// 当前已渲染的群组成员卡片与本地缓存（发起者本人无需等 WebSocket 广播；其他用户靠广播/轮询命中）
+window.__syncGroupMemberProfile = function (vrchatId, d) {
+  if (!vrchatId || !d) return;
+  const patch = { vrchatId };
+  const keys = ['profilePicOverrideThumbnail', 'avatarUrl', 'displayName'];
+  for (const k of keys) {
+    if (d[k] != null && String(d[k]).trim()) patch[k] = d[k];
+  }
+  const rb = window.__groupRosterById || null;
+  if (rb && rb[vrchatId]) Object.assign(rb[vrchatId], patch);
+  if (typeof applyRosterUpdate === 'function') applyRosterUpdate({ members: [patch] });
+};
+
 function renderGroupMembers(members) {
   const grid = document.getElementById('groupMemberGrid');
   if (!grid) return;
@@ -519,7 +545,29 @@ function applyRosterUpdate(msg) {
       // 同步缓存，避免下次整页渲染回退
       if (Array.isArray(groupMembersCache)) {
         const c = groupMembersCache.find(x => x.vrchatId === m.vrchatId);
-        if (c) { c.isOnline = isOnline; c.isInGame = isInGame; c.vrchatStatus = m.status; c.isFriend = isFriend; if (m.worldName != null) c.worldName = m.worldName; if (m.statusDescription != null) c.statusDescription = m.statusDescription; }
+        if (c) {
+          c.isOnline = isOnline; c.isInGame = isInGame; c.vrchatStatus = m.status; c.isFriend = isFriend;
+          if (m.worldName != null) c.worldName = m.worldName;
+          if (m.statusDescription != null) c.statusDescription = m.statusDescription;
+          // 资料类（头像/昵称）：详情页「刷新资料」回写名册后广播，同步缓存防整页渲染回退
+          if (m.avatarUrl != null) c.avatarUrl = m.avatarUrl;
+          if (m.profilePicOverrideThumbnail != null) c.profilePicOverrideThumbnail = m.profilePicOverrideThumbnail;
+          if (m.displayName != null) c.displayName = m.displayName;
+        }
+      }
+      // 头像即时换新：资料刷新的广播带 avatarUrl/profilePicOverrideThumbnail，替换主头像 src
+      if (m.avatarUrl != null || m.profilePicOverrideThumbnail != null) {
+        const newSrc = groupAvatarSrc(m);
+        const avatarImg = card.querySelector('img.gm-avatar');
+        if (avatarImg && newSrc && avatarImg.getAttribute('src') !== newSrc) {
+          avatarImg.setAttribute('data-avatar', newSrc);
+          avatarImg.src = newSrc;
+        }
+      }
+      // 昵称即时更新（改 VRChat 名后卡片同步）
+      if (m.displayName != null) {
+        const nameEl = card.querySelector('.gm-name');
+        if (nameEl) { nameEl.textContent = m.displayName; nameEl.title = m.displayName; }
       }
     }
   }

@@ -1088,8 +1088,12 @@ function broadcastRosterUpdate(payload) {
     _wss.clients.forEach(client => {
       if (client.readyState !== 1 || !client.userId) return;
       const visibleGroups = groups.filter(g => {
-        const gid = parseInt(g.groupId, 10);
-        const set = gid && memberSets.get(gid);
+        const raw = String(g && g.groupId != null ? g.groupId : '');
+        const gid = parseInt(raw, 10);
+        // VRChat 群（grp_xxx）名册是站内「VRChat 群组」页公开信息，不含站内私密群成员清单，
+        // 广播给所有登录客户端（此前 parseInt('grp_…')=NaN 导致该类广播永远发不出去，前端只能靠轮询兜底）。
+        if (!gid) return true;
+        const set = memberSets.get(gid);
         return set && set.has(client.userId);
       });
       if (!visibleGroups.length) return;

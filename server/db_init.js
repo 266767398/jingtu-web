@@ -1515,6 +1515,27 @@ async function initDatabase() {
       logger.info('db-init', '✅ 信任等级污染自愈完成（真实等级将由 schedule 补充任务回填）');
     }
 
+    // 20261021 一次性自愈：users.role 历史残留归一化。早期库/批量导入可能把 role 写成
+    // 空串、'guest'、'visitor' 或 NULL（ENUM 严格模式外写入被存为 ''），前端 members.js
+    // 的 roleLabels 匹配不到就兜底显示「访客」，表现为「成员页全部是游客」。
+    // 统一归一化到合法三值（非法一律 → member），杜绝已删除的「游客/访客」身份重新出现。
+    // 只执行一次（system_config 标记），与 20261015r 信任等级自愈同一模式。
+    const [roleHealFlag] = await holder.pool.query(
+      `SELECT config_value FROM system_config WHERE config_key = 'role_normalize_20261021' LIMIT 1`
+    );
+    if (!roleHealFlag || roleHealFlag.length === 0) {
+      const [roleHealRes] = await holder.pool.query(
+        `UPDATE users SET role='member' WHERE role IS NULL OR role NOT IN ('super_admin', 'admin', 'member')`
+      );
+      if (roleHealRes.affectedRows > 0) {
+        logger.info('db-init', `🔄 用户角色归一化：${roleHealRes.affectedRows} 个历史非法角色已复位为 member`);
+      }
+      await holder.pool.query(
+        `INSERT IGNORE INTO system_config (config_key, config_value) VALUES ('role_normalize_20261021', '1')`
+      );
+      logger.info('db-init', '✅ users.role 归一化自愈完成（非法角色 → member）');
+    }
+
     // V9.4: F-17 世界详情缓存补列（world_cache 服务需要完整信息以支撑前端详情展示、减少回源）
     // vrc_worlds_cache 原表仅有展示基础字段，缺少 author_id/world_type/unity_package_url/asset_url/platform
     const worldCacheCols = [
@@ -1725,18 +1746,24 @@ async function initDatabase() {
     await holder.pool.query(`INSERT IGNORE INTO album_cate (id, cate_name, sort) VALUES (1, '默认相册', 0)`);
 
     // ==================== 初始化默认权限组 ====================
-    // 超级管理员组（系统内置，不可删除）
+    // 系统组层级（P-ROLE/PERM）：「成员(3)」为根组 ←「管理员(2)」继承成员 ←「超级管理员(1)」继承管理员。
+    // 子组自动获得父组已允许的权限（运行时在 /my、权限查看、权限编辑中解析），
+    // 管理员=自身权限∪成员权限，超管=自身∪管理员∪成员。
+    // 注意：INSERT IGNORE 不会更新已有行，真正的层级由下方「系统组层级自愈」每启动纠正一次（幂等 UPDATE）。
     await holder.pool.query(
       `INSERT IGNORE INTO permission_groups (id, name, description, parent_id, is_default, is_system) VALUES (1, '超级管理员', '拥有全部权限', NULL, 0, 1)`
     );
-    // 管理员组（系统内置，不可删除）
     await holder.pool.query(
-      `INSERT IGNORE INTO permission_groups (id, name, description, parent_id, is_default, is_system) VALUES (2, '管理员', '常规管理权限', 1, 0, 1)`
+      `INSERT IGNORE INTO permission_groups (id, name, description, parent_id, is_default, is_system) VALUES (2, '管理员', '常规管理权限', NULL, 0, 1)`
     );
-    // 成员组（默认用户组，新注册用户自动加入）
     await holder.pool.query(
-      `INSERT IGNORE INTO permission_groups (id, name, description, parent_id, is_default, is_system) VALUES (3, '成员', '普通成员基本权限', 2, 1, 1)`
+      `INSERT IGNORE INTO permission_groups (id, name, description, parent_id, is_default, is_system) VALUES (3, '成员', '普通成员基本权限', NULL, 1, 1)`
     );
+    // 系统组层级自愈：历史数据曾被清空/反向（曾出现全员 parent_id=NULL 导致继承失效），
+    // 每次启动按固定层级纠正一次（条件更新：仅当父组为空或被反向设置时才修正，幂等）。
+    await holder.pool.query(`UPDATE permission_groups SET parent_id = 3 WHERE id = 2 AND (parent_id IS NULL OR parent_id = 1)`);
+    await holder.pool.query(`UPDATE permission_groups SET parent_id = 2 WHERE id = 1 AND (parent_id IS NULL OR parent_id = 3)`);
+    await holder.pool.query(`UPDATE permission_groups SET parent_id = NULL WHERE id = 3`);
 
     // 插入默认权限条目
     const allPermissions = [
