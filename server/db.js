@@ -1496,8 +1496,11 @@ function initSQLitePatch() {
   return true;
 }
 
-// 基准会话时区（.env 的 DB_TZ 或默认 +08:00），用于「联网校时」时在其上叠加时钟漂移折算
-const BASE_DB_TZ = DB_CONFIG.timezone;
+// 基准会话时区（.env 的 DB_TZ 或默认 +08:00）。
+// 必须跟着 setDbTimezone 走：否则「时间同步」把时区改成 +09:00 后，
+// 下一次自动对时仍按旧的 +08:00 折算，会把用户设的时区冲掉。
+// 注意 baseDbTz 只存「用户意图的时区」，不含漂移折算。
+let baseDbTz = DB_CONFIG.timezone;
 
 /** '+08:00' / '-05:30' → 分钟数；命名时区（如 Asia/Shanghai）返回 null（无法折算漂移） */
 function parseOffsetMinutes(tz) {
@@ -1581,7 +1584,9 @@ function applyTimeDrift(offsetMs, baseTz) {
   if (SQLITE_MODE) {
     return { ok: false, reason: 'SQLite 模式无会话时区，无法折算时钟漂移' };
   }
-  const base = baseTz || BASE_DB_TZ;
+  const base = baseTz || baseDbTz;
+  // 显式传 baseTz 表示「这是用户意图的时区」，记下来给后续自动对时当基准
+  if (baseTz) baseDbTz = baseTz;
   const baseMin = parseOffsetMinutes(base);
   if (baseMin === null) {
     return { ok: false, reason: '基准时区 ' + base + ' 不是偏移格式（如 +08:00），无法折算漂移' };
@@ -1633,6 +1638,7 @@ function getPool() {
 function setDbTimezone(offset) {
   if (SQLITE_MODE) return false;
   if (typeof offset !== 'string' || !/^[+-]\d{2}:\d{2}$/.test(offset)) return false;
+  baseDbTz = offset;
   DB_CONFIG.timezone = offset;
   recreatePool();
   return true;
@@ -1690,7 +1696,7 @@ module.exports = {
   recreatePool,
   setDbTimezone,
   applyTimeDrift,
-  BASE_DB_TZ,
+  getBaseDbTz: () => baseDbTz,
   setDbShuttingDown,
   applyDbConfig,
   transformSQL,

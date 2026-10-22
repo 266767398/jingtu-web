@@ -21,7 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const { ok, sendError, ErrorCodes, logOper } = require('../utils');
 const { requireSuperAdmin } = require('../auth');
-const { getPool, setDbTimezone, applyTimeDrift } = require('../db');
+const { getPool, applyTimeDrift } = require('../db');
 const timeService = require('../time_service');
 const logger = require('../logger');
 
@@ -106,6 +106,8 @@ async function collectStatus() {
       tzSource: process.env.TZ ? 'env' : 'system',
       nowUtc: now.toISOString(),
       nowLocal: formatInTz(tz, now),
+      // 联网校准后的真实时间：与 nowLocal 相差 autoSync.offsetMs
+      nowCalibrated: formatInTz(tz, timeService.appNow()),
       offset: offsetToString(appOffset),
       offsetMinutes: appOffset
     },
@@ -155,22 +157,29 @@ async function collectStatus() {
   return status;
 }
 
-/** 把 TZ 写回项目根 .env（容器内 /app/.env 已 chown 给 node，可写） */
-function persistEnvTz(tz) {
+/** 在 .env 文本里设置某个键（存在则替换，不存在则追加） */
+function upsertEnvLine(txt, key, value) {
+  const line = key + '=' + value;
+  const re = new RegExp('^\\s*' + key + '\\s*=.*$', 'm');
+  if (re.test(txt)) return txt.replace(re, line);
+  return txt.replace(/\s*$/, '') + (txt.trim() ? '\n' : '') + line + '\n';
+}
+
+/**
+ * 把 TZ 与 DB_TZ 一起写回项目根 .env（容器内 /app/.env 已 chown 给 node，可写）。
+ * DB_TZ 必须跟着写：否则重启后应用是柏林时区、数据库还停在 +08:00，又差 6 小时。
+ */
+function persistEnvTime(tz, offset) {
   try {
     const envPath = path.join(__dirname, '..', '..', '.env');
     let txt = '';
     if (fs.existsSync(envPath)) txt = fs.readFileSync(envPath, 'utf8');
-    const line = 'TZ=' + tz;
-    if (/^\s*TZ\s*=.*$/m.test(txt)) {
-      txt = txt.replace(/^\s*TZ\s*=.*$/m, line);
-    } else {
-      txt = txt.replace(/\s*$/, '') + (txt.trim() ? '\n' : '') + line + '\n';
-    }
+    txt = upsertEnvLine(txt, 'TZ', tz);
+    if (offset) txt = upsertEnvLine(txt, 'DB_TZ', offset);
     fs.writeFileSync(envPath, txt, 'utf8');
     return true;
   } catch (e) {
-    logger.warn('[admin/time-sync]', '写入 .env 的 TZ 失败（容器内只读时属预期）：' + (e.message || e));
+    logger.warn('[admin/time-sync]', '写入 .env 的时区失败（容器内只读时属预期）：' + (e.message || e));
     return false;
   }
 }
@@ -199,32 +208,28 @@ router.post('/admin/time-sync', requireSuperAdmin, async (req, res) => {
     process.env.TZ = tz;
     const offset = offsetToString(tzOffsetMinutes(tz, new Date()));
 
-    // 2) 数据库：会话时区（SET time_zone）+ 连接池解析时区（重建池后新连接生效）
+    // 2) 数据库：把「用户选的时区 + 已测漂移」一次写进池配置并重建池，
+    //    每个新连接由 pool 的 connection 钩子统一 SET time_zone（不再单独 SET 单条连接，
+    //    否则那条被复用的连接会带着不含漂移的时区回到池里）。
     let dbSessionApplied = false;
     let dbPoolApplied = false;
     let dbError = null;
     if (!SQLITE_MODE) {
       try {
-        await getPool().query('SET time_zone = ?', [offset]);
-        dbSessionApplied = true;
-      } catch (e) {
-        dbError = e.message || String(e);
-      }
-      try {
-        dbPoolApplied = setDbTimezone(offset);
+        const drift = timeService.getStatus().offsetMs || 0;
+        const applied = applyTimeDrift(drift, offset);
+        dbPoolApplied = !!(applied && applied.ok);
+        dbSessionApplied = dbPoolApplied;
+        if (!dbPoolApplied) {
+          dbError = dbError || (applied && applied.reason) || '数据库时区应用失败';
+        }
       } catch (e) {
         dbError = dbError || (e.message || String(e));
       }
-      // 切换时区会重置会话时区，这里把已测得的时钟漂移重新折算回去，
-      // 否则「联网校时」的 DB 时间平移会被时区同步覆盖掉。
-      try {
-        const drift = timeService.getStatus().offsetMs;
-        if (drift) applyTimeDrift(drift, offset);
-      } catch (e) { dbError = dbError || (e.message || String(e)); }
     }
 
     // 3) 持久化：写 .env 的 TZ，重启后仍按该时区
-    const persisted = persistEnvTz(tz);
+    const persisted = persistEnvTime(tz, offset);
 
     // 4) 操作日志
     try {

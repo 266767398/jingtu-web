@@ -53,6 +53,8 @@ const CLOCK_FIX_MIN_MS = 1000;
 const CFG_ENABLED = 'time_auto_sync';
 const CFG_INTERVAL = 'time_auto_sync_interval';
 const CFG_SET_CLOCK = 'time_auto_sync_set_clock';
+// 已折算进数据库会话时区的漂移分钟数：进程重启后据此恢复，避免又要手动点一次
+const CFG_DB_DRIFT = 'time_db_drift_minutes';
 
 const MIN_INTERVAL = 5;
 const MAX_INTERVAL = 1440;
@@ -240,6 +242,19 @@ function applyDriftToDb() {
   }
 }
 
+/** 把折算结果写进 system_config，供下次启动恢复（失败不影响对时本身） */
+function persistDbDrift() {
+  if (!poolRef || !state.dbDrift || !state.dbDrift.ok) return;
+  const mins = String(state.dbDrift.driftMinutes || 0);
+  try {
+    poolRef.query(
+      `INSERT INTO system_config (config_key, config_value) VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE config_value = ?`,
+      [CFG_DB_DRIFT, mins, mins]
+    ).catch(() => {});
+  } catch (e) { /* 忽略：持久化失败只影响重启后的自动恢复 */ }
+}
+
 /**
  * 执行一次完整对时：采样 → 应用层补偿 → DB 会话时区折算 →（可选）校系统时钟。
  * 并发保护：上一次还没跑完就直接返回，避免定时器与手动按钮叠加打满网络。
@@ -267,6 +282,7 @@ async function runCheck(reason = 'manual') {
 
     // 全站 DB 时间对齐：把漂移分钟数折算进会话时区（覆盖 NOW()/DEFAULT CURRENT_TIMESTAMP）
     state.dbDrift = applyDriftToDb();
+    persistDbDrift();
 
     let clockFix = null;
     if (state.allowSystemClockSet && canSetSystemClock() && Math.abs(r.offsetMs) > CLOCK_FIX_MIN_MS) {
@@ -277,6 +293,7 @@ async function runCheck(reason = 'manual') {
         const verify = await measureOnce();
         state.offsetMs = verify.ok ? verify.offsetMs : 0;
         state.dbDrift = applyDriftToDb();
+        persistDbDrift();
       } else {
         const lg = log();
         if (lg) lg.warn('time-sync', `[${reason}] 系统时钟校正失败（容器通常无 CAP_SYS_TIME）：${clockFix.error}`);
@@ -379,6 +396,28 @@ async function loadConfig(pool) {
   } catch (e) {
     const lg = log();
     if (lg) lg.warn('time-sync', '载入自动对时配置失败，使用默认值：' + (e.message || e));
+  }
+
+  // 恢复上次的漂移折算：即使没开自动对时，重启后也不该退回未校准口径
+  try {
+    const [drows] = await poolRef.query(
+      `SELECT config_value FROM system_config WHERE config_key = ?`, [CFG_DB_DRIFT]
+    );
+    if (drows && drows[0]) {
+      const mins = Number(drows[0].config_value);
+      if (Number.isFinite(mins) && mins !== 0) {
+        state.offsetMs = mins * 60000;
+        const db = dbRef();
+        if (db && typeof db.applyTimeDrift === 'function') {
+          state.dbDrift = db.applyTimeDrift(state.offsetMs);
+          const lg = log();
+          if (lg) lg.info('time-sync', `已恢复上次的时钟漂移折算（${mins} 分钟）`);
+        }
+      }
+    }
+  } catch (e) {
+    const lg = log();
+    if (lg) lg.warn('time-sync', '恢复漂移折算失败：' + (e.message || e));
   }
   return state;
 }

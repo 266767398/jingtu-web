@@ -11,6 +11,8 @@ const router = express.Router();
 const { getPool, handleError, paginate } = require('../utils');
 const { requireAuth } = require('../auth');
 const { checkAndUnlock } = require('./achievements');
+// 时间统一走联网校准时钟：系统时钟慢/快几分钟时，23:5x 签到不会被判成"昨天"
+const { appNow } = require('../time_service');
 
 // 本地日期字符串（YYYY-MM-DD）：避免 toISOString() 的 UTC 偏移导致按本地时区误判"今天"与连续签到天数
 function ymd(d) {
@@ -32,7 +34,7 @@ router.post('/me/checkin', requireAuth, async (req, res) => {
   const conn = await getPool().getConnection();
   try {
     const userId = req.session.userId;
-    const today = ymd(new Date());
+    const today = ymd(appNow());
 
     await conn.beginTransaction();
 
@@ -141,7 +143,7 @@ router.post('/me/checkin', requireAuth, async (req, res) => {
 router.get('/me/status', requireAuth, async (req, res) => {
   try {
     const userId = req.session.userId;
-    const today = ymd(new Date());
+    const today = ymd(appNow());
     
     const [checkinToday] = await getPool().query(
       'SELECT * FROM user_checkin WHERE user_id = ? AND checkin_date = ?',

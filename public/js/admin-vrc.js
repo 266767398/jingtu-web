@@ -859,14 +859,18 @@ async function loadTimeSyncStatus() {
     const db = d.db || {};
     const fmt = function (x) { return x == null || x === '' ? '-' : gitEsc(String(x)); };
     let lines = [
-      '<div class="git-update-line">应用时区：<b>' + fmt(app.tz) + '</b> (' + fmt(app.offset) + ') · 服务器时间：<b>' + fmt(app.nowLocal) + '</b></div>'
+      '<div class="git-update-line">应用时区：<b>' + fmt(app.tz) + '</b> (' + fmt(app.offset) + ') · 服务器时间：<b>' + fmt(app.nowLocal) + '</b>'
+        + (app.nowCalibrated && app.nowCalibrated !== app.nowLocal ? ' <span class="text-success">校准后 ' + fmt(app.nowCalibrated) + '</span>' : '')
+        + '</div>'
     ];
     if (d.sqlite) {
       lines.push('<div class="git-update-line text-muted2">SQLite 模式：无数据库会话时区，仅进程时区生效</div>');
     } else if (db.error) {
       lines.push('<div class="git-update-line text-warn">数据库不可达：' + gitEsc(db.error) + '</div>');
     } else {
-      lines.push('<div class="git-update-line">数据库：<code>NOW()</code>=<b>' + fmt(db.now) + '</b> · 会话时区=<b>' + fmt(db.sessionTz) + '</b> · 服务端=' + fmt(db.globalTz) + '</div>');
+      lines.push('<div class="git-update-line">数据库：<code>NOW()</code>=<b>' + fmt(db.now) + '</b> · 会话时区=<b>' + fmt(db.sessionTz) + '</b>'
+        + (db.sessionTz && app.offset && db.sessionTz !== app.offset ? ' <span class="text-muted2">（含时钟漂移折算）</span>' : '')
+        + ' · 服务端=' + fmt(db.globalTz) + '</div>');
     }
     if (d.driftSeconds != null) {
       const drift = Number(d.driftSeconds);
@@ -922,7 +926,7 @@ function renderTimeAutoSync(auto) {
         + (lr.clockFix.ok ? '✅ 系统时钟已校正' : '⚠ 系统时钟校正失败：' + gitEsc(lr.clockFix.error || '无权限')) + '</div>');
     }
   } else {
-    lines.push('<div class="git-update-line text-muted2">尚未对时——开启后会自动校准，也可点「立即联网对时」</div>');
+    lines.push('<div class="git-update-line text-muted2">尚未对时——开启后会自动校准，也可点「一键联网校时」</div>');
   }
   if (auto.lastError) {
     lines.push('<div class="git-update-line text-warn">⚠ 最近一次失败：' + gitEsc(auto.lastError) + '（成功 ' + gitEsc(auto.successCount || 0) + ' / 失败 ' + gitEsc(auto.failCount || 0) + '）</div>');
@@ -933,7 +937,8 @@ function renderTimeAutoSync(auto) {
         + (auto.dbDrift.driftMinutes ? '（已平移 ' + (auto.dbDrift.driftMinutes > 0 ? '+' : '') + gitEsc(auto.dbDrift.driftMinutes) + ' 分钟）' : '（无平移）')
         + ' · 余差 ' + fmtDriftMs(auto.dbDrift.remainderMs || 0) + '</div>');
     } else if (auto.dbDrift.reason) {
-      lines.push('<div class="git-update-line text-warn">🗄 数据库时间未能平移：' + gitEsc(auto.dbDrift.reason) + '</div>');
+      const sqliteLike = /SQLite/i.test(auto.dbDrift.reason);
+      lines.push('<div class="git-update-line ' + (sqliteLike ? 'text-muted2' : 'text-warn') + '">🗄 数据库时间未能平移：' + gitEsc(auto.dbDrift.reason) + '</div>');
     }
   }
   if (!auto.systemClockWritable) {
