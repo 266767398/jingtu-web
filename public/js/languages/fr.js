@@ -3719,4 +3719,11 @@ window._LANG_FR = {
   "admin.time.hint": "Lorsque le conteneur utilise UTC par défaut, les horodatages des journaux, le chevauchement des jours de check-in/anniversaire et les tâches planifiées dérivent de 8 heures. Cliquez sur « Synchroniser l'heure » pour aligner le processus applicatif et les connexions à la base de données sur le fuseau cible (UTC+8 par défaut), effectif immédiatement et persisté dans .env.",
   "admin.time.tz_label": "Fuseau cible",
   "admin.time.sync": "Synchroniser l'heure",
+  "admin.time.auto_title": "Synchronisation réseau automatique de l'heure",
+  "admin.time.auto_hint": "Récupère périodiquement l'UTC standard auprès de plusieurs sources publiques (NTP + HTTP), calcule la dérive de l'horloge locale et compense l'heure applicative (journaux, etc.) ; une dérive supérieure à 3 secondes déclenche une alerte. Les conteneurs ne peuvent normalement pas modifier l'horloge système (noyau de l'hôte partagé) — activez NTP sur l'hôte NAS pour corriger à la racine.",
+  "admin.time.auto_enable": "Activer la synchronisation réseau automatique",
+  "admin.time.auto_interval": "Intervalle (minutes)",
+  "admin.time.auto_set_clock": "Autoriser la correction de l'horloge système",
+  "admin.time.auto_save": "Enregistrer la synchro auto",
+  "admin.time.auto_now": "Synchroniser avec le réseau maintenant",
 };

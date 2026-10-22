@@ -28,13 +28,24 @@ const ensureLogDir = async () => {
 
 ensureLogDir();
 
+// 时间源统一走 time_service.appNow()：联网对时后日志时间戳自动跟随网络标准时间。
+// 惰性 require 是为了避免与 time_service（其内部会 require logger 做告警）形成循环依赖；
+// 模块加载顺序上 logger 先完成，之后任意一次调用再取 time_service 都能拿到完整导出。
+let _timeServiceRef = null;
+const nowDate = () => {
+  if (_timeServiceRef === null) {
+    try { _timeServiceRef = require('./time_service'); } catch (e) { _timeServiceRef = false; }
+  }
+  return _timeServiceRef ? _timeServiceRef.appNow() : new Date();
+};
+
 const timestamp = () => {
-  const d = new Date();
+  const d = nowDate();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}.${String(d.getMilliseconds()).padStart(3,'0')}`;
 };
 
 const getBaseLogFile = () => {
-  const d = new Date();
+  const d = nowDate();
   const envSuffix = NODE_ENV === 'production' ? '' : '-dev';
   return path.join(LOG_DIR, `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}${envSuffix}.log`);
 };

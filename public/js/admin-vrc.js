@@ -877,9 +877,124 @@ async function loadTimeSyncStatus() {
       lines.push('<div class="git-update-line text-warn">⚠ 当前时区不是 ' + gitEsc(d.defaultTz) + '——日志/签到/定时任务可能差 8 小时，建议点击下方「同步时间」</div>');
     }
     el.innerHTML = lines.join('');
+    renderTimeAutoSync(d.autoSync);
   } catch (err) {
     if (isApiHandledError(err)) { el.innerHTML = '<span class="text-warn">时间状态读取失败</span>'; return; }
     el.innerHTML = '<span class="text-warn">读取失败：' + gitEsc(err.message || err) + '</span>';
+  }
+}
+
+// ==================== 自动联网对时（漂移补偿 + 定时校准） ====================
+function fmtDriftMs(ms) {
+  const n = Number(ms) || 0;
+  const abs = Math.abs(n);
+  if (abs < 1000) return n + ' 毫秒';
+  if (abs < 60000) return (n / 1000).toFixed(2) + ' 秒';
+  return (n / 60000).toFixed(1) + ' 分钟';
+}
+
+function renderTimeAutoSync(auto) {
+  const box = document.getElementById('timeAutoSyncStatus');
+  const cb = document.getElementById('cfgTimeAutoSync');
+  const iv = document.getElementById('cfgTimeAutoInterval');
+  const sc = document.getElementById('cfgTimeSetClock');
+  if (!auto) { if (box) box.innerHTML = ''; return; }
+  if (cb) cb.checked = !!auto.enabled;
+  if (iv && auto.intervalMinutes) iv.value = auto.intervalMinutes;
+  if (sc) sc.checked = !!auto.allowSystemClockSet;
+  if (!box) return;
+
+  const lines = [];
+  lines.push('<div class="git-update-line">自动对时：<b>' + (auto.enabled ? '已开启（每 ' + gitEsc(auto.intervalMinutes) + ' 分钟）' : '未开启') + '</b>'
+    + (auto.checking ? ' · <span class="text-muted2">正在对时…</span>' : '') + '</div>');
+
+  if (auto.lastCheckAt) {
+    let when = auto.lastCheckAt;
+    try { when = new Date(auto.lastCheckAt).toLocaleString(); } catch (e) {}
+    const drift = Number(auto.offsetMs) || 0;
+    const cls = Math.abs(drift) <= 1000 ? 'text-success' : (Math.abs(drift) <= 3000 ? 'text-warn' : 'text-red');
+    const lr = auto.lastResult || {};
+    lines.push('<div class="git-update-line">最近对时：<b>' + gitEsc(when) + '</b> · 漂移 <b class="' + cls + '">' + fmtDriftMs(drift) + '</b>'
+      + (lr.source ? ' · 来源 ' + gitEsc(lr.source) : '')
+      + (lr.samples ? '（' + gitEsc(lr.samples) + ' 源）' : '') + '</div>');
+    if (lr.clockFix) {
+      lines.push('<div class="git-update-line ' + (lr.clockFix.ok ? 'text-success' : 'text-warn') + '">'
+        + (lr.clockFix.ok ? '✅ 系统时钟已校正' : '⚠ 系统时钟校正失败：' + gitEsc(lr.clockFix.error || '无权限')) + '</div>');
+    }
+  } else {
+    lines.push('<div class="git-update-line text-muted2">尚未对时——开启后会自动校准，也可点「立即联网对时」</div>');
+  }
+  if (auto.lastError) {
+    lines.push('<div class="git-update-line text-warn">⚠ 最近一次失败：' + gitEsc(auto.lastError) + '（成功 ' + gitEsc(auto.successCount || 0) + ' / 失败 ' + gitEsc(auto.failCount || 0) + '）</div>');
+  }
+  if (!auto.systemClockWritable) {
+    lines.push('<div class="git-update-line text-muted2">当前进程非 root：只能做应用层漂移补偿；彻底校正时钟请在 NAS 宿主开启 NTP 服务</div>');
+  }
+  box.innerHTML = lines.join('');
+}
+
+function runTimeAutoSyncSave() {
+  if (!currentUser || currentUser.role !== 'super_admin') { toast(__('admin_vrc.super_admin_setting'), 'error'); return; }
+  const cb = document.getElementById('cfgTimeAutoSync');
+  const iv = document.getElementById('cfgTimeAutoInterval');
+  const sc = document.getElementById('cfgTimeSetClock');
+  const enabled = !!(cb && cb.checked);
+  const intervalMinutes = Number(iv && iv.value) || 30;
+  const allowSystemClockSet = !!(sc && sc.checked);
+  if (intervalMinutes < 5 || intervalMinutes > 1440) {
+    toast('对时间隔需在 5~1440 分钟之间', 'error');
+    return;
+  }
+  const resultEl = document.getElementById('timeAutoSyncResult');
+  showConfirm((enabled ? '开启' : '关闭') + '自动联网对时' + (enabled ? '（每 ' + intervalMinutes + ' 分钟校准一次）' : '') + '？'
+    + (allowSystemClockSet ? '\n\n已勾选「校正系统时钟」：仅在容器以 root 且具备 CAP_SYS_TIME 时生效，否则只做应用层补偿。' : ''), function () {
+    doTimeAutoSyncSave({ enabled, intervalMinutes, allowSystemClockSet }, resultEl);
+  });
+}
+
+async function doTimeAutoSyncSave(body, resultEl) {
+  if (resultEl) resultEl.innerHTML = '<span class="text-muted2">正在保存自动对时配置…</span>';
+  try {
+    const res = await api('/api/admin/time-auto-sync', { method: 'POST', body: body, timeout: 20000 });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(errText(d) || '保存失败') + '</span>';
+      return;
+    }
+    const d = await res.json();
+    if (resultEl) resultEl.innerHTML = '<span class="text-success">✅ ' + gitEsc(d.message || '已保存') + '</span>';
+    loadTimeSyncStatus();
+  } catch (err) {
+    if (isApiHandledError(err)) { if (resultEl) resultEl.innerHTML = '<span class="text-warn">保存失败（详见页面提示）</span>'; return; }
+    if (resultEl) resultEl.innerHTML = '<span class="text-warn">保存失败：' + gitEsc(err.message || err) + '</span>';
+  }
+}
+
+async function runTimeSyncNow() {
+  if (!currentUser || currentUser.role !== 'super_admin') { toast(__('admin_vrc.super_admin_setting'), 'error'); return; }
+  const resultEl = document.getElementById('timeAutoSyncResult');
+  if (resultEl) resultEl.innerHTML = '<span class="text-muted2">正在向公网时间源对时…</span>';
+  try {
+    const res = await api('/api/admin/time-sync-now', { method: 'POST', body: {}, timeout: 30000 });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(errText(d) || '对时失败') + '</span>';
+      return;
+    }
+    const d = await res.json();
+    const r = d.result || {};
+    if (resultEl) {
+      const drift = Number(r.offsetMs) || 0;
+      const cls = Math.abs(drift) <= 1000 ? 'text-success' : (Math.abs(drift) <= 3000 ? 'text-warn' : 'text-red');
+      resultEl.innerHTML = '<span class="text-success">✅ ' + gitEsc(d.message || '联网对时完成') + '</span>'
+        + '<div class="text-12 text-muted2 mt-4">漂移 <b class="' + cls + '">' + fmtDriftMs(drift) + '</b>'
+        + ' · 来源 ' + gitEsc(r.source || '-') + '（' + gitEsc(r.samples || 0) + ' 源，RTT ' + gitEsc(r.rttMs || 0) + 'ms）'
+        + ' · 耗时 ' + gitEsc(r.elapsedMs || 0) + 'ms</div>';
+    }
+    loadTimeSyncStatus();
+  } catch (err) {
+    if (isApiHandledError(err)) { if (resultEl) resultEl.innerHTML = '<span class="text-warn">对时失败（详见页面提示）</span>'; return; }
+    if (resultEl) resultEl.innerHTML = '<span class="text-warn">对时失败：' + gitEsc(err.message || err) + '</span>';
   }
 }
 
@@ -924,6 +1039,8 @@ document.addEventListener('click', function (e) {
   if (e.target.closest('#gitUpdateBtn')) { runGitUpdate(); return; }
   if (e.target.closest('#gitRestartBtn')) { runGitRestart(); return; }
   if (e.target.closest('#timeSyncBtn')) { runTimeSync(); return; }
+  if (e.target.closest('#timeAutoSyncSaveBtn')) { runTimeAutoSyncSave(); return; }
+  if (e.target.closest('#timeSyncNowBtn')) { runTimeSyncNow(); return; }
 });
 
 // 黑名单本地搜索（输入委托，兼容 CSP 禁内联处理器）

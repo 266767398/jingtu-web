@@ -1080,6 +1080,15 @@ async function init() {
       logger.info('[init]', '媒体代理源池配置已载入内存');
     } catch (me) { logger.warn('[init]', '载入媒体代理源池配置失败，使用默认值:', me.message); }
 
+    // 自动联网对时：载入配置，开启时启动定时校准（漂移补偿 + 超阈值告警 + 面板可视化）
+    try {
+      const timeService = require('./time_service');
+      const ts = await timeService.init(getPool());
+      logger.info('[init]', ts.enabled
+        ? `自动联网对时已启用（每 ${ts.intervalMinutes} 分钟校准一次）`
+        : '自动联网对时未启用（可在 系统设置 → 时间同步 开启）');
+    } catch (te) { logger.warn('[init]', '初始化自动联网对时失败，跳过:', te.message); }
+
     // V8.2: 从 system_config 载入 VRChat cookie 软性过期时间（天），超管后台可调、无需重启
     try {
       const [rows] = await getPool().query(

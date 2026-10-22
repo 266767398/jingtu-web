@@ -1640,6 +1640,30 @@
             <button type="button" id="timeSyncBtn" class="btn btn-accent btn-sm"><span aria-hidden="true">🕐 </span><span data-i18n="admin.time.sync">同步时间</span></button>
           </div>
           <div id="timeSyncResult" class="text-13 mt-8"></div>
+
+          <!-- 🌐 自动联网对时：定时向公网时间源校准，日志/业务时间自动跟随标准时间 -->
+          <div class="admin-subsection mt-12" id="timeAutoSyncBlock">
+            <h4><span aria-hidden="true">🌐 </span><span data-i18n="admin.time.auto_title">自动联网对时</span></h4>
+            <p class="admin-subsection-hint" data-i18n="admin.time.auto_hint">定时向多个公网时间源（NTP + HTTP）取标准 UTC，自动计算本机时钟漂移并补偿日志等应用时间；漂移超过 3 秒会写入告警。容器内默认无法改系统时钟（共享宿主内核），如需根治请在 NAS 宿主开启 NTP。</p>
+            <div id="timeAutoSyncStatus" class="text-13"></div>
+            <div class="flex-row gap-8 items-center flex-wrap mt-8">
+              <label class="flex-row items-center gap-4 text-13">
+                <input type="checkbox" id="cfgTimeAutoSync">
+                <span data-i18n="admin.time.auto_enable">启用自动联网对时</span>
+              </label>
+              <label class="text-13 text-muted2 ml-8" data-i18n="admin.time.auto_interval">间隔（分钟）</label>
+              <input type="number" id="cfgTimeAutoInterval" class="search-box m-0" style="width:88px" min="5" max="1440" step="5" value="30" aria-label="自动对时间隔">
+              <label class="flex-row items-center gap-4 text-13 ml-8" title="需容器以 root 运行且授予 CAP_SYS_TIME；默认关闭避免影响宿主时钟">
+                <input type="checkbox" id="cfgTimeSetClock">
+                <span data-i18n="admin.time.auto_set_clock">允许校正系统时钟</span>
+              </label>
+            </div>
+            <div class="flex-row gap-8 items-center flex-wrap mt-8">
+              <button type="button" id="timeAutoSyncSaveBtn" class="btn btn-accent btn-sm"><span data-i18n="admin.time.auto_save">保存自动对时</span></button>
+              <button type="button" id="timeSyncNowBtn" class="btn btn-sm"><span aria-hidden="true">⏱ </span><span data-i18n="admin.time.auto_now">立即联网对时</span></button>
+            </div>
+            <div id="timeAutoSyncResult" class="text-13 mt-8"></div>
+          </div>
         </div>
         <!-- ⬆️ 在线更新（超管专属，GIT 拉取 + 自动重启；不触碰 .env/数据库/uploads 等用户数据） -->
         <div class="admin-subsection" id="gitUpdateSection">

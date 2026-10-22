@@ -3723,4 +3723,11 @@ window._LANG_ZH = {
   "admin.time.hint": "容器默认 UTC 时，日志时间戳、签到/生日跨天、定时任务会整体错 8 小时。点击「同步时间」一键把应用进程与数据库连接统一到目标时区（默认东八区），立即生效并写入 .env 持久化。",
   "admin.time.tz_label": "目标时区",
   "admin.time.sync": "同步时间",
+  "admin.time.auto_title": "自动联网对时",
+  "admin.time.auto_hint": "定时向多个公网时间源（NTP + HTTP）取标准 UTC，自动计算本机时钟漂移并补偿日志等应用时间；漂移超过 3 秒会写入告警。容器内默认无法改系统时钟（共享宿主内核），如需根治请在 NAS 宿主开启 NTP。",
+  "admin.time.auto_enable": "启用自动联网对时",
+  "admin.time.auto_interval": "间隔（分钟）",
+  "admin.time.auto_set_clock": "允许校正系统时钟",
+  "admin.time.auto_save": "保存自动对时",
+  "admin.time.auto_now": "立即联网对时",
 };

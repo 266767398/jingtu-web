@@ -3719,4 +3719,11 @@ window._LANG_JA = {
   "admin.time.hint": "コンテナがデフォルトで UTC の場合、ログのタイムスタンプ、チェックイン／誕生日の日付またぎ、定期タスクが 8 時間ずれます。「時刻を同期」をクリックすると、アプリプロセスとデータベース接続を対象タイムゾーン（既定は UTC+8）に揃え、即時反映して .env に保存します。",
   "admin.time.tz_label": "対象タイムゾーン",
   "admin.time.sync": "時刻を同期",
+  "admin.time.auto_title": "自動ネットワーク時刻同期",
+  "admin.time.auto_hint": "複数の公開時刻源（NTP + HTTP）から標準 UTC を定期的に取得し、ローカル時計のずれを計算してログなどのアプリ時刻を補正します。ずれが 3 秒を超えると警告を記録します。コンテナは通常システム時計を変更できません（ホストカーネル共有）。根本的な解決には NAS ホスト側で NTP を有効にしてください。",
+  "admin.time.auto_enable": "自動ネットワーク時刻同期を有効化",
+  "admin.time.auto_interval": "間隔（分）",
+  "admin.time.auto_set_clock": "システム時計の補正を許可",
+  "admin.time.auto_save": "自動同期を保存",
+  "admin.time.auto_now": "今すぐネットワークと同期",
 };

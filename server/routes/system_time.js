@@ -22,6 +22,7 @@ const path = require('path');
 const { ok, sendError, ErrorCodes, logOper } = require('../utils');
 const { requireSuperAdmin } = require('../auth');
 const { getPool, setDbTimezone } = require('../db');
+const timeService = require('../time_service');
 const logger = require('../logger');
 
 const router = express.Router();
@@ -112,7 +113,8 @@ async function collectStatus() {
     driftSeconds: null,
     defaultTz: DEFAULT_TZ,
     candidates: CANDIDATE_TZ,
-    sqlite: SQLITE_MODE
+    sqlite: SQLITE_MODE,
+    autoSync: timeService.getStatus()
   };
 
   try {
@@ -242,6 +244,59 @@ router.post('/admin/time-sync', requireSuperAdmin, async (req, res) => {
   } catch (e) {
     logger.error('[admin/time-sync]', e.message);
     sendError(res, 500, ErrorCodes.INTERNAL_ERROR, '时间同步失败：' + (e.message || '未知错误'));
+  }
+});
+
+// ==================== 自动联网对时：配置开关 ====================
+router.post('/admin/time-auto-sync', requireSuperAdmin, async (req, res) => {
+  const body = req.body || {};
+  const enabled = typeof body.enabled === 'boolean' ? body.enabled : undefined;
+  const allowSystemClockSet = typeof body.allowSystemClockSet === 'boolean' ? body.allowSystemClockSet : undefined;
+  let intervalMinutes;
+  if (body.intervalMinutes !== undefined) {
+    intervalMinutes = Math.floor(Number(body.intervalMinutes));
+    if (!Number.isFinite(intervalMinutes) || intervalMinutes < timeService.MIN_INTERVAL || intervalMinutes > timeService.MAX_INTERVAL) {
+      return sendError(res, 400, ErrorCodes.BAD_REQUEST,
+        `对时间隔需在 ${timeService.MIN_INTERVAL}~${timeService.MAX_INTERVAL} 分钟之间`);
+    }
+  }
+  try {
+    const status = await timeService.saveConfig({ enabled, intervalMinutes, allowSystemClockSet });
+    try {
+      logOper(req.session.userId, 'time_auto_sync',
+        `自动联网对时：${enabled === undefined ? '未改开关' : (enabled ? '开启' : '关闭')}；间隔 ${status.intervalMinutes} 分钟；系统时钟校正 ${status.allowSystemClockSet ? '允许' : '禁止'}`);
+    } catch (e) { logger.warn('[admin/time-auto-sync]', '写操作日志失败：' + (e.message || e)); }
+
+    ok(res, {
+      message: status.enabled ? '自动联网对时已开启' : '自动联网对时已关闭',
+      autoSync: status
+    });
+  } catch (e) {
+    logger.error('[admin/time-auto-sync]', e.message);
+    sendError(res, 500, ErrorCodes.INTERNAL_ERROR, '保存自动对时配置失败：' + (e.message || '未知错误'));
+  }
+});
+
+// ==================== 自动联网对时：立即执行一次 ====================
+router.post('/admin/time-sync-now', requireSuperAdmin, async (req, res) => {
+  try {
+    const result = await timeService.runCheck('manual');
+    if (!result.ok) {
+      return sendError(res, 502, ErrorCodes.INTERNAL_ERROR, '联网对时失败：' + (result.error || '未知错误'));
+    }
+    try {
+      logOper(req.session.userId, 'time_sync_now',
+        `立即联网对时：漂移 ${result.offsetMs}ms（来源 ${result.source}，${result.samples} 个时间源）`);
+    } catch (e) { logger.warn('[admin/time-sync-now]', '写操作日志失败：' + (e.message || e)); }
+
+    ok(res, {
+      message: '联网对时完成',
+      result,
+      autoSync: timeService.getStatus()
+    });
+  } catch (e) {
+    logger.error('[admin/time-sync-now]', e.message);
+    sendError(res, 500, ErrorCodes.INTERNAL_ERROR, '联网对时失败：' + (e.message || '未知错误'));
   }
 });
 

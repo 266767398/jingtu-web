@@ -3721,4 +3721,11 @@ window._LANG_EN = {
   "admin.time.hint": "When the container defaults to UTC, log timestamps, check-in/birthday day-crossing, and scheduled tasks drift by 8 hours. Click \"Sync Time\" to align the app process and database connections to the target timezone (default UTC+8), applied immediately and persisted to .env.",
   "admin.time.tz_label": "Target timezone",
   "admin.time.sync": "Sync Time",
+  "admin.time.auto_title": "Automatic Network Time Sync",
+  "admin.time.auto_hint": "Periodically fetches standard UTC from multiple public time sources (NTP + HTTP), computes the local clock drift and compensates application time such as logs; drift over 3 seconds raises a warning. Containers normally cannot change the system clock (shared host kernel) — enable NTP on the NAS host to fix it at the root.",
+  "admin.time.auto_enable": "Enable automatic network time sync",
+  "admin.time.auto_interval": "Interval (minutes)",
+  "admin.time.auto_set_clock": "Allow correcting the system clock",
+  "admin.time.auto_save": "Save auto-sync",
+  "admin.time.auto_now": "Sync with network now",
 };

@@ -325,6 +325,8 @@
   "POST /api/admin/git-restart",
   "GET /api/admin/time-status",
   "POST /api/admin/time-sync",
+  "POST /api/admin/time-auto-sync",
+  "POST /api/admin/time-sync-now",
   "GET /api/album/categories",
   "POST /api/album/categories",
   "DELETE /api/album/categories/:id",

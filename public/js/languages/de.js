@@ -3719,4 +3719,11 @@ window._LANG_DE = {
   "admin.time.hint": "Wenn der Container standardmäßig UTC verwendet, weichen Log-Zeitstempel, Check-in-/Geburtstags-Tageswechsel und geplante Aufgaben um 8 Stunden ab. Mit „Zeit synchronisieren“ werden Anwendungsprozess und Datenbankverbindungen auf die Zielzeitzone (Standard UTC+8) ausgerichtet, sofort wirksam und in .env gespeichert.",
   "admin.time.tz_label": "Zielzeitzone",
   "admin.time.sync": "Zeit synchronisieren",
+  "admin.time.auto_title": "Automatische Netzwerkzeit-Synchronisierung",
+  "admin.time.auto_hint": "Ruft regelmäßig die Standard-UTC von mehreren öffentlichen Zeitquellen (NTP + HTTP) ab, berechnet die lokale Uhrzeitabweichung und gleicht Anwendungszeiten wie Protokolle aus; bei mehr als 3 Sekunden Abweichung wird gewarnt. Container können die Systemuhr normalerweise nicht ändern (gemeinsamer Host-Kernel) — für eine dauerhafte Lösung NTP auf dem NAS-Host aktivieren.",
+  "admin.time.auto_enable": "Automatische Netzwerkzeit-Synchronisierung aktivieren",
+  "admin.time.auto_interval": "Intervall (Minuten)",
+  "admin.time.auto_set_clock": "Korrektur der Systemuhr erlauben",
+  "admin.time.auto_save": "Auto-Sync speichern",
+  "admin.time.auto_now": "Jetzt mit Netzwerk synchronisieren",
 };
