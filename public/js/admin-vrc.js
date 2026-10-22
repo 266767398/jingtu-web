@@ -927,8 +927,17 @@ function renderTimeAutoSync(auto) {
   if (auto.lastError) {
     lines.push('<div class="git-update-line text-warn">⚠ 最近一次失败：' + gitEsc(auto.lastError) + '（成功 ' + gitEsc(auto.successCount || 0) + ' / 失败 ' + gitEsc(auto.failCount || 0) + '）</div>');
   }
+  if (auto.dbDrift) {
+    if (auto.dbDrift.ok) {
+      lines.push('<div class="git-update-line text-success">🗄 全站数据库时间：会话时区 <b>' + gitEsc(auto.dbDrift.offset) + '</b>'
+        + (auto.dbDrift.driftMinutes ? '（已平移 ' + (auto.dbDrift.driftMinutes > 0 ? '+' : '') + gitEsc(auto.dbDrift.driftMinutes) + ' 分钟）' : '（无平移）')
+        + ' · 余差 ' + fmtDriftMs(auto.dbDrift.remainderMs || 0) + '</div>');
+    } else if (auto.dbDrift.reason) {
+      lines.push('<div class="git-update-line text-warn">🗄 数据库时间未能平移：' + gitEsc(auto.dbDrift.reason) + '</div>');
+    }
+  }
   if (!auto.systemClockWritable) {
-    lines.push('<div class="git-update-line text-muted2">当前进程非 root：只能做应用层漂移补偿；彻底校正时钟请在 NAS 宿主开启 NTP 服务</div>');
+    lines.push('<div class="git-update-line text-muted2">当前进程无校时权限：已用「应用层补偿 + 数据库会话时区平移」让全站时间对齐；如需修正内核时钟本身，请在 NAS 宿主开启 NTP</div>');
   }
   box.innerHTML = lines.join('');
 }
@@ -986,10 +995,22 @@ async function runTimeSyncNow() {
     if (resultEl) {
       const drift = Number(r.offsetMs) || 0;
       const cls = Math.abs(drift) <= 1000 ? 'text-success' : (Math.abs(drift) <= 3000 ? 'text-warn' : 'text-red');
-      resultEl.innerHTML = '<span class="text-success">✅ ' + gitEsc(d.message || '联网对时完成') + '</span>'
-        + '<div class="text-12 text-muted2 mt-4">漂移 <b class="' + cls + '">' + fmtDriftMs(drift) + '</b>'
+      let html = '<span class="text-success">✅ ' + gitEsc(d.message || '联网校时完成') + '</span>'
+        + '<div class="text-12 text-muted2 mt-4">时钟漂移 <b class="' + cls + '">' + fmtDriftMs(drift) + '</b>'
         + ' · 来源 ' + gitEsc(r.source || '-') + '（' + gitEsc(r.samples || 0) + ' 源，RTT ' + gitEsc(r.rttMs || 0) + 'ms）'
         + ' · 耗时 ' + gitEsc(r.elapsedMs || 0) + 'ms</div>';
+      const dd = r.dbDrift;
+      if (dd && dd.ok) {
+        html += '<div class="text-12 text-success mt-4">🗄 全站数据库时间已对齐：会话时区 ' + gitEsc(dd.offset)
+          + (dd.changed ? '（平移 ' + (dd.driftMinutes > 0 ? '+' : '') + gitEsc(dd.driftMinutes) + ' 分钟）' : '（无变化）')
+          + '，余差 ' + fmtDriftMs(dd.remainderMs || 0) + '</div>';
+      } else if (dd && dd.reason) {
+        html += '<div class="text-12 text-warn mt-4">🗄 数据库时间未能平移：' + gitEsc(dd.reason) + '</div>';
+      }
+      if (r.clockFix && r.clockFix.ok) {
+        html += '<div class="text-12 text-success mt-4">✅ 系统时钟已一并校正</div>';
+      }
+      resultEl.innerHTML = html;
     }
     loadTimeSyncStatus();
   } catch (err) {

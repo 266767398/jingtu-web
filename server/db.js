@@ -1496,13 +1496,31 @@ function initSQLitePatch() {
   return true;
 }
 
-// createPoolWithoutDB：sqlite 模式直接构建 SQLite 池；MySQL 模式用真实 mysql2
-function createPoolWithoutDB() {
-  if (SQLITE_MODE) {
-    holder.pool = createSQLitePool();
-    return;
-  }
-  holder.pool = mysql.createPool({
+// 基准会话时区（.env 的 DB_TZ 或默认 +08:00），用于「联网校时」时在其上叠加时钟漂移折算
+const BASE_DB_TZ = DB_CONFIG.timezone;
+
+/** '+08:00' / '-05:30' → 分钟数；命名时区（如 Asia/Shanghai）返回 null（无法折算漂移） */
+function parseOffsetMinutes(tz) {
+  const m = /^([+-])(\d{2}):(\d{2})$/.exec(String(tz || '').trim());
+  if (!m) return null;
+  const sign = m[1] === '-' ? -1 : 1;
+  return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3], 10));
+}
+
+/** 分钟数 → '+08:04' 形式 */
+function formatOffsetMinutes(minutes) {
+  const sign = minutes >= 0 ? '+' : '-';
+  const abs = Math.abs(minutes);
+  return sign + String(Math.floor(abs / 60)).padStart(2, '0') + ':' + String(abs % 60).padStart(2, '0');
+}
+
+/**
+ * 统一创建 MySQL 连接池。
+ * 每个新连接建立后立刻 SET time_zone——MySQL 的会话时区只影响当前连接，
+ * 不逐连接设置的话，池里其余连接的 NOW()/DEFAULT CURRENT_TIMESTAMP 仍走默认值。
+ */
+function createMysqlPool() {
+  const pool = mysql.createPool({
     ...DB_CONFIG,
     database: holder.dbName,
     waitForConnections: true,
@@ -1511,6 +1529,28 @@ function createPoolWithoutDB() {
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000
   });
+  const core = pool.pool || pool;
+  if (core && typeof core.on === 'function') {
+    core.on('connection', (conn) => {
+      const tz = DB_CONFIG.timezone;
+      if (!tz) return;
+      try {
+        conn.query('SET time_zone = ?', [tz], (err) => {
+          if (err) logger.warn('db', '设置连接会话时区失败（' + tz + '）：' + err.message);
+        });
+      } catch (e) { logger.warn('db', '设置连接会话时区异常：' + (e.message || e)); }
+    });
+  }
+  return pool;
+}
+
+// createPoolWithoutDB：sqlite 模式直接构建 SQLite 池；MySQL 模式用真实 mysql2
+function createPoolWithoutDB() {
+  if (SQLITE_MODE) {
+    holder.pool = createSQLitePool();
+    return;
+  }
+  holder.pool = createMysqlPool();
 }
 
 function recreatePool() {
@@ -1523,15 +1563,38 @@ function recreatePool() {
     holder.pool = createSQLitePool();
     return;
   }
-  holder.pool = mysql.createPool({
-    ...DB_CONFIG,
-    database: holder.dbName,
-    waitForConnections: true,
-    connectionLimit: 50,
-    queueLimit: 100,
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 10000
-  });
+  holder.pool = createMysqlPool();
+}
+
+/**
+ * 把时钟漂移折算进数据库会话时区（不改容器/系统时钟的前提下，让全站 DB 时间对齐）。
+ *
+ * 原理：MySQL 的 time_zone 偏移支持到分钟（'+08:04'），而 DEFAULT CURRENT_TIMESTAMP、
+ * NOW()、ON UPDATE CURRENT_TIMESTAMP 全部按会话时区取值。把「漂移分钟数」叠加到基准
+ * 时区上，全站写入/读取时间即整体平移，误差不超过 30 秒（分钟取整的余数）。
+ * 分钟数没变化时不重建连接池，避免无谓抖动。
+ *
+ * @param {number} offsetMs 本机相对网络标准时间的漂移（正=本机慢，需向前拨）
+ * @param {string} [baseTz] 基准会话时区，默认取 .env 的 DB_TZ
+ */
+function applyTimeDrift(offsetMs, baseTz) {
+  if (SQLITE_MODE) {
+    return { ok: false, reason: 'SQLite 模式无会话时区，无法折算时钟漂移' };
+  }
+  const base = baseTz || BASE_DB_TZ;
+  const baseMin = parseOffsetMinutes(base);
+  if (baseMin === null) {
+    return { ok: false, reason: '基准时区 ' + base + ' 不是偏移格式（如 +08:00），无法折算漂移' };
+  }
+  const driftMinutes = Math.round(Number(offsetMs || 0) / 60000);
+  const target = formatOffsetMinutes(baseMin + driftMinutes);
+  const remainderMs = Number(offsetMs || 0) - driftMinutes * 60000;
+  if (target === DB_CONFIG.timezone) {
+    return { ok: true, unchanged: true, offset: target, driftMinutes, remainderMs };
+  }
+  DB_CONFIG.timezone = target;
+  recreatePool();
+  return { ok: true, changed: true, offset: target, baseTz: base, driftMinutes, remainderMs };
 }
 
 // §恢复：运行时用新配置重建连接池（无需重启进程）。
@@ -1626,6 +1689,8 @@ module.exports = {
   getPool,
   recreatePool,
   setDbTimezone,
+  applyTimeDrift,
+  BASE_DB_TZ,
   setDbShuttingDown,
   applyDbConfig,
   transformSQL,

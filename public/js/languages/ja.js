@@ -3725,5 +3725,5 @@ window._LANG_JA = {
   "admin.time.auto_interval": "間隔（分）",
   "admin.time.auto_set_clock": "システム時計の補正を許可",
   "admin.time.auto_save": "自動同期を保存",
-  "admin.time.auto_now": "今すぐネットワークと同期",
+  "admin.time.auto_now": "サイト全体の時刻を今すぐ校正",
 };

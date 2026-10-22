@@ -3724,10 +3724,10 @@ window._LANG_ZH = {
   "admin.time.tz_label": "目标时区",
   "admin.time.sync": "同步时间",
   "admin.time.auto_title": "自动联网对时",
-  "admin.time.auto_hint": "定时向多个公网时间源（NTP + HTTP）取标准 UTC，自动计算本机时钟漂移并补偿日志等应用时间；漂移超过 3 秒会写入告警。容器内默认无法改系统时钟（共享宿主内核），如需根治请在 NAS 宿主开启 NTP。",
+  "admin.time.auto_hint": "定时向多个公网时间源（NTP + HTTP）取标准 UTC，自动计算本机时钟漂移：应用层时间（日志等）立即补偿，数据库会话时区按漂移分钟数整体平移，全站写入/读取时间（含默认时间戳）一起对齐，余差不超过 30 秒。容器内默认无法改内核时钟，如需精确到秒请在 NAS 宿主开启 NTP。",
   "admin.time.auto_enable": "启用自动联网对时",
   "admin.time.auto_interval": "间隔（分钟）",
   "admin.time.auto_set_clock": "允许校正系统时钟",
   "admin.time.auto_save": "保存自动对时",
-  "admin.time.auto_now": "立即联网对时",
+  "admin.time.auto_now": "一键联网校时（全站时间）",
 };

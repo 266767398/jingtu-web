@@ -21,7 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const { ok, sendError, ErrorCodes, logOper } = require('../utils');
 const { requireSuperAdmin } = require('../auth');
-const { getPool, setDbTimezone } = require('../db');
+const { getPool, setDbTimezone, applyTimeDrift } = require('../db');
 const timeService = require('../time_service');
 const logger = require('../logger');
 
@@ -215,6 +215,12 @@ router.post('/admin/time-sync', requireSuperAdmin, async (req, res) => {
       } catch (e) {
         dbError = dbError || (e.message || String(e));
       }
+      // 切换时区会重置会话时区，这里把已测得的时钟漂移重新折算回去，
+      // 否则「联网校时」的 DB 时间平移会被时区同步覆盖掉。
+      try {
+        const drift = timeService.getStatus().offsetMs;
+        if (drift) applyTimeDrift(drift, offset);
+      } catch (e) { dbError = dbError || (e.message || String(e)); }
     }
 
     // 3) 持久化：写 .env 的 TZ，重启后仍按该时区

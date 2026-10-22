@@ -3725,5 +3725,5 @@ window._LANG_RU = {
   "admin.time.auto_interval": "Интервал (минуты)",
   "admin.time.auto_set_clock": "Разрешить коррекцию системных часов",
   "admin.time.auto_save": "Сохранить автосинхронизацию",
-  "admin.time.auto_now": "Синхронизировать с сетью сейчас",
+  "admin.time.auto_now": "Откалибровать всё время сайта сейчас",
 };

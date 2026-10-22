@@ -3725,5 +3725,5 @@ window._LANG_DE = {
   "admin.time.auto_interval": "Intervall (Minuten)",
   "admin.time.auto_set_clock": "Korrektur der Systemuhr erlauben",
   "admin.time.auto_save": "Auto-Sync speichern",
-  "admin.time.auto_now": "Jetzt mit Netzwerk synchronisieren",
+  "admin.time.auto_now": "Jetzt die gesamte Website-Zeit kalibrieren",
 };

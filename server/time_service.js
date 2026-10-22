@@ -22,6 +22,7 @@
  *   getStatus()            —— 面板展示用状态快照
  */
 const dgram = require('dgram');
+const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const { execFile } = require('child_process');
@@ -46,6 +47,8 @@ const PROBE_TIMEOUT_MS = 5000;
 const MAX_SANE_OFFSET_MS = 30 * 24 * 3600 * 1000;
 // 漂移告警阈值：超过 3 秒就值得提醒（跨天判定、日志排序会受影响）
 const DRIFT_WARN_MS = 3000;
+// 系统时钟校正的最小触发漂移：1 秒以内不值得冒时间跳变的风险
+const CLOCK_FIX_MIN_MS = 1000;
 
 const CFG_ENABLED = 'time_auto_sync';
 const CFG_INTERVAL = 'time_auto_sync_interval';
@@ -66,7 +69,8 @@ const state = {
   checking: false,
   timer: null,
   successCount: 0,
-  failCount: 0
+  failCount: 0,
+  dbDrift: null
 };
 
 let poolRef = null;
@@ -182,9 +186,21 @@ async function measureOnce() {
   };
 }
 
-/** 是否具备改系统时钟的条件（root + 通常还有 CAP_SYS_TIME） */
+/**
+ * 是否具备改系统时钟的条件：root + CAP_SYS_TIME。
+ * 容器里即使以 root 运行，未授予 CAP_SYS_TIME 时 date -s 仍会 EPERM，
+ * 所以必须读 /proc/self/status 的能力位（CAP_SYS_TIME = bit 25）而不是只看 uid。
+ */
 function canSetSystemClock() {
-  return typeof process.getuid === 'function' && process.getuid() === 0;
+  if (typeof process.getuid !== 'function' || process.getuid() !== 0) return false;
+  try {
+    const s = fs.readFileSync('/proc/self/status', 'utf8');
+    const m = s.match(/^CapEff:\s*([0-9a-fA-F]+)/m);
+    if (!m) return false;
+    return (BigInt('0x' + m[1]) & (1n << 25n)) !== 0n;
+  } catch (e) {
+    return false; // Windows / 无 /proc：只能在宿主侧校时
+  }
 }
 
 /** 真正把系统时钟校正到网络时间（默认关闭，仅在显式开启且 root 时执行） */
@@ -198,8 +214,34 @@ function setSystemClock(targetMs) {
   });
 }
 
+// 惰性引用 db：db.js 不依赖本模块，这里延迟加载可避免启动期加载顺序问题
+let _dbRef = null;
+function dbRef() {
+  if (_dbRef === null) {
+    try { _dbRef = require('./db'); } catch (e) { _dbRef = false; }
+  }
+  return _dbRef || null;
+}
+
 /**
- * 执行一次完整对时：采样 → 落状态 → 告警 →（可选）校系统时钟。
+ * 把当前漂移折算进数据库会话时区——不改容器也能让全站 DB 时间（含
+ * DEFAULT CURRENT_TIMESTAMP）整体对齐网络标准时间。
+ * 误差为分钟取整余数（<30 秒），在面板状态里以 remainderMs 明示。
+ */
+function applyDriftToDb() {
+  const db = dbRef();
+  if (!db || typeof db.applyTimeDrift !== 'function') return null;
+  try {
+    return db.applyTimeDrift(state.offsetMs);
+  } catch (e) {
+    const lg = log();
+    if (lg) lg.warn('time-sync', '折算数据库会话时区失败：' + (e.message || e));
+    return { ok: false, reason: e.message || String(e) };
+  }
+}
+
+/**
+ * 执行一次完整对时：采样 → 应用层补偿 → DB 会话时区折算 →（可选）校系统时钟。
  * 并发保护：上一次还没跑完就直接返回，避免定时器与手动按钮叠加打满网络。
  */
 async function runCheck(reason = 'manual') {
@@ -223,10 +265,19 @@ async function runCheck(reason = 'manual') {
     state.lastError = null;
     state.successCount += 1;
 
+    // 全站 DB 时间对齐：把漂移分钟数折算进会话时区（覆盖 NOW()/DEFAULT CURRENT_TIMESTAMP）
+    state.dbDrift = applyDriftToDb();
+
     let clockFix = null;
-    if (state.allowSystemClockSet && canSetSystemClock() && Math.abs(r.offsetMs) > DRIFT_WARN_MS) {
+    if (state.allowSystemClockSet && canSetSystemClock() && Math.abs(r.offsetMs) > CLOCK_FIX_MIN_MS) {
       clockFix = await setSystemClock(Date.now() + r.offsetMs);
-      if (!clockFix.ok) {
+      if (clockFix.ok) {
+        // 系统时钟已准：清掉应用层补偿与 DB 折算，否则会双重偏移。
+        // 复测一次取残余漂移（date 设置后内核时钟可能仍有微小误差）。
+        const verify = await measureOnce();
+        state.offsetMs = verify.ok ? verify.offsetMs : 0;
+        state.dbDrift = applyDriftToDb();
+      } else {
         const lg = log();
         if (lg) lg.warn('time-sync', `[${reason}] 系统时钟校正失败（容器通常无 CAP_SYS_TIME）：${clockFix.error}`);
       }
@@ -235,20 +286,25 @@ async function runCheck(reason = 'manual') {
     state.lastResult = {
       reason,
       offsetMs: r.offsetMs,
+      appliedOffsetMs: state.offsetMs,
       source: r.source,
       rttMs: r.rttMs,
       samples: r.samples,
       elapsedMs: Date.now() - startedAt,
       clockFix,
+      dbDrift: state.dbDrift,
       at: new Date().toISOString()
     };
 
     const lg = log();
     if (lg) {
+      const dbNote = state.dbDrift && state.dbDrift.ok
+        ? (state.dbDrift.changed ? `，DB 会话时区已调至 ${state.dbDrift.offset}（余差 ${state.dbDrift.remainderMs}ms）` : `，DB 会话时区不变（${state.dbDrift.offset}）`)
+        : '';
       if (Math.abs(r.offsetMs) > DRIFT_WARN_MS) {
-        lg.warn('time-sync', `[${reason}] 检测到时钟漂移 ${r.offsetMs}ms（来源 ${r.source}/${r.samples} 源，RTT ${r.rttMs}ms），应用层已补偿`);
+        lg.warn('time-sync', `[${reason}] 检测到时钟漂移 ${r.offsetMs}ms（来源 ${r.source}/${r.samples} 源，RTT ${r.rttMs}ms），应用层已补偿${dbNote}`);
       } else {
-        lg.info('time-sync', `[${reason}] 对时完成，漂移 ${r.offsetMs}ms（来源 ${r.source}/${r.samples} 源）`);
+        lg.info('time-sync', `[${reason}] 对时完成，漂移 ${r.offsetMs}ms（来源 ${r.source}/${r.samples} 源）${dbNote}`);
       }
     }
     return { ok: true, ...state.lastResult };
@@ -369,6 +425,7 @@ function getStatus() {
     checking: state.checking,
     successCount: state.successCount,
     failCount: state.failCount,
+    dbDrift: state.dbDrift,
     sources: { ntp: NTP_SOURCES.slice(), http: HTTP_SOURCES.slice() }
   };
 }
