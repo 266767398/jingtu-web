@@ -18,6 +18,7 @@ const { requireAuth } = require('./auth');
 const logger = require('./logger');
 const securityAlert = require('./security_alert');
 const { buildSession, sessionUser } = require('./auth_session');
+const { appNow } = require('./time_service');
 
 // P3-70: 2FA 验证码每 token 失败次数上限——≥MAX 即删除登录会话并触发安全告警
 const MAX_2FA_ATTEMPTS = 5;
@@ -185,8 +186,8 @@ router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
       }
       const boundUser = boundUsers[0];
 
-      if (boundUser.locked_until && new Date(boundUser.locked_until) > new Date()) {
-        const lockMinutes = Math.ceil((new Date(boundUser.locked_until) - new Date()) / 60000);
+      if (boundUser.locked_until && new Date(boundUser.locked_until) > appNow()) {
+        const lockMinutes = Math.ceil((new Date(boundUser.locked_until) - appNow()) / 60000);
         return fail(res, 423, `账户已被锁定，请${lockMinutes}分钟后再试`, { code: 'ACCOUNT_LOCKED', lockMinutes });
       }
       if (!boundUser.approved || boundUser.approved === 0) {
@@ -282,8 +283,8 @@ router.post('/vrchat-login', vrcLoginLimiter, async (req, res) => {
     const boundUser = boundUsers[0];
 
     // 账户锁定检查
-    if (boundUser.locked_until && new Date(boundUser.locked_until) > new Date()) {
-      const lockMinutes = Math.ceil((new Date(boundUser.locked_until) - new Date()) / 60000);
+    if (boundUser.locked_until && new Date(boundUser.locked_until) > appNow()) {
+      const lockMinutes = Math.ceil((new Date(boundUser.locked_until) - appNow()) / 60000);
       return fail(res, 423, `账户已被锁定，请${lockMinutes}分钟后再试`, { code: 'ACCOUNT_LOCKED', lockMinutes });
     }
 
@@ -354,8 +355,8 @@ router.post('/vrchat-2fa', vrc2faLimiter, async (req, res) => {
     }
     const boundUser = boundUsers[0];
 
-    if (boundUser.locked_until && new Date(boundUser.locked_until) > new Date()) {
-      const lockMinutes = Math.ceil((new Date(boundUser.locked_until) - new Date()) / 60000);
+    if (boundUser.locked_until && new Date(boundUser.locked_until) > appNow()) {
+      const lockMinutes = Math.ceil((new Date(boundUser.locked_until) - appNow()) / 60000);
       return fail(res, 423, `账户已被锁定，请${lockMinutes}分钟后再试`, { code: 'ACCOUNT_LOCKED', lockMinutes });
     }
     if (!boundUser.approved || boundUser.approved === 0) {

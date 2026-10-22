@@ -6,6 +6,7 @@ const { sendSystemAlert } = require('./mailer');
 const cache = require('./cache');
 const logger = require('./logger');
 const { createBackup, cleanupAutoBackups } = require('./backup-core');
+const { appNow } = require('./time_service');
 
 const jobs = [];
 
@@ -24,8 +25,9 @@ async function alertThrottled(key, subject, message) {
 }
 
 // P2-71：所有任务统一按北京时间判定「今天」，避免 UTC 与 +08:00 双时钟错位
+// 时钟走偏时以校准后的时间取日期（appNow），与数据库（会话时区已折算同源）保持一致
 function todayBeijing() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(appNow());
 }
 
 // P3-47: 计算北京时间「次日」日期字符串，用于范围查询上界

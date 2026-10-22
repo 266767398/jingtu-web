@@ -10,6 +10,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { ok, getPool, handleError, sendError, ErrorCodes, paginate } = require('../utils');
 const { requireAuth, requireRole } = require('../auth');
+const { appNow } = require('../time_service');
 
 const router = express.Router();
 
@@ -156,9 +157,9 @@ async function jttAuth(req, res, next) {
     if (!accountId || !timestamp || !nonce || !signature) {
       return sendError(res, 401, ErrorCodes.JTT_SIGNATURE_INVALID, '缺少 JTT 签名请求头');
     }
-    // 时间戳窗口校验（±300s）
+    // 时间戳窗口校验（±300s）：客户端用真实时间签名，本机时钟走偏时以校准时间比对
     const ts = parseInt(timestamp, 10);
-    if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > SIGNATURE_WINDOW_SEC) {
+    if (!Number.isFinite(ts) || Math.abs(appNow().getTime() / 1000 - ts) > SIGNATURE_WINDOW_SEC) {
       return sendError(res, 401, ErrorCodes.JTT_TIMESTAMP_STALE, '请求时间戳超窗');
     }
     // 1) 按 accountId 查 jtt_accounts 加载账号：无记录 → 401 JTT_ACCOUNT_NOT_FOUND；
@@ -172,7 +173,7 @@ async function jttAuth(req, res, next) {
     if (account.revoked) {
       return sendError(res, 401, ErrorCodes.JTT_ACCOUNT_REVOKED, '账号文件已撤销');
     }
-    if (account.expires_at && new Date(account.expires_at).getTime() < Date.now()) {
+    if (account.expires_at && new Date(account.expires_at).getTime() < appNow().getTime()) {
       return sendError(res, 401, ErrorCodes.JTT_ACCOUNT_EXPIRED, '账号文件已过期');
     }
     // 2) nonce 防重放：内存 Map（重启失效，契约 §7-2 接受；可换 jtt_nonce 表），重复 nonce → 401
@@ -260,7 +261,7 @@ router.post('/accounts/issue', requireRole('super_admin'), async (req, res) => {
     const fingerprint = fingerprintOf(publicKey);
     const issuedBy = req.session.userId || null;
     const expiresAt = Number.isFinite(expiresInDays) && expiresInDays > 0
-      ? new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000)
+      ? new Date(appNow().getTime() + expiresInDays * 24 * 60 * 60 * 1000)
       : null;
     const permsJson = Array.isArray(permissions) ? JSON.stringify(permissions) : null;
     const roomsJson = Array.isArray(allowedRooms) ? JSON.stringify(allowedRooms) : null;
@@ -277,7 +278,7 @@ router.post('/accounts/issue', requireRole('super_admin'), async (req, res) => {
       permissions: Array.isArray(permissions) ? permissions : null,
       allowedRooms: Array.isArray(allowedRooms) ? allowedRooms : null,
       issuedBy,
-      issuedAt: new Date(),
+      issuedAt: appNow(),
       expiresAt,
       publicKey,
       fingerprint
@@ -342,7 +343,7 @@ router.get('/accounts/export/:id', requireRole('super_admin'), async (req, res) 
     if (row.revoked) {
       return sendError(res, 409, ErrorCodes.JTT_ACCOUNT_REVOKED, '账号文件已撤销，无法导出');
     }
-    if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) {
+    if (row.expires_at && new Date(row.expires_at).getTime() < appNow().getTime()) {
       return sendError(res, 409, ErrorCodes.JTT_ACCOUNT_EXPIRED, '账号文件已过期，无法导出');
     }
     const file = buildAccountFile(row);
@@ -419,7 +420,7 @@ router.post('/accounts/verify', jttAuth, async (req, res) => {
     if (r.revoked) {
       return res.json({ valid: false, reason: 'revoked' });
     }
-    if (r.expires_at && new Date(r.expires_at).getTime() < Date.now()) {
+    if (r.expires_at && new Date(r.expires_at).getTime() < appNow().getTime()) {
       return res.json({ valid: false, reason: 'expired' });
     }
     if ((fingerprint && r.fingerprint !== fingerprint) || (clientPublicKey && r.public_key !== clientPublicKey)) {
@@ -664,7 +665,7 @@ router.post('/bind-codes', requireRole('super_admin'), async (req, res) => {
       userId,
       displayName: finalDisplayName,
       role,
-      expiresAt: new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString()
+      expiresAt: new Date(appNow().getTime() + expiresInDays * 24 * 60 * 60 * 1000).toISOString()
     });
   } catch (e) { handleError(res, e, '[jtt/bind-codes/create]'); }
 });
@@ -691,7 +692,7 @@ router.post('/accounts/register', async (req, res) => {
     // ② 时间戳窗口校验（±300s，超窗 → 401 JTT_TIMESTAMP_STALE）+ nonce 防重放。
     // 先于绑定码状态分支，确保未签名/无效签名请求无法探测绑定码或账号的存在/使用状态
     const ts = parseInt(timestamp, 10);
-    if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > SIGNATURE_WINDOW_SEC) {
+    if (!Number.isFinite(ts) || Math.abs(appNow().getTime() / 1000 - ts) > SIGNATURE_WINDOW_SEC) {
       return sendError(res, 401, ErrorCodes.JTT_TIMESTAMP_STALE, '请求时间戳超窗');
     }
     const now = Date.now();
@@ -739,7 +740,7 @@ router.post('/accounts/register', async (req, res) => {
       }
       return sendError(res, 409, ErrorCodes.JTT_BIND_CODE_USED, '绑定码已使用');
     }
-    if (new Date(codeRow.expires_at).getTime() < Date.now()) {
+    if (new Date(codeRow.expires_at).getTime() < appNow().getTime()) {
       return sendError(res, 409, ErrorCodes.JTT_BIND_CODE_EXPIRED, '绑定码已过期');
     }
     // ④ accountId 未注册检查 + 落库（事务：jtt_accounts 插入 + 绑定码标记已用）

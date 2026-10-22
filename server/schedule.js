@@ -10,6 +10,7 @@ const { syncRosterFromVrc } = require('./routes/groups_helpers');
 const { syncBlacklistWithVrcBans } = require('./routes/admin_vrc_blacklist');
 // T-15/S-07：备份恢复期间跳过每分钟写库任务，避免灌库与 diff/INSERT 交错
 const { isRestoring } = require('./backup-core');
+const { appNow } = require('./time_service');
 
 const jobs = [];
 let notificationService = null;
@@ -170,11 +171,12 @@ function startSchedule() {
   jobs.push(schedule.scheduleJob('0 * * * * *', async () => {
     try {
       if (!notificationService) return;
-      const oneHourLater = new Date(Date.now() + 60 * 60 * 1000);
+      // 提醒窗口用校准时间计算：event_time 来自数据库（会话时区已折算），两侧同源
+      const oneHourLater = new Date(appNow().getTime() + 60 * 60 * 1000);
       const [events] = await dbMod.holder.pool.query(
         `SELECT id, title, event_time AS eventTime FROM event 
          WHERE event_time >= ? AND event_time < ? AND is_archive = 0`,
-        [oneHourLater, new Date(Date.now() + 61 * 60 * 1000)]
+        [oneHourLater, new Date(appNow().getTime() + 61 * 60 * 1000)]
       );
       for (const evt of events) {
         const [signups] = await dbMod.holder.pool.query(

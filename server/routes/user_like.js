@@ -7,13 +7,15 @@
 const express = require('express');
 const { getPool, handleError , sendError, ErrorCodes, paginate } = require('../utils');
 const { requireAuth } = require('../auth');
+const { appNow } = require('../time_service');
 
 module.exports = function (notificationService) {
   const router = express.Router();
 
   // P3-52: 与 tasks.js 按北京时间判定「今天」保持一致，修复 UTC 日期在东八区的半天偏差
+  // 用 appNow() 取校准时间：每日上限按「真实今天」计算，不受主机时钟走偏影响
   function todayBeijing() {
-    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(appNow());
   }
 
   // P3-52: 每日赞人上限（默认 20 人/天），防脚本批量刷赞 + 通知扇出轰炸

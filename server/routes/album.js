@@ -18,6 +18,7 @@ const { ok, getPool, logOper, handleError , sendError, ErrorCodes, createFileFil
 const { extractVideoThumbnail } = require('../video_utils');
 const { requireAdminCompat, ROLE_LEVEL, getAvatarUrl, currentRole, hasRole } = require('../auth');
 const logger = require('../logger');
+const { appNow } = require('../time_service');
 
 /**
  * @param {object} authStateRef - 系统 VRChat 认证状态的引用对象
@@ -328,7 +329,7 @@ module.exports = function (authStateRef, notificationService) {
       if (photo.eventId) {
         const [[evt]] = await getPool().query(`SELECT event_time AS eventTime, ends_at AS endsAt FROM event WHERE id=?`, [photo.eventId]);
         if (evt) {
-          const now = new Date();
+          const now = appNow();
           const ended = evt.endsAt ? now > new Date(evt.endsAt) : (evt.eventTime ? now > new Date(evt.eventTime) : false);
           if (ended) return sendError(res, 403, ErrorCodes.FORBIDDEN, '活动已结束，无法点赞');
         }

@@ -26,6 +26,7 @@ const { requireAuth, requireAdminCompat, requireSuperAdmin, getAvatarUrl, ROLE_L
 const { vrchatGetGroupEvents } = require('../vrc');
 const cacheService = require('../cache_service');
 const webhook = require('../webhook');
+const { appNow } = require('../time_service');
 
 
 
@@ -33,7 +34,7 @@ const webhook = require('../webhook');
 // 有结束时间且已过期 => 结束；无结束时间但开始时间已过 => 视为已开始且未定义结束，按“已结束”处理。
 function eventHasEnded(evt) {
   if (!evt) return false;
-  const now = new Date();
+  const now = appNow();
   const ends = evt.ends_at || evt.endsAt;
   const start = evt.event_time || evt.eventTime;
   if (ends) return now > new Date(ends);
@@ -324,7 +325,7 @@ router.get('/', async (req, res) => {
         checkinList = checkins;
       }
       // 结束状态：用于前端置灰/隐藏过期活动的操作入口
-      const now = new Date();
+      const now = appNow();
       const ended = evt.endsAt ? now > new Date(evt.endsAt) : (evt.eventTime ? now > new Date(evt.eventTime) : false);
       res.json({ ...evt, time: evt.eventTime, desc: evt.description, signedByMe, signCount: signCount[0].c, maxSign: evt.maxSign, signList, checkinList, checkinCount, ended });
     } catch (e) { handleError(res, e, '[events/detail]'); }

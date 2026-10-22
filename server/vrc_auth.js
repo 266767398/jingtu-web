@@ -17,6 +17,7 @@ const VRCPipeline = require('./vrc_pipeline');
 const schedule = require('./schedule');
 const { getPool, encryptCookie, decryptCookie } = require('./utils');
 const notificationService = require('./notification-service');
+const { appNow } = require('./time_service');
 const {
   vrchatBasicLogin,
   vrchatVerifyTwoFactor,
@@ -77,7 +78,8 @@ function generateTOTP(secret, timeStep = 30, digits = 6) {
   try {
     const key = base32Decode(secret);
     if (!key.length) return null;
-    const counter = Math.floor(Date.now() / (timeStep * 1000));
+    // 动态码要与 VRChat 服务端（真实时间）对齐：主机时钟走偏时用校准时间取计数器
+    const counter = Math.floor(appNow().getTime() / (timeStep * 1000));
     const counterBuf = Buffer.alloc(8);
     counterBuf.writeBigUInt64BE(BigInt(counter), 0);
     const hmac = crypto.createHmac('sha1', key).update(counterBuf).digest();

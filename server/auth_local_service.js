@@ -15,6 +15,7 @@ const logger = require('./logger');
 const { buildSession, sessionUser } = require('./auth_session');
 const activationCodes = require('./activation_code_service');
 const totp = require('./totp');
+const { appNow } = require('./time_service');
 
 // 路由注册委托：routes/auth_routes.js 原位调用，六个端点连中间件一并注册
 function registerLocalRoutes(router) {
@@ -407,13 +408,13 @@ router.post('/login', async (req, res) => {
       return fail(res, 401, '账户待审核，请联系管理员', { code: ErrorCodes.ACCOUNT_PENDING });
     }
 
-    if (user.locked_until && new Date(user.locked_until) > new Date()) {
-      const lockMinutes = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
+    if (user.locked_until && new Date(user.locked_until) > appNow()) {
+      const lockMinutes = Math.ceil((new Date(user.locked_until) - appNow()) / 60000);
       return fail(res, 423, `账户已被锁定，请${lockMinutes}分钟后再试`, { code: 'ACCOUNT_LOCKED', lockMinutes });
     }
     // S4 修复：锁定已期满但 failed_login_attempts 未清零（旧逻辑解锁后计数仍残留，
     // 首次再错即 ≥5 再次锁定，攻击者可借机对账户做持续性 DoS）。期满时先清零再放行。
-    if (user.locked_until && new Date(user.locked_until) <= new Date()) {
+    if (user.locked_until && new Date(user.locked_until) <= appNow()) {
       try {
         await getPool().query(`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?`, [user.id]);
         user.failed_login_attempts = 0; user.locked_until = null;
@@ -507,19 +508,19 @@ router.post('/2fa/verify', auth2faLimiter, async (req, res) => {
     if (rows.length === 0) return fail(res, 200, '登录失败，请重新登录', { code: 'LOGIN_FAILED' });
     const user = rows[0];
     if (!user.totp_enabled) return fail(res, 200, '该账号未开启两步验证', { code: '2FA_NOT_ENABLED' });
-    if (user.locked_until && new Date(user.locked_until) > new Date()) {
-      const lockMinutes = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
+    if (user.locked_until && new Date(user.locked_until) > appNow()) {
+      const lockMinutes = Math.ceil((new Date(user.locked_until) - appNow()) / 60000);
       return fail(res, 200, `账户已被锁定，请${lockMinutes}分钟后再试`, { code: 'ACCOUNT_LOCKED', lockMinutes });
     }
     // S4 修复：与密码登录同口径——锁定期满后先清零失败计数再放行，避免残留计数致首次再错即再锁
-    if (user.locked_until && new Date(user.locked_until) <= new Date()) {
+    if (user.locked_until && new Date(user.locked_until) <= appNow()) {
       try {
         await getPool().query(`UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?`, [user.id]);
         user.failed_login_attempts = 0; user.locked_until = null;
       } catch {}
     }
 
-    if (!totp.verifyTotp(user.totp_secret, trimmedCode)) {
+    if (!totp.verifyTotp(user.totp_secret, trimmedCode, { timestampMs: appNow().getTime() })) {
       // 失败计数与锁定策略与密码登录一致（原子递增，杜绝并发竞态）
       try {
         await getPool().query(`UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE id = ?`, [user.id]);
@@ -582,7 +583,7 @@ router.post('/totp/confirm', requireSuperAdmin, async (req, res) => {
     if (!/^\d{6}$/.test(trimmedCode)) return fail(res, 400, '请输入6位动态验证码', { code: '2FA_CODE_INVALID' });
     const [rows] = await getPool().query(`SELECT totp_secret FROM users WHERE id = ?`, [req.session.userId]);
     if (rows.length === 0 || !rows[0].totp_secret) return fail(res, 400, '请先生成验证密钥', { code: 'TOTP_SETUP_FIRST' });
-    if (!totp.verifyTotp(rows[0].totp_secret, trimmedCode)) return fail(res, 400, '动态验证码错误，请重试', { code: '2FA_CODE_WRONG' });
+    if (!totp.verifyTotp(rows[0].totp_secret, trimmedCode, { timestampMs: appNow().getTime() })) return fail(res, 400, '动态验证码错误，请重试', { code: '2FA_CODE_WRONG' });
     await getPool().query(`UPDATE users SET totp_enabled = 1 WHERE id = ?`, [req.session.userId]);
     try {
       await getPool().query(`INSERT INTO sys_oper_log (admin_vrcid, oper_type, content) VALUES (?, '安全设置', ?)`, [req.session.loginId, `${req.session.loginId} 开启两步验证`]);
