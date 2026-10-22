@@ -50,7 +50,7 @@ function renderBirthdays(birthdays) {
         <div class="birthday-name">${esc(b.displayName || b.loginId)}</div>
         <div class="birthday-date">🎂 ${b.birthday || __('unknown')}</div>
       </div>
-      ${isToday(b.birthday) ? '<div class="birthday-today-badge">' + __('birthday.today') + '</div>' : ''}
+      ${(b.isToday != null ? b.isToday : isToday(b.birthday)) ? '<div class="birthday-today-badge">' + __('birthday.today') + '</div>' : ''}
       ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin') ? `<button class="btn btn-sm btn-outline mt-4" data-action="birthday-create-event" data-uid="${escAttr(String(b.id))}" data-name="${escAttr(b.displayName || b.loginId)}" data-birthday="${escAttr(b.birthday || '')}">${__('birthday.create_party_from_birthday')}</button>` : ''}
     </div>
   `).join('');
@@ -126,8 +126,9 @@ window.createBirthdayEvent = async function(userId, userName, birthday) {
   const parts = birthday.split('-');
   // 今年的生日日期
   const bdayThisYear = new Date(now.getFullYear(), parseInt(parts[1]) - 1, parseInt(parts[2]));
-  // 如果今年已过，改明年
-  if (bdayThisYear < now) {
+  // 按「日」比较：生日当天点创建不该被推到明年（原来按时间点比较，当天 20:00 后就跳年了）
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (bdayThisYear < todayStart) {
     bdayThisYear.setFullYear(now.getFullYear() + 1);
   }
   // 设置时间为生日当天晚上 20:00

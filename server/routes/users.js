@@ -16,6 +16,8 @@ const {
 const { fail, ok, getPool, validateFields, handleError, sendError, ErrorCodes, paginate, logOper, escapeLike, proxyVrcAvatar, formatDateOnly } = require('../utils');
 const { passwordResetLimiter } = require('../middleware/rate_limit');
 const logger = require('../logger');
+// 「今日寿星」必须用联网校准时钟：系统时钟慢几分钟时，跨零点前后会算错日期
+const { appNow } = require('../time_service');
 
 // 信任等级中文名（与群成员/成员详情口径一致），供名册无记录时回退 users.trust_level 的展示
 const TRUST_CN = { negative: '恶劣玩家', visitor: '游客', new: '新用户', user: '用户', known: '常驻玩家', trusted: '信任', vetted: '审核', veteran: '资深玩家', legend: '资深玩家' };
@@ -406,7 +408,7 @@ router.post('/', requireRole('super_admin'), async (req, res) => {
 // ==================== 生日列表（需要放在 /:id 通配路由之前） ====================
 router.get('/birthdays', requireAuth, async (req, res) => {
   try {
-    const now = new Date();
+    const now = appNow();
     const month = now.getMonth() + 1;
     const day = now.getDate();
 
@@ -430,20 +432,20 @@ router.get('/birthdays', requireAuth, async (req, res) => {
     );
 
     // IDOR-5: 非好友隐藏出生年份（格式化 YYYY-MM-DD → MM-DD），避免暴露精确年龄
+    // isToday 由服务端用校准时钟判定：前端浏览器时钟不准也不会把「今日寿星」标错
     const mapped = rows.map(r => {
       let birthday = formatDateOnly(r.birthday);
       if (birthday && !friendSet.has(String(r.id))) {
         birthday = birthday.slice(5); // 'YYYY-MM-DD' → 'MM-DD'
       }
-      return { id: r.id, displayName: r.displayName, birthday, avatarUrl: r.avatarUrl };
+      const parts = String(birthday || '').split('-');
+      const isToday = parts.length >= 2
+        && parseInt(parts[parts.length - 2], 10) === month
+        && parseInt(parts[parts.length - 1], 10) === day;
+      return { id: r.id, displayName: r.displayName, birthday, avatarUrl: r.avatarUrl, isToday };
     });
 
-    const todayBirthdays = mapped.filter(r => {
-      if (!r.birthday) return false;
-      const parts = String(r.birthday).split('-');
-      if (parts.length === 2) return parseInt(parts[0], 10) === month && parseInt(parts[1], 10) === day;
-      return parseInt(parts[1], 10) === month && parseInt(parts[2], 10) === day;
-    });
+    const todayBirthdays = mapped.filter(r => r.isToday);
 
     res.json({ birthdays: mapped, todayCount: todayBirthdays.length, todayBirthdays });
   } catch (e) { handleError(res, e, '[users/birthdays]'); }
