@@ -76,7 +76,10 @@
 //       收藏弹窗（类型选项/分组名占位）；新增 37 键 × 6 文件（3639 → 3676），
 //       复用 events.export_ical/album.select_btn/admin_vrc.bl_* 等既有键。
 //       CACHE 版本随前端版本戳 20261021g 同步 bump
-const CACHE = 'jingtu-v2.86';
+// V6.26（质检修复轮）：群组图多尺寸上传、VRChat 穿戴路径修正、sitemap 动态化。
+// V6.27（质检收尾）：关闭 X-Powered-By、聊天发送 per-user 限流、文档上传上限统一。
+//       CACHE 版本随前端版本戳 20261023b 同步 bump
+const CACHE = 'jingtu-v2.88';
 const STATIC_ASSETS = [
   '/offline.html',
   '/css/style.css',

@@ -334,6 +334,22 @@ const joinGroupLimiter = rateLimit({
   message: { ok: false, error: '操作过于频繁，请稍后再试' }
 });
 
+// 每用户发送群消息限流（20/10s）：防单账号刷屏。ddosLimiter 的 600/min 仍是全站兜底，
+// 但在反代场景 TRUST_PROXY 配置疏漏时可能退化成全局桶，per-user 桶在此独立生效。
+const sendGroupMsgLimiter = rateLimit({
+  windowMs: 10 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  store: hybridStore('chat-send-group'),
+  keyGenerator: (req) => {
+    const uid = req.session && req.session.userId;
+    return uid ? `u_${uid}` : `ip_${req.ip}`;
+  },
+  message: { ok: false, error: '消息发送过快，请稍后再试' }
+});
+
 // 加入群聊
 router.post('/groups/:groupId/join', requireChatAuth, joinGroupLimiter, async (req, res) => {
   try {
@@ -409,7 +425,7 @@ router.get('/groups/:groupId/messages', requireChatAuth, async (req, res) => {
 });
 
 // 发送群消息（支持文字和媒体）
-router.post('/groups/:groupId/messages', requireChatAuth, secureUpload(chatUpload.single('file')), async (req, res) => {
+router.post('/groups/:groupId/messages', requireChatAuth, sendGroupMsgLimiter, secureUpload(chatUpload.single('file')), async (req, res) => {
   try {
     const gid = parseInt(req.params.groupId);
     if (!Number.isInteger(gid) || gid <= 0) {

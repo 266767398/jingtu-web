@@ -1,4 +1,6 @@
 [
+  "GET /sitemap.xml",
+  "GET /robots.txt",
   "GET /api/avatar/default",
   "GET /api/auth/check-init",
   "GET /api/csrf-token",
@@ -386,8 +388,6 @@
   "GET /api/health/detailed",
   "GET /api/health/live",
   "GET /api/health/ready",
-  "GET /sitemap.xml",
-  "GET /robots.txt",
   "GET /api/admin/config/env",
   "PUT /api/admin/config/env",
   "POST /api/admin/config/reload",

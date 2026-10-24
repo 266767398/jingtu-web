@@ -174,7 +174,7 @@ pm2 save && pm2 startup
 模板见 `deploy/nginx/jingtu.conf`，要点：
 
 - `proxy_pass http://127.0.0.1:3456`，并透传 `X-Forwarded-For` / `X-Forwarded-Proto` / `Upgrade`。
-- `client_max_body_size 200m`（头像/相册上传）。
+- `client_max_body_size 500m`（与相册 500MB 上限及 `deploy/nginx/jingtu.conf` 一致）。
 - 生产**屏蔽** `/api-docs` 与 `/api-docs.json`（避免泄露接口结构）。
 - HTTP 全部 301 到 HTTPS；HSTS 由应用安全头设置（仅全站 HTTPS 后启用）。
 

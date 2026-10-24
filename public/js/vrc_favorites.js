@@ -575,7 +575,7 @@ async function loadItems(reset, force) {
     if (!id) return;
     showConfirm(__('model_coll.confirm_copy', '确定切换为该模型吗？'), async function () {
       try {
-        await api('/api/groups/vrc/avatar/set', {
+        await api('/api/vrc/avatar/set', {
           method: 'POST',
           body: JSON.stringify({ avatarId: id }),
           timeout: 20000

@@ -37,6 +37,7 @@ const express = require('express');
 const cors = require('cors');
 const session = require('express-session');
 const fs = require('fs');
+const os = require('os');
 const multer = require('multer');
 const sharp = require('sharp');
 const { rateLimit } = require('express-rate-limit');
@@ -73,6 +74,9 @@ const createStatsRouter = require('./routes/stats');
 // `npm ci --omit=dev`。
 
 const app = express();
+
+// 关闭 X-Powered-By: Express 响应头，防止技术栈指纹暴露
+app.disable('x-powered-by');
 
 // ==================== 反向代理信任 ====================
 // 经 Nginx / 宝塔 / Docker 反代后，req.ip、限流与登录失败告警都依赖此设置。
@@ -346,12 +350,15 @@ app.use((req, res, next) => {
 // P1-53: 相册媒体鉴权（登录或分享令牌放行，游客直接访问 401）——
 // 必须在 /assets 静态挂载之前注册，否则 express.static 会先接管
 setupAssetsAlbumAuth(app);
-// P3-fix（横幅"没推送上去"根因）：v2.13 的新全套群组图在 public/assets/，
-// 而 /assets 原来只读根目录 assets/（旧 v1.3 图 + 运行时缓存），导致
-// /assets/group-hero.png 一直返回旧横幅、/assets/pwa-icon-*.png 直接 404。
-// 这里先挂载源码资产目录（新图优先），未命中再回退下方根目录静态（avatar-cache、
-// album、admin 上传覆盖等运行时数据）。album 鉴权中间件仍在最前，不受影响。
-app.use('/assets', express.static(PUBLIC_ASSETS_DIR, {
+// sitemap.xml / robots.txt 必须在 express.static(public) 之前注册：否则 public/ 下的
+// 同名静态文件（内容为 localhost 旧地址）会抢先命中，动态基址配置永远不生效。
+// 80 端口同理——Nginx 的 try_files 未命中 public 后才会回源到 Node。
+app.use(require('./routes/sitemap'));
+// 运行时上传/缓存（根目录 assets/）优先，未命中再回退源码资产（public/assets/）。
+// 与 80 端口 Nginx 的 /assets alias 指向保持一致：管理员上传群组图后，无论走 80
+// 还是直连 3456 都能立即看到新图；pwa-icon 等仅存在于 public/assets 的资源由回退命中。
+// album 鉴权中间件仍在最前，不受影响。
+app.use('/assets', express.static(ASSETS_DIR, {
   maxAge: 0,
   etag: true,
   setHeaders: (res, filePath) => {
@@ -360,7 +367,7 @@ app.use('/assets', express.static(PUBLIC_ASSETS_DIR, {
     }
   }
 }));
-app.use('/assets', express.static(ASSETS_DIR, {
+app.use('/assets', express.static(PUBLIC_ASSETS_DIR, {
   maxAge: 0,
   etag: true,
   setHeaders: (res, filePath) => {
@@ -721,17 +728,35 @@ const albumRouter = require('./routes/album')(authState, notificationService);
 app.use('/api', albumRouter);
 
 // ==================== 群组图片上传（type 白名单防路径穿越） ====================
+// 一次上传需覆盖前端实际引用的全部文件名：头像生成 512/192/64，封面生成 1920/960。
+// 产物统一写入根 assets/（80 端口 Nginx 的 /assets 直出目录），避免 public/assets 被遮蔽。
 const GROUP_IMG_TYPES = ['image', 'avatar', 'banner', 'logo', 'cover', 'hero'];
+const GROUP_IMG_VARIANTS = {
+  avatar: [
+    { name: 'group-avatar.png', width: 512, format: 'png' },
+    { name: 'group-avatar-192.png', width: 192, format: 'png' },
+    { name: 'group-avatar-64.png', width: 64, format: 'png' }
+  ],
+  banner: [{ name: 'group-banner.png', width: 1200, format: 'png' }],
+  hero: [
+    { name: 'group-hero.jpg', width: 1920, format: 'jpeg' },
+    { name: 'group-hero-960.jpg', width: 960, format: 'jpeg' }
+  ],
+  logo: [{ name: 'group-logo.png', width: 512, format: 'png' }],
+  cover: [{ name: 'group-cover.png', width: 1920, format: 'png' }],
+  image: [{ name: 'group-image.png', width: 1920, format: 'png' }]
+};
+
 const groupImgUpload = multer({
   storage: multer.diskStorage({
+    // 先落独立临时文件：filename 若与最终产物同路径，sharp 会报
+    // “Cannot use same file for input and output”（且 type 可能晚于文件到达）。
     destination: (req, file, cb) => {
-      // P3-fix：写入源码资产目录，与上方 /assets 静态优先一致——上传后立即生效
-      if (!fs.existsSync(PUBLIC_ASSETS_DIR)) fs.mkdirSync(PUBLIC_ASSETS_DIR, { recursive: true });
-      cb(null, PUBLIC_ASSETS_DIR);
+      cb(null, os.tmpdir());
     },
     filename: (req, file, cb) => {
-      const type = GROUP_IMG_TYPES.includes(req.body.type) ? req.body.type : 'image';
-      cb(null, `group-${type}.png`);
+      const ext = path.extname(file.originalname || '').slice(0, 10) || '.img';
+      cb(null, `jingtu-group-${Date.now()}-${Math.random().toString(16).slice(2)}${ext}`);
     }
   }),
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -742,15 +767,22 @@ app.post('/api/admin/group-image', requireAdminCompat, groupImgUpload.single('im
   if (!req.file) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请选择图片');
   try {
     const type = GROUP_IMG_TYPES.includes(req.body.type) ? req.body.type : 'image';
-    const targetFile = path.join(PUBLIC_ASSETS_DIR, `group-${type}.png`);
-    await sharp(req.file.path).resize(type === 'avatar' ? 512 : type === 'banner' ? 1200 : 1920).jpeg({ quality: 85 }).toFile(targetFile);
-    // sharp 成功后删除临时文件
-    try { fs.unlinkSync(req.file.path); } catch {}
-    ok(res, { url: `/assets/group-${type}.png?v=${Date.now()}` });
+    const variants = GROUP_IMG_VARIANTS[type] || GROUP_IMG_VARIANTS.image;
+    // 全部编码到内存后再落盘：任一尺寸失败都不会留下“半套”产物
+    const outputs = await Promise.all(variants.map(async (v) => {
+      const base = sharp(req.file.path).rotate().resize({ width: v.width, withoutEnlargement: true });
+      const buf = v.format === 'jpeg'
+        ? await base.jpeg({ quality: 85 }).toBuffer()
+        : await base.png().toBuffer();
+      return { name: v.name, buf };
+    }));
+    if (!fs.existsSync(ASSETS_DIR)) fs.mkdirSync(ASSETS_DIR, { recursive: true });
+    for (const o of outputs) fs.writeFileSync(path.join(ASSETS_DIR, o.name), o.buf);
+    ok(res, { url: `/assets/${variants[0].name}?v=${Date.now()}` });
   } catch (e) {
-    // sharp 处理异常时也要清理临时文件
-    try { if (req.file && req.file.path) fs.unlinkSync(req.file.path); } catch {}
     sendError(res, 500, ErrorCodes.INTERNAL_ERROR, '图片处理失败，请稍后重试');
+  } finally {
+    try { if (req.file && req.file.path) fs.unlinkSync(req.file.path); } catch {}
   }
 });
 
@@ -765,7 +797,6 @@ app.use('/api', require('./routes/setup'));
 app.use('/api/system', require('./routes/db-recover'));
 app.use('/api/migration', require('./routes/migration'));
 app.use('/api', require('./routes/health'));
-app.use(require('./routes/sitemap'));
 app.use('/api', require('./routes/config'));
 app.use('/api', require('./routes/backups'));
 app.use('/api', require('./routes/database'));
