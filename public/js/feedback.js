@@ -11,20 +11,20 @@ function initFeedbackButton() {
 function showFeedbackDialog() {
   const overlay = createOverlayDialog(`
     <div class="confirm-dialog" style="max-width:460px">
-      <div class="confirm-msg"><b style="font-size:16px">💡 提交建议 / 反馈</b>
-        <div class="text-muted text-12 mt-4">你的建议将帮助我们改进境途同游</div>
+      <div class="confirm-msg"><b style="font-size:16px">${__('feedback.title')}</b>
+        <div class="text-muted text-12 mt-4">${__('feedback.subtitle')}</div>
       </div>
       <div class="form-group mb-8">
-        <label class="form-label">反馈内容</label>
-        <textarea id="feedbackContent" rows="5" class="search-box" maxlength="2000" placeholder="请描述你遇到的问题或改进建议..." style="width:100%;box-sizing:border-box;resize:vertical"></textarea>
+        <label class="form-label">${__('feedback.content_label')}</label>
+        <textarea id="feedbackContent" rows="5" class="search-box" maxlength="2000" placeholder="${__('feedback.content_placeholder')}" style="width:100%;box-sizing:border-box;resize:vertical"></textarea>
       </div>
       <div class="form-group mb-8">
-        <label class="form-label">联系方式（可选）</label>
-        <input type="text" id="feedbackContact" class="search-box" maxlength="255" placeholder="QQ / 邮箱 / VRChat 名" style="width:100%;box-sizing:border-box">
+        <label class="form-label">${__('feedback.contact_label')}</label>
+        <input type="text" id="feedbackContact" class="search-box" maxlength="255" placeholder="${__('feedback.contact_placeholder')}" style="width:100%;box-sizing:border-box">
       </div>
       <div class="confirm-actions" style="margin-top:12px">
-        <button class="btn btn-accent btn-sm" data-action="confirm">提交</button>
-        <button class="btn btn-outline btn-sm" data-action="cancel">取消</button>
+        <button class="btn btn-accent btn-sm" data-action="confirm">${__('feedback.submit')}</button>
+        <button class="btn btn-outline btn-sm" data-action="cancel">${__('common.cancel')}</button>
       </div>
     </div>`, null, null);
   const contentEl = overlay.querySelector('#feedbackContent');
@@ -35,24 +35,24 @@ function showFeedbackDialog() {
 
   okBtn.onclick = async function () {
     const content = (contentEl.value || '').trim();
-    if (!content) { toast('请输入反馈内容', 'error'); contentEl.focus(); return; }
+    if (!content) { toast(__('feedback.empty'), 'error'); contentEl.focus(); return; }
     okBtn.disabled = true;
-    okBtn.textContent = '提交中...';
+    okBtn.textContent = __('feedback.submitting');
     try {
       const res = await api('/api/feedback', {
         method: 'POST',
         body: { content, contact: (contactEl.value || '').trim() },
         timeout: 15000
       });
-      if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err && err.error && err.error.message) || '提交失败'); }
+      if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err && err.error && err.error.message) || __('feedback.failed')); }
       const d = await res.json();
-      toast(d.message || '反馈已提交，感谢您的建议！', 'success');
+      toast(d.message || __('feedback.success'), 'success');
       overlay._cleanup('confirm');
     } catch (e) {
-      if (!isApiHandledError(e)) toast(String(e && e.message) || '提交失败', 'error');
+      if (!isApiHandledError(e)) toast(String(e && e.message) || __('feedback.failed'), 'error');
     } finally {
       okBtn.disabled = false;
-      okBtn.textContent = '提交';
+      okBtn.textContent = __('feedback.submit');
     }
   };
   cancelBtn.onclick = function () { overlay._cleanup('cancel'); };

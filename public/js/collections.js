@@ -125,7 +125,7 @@
       ? `<span class="coll-card-rating">⭐ ${Number(it.rating_avg || 0).toFixed(1)} (${it.rating_count || 0})</span>`
       : '';
     const recBadgeHtml = (it.kind === 'world' || it.kind === 'avatar_model' || it.kind === 'avatar_favorite') && (Number(it.recommend_up || 0) > 0 || Number(it.recommend_down || 0) > 0)
-      ? `<span class="coll-card-rec" title="${it.recommend_up} 人推荐 / ${it.recommend_down} 人不推荐">👍 ${it.recommend_up}${Number(it.recommend_down || 0) > 0 ? ' · 👎 ' + it.recommend_down : ''}</span>`
+      ? `<span class="coll-card-rec" title="${__('rec.counts', { up: it.recommend_up, down: it.recommend_down })}">👍 ${it.recommend_up}${Number(it.recommend_down || 0) > 0 ? ' · 👎 ' + it.recommend_down : ''}</span>`
       : '';
     const isMine = state.scope !== 'public';
     const actionBtns = [];
@@ -576,9 +576,9 @@
       <div class="coll-detail-rec mt-8">
         <div class="coll-detail-rec-head">
           <span class="coll-detail-rec-title">💡 ${__('rec.title', '推荐指数')}</span>
-          <span class="coll-detail-rec-meta">${total > 0 ? `${up} 人推荐 · ${down} 人不推荐 · 平均 ${avgTxt}/5` : __('rec.no_vote', '还没有人推荐，来投出第一票吧')}</span>
+          <span class="coll-detail-rec-meta">${total > 0 ? `${__('rec.counts', { up, down })} · ${__('rec.avg', { avg: avgTxt })}` : __('rec.no_vote', '还没有人推荐，来投出第一票吧')}</span>
         </div>
-        <div class="coll-detail-rec-bar" title="${up} 人推荐 / ${total} 人投票">
+        <div class="coll-detail-rec-bar" title="${__('rec.counts_poll', { up, total })}">
           <i style="width:${pct}%"></i>
         </div>
         <div class="coll-detail-rec-actions mt-4">

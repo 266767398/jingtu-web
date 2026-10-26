@@ -124,15 +124,15 @@
         if (external === '/ops/') {
           btn.disabled = true;
           var origText = btn.innerHTML;
-          btn.innerHTML = '<span>⏳</span>启动中…';
+          btn.innerHTML = '<span>⏳</span>' + __('admin_ui.ops_starting');
           api('/api/ops/start', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (d) {
             if (d && d.ok) {
               window.open('/ops/', '_blank', 'noopener');
             } else {
-              alert((d && d.message) || '运维面板启动失败，请查看服务日志');
+              alert((d && d.message) || __('admin_ui.ops_start_failed'));
             }
           }).catch(function () {
-            alert('运维面板启动请求失败，请确认服务运行正常');
+            alert(__('admin_ui.ops_request_failed'));
           }).finally(function () {
             btn.disabled = false;
             btn.innerHTML = origText;
@@ -620,17 +620,17 @@
         var rows = (d && d.dailyRegistrations) || [];
         var wrap = document.createElement('div');
         wrap.className = 'mt-12';
-        wrap.innerHTML = '<div class="text-13 font-600 mb-4">近 ' + days + ' 天注册趋势:</div>';
+        wrap.innerHTML = '<div class="text-13 font-600 mb-4">' + __('admin_ui.trend_title', { days: days }) + '</div>';
         if (!rows.length) {
-          wrap.innerHTML += '<div class="text-muted2 text-13">该范围内暂无注册数据</div>';
+          wrap.innerHTML += '<div class="text-muted2 text-13">' + __('admin_ui.trend_empty') + '</div>';
           charts.appendChild(wrap);
           return;
         }
         var table = document.createElement('table');
         table.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px';
         table.innerHTML = '<thead><tr>' +
-          '<th style="padding:6px;text-align:left;border-bottom:1px solid var(--border)">日期</th>' +
-          '<th style="padding:6px;text-align:right;border-bottom:1px solid var(--border)">注册数</th>' +
+          '<th style="padding:6px;text-align:left;border-bottom:1px solid var(--border)">' + __('admin_ui.trend_date') + '</th>' +
+          '<th style="padding:6px;text-align:right;border-bottom:1px solid var(--border)">' + __('admin_ui.trend_count') + '</th>' +
           '</tr></thead><tbody>' +
           rows.map(function (r) {
             return '<tr><td style="padding:6px;text-align:left;border-bottom:1px dashed var(--border)">' + esc(r.date || '-') + '</td>' +

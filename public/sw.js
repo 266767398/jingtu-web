@@ -79,7 +79,7 @@
 // V6.26（质检修复轮）：群组图多尺寸上传、VRChat 穿戴路径修正、sitemap 动态化。
 // V6.27（质检收尾）：关闭 X-Powered-By、聊天发送 per-user 限流、文档上传上限统一。
 //       CACHE 版本随前端版本戳 20261026a 同步 bump
-const CACHE = 'jingtu-v2.89';
+const CACHE = 'jingtu-v2.90';
 const STATIC_ASSETS = [
   '/offline.html',
   '/css/style.css',

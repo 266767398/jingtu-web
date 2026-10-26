@@ -956,7 +956,7 @@ function runTimeAutoSyncSave() {
   const intervalMinutes = Number(iv && iv.value) || 30;
   const allowSystemClockSet = !!(sc && sc.checked);
   if (intervalMinutes < 5 || intervalMinutes > 1440) {
-    toast('对时间隔需在 5~1440 分钟之间', 'error');
+    toast(__('admin_vrc.time_interval_invalid'), 'error');
     return;
   }
   const resultEl = document.getElementById('timeAutoSyncResult');

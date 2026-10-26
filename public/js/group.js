@@ -1340,18 +1340,18 @@ async function sendGroupInvites() {
   const msgEl = document.getElementById('groupInviteMsg');
   if (!idsEl) return;
   const raw = idsEl.value.trim();
-  if (!raw) { toast('请输入至少一个 VRChat ID', 'error'); return; }
+  if (!raw) { toast(__('group.invite_empty'), 'error'); return; }
   const vrchatIds = raw.split(/[\s,;]+/).map(s => s.trim()).filter(s => s.startsWith('usr_'));
-  if (!vrchatIds.length) { toast('VRChat ID 格式应为 usr_xxx', 'error'); return; }
-  if (vrchatIds.length > 100) { toast('单次最多邀请 100 人', 'error'); return; }
+  if (!vrchatIds.length) { toast(__('group.invite_bad_format'), 'error'); return; }
+  if (vrchatIds.length > 100) { toast(__('group.invite_too_many'), 'error'); return; }
   const message = msgEl ? msgEl.value.trim() : '';
-  showConfirm(`确定向 ${vrchatIds.length} 个用户发送群邀请吗？`, async function () {
+  showConfirm(__('group.invite_confirm', { n: vrchatIds.length }), async function () {
     try {
       const res = await api('/api/group/invites/batch', { method: 'POST', body: { vrchatIds, message } });
       if (!res.ok) { await groupAdminFail(res); return; }
       const data = await res.json();
       const ok = (data.results || []).filter(r => r.status === 'invited').length;
-      toast(`已发送 ${ok}/${vrchatIds.length} 个邀请`, 'success');
+      toast(__('group.invite_sent', { ok, total: vrchatIds.length }), 'success');
       idsEl.value = '';
       if (msgEl) msgEl.value = '';
       loadGroupInvites();
