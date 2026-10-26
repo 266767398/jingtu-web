@@ -72,7 +72,7 @@
 - 关注关系：`GET /api/follows/mutual?userId&page` 单独返回互关列表；`/api/follows/following|followers` 计数与列表均排除互关（互关只在 mutual 展示），三者口径一致。
 - `users/me/profile` 前端兼容 `data.user || data`；返回 `trustLevel / trustLevelCn`、`haloVisible`（我的信息光环）。
 - `/api/group/members` 与 `/api/users/list` 均下发每个成员的 `haloVisible`（**V6.16** 光环开关按人独立可见，未绑定网站账号的 VRChat 成员为 `null`=默认显示）；`trustLevel` 名册无记录时回退 `users.trust_level`（**V6.17**）。
-- `posts` 的 `limit` 与 `q`（关键词搜索）参数被忽略（后端 `posts.js` 未消费；全局搜索的动态页为伪搜索，2026-10-14 审计 B1）。
+- `posts` 的 `limit` 参数是 `pageSize` 别名（`/api/posts?limit=3`），`q` 关键词已消费（LIKE 转义，与 `/api/posts/search` 同口径）；`/api/posts/search` 支持 `page/pageSize` 分页（2026-10-26 收口，P2-70）。
 - `/api/auth/preview` 前端已停止调用，登录页头像预览改为浏览器缓存单槽（命中显示真实头像、未命中显示问号头像 `/api/avatar/default`）。
 - 上传字段命名以代码为准：`photo/media/photos/video/avatar/file/thumbnail/image`。
 - 直播 `/live/user/history` 被流式参数路由遮蔽不可达（历史遗留）。

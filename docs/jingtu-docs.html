@@ -683,7 +683,7 @@ td code{font-size:11.5px}
         <li><code>/api/search</code> 有两个 GET 处理器（登录版先注册优先）</li>
         <li><code>users/me/profile</code> 前端兼容 <code>data.user || data</code>；返回 <code>trustLevel / trustLevelCn</code>、<code>haloVisible</code>（我的信息光环）</li>
         <li><code>/api/group/members</code> 与 <code>/api/users/list</code> 均下发每个成员的 <code>haloVisible</code>（V6.16 按人独立可见，未绑定账号为 <code>null</code>=默认显示）；<code>trustLevel</code> 名册无记录时回退 <code>users.trust_level</code>（V6.17）</li>
-        <li><code>posts</code> 的 <code>limit</code> 参数被忽略</li>
+        <li><code>posts</code> 的 <code>limit</code> 参数已作为 <code>pageSize</code> 别名消费，<code>q</code> 关键词已支持（2026-10-26 收口）</li>
         <li>上传字段命名以代码为准：photo/media/photos/video/avatar/file/thumbnail/image</li>
         <li>直播 <code>/live/user/history</code> 被流式参数路由遮蔽不可达（历史遗留）</li>
       </ul>
@@ -1328,7 +1328,7 @@ const FMM=[
  ['theme.js','静','—','主题系统','`__freeze` `__`','—'],
  ['auth.js','静','—','登录/注册/2FA/VRC 绑定/自动登录/登录页头像浏览器缓存','`__freeze` switchTab currentUser','/api/auth/* /api/users/me/profile'],
  ['loader.js','静','—','懒加载调度/switchTab 包裹/SEO 刷新/SITE_LIKE','switchTab SITE_SEO SITE_LOG','—'],
- ['smartsearch.js','静','—','Ctrl+K 命令面板','switchTab `__`','/api/users/search /api/posts?q='],
+ ['smartsearch.js','静','—','Ctrl+K 命令面板','switchTab `__`','/api/users/search /api/posts/search'],
  ['init.js','静','—','安装向导','api `__`','/api/auth/init /api/health'],
  ['main.js','静','—','入口/WS/轮询/通知/首屏','`__freeze` `__notifPrefs` switchTab','/api/auth/init /api/client-config'],
  ['home.js','懒','home','首页统计/导航网格/widget 拖拽/精选照片/最新动态','`__freeze` switchTab','/api/posts?limit=3'],

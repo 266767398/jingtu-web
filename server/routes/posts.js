@@ -12,7 +12,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { requireAuth, hasRole, currentRole } = require('../auth');
-const { fail, ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, logOper, paginate, escapeLike  } = require('../utils');;
+const { fail, ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, logOper, paginate, escapeLike  } = require('../utils');
 const cacheService = require('../cache_service');
 const webhook = require('../webhook');
 const logger = require('../logger');
@@ -184,9 +184,14 @@ async function getPostDetail(postId, currentUserId) {
  */
 router.get('/', async (req, res) => {
   try {
+    // limit 是 pageSize 的别名（首页 /api/posts?limit=3 使用）；分页口径统一走 utils.paginate（P2-70）
+    if (req.query.pageSize === undefined && req.query.limit !== undefined) {
+      req.query.pageSize = req.query.limit;
+    }
     const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
     const targetUserId = req.query.userId ? parseInt(req.query.userId) : null;
     const typeFilter = req.query.type || '';
+    const q = (req.query.q || '').trim();
     const dateFilter = (req.query.date || '').trim(); // YYYY-MM-DD，VN-12 时间线日期筛选
     const currentUserId = req.session?.userId;
     const isLoggedIn = !!currentUserId;
@@ -219,6 +224,12 @@ router.get('/', async (req, res) => {
     if (/^\d{4}-\d{2}-\d{2}$/.test(dateFilter)) {
       conditions.push(`DATE(p.created_at) = ?`);
       params.push(dateFilter);
+    }
+
+    // 关键词搜索：与 /api/posts/search 口径一致，LIKE 转义防注入
+    if (q) {
+      conditions.push(`p.content LIKE ? ESCAPE '!'`);
+      params.push('%' + escapeLike(q) + '%');
     }
 
     const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
@@ -297,6 +308,7 @@ router.get('/search', async (req, res) => {
     const q = req.query.q ? req.query.q.trim() : '';
     if (!q || q.length < 2) return res.json({ posts: [], total: 0 });
     const like = '%' + escapeLike(q) + '%';
+    const { page, pageSize, offset } = paginate(req, { defaultSize: 20, maxSize: 50 });
     // 权限：参考列表接口，未登录只看 public，已登录看 public + members_only + 自己的 private
     const currentUserId = req.session?.userId;
     const isLoggedIn = !!currentUserId;
@@ -308,19 +320,25 @@ router.get('/search', async (req, res) => {
       visCond = `(p.visibility IN ('public','members_only') OR (p.visibility = 'private' AND p.user_id = ?))`;
       visParams.push(currentUserId);
     }
+    const [countRows] = await getPool().query(
+      `SELECT COUNT(*) AS total FROM posts p LEFT JOIN users u ON p.user_id = u.id
+       WHERE p.content LIKE ? ESCAPE '!' AND u.deleted_at IS NULL AND ${visCond}`,
+      [like, ...visParams]
+    );
+    const total = countRows[0].total;
     const [rows] = await getPool().query(
       `SELECT p.id, p.content, p.type, p.visibility, p.created_at AS createdAt, p.like_count AS likeCount, p.comment_count AS commentCount, u.display_name AS userName, u.avatar_type, u.custom_avatar_path, u.vrchat_avatar_url
        FROM posts p LEFT JOIN users u ON p.user_id = u.id
        WHERE p.content LIKE ? ESCAPE '!' AND u.deleted_at IS NULL AND ${visCond}
-       ORDER BY p.created_at DESC LIMIT 20`,
-      [like, ...visParams]
+       ORDER BY p.created_at DESC LIMIT ? OFFSET ?`,
+      [like, ...visParams, pageSize, offset]
     );
     const posts = rows.map(p => ({
       ...p,
       avatarUrl: getAvatarUrl(p, '/uploads/'),
       content: p.content.length > 100 ? p.content.substring(0, 100) + '…' : p.content
     }));
-    res.json({ posts, total: posts.length });
+    res.json({ posts, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
   } catch (e) {
     handleError(res, e, '[posts/search]');
   }

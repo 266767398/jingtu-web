@@ -209,7 +209,7 @@ async function initMap() {
 
     const probeResults = await Promise.all(orderedProviders.map(async p => {
       const ok = await probeTile(probeUrl(p));
-      console.log('[map] 瓦片源预检:', p.name, ok ? '✓ 可达' : '✗ 不可达');
+      console.debug('[map] 瓦片源预检:', p.name, ok ? '✓ 可达' : '✗ 不可达');
       return { p, ok };
     }));
     const usableProviders = probeResults.filter(r => r.ok).map(r => r.p);

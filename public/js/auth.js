@@ -219,7 +219,6 @@ function showApp() {
     if (typeof loadMyLikes === 'function') loadMyLikes();
     loadSocialLinks();
     if (typeof initMobileTabMenu === 'function') initMobileTabMenu();
-    if (typeof initFormValidation === 'function') initFormValidation();
     // 签到 / 成就：必须等登录完成才初始化。
     // 这两个模块自带 DOMContentLoaded 自启，但那时用户还在登录页，
     // 既会往隐藏的 #tab-home 里塞卡片，又会白打一次必然 401 的请求。

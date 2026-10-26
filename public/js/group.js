@@ -1319,17 +1319,17 @@ async function loadGroupInvites() {
     const data = await res.json();
     const items = data.invites || [];
     if (countEl) countEl.textContent = '(' + (data.total || items.length) + ')';
-    if (!items.length) { renderEmpty(list, { icon: '✉️', text: '暂无邀请记录' }); return; }
+    if (!items.length) { renderEmpty(list, { icon: '✉️', text: __('group.no_invites') }); return; }
     list.innerHTML = items.map(inv => {
-      const statusMap = { pending: '待处理', accepted: '已接受', rejected: '已拒绝', expired: '已过期' };
+      const statusMap = { pending: __('group.invite_status_pending'), accepted: __('group.invite_status_accepted'), rejected: __('group.invite_status_rejected'), expired: __('group.invite_status_expired') };
       const statusColor = inv.status === 'pending' ? 'var(--accent)' : inv.status === 'accepted' ? 'var(--success,#52c41a)' : 'var(--muted)';
       const expires = inv.expiresAt ? new Date(inv.expiresAt).toLocaleString() : '-';
       return `<div class="group-change-item" data-invite-id="${esc(inv.id)}">
         <span class="group-change-name">${esc(inv.vrchatName || inv.vrchatId)}</span>
         <span class="group-ban-vid mono">${esc(inv.vrchatId)}</span>
         <span style="color:${statusColor};font-size:12px">${esc(statusMap[inv.status] || inv.status)}</span>
-        <span class="text-muted2 text-12">邀请人：${esc(inv.inviterName || '-')}</span>
-        <span class="text-muted2 text-12">到期：${esc(expires)}</span>
+        <span class="text-muted2 text-12">${esc(__('group.invite_by', { name: inv.inviterName || '-' }))}</span>
+        <span class="text-muted2 text-12">${esc(__('group.invite_expires', { time: expires }))}</span>
       </div>`;
     }).join('');
   } catch {}

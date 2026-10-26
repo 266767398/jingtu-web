@@ -156,7 +156,7 @@ router.get('/admin/config/info', requireAdminCompat, (req, res) => {
     uptime: process.uptime(),
     memoryUsage: process.memoryUsage(),
     env: process.env.NODE_ENV || 'development',
-    version: 'V8.2'
+    version: require(path.join(__dirname, '..', 'package.json')).version
   });
 });
 

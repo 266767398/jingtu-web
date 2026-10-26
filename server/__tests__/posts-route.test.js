@@ -155,10 +155,45 @@ describe('P3-95 posts 列表与搜索', () => {
 
   test('GET /search 含 ESCAPE 与可见性条件', async () => {
     const rows = [{ id: 2, content: '短内容', type: 'text', visibility: 'public', createdAt: 'x', likeCount: 0, commentCount: 0, userName: 'u' }];
-    mockQueryBySql([[/WHERE p.content LIKE \? ESCAPE '!' AND u.deleted_at IS NULL AND/, [[...rows]]]]);
+    mockQueryBySql([
+      [/SELECT COUNT\(\*\) AS total FROM posts/, [[{ total: 1 }]]],
+      [/WHERE p.content LIKE \? ESCAPE '!' AND u.deleted_at IS NULL AND/, [[...rows]]]
+    ]);
     const res = await request(makeApp()).get('/search').query({ q: '测试 动态' });
     expect(res.status).toBe(200);
     expect(res.body.total).toBe(1);
+    expect(res.body.posts.length).toBe(1);
+    expect(res.body.totalPages).toBe(1);
+  });
+
+  test('GET /search 支持分页参数与 LIMIT/OFFSET', async () => {
+    mockQueryBySql([
+      [/SELECT COUNT\(\*\) AS total FROM posts/, [[{ total: 25 }]]],
+      [/WHERE p.content LIKE \? ESCAPE '!' AND u.deleted_at IS NULL AND/, [[{ id: 3, content: 'x', type: 'text', visibility: 'public', createdAt: 'x', likeCount: 0, commentCount: 0, userName: 'u' }]]]
+    ]);
+    const res = await request(makeApp()).get('/search').query({ q: '世界', page: 2, pageSize: 10 });
+    expect(res.status).toBe(200);
+    expect(res.body.page).toBe(2);
+    expect(res.body.pageSize).toBe(10);
+    expect(res.body.totalPages).toBe(3);
+    const listCall = mockPool.query.mock.calls.find(c => /LIMIT \? OFFSET \?/.test(String(c[0])));
+    expect(listCall).toBeTruthy();
+    expect(listCall[1]).toEqual(expect.arrayContaining([10, 10]));
+  });
+
+  test('GET / 支持 limit 别名与 q 关键词过滤', async () => {
+    mockQueryBySql([
+      [/SELECT COUNT\(\*\) AS total FROM posts/, [[{ total: 1 }]]],
+      [/FROM posts p LEFT JOIN users u/, [[{ id: 1, user_id: 7, content: '包含关键词的动态', type: 'text', like_count: 0, comment_count: 0, is_pinned: 0, visibility: 'public', created_at: 'a', updated_at: 'a', userName: 'u' }]]],
+      [/FROM post_media WHERE post_id IN/, [[]]],
+      [/FROM post_like/, [[]]]
+    ]);
+    const res = await request(makeApp()).get('/').query({ q: '关键词', limit: 3 });
+    expect(res.status).toBe(200);
+    expect(res.body.pageSize).toBe(3);
+    const listCall = mockPool.query.mock.calls.find(c => /SELECT p\.\*, u\.display_name/.test(String(c[0])));
+    expect(listCall).toBeTruthy();
+    expect(listCall[1]).toEqual(expect.arrayContaining(['%关键词%']));
   });
 });
 

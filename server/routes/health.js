@@ -8,10 +8,14 @@
  */
 const express = require('express');
 const os = require('os');
+const path = require('path');
 const { getPool } = require('../utils');
 const { requireSuperAdmin } = require('../auth');
 
 const router = express.Router();
+
+// 版本以 server/package.json 为准，避免 health 端点硬编码与发布版本漂移
+const PKG_VERSION = require(path.join(__dirname, '..', 'package.json')).version;
 
 // SEC-2 修复：/health/detailed 返回 CPU/内存/loadavg 等系统信息，
 // 与 database.js processlist 同口径收紧至 super_admin（普通 admin 不需要系统级运维数据）
@@ -40,7 +44,7 @@ router.get('/health/detailed', requireSuperAdmin, async (req, res) => {
         },
         load: os.loadavg()
       },
-      version: 'V8.2'
+      version: PKG_VERSION
     });
   } catch (e) {
     // 不回显数据库原始错误，避免泄露连接串/主机名

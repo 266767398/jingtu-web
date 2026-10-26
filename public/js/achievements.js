@@ -149,3 +149,7 @@ const achievementsModule = new AchievementsModule();
 // 不在 DOMContentLoaded 自启：那时用户还在登录页，
 // 卡片会被塞进隐藏的 #tab-home，请求也必然 401。
 // 初始化由 auth.js 的 showApp() 在登录成功后调用。
+// 竞态兜底：懒加载完成早于 login 恢复（或超时预载晚于 showApp）时，若已登录则自启。
+if (typeof window.__isLoggedIn === 'function' && window.__isLoggedIn() && document.getElementById('tab-me')) {
+  achievementsModule.init();
+}

@@ -289,7 +289,7 @@ describe('P2-70 pagination consolidation guard', () => {
     expect(offenders).toEqual([]);
   });
 
-  test('paginate() call sites stay pinned at 35 across 21 route files', () => {
+  test('paginate() call sites stay pinned at 36 across 21 route files', () => {
     let totalCalls = 0;
     const filesWithCalls = [];
     for (const name of liveRouteFiles()) {
@@ -297,7 +297,7 @@ describe('P2-70 pagination consolidation guard', () => {
       if (count > 0) filesWithCalls.push(name);
       totalCalls += count;
     }
-    expect(totalCalls).toBe(35);
+    expect(totalCalls).toBe(36);
     expect(filesWithCalls.length).toBe(21);
   });
 

@@ -52,7 +52,7 @@ function _isDisabled(name) { return DISABLED_FEATURES.has(name); }
 var TAB_MODULES = {
   home: ['home.js'],
   members: ['members.js'],
-  me: ['admin-users.js', 'profile.js', 'profile-page.js'],
+  me: ['admin-users.js', 'profile.js', 'profile-page.js', 'checkin.js', 'checkin-extra.js', 'achievements.js'],
   vrc: ['group.js', 'members.js', 'map.js', 'vrc.js', 'collections.js', 'vrc_favorites.js'],
   announcements: ['announcements.js'],
   events: ['events.js'],
