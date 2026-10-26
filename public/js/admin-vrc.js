@@ -826,7 +826,7 @@ function runGitRestart() {
   if (!currentUser || currentUser.role !== 'super_admin') { toast(__('admin_vrc.super_admin_setting'), 'error'); return; }
   const resultEl = document.getElementById('gitUpdateResult');
   // M8: 原生 confirm 换行内样式化确认弹窗
-  showConfirm('确定重启服务？重启约需 3 秒，期间网站暂时无法访问。\n\n适用于：已手动拉取代码或修改服务端配置后需要重载。', function () {
+  showConfirm(__('admin_vrc.restart_confirm'), function () {
     doGitRestart(resultEl);
   });
 }
@@ -834,7 +834,7 @@ function runGitRestart() {
 async function doGitRestart(resultEl) {
   try {
     const res = await api('/api/admin/git-restart', { method: 'POST', timeout: 15000 });
-    if (!res.ok) { const d = await res.json().catch(() => ({})); if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(errText(d) || '重启失败') + '</span>'; return; }
+    if (!res.ok) { const d = await res.json().catch(() => ({})); if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(errText(d) || __('admin_vrc.restart_failed')) + '</span>'; return; }
     const d = await res.json();
     if (resultEl) resultEl.innerHTML = '<span class="text-success">✅ ' + gitEsc(d.message || '服务正在重启') + '</span>';
     setTimeout(function () { window.location.reload(); }, 6000);
@@ -960,27 +960,28 @@ function runTimeAutoSyncSave() {
     return;
   }
   const resultEl = document.getElementById('timeAutoSyncResult');
-  showConfirm((enabled ? '开启' : '关闭') + '自动联网对时' + (enabled ? '（每 ' + intervalMinutes + ' 分钟校准一次）' : '') + '？'
-    + (allowSystemClockSet ? '\n\n已勾选「校正系统时钟」：仅在容器以 root 且具备 CAP_SYS_TIME 时生效，否则只做应用层补偿。' : ''), function () {
+  const confirmText = (enabled ? __('admin_vrc.time_auto_on', { n: intervalMinutes }) : __('admin_vrc.time_auto_off'))
+    + (allowSystemClockSet ? __('admin_vrc.time_auto_clock_note') : '');
+  showConfirm(confirmText, function () {
     doTimeAutoSyncSave({ enabled, intervalMinutes, allowSystemClockSet }, resultEl);
   });
 }
 
 async function doTimeAutoSyncSave(body, resultEl) {
-  if (resultEl) resultEl.innerHTML = '<span class="text-muted2">正在保存自动对时配置…</span>';
+  if (resultEl) resultEl.innerHTML = '<span class="text-muted2">' + __('admin_vrc.saving_auto_sync') + '</span>';
   try {
     const res = await api('/api/admin/time-auto-sync', { method: 'POST', body: body, timeout: 20000 });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(errText(d) || '保存失败') + '</span>';
+      if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(errText(d) || __('admin_vrc.save_failed')) + '</span>';
       return;
     }
     const d = await res.json();
-    if (resultEl) resultEl.innerHTML = '<span class="text-success">✅ ' + gitEsc(d.message || '已保存') + '</span>';
+    if (resultEl) resultEl.innerHTML = '<span class="text-success">✅ ' + gitEsc(d.message || __('admin_vrc.saved')) + '</span>';
     loadTimeSyncStatus();
   } catch (err) {
-    if (isApiHandledError(err)) { if (resultEl) resultEl.innerHTML = '<span class="text-warn">保存失败（详见页面提示）</span>'; return; }
-    if (resultEl) resultEl.innerHTML = '<span class="text-warn">保存失败：' + gitEsc(err.message || err) + '</span>';
+    if (isApiHandledError(err)) { if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + __('admin_vrc.save_failed_hint') + '</span>'; return; }
+    if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(__('admin_vrc.save_failed_reason', { e: err.message || err })) + '</span>';
   }
 }
 
@@ -1029,18 +1030,18 @@ function runTimeSync() {
   const sel = document.getElementById('cfgTimeSyncTz');
   const tz = sel && sel.value ? sel.value : 'Asia/Shanghai';
   const resultEl = document.getElementById('timeSyncResult');
-  showConfirm('确定把应用进程与数据库连接时区统一到 <b>' + gitEsc(tz) + '</b>？\n\n立即生效（无需重启服务），并写入 .env 持久化；MySQL 服务端全局时区建议在 compose 的 --default-time-zone 固定。', function () {
+  showConfirm(__('admin_vrc.tz_confirm', { tz: gitEsc(tz) }), function () {
     doTimeSync(tz, resultEl);
   });
 }
 
 async function doTimeSync(tz, resultEl) {
-  if (resultEl) resultEl.innerHTML = '<span class="text-muted2">正在同步时间…</span>';
+  if (resultEl) resultEl.innerHTML = '<span class="text-muted2">' + __('admin_vrc.syncing_time') + '</span>';
   try {
     const res = await api('/api/admin/time-sync', { method: 'POST', body: { tz }, timeout: 20000 });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
-      if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(errText(d) || '同步失败') + '</span>';
+      if (resultEl) resultEl.innerHTML = '<span class="text-warn">' + gitEsc(errText(d) || __('admin_vrc.sync_failed')) + '</span>';
       return;
     }
     const d = await res.json();

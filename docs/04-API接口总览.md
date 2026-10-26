@@ -49,8 +49,12 @@
 | `/api` 全局 | 600 次 / 分 / IP |
 | 登录 | 5 次 / 15 分钟（成功跳过） |
 | 上传 | 10 次 / 分（3 个入口） |
+| 个人资料上传 | 10 次 / 分 / 用户（`POST /api/profile/albums/:id/photos`、`POST /api/profile/videos`，profileUploadLimiter） |
+| 私信发送 | 20 次 / 10 秒 / 用户（`POST /api/chat/send`，sendDirectMsgLimiter） |
 | 管理 | 30 次 / 分 |
 | 搜索 | 20 次 / 30 秒 |
+| 收藏上游搜索 | 20 次 / 分 / IP（`/api/collections/search-models|search-worlds|popular-worlds`，upstreamSearchLimiter） |
+| 分享落地页 | 30 次 / 分 / IP（`GET /api/share/:code/html`，shareRateCheck 进程内） |
 | VRChat 写操作 | 10 次 / 分 / 用户（`/api/vrc/world`、`/friend-request`、`/note`、`/boop`，vrcWriteLimiter） |
 | VRChat 上游 | 全站令牌桶 40 次 / 分（排队最长 12s）；429 → `VRC_RATE_LIMITED`（retryAfter 30s，前端静默冷却后重试） |
 

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -666,8 +666,12 @@ td code{font-size:11.5px}
         <tr><td class="f">/api 全局</td><td>600 次 / 分 / IP</td></tr>
         <tr><td class="f">登录</td><td>5 次 / 15 分钟（成功跳过）</td></tr>
         <tr><td class="f">上传</td><td>10 次 / 分（3 个入口）</td></tr>
+        <tr><td class="f">个人资料上传</td><td>10 次 / 分 / 用户（<code>POST /api/profile/albums/:id/photos</code> · <code>/api/profile/videos</code>，profileUploadLimiter）</td></tr>
+        <tr><td class="f">私信发送</td><td>20 次 / 10 秒 / 用户（<code>POST /api/chat/send</code>，sendDirectMsgLimiter）</td></tr>
         <tr><td class="f">管理</td><td>30 次 / 分</td></tr>
         <tr><td class="f">搜索</td><td>20 次 / 30 秒</td></tr>
+        <tr><td class="f">收藏上游搜索</td><td>20 次 / 分 / IP（<code>search-models</code> · <code>search-worlds</code> · <code>popular-worlds</code>，upstreamSearchLimiter）</td></tr>
+        <tr><td class="f">分享落地页</td><td>30 次 / 分 / IP（<code>GET /api/share/:code/html</code>，shareRateCheck 进程内）</td></tr>
         <tr><td class="f">VRChat 写操作</td><td>10 次 / 分 / 用户（<code>/api/vrc/world</code> · <code>/friend-request</code> · <code>/note</code> · <code>/boop</code>，vrcWriteLimiter）</td></tr>
         <tr><td class="f">VRChat 上游</td><td>全站令牌桶 40 次 / 分（排队最长 12s）；429 → VRC_RATE_LIMITED（retryAfter 30s），收藏前端补全调度联动冷却窗口</td></tr>
       </table>
@@ -780,7 +784,7 @@ td code{font-size:11.5px}
     <tr><td class="f">运维后台（网页版）</td><td><span class="tag ok">✅ 独立面板</span></td><td class="muted">端口 3457，仅本机（07-运维后台使用说明）</td></tr>
     <tr><td class="f">DB/备份/文件/安全/分析/导出/Webhook/分享</td><td><span class="tag ok">备份/文件/安全/分析/Webhook/分享 有 UI</span></td><td class="muted">管理员接口族（DB/导出待接线）</td></tr>
     <tr><td class="f">地图</td><td><span class="tag ok">✅</span></td><td class="muted">Leaflet CDN 瓦片地图</td></tr>
-    <tr><td class="f">国际化 i18n</td><td><span class="tag ok">✅</span></td><td class="muted">6 语言（zh/en/de/fr/ja/ru）<b>三批 167 键</b>（38+92+37），静态 HTML 硬编码清零；<code>__(key)</code> 运行时 + <code>data-i18n</code> 静态接线（版本戳 20261021g）</td></tr>
+    <tr><td class="f">国际化 i18n</td><td><span class="tag ok">✅</span></td><td class="muted">6 语言（zh/en/de/fr/ja/ru）语言包键集完全一致（zh 共 <b>3732 键</b>，多轮补齐），静态 HTML 硬编码清零；<code>__(key)</code> 运行时 + <code>data-i18n</code> 静态接线（版本戳 20261026c）</td></tr>
   </table>
 
   <div class="grid g2" style="margin-top:16px">
@@ -793,14 +797,15 @@ td code{font-size:11.5px}
         <li>VRChat 凭据：QQ 用 AES-256-CBC、Cookie 用 <b>AES-256-GCM</b>（ENCRYPT_KEY 64hex）</li>
         <li>绑定三步限流 + 2FA 失败计数防爆破</li>
       </ul>
-      <p style="margin-top:10px;font-size:12.5px;color:var(--green)">✅ 历史 P1/P2/P3 已于 2026-10-09 修复；2026-10-21 全站质检（功能/交互/性能/安全/一致性）见 <code>质检评审报告-境途同游-20261021.md</code></p>
+      <p style="margin-top:10px;font-size:12.5px;color:var(--green)">✅ 历史 P1/P2/P3 已于 2026-10-09 修复；全站质检（功能/交互/性能/安全/一致性）的修复与加固记录已并入 <code>docs/06-功能模块与安全.md</code></p>
     </div>
     <div class="card">
       <h3><span class="ic" style="background:var(--green)"></span>安全中间件（7 道防线）</h3>
       <table>
         <tr><th>防线</th><th>实现</th></tr>
-        <tr><td class="f">限流</td><td>7 类分层（全局 600/分、登录 5/15 分、上传 10/分、管理 30/分、搜索 20/30 秒、<b>VRC 写操作 10/分/用户</b>），HybridStore</td></tr>
+        <tr><td class="f">限流</td><td>12 类分层（全局 600/分、登录 5/15 分、上传 10/分、个人资料上传 10/分/用户、私信发送 20/10 秒/用户、管理 30/分、搜索 20/30 秒、收藏上游搜索 20/分/IP、分享落地页 30/分/IP、<b>VRC 写操作 10/分/用户</b>、注册 5/分、静态 1000/分），HybridStore；上传失败分支统一清理落盘文件（cleanupUploadedFiles）</td></tr>
         <tr><td class="f">WAF</td><td>注册于 express.json() 后，扫描 URL/query/已解析 JSON body（值+键+URL 解码复扫）</td></tr>
+        <tr><td class="f">输入校验</td><td>展示名（displayName）拒绝 &lt; &gt; 及控制字符（<code>/[\u0000-\u001f\u007f]/</code>），与管理端口径对齐</td></tr>
         <tr><td class="f">CSRF</td><td>Token 绑定 SessionID，Map+Redis 双写，TTL 1h，15 分钟清理，超 1 万条淘汰一半</td></tr>
         <tr><td class="f">安全头</td><td>nosniff / X-Frame-Options DENY / Referrer-Policy / CSP（script/style 仍 unsafe-inline）/ 生产 HSTS</td></tr>
         <tr><td class="f">上传</td><td>全路由扩展名+魔数双闸 + secureUpload 白名单 + 分档大小限制</td></tr>
@@ -1007,7 +1012,7 @@ app.use('/api', 404 + error handler)</pre>
     <h3 class="sub">2.1 index.html 静态脚本栈（顺序即硬依赖）</h3>
     <div class="panel">
       <div class="panel-head">
-        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261021g</span></h4>
+        <h4>17 个入口脚本 <span class="pill">版本戳链 v=20261026c</span></h4>
       </div>
       <div class="tbl-scroll" style="max-height:560px"><table class="tbl">
         <thead><tr><th>#</th><th>脚本</th><th>模式</th><th>版本戳</th><th>作用</th></tr></thead>
@@ -1117,7 +1122,7 @@ app.use('/api', 404 + error handler)</pre>
         <tbody id="symBody"></tbody>
       </table></div>
     </div>
-    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261021g）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261021g</code>。</div>
+    <div class="callout"><b>版本戳链：</b>i18n <code>I18N_PACK_VERSION</code>（20261026c）↔ index.html 语言包 document.write <b>必须双写同步</b>；seo 在 head 同步加载（不 defer）；主脚本各自 <code>?v=</code>；懒加载模块继承 <code>loader.js?v=20261026c</code>。</div>
   </section>
 <section id="checklist">
     <div class="section-head">
@@ -1293,23 +1298,23 @@ const TOOLS=[
 ];
 const DBHOT=[['1','users','28'],['2','event','13'],['3','album_photo','11'],['4','group_roster','9'],['5','posts','9'],['6','notifications','9'],['7','permission_groups','3'],['8','user_like','3'],['9','user_friends','7'],['10','event_sign','6'],['11','user_group_membership','6'],['12','sys_oper_log','5'],['13','announcement','5'],['14','post_comment','3'],['15','group_permission_entries','3']];
 const STACK=[
- ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261021g','语言包×6（detectLang 动态注入）'],
- ['2','/js/seo.js','head 内同步（非 defer）','20261021g','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
- ['3','/js/core.js','defer','20261021g','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
- ['4','/js/i18n.js','defer','20261021g','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261021g\''],
- ['5','/js/ui.js','defer','20261021g','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
- ['6','gsap.min.js','defer','20261021g','动效库'],
- ['7','ScrollTrigger.min.js','defer','20261021g','滚动触发'],
- ['8','/js/motion.js','defer','20261021g','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
- ['9','/js/reveal.js','defer','20261021g','滚动揭示（IntersectionObserver；motion 启用后让位）'],
- ['10','/js/nav-scroller.js','defer','20261021g','顶部标签滑动'],
- ['11','/js/freeze.js','defer','20261021g','__freeze 空闲冻结'],
- ['12','/js/theme.js','defer','20261021g','主题 V5.5（模式/明暗/强调色/时间自动）+ 动态效果强制开关（force-anim）'],
- ['13','/js/auth.js','defer','20261021g','登录/注册/2FA/VRC 登录/自动登录/登录页头像缓存单槽预览'],
- ['14','/js/loader.js','defer','20261021g','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP + force-anim'],
- ['15','/js/smartsearch.js','defer','20261021g','Ctrl+K 命令面板'],
- ['16','/js/init.js','defer','20261021g','初始化向导（main 未初始化分支调用）'],
- ['17','/js/main.js','defer','20261021g','入口调度/WS/轮询/通知']
+ ['1','/js/languages/&lt;lang&gt;.js','head 内 document.write（同步）','20261026c','语言包×6（detectLang 动态注入）'],
+ ['2','/js/seo.js','head 内同步（非 defer）','20261026c','SITE_SEO（og/twitter/JSON-LD），微型翻译不依赖 i18n'],
+ ['3','/js/core.js','defer','20261026c','api/apiForm/errText/toast/esc + __isLoggedIn 等 getter 别名'],
+ ['4','/js/i18n.js','defer','20261026c','__ 翻译 + 语言切换器；I18N_PACK_VERSION=\'20261026c\''],
+ ['5','/js/ui.js','defer','20261026c','头像代理链/__avatarFail/__notifPrefs/__heroConfig/switchTab 原始实现/通知中心'],
+ ['6','gsap.min.js','defer','20261026c','动效库'],
+ ['7','ScrollTrigger.min.js','defer','20261026c','滚动触发'],
+ ['8','/js/motion.js','defer','20261026c','GSAP 动效 + 包裹 switchTab（__switchWrapped）'],
+ ['9','/js/reveal.js','defer','20261026c','滚动揭示（IntersectionObserver；motion 启用后让位）'],
+ ['10','/js/nav-scroller.js','defer','20261026c','顶部标签滑动'],
+ ['11','/js/freeze.js','defer','20261026c','__freeze 空闲冻结'],
+ ['12','/js/theme.js','defer','20261026c','主题 V5.5（模式/明暗/强调色/时间自动）+ 动态效果强制开关（force-anim）'],
+ ['13','/js/auth.js','defer','20261026c','登录/注册/2FA/VRC 登录/自动登录/登录页头像缓存单槽预览'],
+ ['14','/js/loader.js','defer','20261026c','懒加载调度 + switchTab 最终包裹 + TAB_SEO_MAP + force-anim'],
+ ['15','/js/smartsearch.js','defer','20261026c','Ctrl+K 命令面板'],
+ ['16','/js/init.js','defer','20261026c','初始化向导（main 未初始化分支调用）'],
+ ['17','/js/main.js','defer','20261026c','入口调度/WS/轮询/通知']
 ];
 const FMM=[
  ['core.js','静','—','传输层/工具/弹窗/图片兜底/全局错误日志/VRC 重登引导','`__` toast esc','/api/csrf-token'],
