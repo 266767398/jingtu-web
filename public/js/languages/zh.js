@@ -2052,6 +2052,8 @@ window._LANG_ZH = {
   "main.photo_uploaded": "照片已上传",
   "main.processing": "处理中…",
   "main.search_failed": "搜索失败",
+  "main.search_placeholder": "🔍搜索成员、活动、公告...",
+  "main.search_aria": "全站搜索",
   "main.select_media": "请选择要上传的图片或视频",
   "main.signup_cancelled": "已取消报名",
   "main.signup_failed": "报名失败",

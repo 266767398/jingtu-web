@@ -567,8 +567,7 @@ app.use('/api/login', loginBruteForceLimiter, loginIpLimiter);
 
 // 上传接口限流（每分钟10次）
 app.use('/api/album/upload', uploadLimiter);
-app.use('/api/profile/photos/upload', uploadLimiter);
-app.use('/api/profile/videos/upload', uploadLimiter);
+// 个人相册照片/视频上传限流已内置于 profile.js 路由（/api/profile/albums/:id/photos、/api/profile/videos）
 app.use('/api/admin/group-image', uploadLimiter);
 
 // 管理后台接口限流（每分钟30次）

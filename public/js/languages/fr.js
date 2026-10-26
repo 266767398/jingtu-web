@@ -1986,6 +1986,8 @@ window._LANG_FR = {
   "main.photo_uploaded": "photo envoyée avec succès",
   "main.processing": "en cours...",
   "main.search_failed": "recherche échouée",
+  "main.search_placeholder": "🔍Rechercher membres, événements, annonces...",
+  "main.search_aria": "Recherche sur tout le site",
   "main.select_media": "choisissez une image ou un fichier vidéo à envoyer",
   "main.signup_cancelled": "inscription annulée",
   "main.signup_failed": "inscription échouée",

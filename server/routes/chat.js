@@ -110,8 +110,32 @@ router.get('/history/:userId', requireChatAuth, async (req, res) => {
   } catch (e) { handleError(res, e, '[chat/history]'); }
 });
 
+// 私信发送限流（每用户 20 条/10 秒）。群消息早已有 sendGroupMsgLimiter，私信此前完全无限制，
+// 单账号可高频刷屏并向 uploads/chat 重复落盘 100MB 媒体文件。keyGenerator 按登录用户分桶，
+// 未登录（游客）按 IP 兜底。
+const sendDirectMsgLimiter = rateLimit({
+  windowMs: 10 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  store: hybridStore('chat-send-direct'),
+  keyGenerator: (req) => {
+    const uid = req.session && req.session.userId;
+    return uid ? `u_${uid}` : `ip_${req.ip}`;
+  },
+  message: { ok: false, error: '消息发送过快，请稍后再试' }
+});
+
+// 私信发送失败时清理已落盘的媒体文件，避免 404/403/异常分支留下孤儿文件
+function cleanupChatUpload(req) {
+  if (req.file && req.file.path) {
+    try { fs.unlinkSync(req.file.path); } catch (err) { logger.warn('chat', '[chat/send] 清理上传文件失败:', req.file.path, err.message); }
+  }
+}
+
 // 发送私信（支持文字和媒体）
-router.post('/send', requireChatAuth, secureUpload(chatUpload.single('file')), async (req, res) => {
+router.post('/send', requireChatAuth, sendDirectMsgLimiter, secureUpload(chatUpload.single('file')), async (req, res) => {
   try {
     const uid = req.session.userId;
     const { receiverId, content } = req.body;
@@ -120,13 +144,19 @@ router.post('/send', requireChatAuth, secureUpload(chatUpload.single('file')), a
     if (!receiverId || (!content?.trim() && !req.file)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '参数不完整');
     const trimmed = content ? content.trim().slice(0, 2000) : '';
     const [user] = await getPool().query(`SELECT id FROM users WHERE id = ? AND deleted_at IS NULL`, [rId]);
-    if (user.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
+    if (user.length === 0) {
+      cleanupChatUpload(req);
+      return sendError(res, 404, ErrorCodes.NOT_FOUND, '用户不存在');
+    }
     // IDOR-6: 对方已拉黑我 → 拒绝发信（blocked 单向优先，见 friends.js 约定）
     const [blocked] = await getPool().query(
       `SELECT 1 FROM user_friends WHERE user_id = ? AND friend_id = ? AND status = 'blocked' LIMIT 1`,
       [rId, uid]
     );
-    if (blocked.length) return sendError(res, 403, ErrorCodes.FORBIDDEN, '对方已拉黑你，无法发送消息');
+    if (blocked.length) {
+      cleanupChatUpload(req);
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, '对方已拉黑你，无法发送消息');
+    }
     
     let mediaUrl = null, mediaType = null, fileSize = null;
     if (req.file) {
@@ -161,7 +191,10 @@ router.post('/send', requireChatAuth, secureUpload(chatUpload.single('file')), a
     // 自发自收场景由前端 chat:new 分支的 senderId 判等过滤，不会重复渲染。
     wsService.broadcastToUser(rId, { type: 'chat:new', message: msg });
     res.json({ ok: true, message: msg });
-  } catch (e) { handleError(res, e, '[chat/send]'); }
+  } catch (e) {
+    cleanupChatUpload(req);
+    handleError(res, e, '[chat/send]');
+  }
 });
 
 // 标记已读

@@ -281,6 +281,10 @@ router.put('/me/profile', requireAuth, async (req, res) => {
 
     if (displayName !== undefined) {
       if (typeof displayName !== 'string' || displayName.length > 50) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '显示名不能超过50字');
+      // P3：与 admin_users.js / admin_name_change.js 口径一致，拒绝 HTML 尖括号与控制字符，
+      // 避免显示名作为存储型 XSS 载体（此前仅校验长度）
+      // eslint-disable-next-line no-control-regex
+      if (/[<>\u0000-\u001f\u007f]/.test(displayName)) return sendError(res, 400, ErrorCodes.BAD_REQUEST, '显示名包含不允许的字符');
       updates.display_name = displayName;
     }
     if (qq !== undefined) {

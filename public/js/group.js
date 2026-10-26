@@ -245,7 +245,7 @@ function renderGroupMembers(members) {
       <div class="gm-status-pill ${status.dotClass}" title="${esc(status.title || '')}">${esc(statusText)}</div>
       <span class="gm-name" title="${esc(displayName)}">${esc(displayName)}</span>
       ${m.siteUserId && m.siteUserId !== (currentUser && currentUser.id)
-        ? `<button type="button" class="gm-follow-btn ${m.isFollowing ? 'following' : ''}" data-action="group-follow" data-site-user-id="${escAttr(String(m.siteUserId))}" data-following="${m.isFollowing ? '1' : '0'}" title="${m.isFollowing ? '取消关注' : '关注'}">${m.isFollowing ? '✓ 已关注' : '+ 关注'}</button>`
+        ? `<button type="button" class="gm-follow-btn ${m.isFollowing ? 'following' : ''}" data-action="group-follow" data-site-user-id="${escAttr(String(m.siteUserId))}" data-following="${m.isFollowing ? '1' : '0'}" title="${m.isFollowing ? __('follows.unfollow') : __('follows.follow')}">${m.isFollowing ? '✓ ' + __('follows.followed') : '+ ' + __('follows.follow')}</button>`
         : ''}
     </div>`;
   }).join('');
@@ -1493,21 +1493,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (res.ok) {
           btn.setAttribute('data-following', '0');
           btn.classList.remove('following');
-          btn.textContent = '+ 关注';
-          btn.title = '关注';
+          btn.textContent = '+ ' + __('follows.follow');
+          btn.title = __('follows.follow');
         }
       } else {
         const res = await api('/api/follows', { method: 'POST', body: { targetUserId: siteUserId } });
         if (res.ok) {
           btn.setAttribute('data-following', '1');
           btn.classList.add('following');
-          btn.textContent = '✓ 已关注';
-          btn.title = '取消关注';
+          btn.textContent = '✓ ' + __('follows.followed');
+          btn.title = __('follows.unfollow');
         }
       }
     } catch (err) {
       if (isApiHandledError(err)) return;
-      toast('操作失败', 'error');
+      toast(__('main.op_failed'), 'error');
     } finally {
       btn.disabled = false;
     }

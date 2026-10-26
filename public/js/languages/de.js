@@ -1986,6 +1986,8 @@ window._LANG_DE = {
   "main.photo_uploaded": "Bild wurde hochgeladen",
   "main.processing": "Wird bearbeitet…",
   "main.search_failed": "Suche fehlgeschlagen",
+  "main.search_placeholder": "🔍Mitglieder, Veranstaltungen, Ankündigungen durchsuchen...",
+  "main.search_aria": "Seitenweite Suche",
   "main.select_media": "Bitte wählen Sie das zu hochlade Bild oder Video aus",
   "main.signup_cancelled": "Abgelaufen: Eintritt wurde abgebrochen",
   "main.signup_failed": "Eintritt konnte nicht bestätigt werden",

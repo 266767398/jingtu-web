@@ -2147,6 +2147,8 @@ window._LANG_EN = {
   "main.photo_uploaded": "photo uploaded",
   "main.processing": "processing...",
   "main.search_failed": "search failed",
+  "main.search_placeholder": "🔍Search members, events, announcements...",
+  "main.search_aria": "Site-wide search",
   "main.select_media": "select media to upload (image or video)",
   "main.signup_cancelled": "registration cancelled",
   "main.signup_failed": "registration failed",

@@ -244,7 +244,7 @@ function renderVrcBlacklistPagination(totalCount, totalPages) {
   if (!totalPages || totalPages <= 1) { pagEl.innerHTML = ''; return; }
   let html = '';
   if (_blPage > 1) {
-    html += `<button type="button" class="pagination-btn" data-bl-page="1" title="首页">&laquo;</button>`;
+    html += `<button type="button" class="pagination-btn" data-bl-page="1" title="${__('admin_users.title_first_page')}">&laquo;</button>`;
     html += `<button type="button" class="pagination-btn" data-bl-page="${_blPage - 1}">&lsaquo;</button>`;
   }
   const start = Math.max(1, _blPage - 2);
@@ -254,7 +254,7 @@ function renderVrcBlacklistPagination(totalCount, totalPages) {
   }
   if (_blPage < totalPages) {
     html += `<button type="button" class="pagination-btn" data-bl-page="${_blPage + 1}">&rsaquo;</button>`;
-    html += `<button type="button" class="pagination-btn" data-bl-page="${totalPages}" title="末页">&raquo;</button>`;
+    html += `<button type="button" class="pagination-btn" data-bl-page="${totalPages}" title="${__('admin_users.title_last_page')}">&raquo;</button>`;
   }
   html += `<span class="text-muted2 text-12 ml-8">共 ${totalCount} 条 · 第 ${_blPage}/${totalPages} 页</span>`;
   pagEl.innerHTML = html;

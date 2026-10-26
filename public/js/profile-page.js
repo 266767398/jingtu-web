@@ -987,7 +987,7 @@ async function loadProfileLikeStats(userId) {
           likeBtn.disabled = false;
           likeBtn.className = 'btn btn-sm btn-outline text-muted';
           likeBtn.innerHTML = '💔 <span id="profileLikeCount">' + (stats.totalLikes || 0) + '</span>';
-          likeBtn.title = '取消今天的点赞';
+          likeBtn.title = __('album.unliked');
         }
         if (likeStatus) likeStatus.textContent = __('likes.today_liked');
       } else {
@@ -1017,7 +1017,7 @@ async function profileLikeUser() {
       const res = await api(`/api/user-like/${profileUserId}/like`, { method: 'DELETE' });
       if (res.ok) {
         const data = await res.json();
-        toast(data.message || '已取消点赞', 'success');
+        toast(data.message || __('album.unliked'), 'success');
         _profileLikedToday = false;
         if (likeCount) likeCount.textContent = data.likeCount || 0;
         if (likeBtn) {
@@ -1038,7 +1038,7 @@ async function profileLikeUser() {
         if (likeBtn) {
           likeBtn.className = 'btn btn-sm btn-outline text-muted';
           likeBtn.innerHTML = '💔 <span id="profileLikeCount">' + (data.likeCount || 0) + '</span>';
-          likeBtn.title = '取消今天的点赞';
+          likeBtn.title = __('album.unliked');
         }
         if (likeStatus) likeStatus.textContent = __('likes.today_liked');
       }

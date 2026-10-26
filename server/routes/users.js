@@ -328,8 +328,10 @@ router.get('/', requireRole('admin'), async (req, res) => {
  *         description: 权限不足
  */
 router.post('/', requireRole('super_admin'), async (req, res) => {
-  const conn = await getPool().getConnection();
+  // getConnection 移入 try 内：连接层异常避免成为未捕获拒绝导致进程退出；conn 可能未成功获取
+  let conn;
   try {
+    conn = await getPool().getConnection();
     await conn.beginTransaction();
 
     const { loginId, password, displayName, role, email } = req.body;
@@ -381,14 +383,14 @@ router.post('/', requireRole('super_admin'), async (req, res) => {
     await conn.commit();
     ok(res, { id: userId, message: '用户创建成功' });
   } catch (e) {
-    await conn.rollback();
+    if (conn) { try { await conn.rollback(); } catch {} }
     if (e.code === 'ER_DUP_ENTRY') {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '该登录ID已被使用');
     }
     logger.error('users', '[users-create]', e);
     handleError(res, e, '[users]');
   } finally {
-    conn.release();
+    if (conn) conn.release();
   }
 });
 

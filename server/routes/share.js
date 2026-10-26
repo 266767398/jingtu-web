@@ -192,8 +192,8 @@ module.exports = function () {
 <meta property="og:title" content="${esc(typeLabel)}分享 · 境途同游">
 <meta property="og:type" content="website">
 <meta name="description" content="来自境途同游社群的${esc(typeLabel)}分享">
-<link rel="stylesheet" href="/css/01-variables.css?v=20261023b">
-<link rel="stylesheet" href="/css/share-page.css?v=20261023b">
+<link rel="stylesheet" href="/css/01-variables.css?v=20261026a">
+<link rel="stylesheet" href="/css/share-page.css?v=20261026a">
 </head>
 <body class="share-page">
 <main class="sp-card">
@@ -265,6 +265,9 @@ module.exports = function () {
   // 分享落地页（HTML）：匿名访客直接打开 /api/share/:code/html 查看
   router.get('/:code/html', async (req, res) => {
     try {
+      // M13 口径统一：HTML 落地页同为匿名高频入口，与 JSON 端点共用 per-IP 限流
+      const rate = shareRateCheck(req);
+      if (!rate.ok) return res.status(429).send('<h1>请求过于频繁，请稍后再试</h1>');
       const [links] = await getPool().query('SELECT * FROM share_links WHERE share_code = ? AND expires_at > NOW()', [req.params.code]);
       if (links.length === 0) return res.status(404).send('<h1>分享链接不存在或已过期</h1>');
       const link = links[0];

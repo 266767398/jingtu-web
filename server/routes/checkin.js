@@ -31,8 +31,11 @@ function dayDiff(a, b) {
 // 此处签到写入依赖该唯一索引 + 显式 INSERT（冲突即已签到），并发安全不受影响。
 
 router.post('/me/checkin', requireAuth, async (req, res) => {
-  const conn = await getPool().getConnection();
+  // getConnection 必须放在 try 内：池耗尽（ER_CON_COUNT_ERROR）等连接错误若在 try 外抛出，
+  // 会变成未捕获的 Promise 拒绝，触发 server.js 的 unhandledRejection → process.exit(1) 整站重启。
+  let conn;
   try {
+    conn = await getPool().getConnection();
     const userId = req.session.userId;
     const today = ymd(appNow());
 
@@ -133,10 +136,10 @@ router.post('/me/checkin', requireAuth, async (req, res) => {
 
     await checkAndUnlock(userId, 'checkin', { total: newTotalCheckins, streak: newCurrentStreak });
   } catch (e) {
-    try { await conn.rollback(); } catch {}
+    if (conn) { try { await conn.rollback(); } catch {} }
     handleError(res, e, '[checkin/checkin]');
   } finally {
-    conn.release();
+    if (conn) conn.release();
   }
 });
 

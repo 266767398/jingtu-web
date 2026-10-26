@@ -13,6 +13,8 @@ const multer = require('multer');
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
+const rateLimit = require('express-rate-limit');
+const { hybridStore } = require('../middleware/rate_limit_store');
 const { requireAuth } = require('../auth');
 const { ok,  getPool, getAvatarUrl, handleError , sendError, ErrorCodes, createFileFilter, secureUpload, normalizeSelfTags, formatDateOnly  } = require('../utils');;
 const logger = require('../logger');
@@ -65,6 +67,37 @@ const uploadVideo = multer({
   limits: { fileSize: 200 * 1024 * 1024 },
   fileFilter: createFileFilter(['VIDEO'])
 });
+
+// 个人相册照片/视频上传限流（每用户 10 次/分钟）。
+// 此前 server.js 把 uploadLimiter 挂在 /api/profile/photos/upload、/api/profile/videos/upload，
+// 但真实路由是 /api/profile/albums/:id/photos 与 /api/profile/videos，前缀不匹配导致限流从未生效；
+// 此处按真实路由在 handler 前置挂载 per-user 桶（keyGenerator 同群聊私信，防刷磁盘与缩略图开销）。
+const profileUploadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  store: hybridStore('profile-upload'),
+  keyGenerator: (req) => {
+    const uid = req.session && req.session.userId;
+    return uid ? `u_${uid}` : `ip_${req.ip}`;
+  },
+  message: { error: '上传请求过于频繁，请稍后再试', retryAfter: 60 }
+});
+
+// 上传失败分支统一清理 multer 已落盘的文件，避免 404/403/异常路径留下孤儿文件占满磁盘。
+// skipSet：已成功写入 DB 的文件路径（循环中途失败时不能删掉已入库的照片文件）。
+function cleanupUploadedFiles(req, skipSet) {
+  const files = [];
+  if (Array.isArray(req.files)) files.push(...req.files);
+  if (req.file) files.push(req.file);
+  for (const f of files) {
+    if (f && f.path && !(skipSet && skipSet.has(f.path))) {
+      try { fs.unlinkSync(f.path); } catch (err) { logger.warn('profile', '[profile] 清理上传文件失败:', f.path, err.message); }
+    }
+  }
+}
 
 // ==================== 辅助函数 ====================
 
@@ -722,7 +755,9 @@ router.delete('/albums/:id', requireAuth, async (req, res) => {
 /**
  * POST /albums/:id/photos - 上传照片到相册
  */
-router.post('/albums/:id/photos', requireAuth, secureUpload(uploadPhoto.array('photos', 20)), async (req, res) => {
+router.post('/albums/:id/photos', requireAuth, profileUploadLimiter, secureUpload(uploadPhoto.array('photos', 20)), async (req, res) => {
+  // 已成功入库的文件路径：循环中途失败时只清理未入库的，避免已入库照片变空链接
+  const processedPaths = new Set();
   try {
     const albumId = parseInt(req.params.id, 10);
     const userId = req.session.userId;
@@ -730,8 +765,14 @@ router.post('/albums/:id/photos', requireAuth, secureUpload(uploadPhoto.array('p
     const [albums] = await getPool().query(
       `SELECT id, user_id FROM user_albums WHERE id = ?`, [albumId]
     );
-    if (!albums.length) return sendError(res, 404, ErrorCodes.NOT_FOUND, '相册不存在');
-    if (albums[0].user_id !== userId) return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权上传到此相册');
+    if (!albums.length) {
+      cleanupUploadedFiles(req);
+      return sendError(res, 404, ErrorCodes.NOT_FOUND, '相册不存在');
+    }
+    if (albums[0].user_id !== userId) {
+      cleanupUploadedFiles(req);
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, '无权上传到此相册');
+    }
 
     if (!req.files || req.files.length === 0) {
       return sendError(res, 400, ErrorCodes.BAD_REQUEST, '请选择要上传的文件');
@@ -784,6 +825,7 @@ router.post('/albums/:id/photos', requireAuth, secureUpload(uploadPhoto.array('p
         fileSize,
         description: req.body.description || null
       });
+      processedPaths.add(file.path);
     }
 
     // 更新相册照片计数和封面
@@ -802,6 +844,8 @@ router.post('/albums/:id/photos', requireAuth, secureUpload(uploadPhoto.array('p
 
     ok(res, { photos: uploadedPhotos, photoCount });
   } catch (e) {
+    // 仅清理未成功入库的文件；已入库的（含缩略图）保留，避免空链接
+    cleanupUploadedFiles(req, processedPaths);
     handleError(res, e, '[profile/upload-photos]');
   }
 });
@@ -916,7 +960,7 @@ router.delete('/photos/:id', requireAuth, async (req, res) => {
 /**
  * POST /videos - 上传视频（需登录）
  */
-router.post('/videos', requireAuth, secureUpload(uploadVideo.single('video')), async (req, res) => {
+router.post('/videos', requireAuth, profileUploadLimiter, secureUpload(uploadVideo.single('video')), async (req, res) => {
   try {
     const userId = req.session.userId;
 

@@ -2018,6 +2018,8 @@ window._LANG_RU = {
   "main.photo_uploaded": "Фотография была загружена",
   "main.processing": "Обработка...",
   "main.search_failed": "Поиск неуспешен",
+  "main.search_placeholder": "🔍Поиск участников, событий, объявлений...",
+  "main.search_aria": "Поиск по всему сайту",
   "main.select_media": "Выберите изображение или видео для загрузки",
   "main.signup_cancelled": "Отменено регистрация",
   "main.signup_failed": "Регистрация не удалась",

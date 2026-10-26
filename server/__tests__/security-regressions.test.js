@@ -47,6 +47,7 @@ const files = {
   avatarRoute: read('server', 'routes', 'avatar.js'),
   collectionsRoute: read('server', 'routes', 'collections.js'),
   profileRoute: read('server', 'routes', 'profile.js'),
+  checkinRoute: read('server', 'routes', 'checkin.js'),
   membersJs: read('public', 'js', 'members.js'),
   uiJs: read('public', 'js', 'ui.js'),
   migrationPage: read('public', 'migration.html'),
@@ -518,6 +519,61 @@ describe('security regressions', () => {
     expectBefore(files.rateLimitMiddleware, 'store: hybridStore(`rate-custom-', '  ...options');
     expect(files.rateLimitMiddleware).not.toMatch(/new MemoryStore\(\)/);
     expect(files.securityMiddleware).not.toMatch(/new MemoryStore\(\)/);
+  });
+
+  // 2026-10-26 质检轮：个人相册照片/视频上传限流原先挂在 /api/profile/photos/upload、
+  // /api/profile/videos/upload（真实路由是 /api/profile/albums/:id/photos 与 /api/profile/videos），
+  // 前缀不匹配导致限流从未生效 → 限流改为按真实路由前置挂载，并清理 404/403/异常分支的孤儿文件。
+  test('profile uploads are rate-limited on the real routes and clean up orphan files', () => {
+    expect(files.server).not.toMatch(/app\.use\('\/api\/profile\/photos\/upload', uploadLimiter\)/);
+    expect(files.server).not.toMatch(/app\.use\('\/api\/profile\/videos\/upload', uploadLimiter\)/);
+    expect(files.profileRoute).toMatch(/const profileUploadLimiter = rateLimit\(\{[\s\S]*?store: hybridStore\('profile-upload'\)/);
+    expect(files.profileRoute).toMatch(/router\.post\('\/albums\/:id\/photos', requireAuth, profileUploadLimiter, secureUpload\(/);
+    expect(files.profileRoute).toMatch(/router\.post\('\/videos', requireAuth, profileUploadLimiter, secureUpload\(/);
+    expect(files.profileRoute).toMatch(/function cleanupUploadedFiles\(req, skipSet\)/);
+    expect(files.profileRoute).toMatch(/cleanupUploadedFiles\(req\);\s*return sendError\(res, 404, ErrorCodes\.NOT_FOUND, '相册不存在'\)/);
+    expect(files.profileRoute).toMatch(/cleanupUploadedFiles\(req\);\s*return sendError\(res, 403, ErrorCodes\.FORBIDDEN, '无权上传到此相册'\)/);
+    expect(files.profileRoute).toMatch(/cleanupUploadedFiles\(req, processedPaths\);/);
+  });
+
+  // 2026-10-26 质检轮：私信 /send 此前无 per-user 限流（群消息有），且用户不存在/被拉黑/异常分支
+  // 不清理已落盘的 100MB 媒体文件 → 补限流 + 失败分支清理。
+  test('direct messages are per-user rate limited and clean up uploads on failure', () => {
+    expect(files.chatRoute).toMatch(/sendDirectMsgLimiter = rateLimit\(\{[\s\S]*?store: hybridStore\('chat-send-direct'\)/);
+    expect(files.chatRoute).toMatch(/router\.post\('\/send', requireChatAuth, sendDirectMsgLimiter, secureUpload\(/);
+    expect(files.chatRoute).toMatch(/function cleanupChatUpload\(req\)/);
+    expect(files.chatRoute).toMatch(/cleanupChatUpload\(req\);\s*return sendError\(res, 404, ErrorCodes\.NOT_FOUND, '用户不存在'\)/);
+    expect(files.chatRoute).toMatch(/cleanupChatUpload\(req\);\s*return sendError\(res, 403, ErrorCodes\.FORBIDDEN, '对方已拉黑你，无法发送消息'\)/);
+    expect(files.chatRoute).toMatch(/} catch \(e\) \{\s*cleanupChatUpload\(req\);/);
+  });
+
+  // 2026-10-26 质检轮：getConnection 放 try 内，连接层异常不再成为未捕获拒绝触发 process.exit(1)
+  test('getConnection lives inside try so pool errors cannot crash the process', () => {
+    expect(files.checkinRoute).toMatch(/let conn;\s*try \{\s*conn = await getPool\(\)\.getConnection\(\);/);
+    expect(files.checkinRoute).toMatch(/if \(conn\) \{ try \{ await conn\.rollback\(\); \} catch \{\} \}/);
+    expect(files.checkinRoute).toMatch(/if \(conn\) conn\.release\(\);/);
+    expect(files.usersRoute).toMatch(/let conn;\s*try \{\s*conn = await getPool\(\)\.getConnection\(\);/);
+  });
+
+  // 2026-10-26 质检轮：匿名 VRChat 搜索/世界排行端点缓存未命中会回源外部 API，
+  // 补 per-IP 限流防换参数绕过缓存放大出站请求成本。
+  test('anonymous upstream VRChat searches are per-IP rate limited', () => {
+    expect(files.collectionsRoute).toMatch(/const upstreamSearchLimiter = rateLimit\(\{[\s\S]*?store: hybridStore\('collections-upstream-search'\)/);
+    expect(files.collectionsRoute).toMatch(/router\.get\('\/search-models', upstreamSearchLimiter/);
+    expect(files.collectionsRoute).toMatch(/router\.get\('\/search-worlds', upstreamSearchLimiter/);
+    expect(files.collectionsRoute).toMatch(/router\.get\('\/popular-worlds', upstreamSearchLimiter/);
+  });
+
+  // 2026-10-26 质检轮：分享 HTML 落地页复用 JSON 端点的 per-IP 限流
+  test('share HTML landing page is rate limited like the JSON endpoint', () => {
+    expect(files.shareRoute).toMatch(/router\.get\('\/:code\/html', async \(req, res\) => \{[\s\S]*?shareRateCheck\(req\)/);
+  });
+
+  // 2026-10-26 质检轮：displayName 校验对齐管理端——拒绝 HTML 尖括号与控制字符，防存储型 XSS 载体
+  test('displayName update rejects HTML tags and control characters', () => {
+    // 用 toContain 断言字面转义序列（\u0000 等），避免正则字符类对 \\u 的歧义
+    expect(files.usersProfileRoute).toContain("if (/[<>\\u0000-\\u001f\\u007f]/.test(displayName))");
+    expect(files.usersProfileRoute).toMatch(/显示名包含不允许的字符/);
   });
 
   // hybrid store 必须在「请求时」而不是构造时判断 Redis 可用性（initCache 是 fire-and-forget），

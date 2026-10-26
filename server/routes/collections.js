@@ -3,6 +3,8 @@
 // 提供统一的收藏 CRUD、分组(folders)、多维筛选、搜索、公开发现(discover)、评分与失效检测。
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
+const { hybridStore } = require('../middleware/rate_limit_store');
 const logger = require('../logger');
 const { ok, getPool, handleError, proxyVrcAvatar, ErrorCodes, paginate, escapeLike, sendVrcError } = require('../utils');
 const { requireAuth, requireAdminCompat } = require('../auth');
@@ -435,7 +437,19 @@ const VRCX_SEARCH_URL = process.env.VRCX_SEARCH_URL || 'https://requi.dev/vrcx_s
 const vrcxSearchCache = new Map(); // key -> { ts, data }
 const VRCX_CACHE_TTL = 10 * 60 * 1000;
 
-router.get('/search-models', async (req, res) => {
+// 匿名搜索端点 per-IP 限流（20 次/分钟）：缓存未命中时服务端会回源外部 API，
+// 仅靠全局 ddosLimiter(600/min) 对单个 IP 过于宽松，可被换 q/n 绕过缓存持续放大出站请求成本。
+const upstreamSearchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  store: hybridStore('collections-upstream-search'),
+  message: { ok: false, error: '搜索过于频繁，请稍后再试' }
+});
+
+router.get('/search-models', upstreamSearchLimiter, async (req, res) => {
   try {
     const q = (req.query.q || req.query.search || '').trim();
     const n = Math.min(30, Math.max(1, parseInt(req.query.n) || 12));
@@ -557,7 +571,7 @@ function normalizeWorldList(raw, n) {
 }
 
 // 世界搜索（关键词）：GET /api/collections/search-worlds?q=...&n=...
-router.get('/search-worlds', async (req, res) => {
+router.get('/search-worlds', upstreamSearchLimiter, async (req, res) => {
   try {
     const q = (req.query.q || req.query.search || '').trim();
     const n = Math.min(30, Math.max(1, parseInt(req.query.n) || 12));
@@ -589,7 +603,7 @@ router.get('/search-worlds', async (req, res) => {
 });
 
 // 热门世界排行 / 精选 / 活跃世界：GET /api/collections/popular-worlds?sort=popularity|featured|active|recent&n=...
-router.get('/popular-worlds', async (req, res) => {
+router.get('/popular-worlds', upstreamSearchLimiter, async (req, res) => {
   try {
     const sort = (req.query.sort || 'popularity').trim();
     const n = Math.min(30, Math.max(1, parseInt(req.query.n) || 20));

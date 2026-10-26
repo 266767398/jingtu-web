@@ -1986,6 +1986,8 @@ window._LANG_JA = {
   "main.photo_uploaded": "写真がアップロードされました",
   "main.processing": "処理中…",
   "main.search_failed": "検索に失敗しました",
+  "main.search_placeholder": "🔍メンバー・イベント・お知らせを検索...",
+  "main.search_aria": "サイト全体の検索",
   "main.select_media": "選択する画像または動画を選んでください",
   "main.signup_cancelled": "キャンセルされました",
   "main.signup_failed": "登録に失敗しました",
